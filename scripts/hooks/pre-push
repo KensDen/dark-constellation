@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# OPSEC pre-push gate (spec Section 11.5).
+#
+# Push mode (invoked by git push): scans exactly what the push would
+# publish. For every outgoing commit: tree content, file paths, commit
+# message, and author/committer identity. Plus pushed ref names, tag
+# objects, and the current working tree as a fast first pass.
+# Manual mode (run directly): scans the working tree, all local history,
+# and all local refs.
+#
+# Matching is case-insensitive fixed-string over UTF-8 text. Terms of 4
+# characters or fewer match on word boundaries only (avoids false hits
+# inside base64 hashes and long identifiers). Binary and non-UTF-8 files
+# (for example UTF-16 exports from office tools) are NOT scanned; keep
+# such files out of the repo or review them by hand.
+#
+# The deny-list .opsec-terms is git-ignored and must never be committed.
+set -u
+
+ROOT="$(git rev-parse --show-toplevel)" || exit 1
+cd "$ROOT" || exit 1
+LIST="$ROOT/.opsec-terms"
+
+note() { echo "OPSEC gate: $*" >&2; }
+
+if [ ! -f "$LIST" ]; then
+  note ".opsec-terms not found. Push blocked (fail closed)."
+  note "Setup: cp .opsec-terms.example .opsec-terms, then add the deny-list."
+  exit 1
+fi
+
+PATTERNS="$(mktemp)"
+PATTERNS_SUB="$(mktemp)"
+PATTERNS_WORD="$(mktemp)"
+HITMARK="$(mktemp)"
+trap 'rm -f "$PATTERNS" "$PATTERNS_SUB" "$PATTERNS_WORD" "$HITMARK"' EXIT
+grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$LIST" > "$PATTERNS"
+
+if [ ! -s "$PATTERNS" ]; then
+  note "deny-list has no entries. Push blocked (fail closed)."
+  exit 1
+fi
+
+# Split the deny-list by length. Terms of 4 characters or fewer match on
+# word boundaries only: plain substring matching false-positives inside
+# base64 integrity hashes in package-lock.json and inside long
+# identifiers. Longer terms keep full substring matching.
+grep -E '^.{5,}$' "$PATTERNS" > "$PATTERNS_SUB" || true
+grep -E '^.{1,4}$' "$PATTERNS" > "$PATTERNS_WORD" || true
+
+# The starter deny-list ships with a single canary test entry. Warn until
+# a real term exists. (Matched by substring so this script never contains
+# the canary term itself, which would self-trip the scan.)
+if ! grep -q -v -i "canary" "$PATTERNS"; then
+  note "WARNING: deny-list holds only canary entries. Add real terms before publishing."
+fi
+
+# record <label>: reads already-matched lines on stdin; any content fails
+# the gate. Hits are recorded in the HITMARK file because these helpers
+# often run in a pipeline subshell, where a variable assignment would be
+# lost. Decisions are made on captured output, never on pipeline exit
+# status, so grep errors cannot silently pass a printed hit.
+record() {
+  local out
+  out="$(cat)"
+  if [ -n "$out" ]; then
+    echo hit >> "$HITMARK"
+    note "hit in $1:"
+    printf '%s\n' "$out" >&2
+  fi
+}
+
+# match <label>: reads candidate text on stdin, applies both pattern
+# classes, reports any hit.
+match() {
+  local input
+  input="$(cat)"
+  {
+    [ -s "$PATTERNS_SUB" ] && printf '%s\n' "$input" | grep -i -n -F -f "$PATTERNS_SUB"
+    [ -s "$PATTERNS_WORD" ] && printf '%s\n' "$input" | grep -i -w -n -F -f "$PATTERNS_WORD"
+  } 2>/dev/null | record "$1"
+}
+
+# tree_grep [rev]: git grep across a commit tree (or the working tree when
+# no rev is given), applying both pattern classes.
+tree_grep() {
+  {
+    [ -s "$PATTERNS_SUB" ] && git grep -I -i -n -F -f "$PATTERNS_SUB" "$@"
+    [ -s "$PATTERNS_WORD" ] && git grep -I -i -n -w -F -f "$PATTERNS_WORD" "$@"
+  } 2>/dev/null || true
+}
+
+# scan_rev <sha>: everything a single published commit exposes.
+scan_rev() {
+  local rev="$1"
+  tree_grep "$rev" -- | record "tree of commit $rev"
+  git ls-tree -r --name-only "$rev" | match "file paths of commit $rev"
+  git log -1 --format='%an <%ae>%n%cn <%ce>%n%s%n%b' "$rev" | match "message or identity of commit $rev"
+}
+
+PUSH_MODE=0
+OUT_REVS=""
+
+# git feeds "<local_ref> <local_sha> <remote_ref> <remote_sha>" per pushed ref.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "$local_ref" ] || continue
+  PUSH_MODE=1
+  printf '%s\n%s\n' "$local_ref" "$remote_ref" | match "pushed ref name"
+
+  # Deleting a remote ref publishes nothing new.
+  case "$local_sha" in
+    *[!0]*) ;;
+    *) continue ;;
+  esac
+
+  REVFAIL=0
+  case "$remote_sha" in
+    *[!0]*) revs="$(git rev-list "$remote_sha..$local_sha")" || REVFAIL=1 ;;
+    *)      revs="$(git rev-list "$local_sha" --not --remotes)" || REVFAIL=1 ;;
+  esac
+  if [ "$REVFAIL" -ne 0 ]; then
+    note "cannot enumerate outgoing commits for $local_ref. Push blocked (fail closed)."
+    exit 1
+  fi
+  OUT_REVS="$OUT_REVS
+$revs"
+
+  # Annotated tag objects carry their own message and tagger identity.
+  case "$remote_ref" in
+    refs/tags/*) git cat-file -p "$local_sha" 2>/dev/null | match "tag object $local_ref" ;;
+  esac
+done
+
+if [ "$PUSH_MODE" -ne 0 ]; then
+  for rev in $(printf '%s\n' "$OUT_REVS" | sort -u | grep -v '^$' || true); do
+    scan_rev "$rev"
+  done
+else
+  # Manual mode: full local sweep.
+  for rev in $(git rev-list --all 2>/dev/null || true); do
+    scan_rev "$rev"
+  done
+  git for-each-ref --format='%(refname:short)' | match "ref names"
+  git tag -l --format='%(tag) %(taggername) %(contents)' 2>/dev/null | match "tag messages"
+fi
+
+# Fast first pass in both modes: tracked working-tree content and paths.
+tree_grep | record "working tree"
+git ls-files | match "tracked file paths"
+
+if [ -s "$HITMARK" ]; then
+  note "push blocked."
+  exit 1
+fi
+
+note "clean."
+exit 0

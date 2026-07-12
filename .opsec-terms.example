@@ -1,0 +1,20 @@
+# OPSEC deny-list template (spec Section 11.5).
+# Copy to .opsec-terms (git-ignored) and add real entries there.
+#
+# Format: one term per line. Matching is case-insensitive, fixed-string,
+# over UTF-8 text only. Terms of 4 characters or fewer (short
+# abbreviations) match on word boundaries only, so they do not
+# false-positive inside base64 hashes; they will miss the abbreviation
+# embedded inside a longer identifier. Binary and non-UTF-8 files (UTF-16
+# exports from office tools) are not scanned; keep those out of the repo.
+# Lines starting with # and blank lines are ignored.
+#
+# Add every term that must never appear in this repo:
+#   employer names, current and former
+#   client and customer names
+#   engagement and project codenames
+#   internal initiative and workstream names
+#   real program, facility, or product names that must stay out
+#
+# Never add real entries to this example file. It is committed, so a
+# real term added here would itself be the leak.
