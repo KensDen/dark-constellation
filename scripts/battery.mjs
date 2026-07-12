@@ -32,9 +32,15 @@ run('typecheck + production build', () => {
   sh('npm run build')
 })
 
+run('determinism + content integrity tests (spec 11.2, 11.3)', () => {
+  sh('npx vitest run')
+})
+
 const AUTHORED = /\.(md|ts|tsx|html|css|yml|yaml|json|mjs|sh)$/
+// Tracked plus untracked-but-not-ignored, so new files are covered before
+// their first commit.
 const trackedAuthoredFiles = () =>
-  sh('git ls-files')
+  sh('git ls-files --cached --others --exclude-standard')
     .split('\n')
     .filter(Boolean)
     .filter((f) => AUTHORED.test(f) || f.startsWith('scripts/hooks/'))

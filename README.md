@@ -2,7 +2,7 @@
 
 A turn-based space and drone cybersecurity strategy sim. Fully client-side, deployed as a static site on GitHub Pages.
 
-Status: Round 0. This is a deploy-path placeholder. There is no gameplay yet.
+Status: Round 1, playable skeleton. A pure deterministic engine, one scenario, a subset of the threat deck as validated data, and a text-first 12-turn loop. Visual identity arrives in a later round.
 
 All organizations, vendors, and threat actors in the game fiction are original and fictional.
 
@@ -23,7 +23,9 @@ npm run dev
 node scripts/battery.mjs
 ```
 
-Runs typecheck, production build, and repo hygiene checks. Must be green before a round closes.
+Runs typecheck, production build, the determinism and content test suites, and repo hygiene checks. Must be green before a round closes.
+
+The determinism test replays fixed-seed full games and compares a hash of the event log against the committed snapshot in `tests/determinism.snap.json`. After a deliberate engine or content change, regenerate it with `UPDATE_SNAPSHOTS=1 npx vitest run` and commit the diff knowingly.
 
 ## OPSEC gate (required before pushing)
 
