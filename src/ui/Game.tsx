@@ -2,12 +2,27 @@
 // layout only. Visual identity is R2 and deliberately absent here.
 
 import { useState } from 'react'
-import { GAME_TITLE, SQUADRON } from '../config'
+import { ADVERSARY, GAME_TITLE, SQUADRON } from '../config'
 import { COUNTERMEASURE_COUNT, DEFAULT_SCENARIO, EVENT_COUNT, TECHNIQUE_REF_COUNT } from '../content'
-import { newGame, resolveTurn } from '../engine/reducer'
+import {
+  CHAIN_BONUS,
+  MITIGATION_PER_COUNTER,
+  SSA_MITIGATION_BONUS,
+  TIER_A_FLEET_SHARE,
+  newGame,
+  resolveTurn,
+} from '../engine/reducer'
 import { turnRng } from '../engine/rng'
-import { assetPrice, coverage, maiScore } from '../engine/scoring'
-import type { AssetBuy, AssetKind, GameState, TrustTier, TurnActions } from '../engine/types'
+import { COVERAGE_PER_DRONE, COVERAGE_PER_SAT, assetPrice, coverage, maiScore } from '../engine/scoring'
+import type {
+  AssetBuy,
+  AssetKind,
+  CountermeasureId,
+  GameState,
+  ResolvedEvent,
+  TrustTier,
+  TurnActions,
+} from '../engine/types'
 
 const DEFAULT_SEED = 20260711
 
@@ -25,6 +40,15 @@ const kindLabels: Record<AssetKind, string> = {
   rpoSat: 'RPO servicing sat',
   drone: 'Drone',
   groundStation: 'Ground station',
+}
+
+// Plain-language effect of buying each asset kind, shown at the point of
+// purchase so the reason for every buy is legible.
+const assetEffects: Record<AssetKind, string> = {
+  sat: `+${COVERAGE_PER_SAT} coverage`,
+  rpoSat: `+${COVERAGE_PER_SAT} coverage, hosts the docking LiDAR (no extra effect in this build)`,
+  drone: `+${COVERAGE_PER_DRONE} coverage, flies the LiDAR mapping sorties`,
+  groundStation: 'no coverage; ground ops capacity with no game effect in this build',
 }
 
 function plannedCost(state: GameState, actions: TurnActions): number {
@@ -49,6 +73,25 @@ export default function Game() {
 
   const scenario = DEFAULT_SCENARIO
 
+  // Item 1: the three-line job framing, shown on the start screen and again
+  // in the turn 1 brief so a skimming player can state the objective.
+  const jobFraming = (
+    <div className="border p-2 mt-4">
+      <p className="font-bold">Your job</p>
+      <p className="mt-1">
+        1. Finish turn {scenario.totalTurns} with the Mission Assurance Index (MAI) at {scenario.winThreshold} or
+        higher.
+      </p>
+      <p className="mt-1">
+        2. You start above the win line. {ADVERSARY} spends {scenario.totalTurns} turns eroding it.
+      </p>
+      <p className="mt-1">
+        3. Spend credits each turn on fleet and defenses to slow the erosion. MAI below {scenario.collapseThreshold}{' '}
+        or a budget forced below zero ends the campaign early.
+      </p>
+    </div>
+  )
+
   const start = () => {
     const seed = Number.parseInt(seedInput, 10)
     setState(newGame(scenario, Number.isFinite(seed) ? seed : DEFAULT_SEED))
@@ -61,11 +104,8 @@ export default function Game() {
       <main className="min-h-screen p-8 max-w-3xl">
         <h1 className="text-2xl font-bold">{GAME_TITLE}</h1>
         <p className="mt-4">{scenario.briefIntro}</p>
-        <p className="mt-4">
-          Scenario: {scenario.name}. {scenario.totalTurns} turns. Win at Mission Assurance Index{' '}
-          {scenario.winThreshold} or better; collapse below {scenario.collapseThreshold} or insolvency ends the
-          campaign.
-        </p>
+        {jobFraming}
+        <p className="mt-4">Scenario: {scenario.name}.</p>
         <div className="mt-4">
           <label>
             Seed:{' '}
@@ -121,17 +161,91 @@ export default function Game() {
         : [...actions.buyCounters, id],
     })
 
+  const shortEventName = (id: string) => scenario.events.find((e) => e.id === id)?.name.split(' (')[0] ?? id
+
+  // Item 6: say in plain words why damage landed and what was missing, with
+  // each counter's real worth. When everything applicable was owned, name
+  // the gate that made an owned defense inert rather than blaming base
+  // severity. state.counters after resolution reflects what was active.
+  const whatWouldHaveHelped = (ev: ResolvedEvent): string => {
+    const def = scenario.events.find((e) => e.id === ev.eventId)
+    if (!def) return ''
+    const missing = def.counters.filter((c) => !state.counters.includes(c))
+    if (missing.length > 0) {
+      const worth = (c: CountermeasureId): string => {
+        if (c === 'ssaManeuver' && def.effect.special === 'debrisStrike') {
+          return `cuts severity by ${MITIGATION_PER_COUNTER + SSA_MITIGATION_BONUS} when the maneuver budget is funded`
+        }
+        if (c === 'sensorFusion' && ev.chainBonus > 0) {
+          return `cuts severity by ${MITIGATION_PER_COUNTER} and removes the +${CHAIN_BONUS} chain bonus`
+        }
+        if (c === 'tierAAttestation') {
+          return `cuts severity by ${MITIGATION_PER_COUNTER} once at least a third of the sensored fleet flies Tier A`
+        }
+        return `cuts severity by ${MITIGATION_PER_COUNTER}`
+      }
+      const names = missing.map((c) => `${scenario.countermeasures.find((x) => x.id === c)?.name ?? c} (${worth(c)})`)
+      return `What would have helped: ${names.join('; ')}.`
+    }
+    const sensored = state.assets.filter((a) => a.integrity > 0 && a.kind !== 'groundStation')
+    const tierAShare = sensored.length > 0 ? sensored.filter((a) => a.tier === 'A').length / sensored.length : 0
+    if (def.counters.includes('tierAAttestation') && tierAShare < TIER_A_FLEET_SHARE) {
+      return 'Firmware attestation was owned but inert: it bites once at least a third of the sensored fleet flies Tier A.'
+    }
+    if (def.effect.special === 'debrisStrike' && ev.mitigation < MITIGATION_PER_COUNTER + SSA_MITIGATION_BONUS) {
+      return 'SSA was owned but the maneuver budget could not cover the avoidance burn.'
+    }
+    return 'Every applicable defense was active. What landed is what the attack buys through them.'
+  }
+
   const statusPanel = (
     <section className="mt-4 border p-2">
       <h2 className="font-bold">Posture</h2>
-      <p>
-        Turn {displayTurn} of {scenario.totalTurns} | Credits {state.credits} | MAI{' '}
-        {maiScore(state)} | Coverage {coverage(state.assets)} | Link {state.meters.linkAvailability} | Data{' '}
-        {state.meters.dataIntegrity} | Sensor {state.meters.sensorIntegrity} | Intel level {state.intelLevel}
+      <p className="font-bold">
+        MAI {maiScore(state)} (win line {scenario.winThreshold}, collapse below {scenario.collapseThreshold})
       </p>
+      <p className="mt-1">
+        Turn {displayTurn} of {scenario.totalTurns} | Credits {state.credits} | Coverage {coverage(state.assets)} |
+        Link {state.meters.linkAvailability} | Data {state.meters.dataIntegrity} | Sensor{' '}
+        {state.meters.sensorIntegrity} | Intel level {state.intelLevel}
+      </p>
+      <details className="mt-1 text-sm">
+        <summary>What these numbers mean</summary>
+        <ul className="list-disc ml-6 mt-1">
+          <li>
+            MAI: overall mission health, a weighted blend of Coverage, Link, Data, and Sensor. Finish at{' '}
+            {scenario.winThreshold} or higher to win. Below {scenario.collapseThreshold} at any point, the mission
+            collapses.
+          </li>
+          <li>
+            Coverage: how much of the mission area the fleet can see, capped at 100. Each sat adds{' '}
+            {COVERAGE_PER_SAT}, each drone {COVERAGE_PER_DRONE}. At {scenario.slaBonus.coverageMin} or more, the
+            coverage SLA pays +{scenario.slaBonus.credits} credits a turn.
+          </li>
+          <li>Link: command and data links available. Jamming drives it down.</li>
+          <li>
+            Data: mission data you can trust. Ransomware, phishing, firmware implants, and the BLACKOUT CHAIN drive
+            it down.
+          </li>
+          <li>
+            Sensor: sensors telling the truth. LiDAR injection, firmware implants, and the BLACKOUT CHAIN drive it
+            down.
+          </li>
+          <li>
+            Damaged meters recover +{scenario.recovery.base} a turn, or +{scenario.recovery.withIrRetainer} with the
+            incident response retainer.
+          </li>
+          <li>
+            Credits: the budget. Income +{scenario.incomePerTurn} a turn plus any SLA bonus. Repairs come out of it,
+            and below zero the program folds.
+          </li>
+        </ul>
+      </details>
       {state.flags.lidarFallback && (
         <p className="font-bold mt-1">
-          BLACKOUT CHAIN RISK: GNSS denied. {SQUADRON} is navigating on LiDAR odometry alone.
+          BLACKOUT CHAIN ARMED: GNSS is jammed and {SQUADRON} is navigating on LiDAR alone. The next LiDAR attack
+          lands harder (+{CHAIN_BONUS} severity) unless sensor fusion cross-checks are in place or every drone flies
+          Tier A sensors.
         </p>
       )}
       <p className="mt-1 text-sm">
@@ -216,6 +330,7 @@ export default function Game() {
       {phase === 'brief' && (
         <section className="mt-4">
           <h2 className="font-bold">1. Intel brief, turn {state.turn}</h2>
+          {state.turn === 1 && state.history.length === 0 && jobFraming}
           <ul className="list-disc ml-6 mt-2">
             {state.forecast.lines.map((line, i) => (
               <li key={i}>{line}</li>
@@ -237,15 +352,20 @@ export default function Game() {
           <ul className="mt-2">
             {(['sat', 'rpoSat', 'drone', 'groundStation'] as AssetKind[]).map((kind) => (
               <li key={kind} className="mt-1">
-                {kindLabels[kind]}:{' '}
-                {(['B', 'A'] as TrustTier[]).map((tier) => (
+                {kindLabels[kind]} ({assetEffects[kind]}):{' '}
+                {(kind === 'groundStation' ? (['B'] as TrustTier[]) : (['B', 'A'] as TrustTier[])).map((tier) => (
                   <button key={tier} className="border px-2 ml-2" onClick={() => addAsset(kind, tier)}>
-                    Buy Tier {tier} ({assetPrice(scenario, kind, tier)})
+                    {kind === 'groundStation' ? `Buy (${assetPrice(scenario, kind, tier)})` : `Buy Tier ${tier} (${assetPrice(scenario, kind, tier)})`}
                   </button>
                 ))}
               </li>
             ))}
           </ul>
+          <p className="mt-2 text-sm">
+            Tier B sensor packages are cheap with a hidden supply-chain risk: only Tier B hardware can host the
+            firmware implant. Tier A packages cost more on sats and drones, are immune to the implant, and an all
+            Tier A drone fleet breaks the BLACKOUT CHAIN. Ground stations carry no sensor package.
+          </p>
           {actions.buyAssets.length > 0 && (
             <ul className="list-disc ml-6 mt-2">
               {actions.buyAssets.map((buy: AssetBuy, i: number) => (
@@ -267,7 +387,8 @@ export default function Game() {
                 onChange={(e) => setActions({ ...actions, buyIntelLevel: e.target.checked })}
               />{' '}
               Raise intel to level {Math.min(3, state.intelLevel + 1)} (
-              {state.intelLevel !== 3 ? scenario.prices.intelLevels[state.intelLevel] : 'maxed'})
+              {state.intelLevel !== 3 ? scenario.prices.intelLevels[state.intelLevel] : 'maxed'}) for a sharper
+              forecast of the coming turn
             </label>
           </p>
           <button className="border px-2 mt-4" onClick={() => setPhase('harden')}>
@@ -297,6 +418,9 @@ export default function Game() {
                     />{' '}
                     {cm.name} ({cm.cost}){state.counters.includes(cm.id) ? ' [owned]' : ''}
                   </label>
+                  <p className="text-sm ml-6 font-bold">
+                    Answers: {cm.counters.map((id) => shortEventName(id)).join(', ') || 'posture-wide'}
+                  </p>
                   <p className="text-sm ml-6">{cm.blurb}</p>
                 </li>
               ))}
@@ -312,6 +436,10 @@ export default function Game() {
                 {scenario.countermeasures.find((c) => c.id === 'irRetainer')?.cost}
                 ){state.irRetainer ? ' [owned]' : ''}
               </label>
+              <p className="text-sm ml-6 font-bold">
+                Answers: everything, indirectly. Every damaged meter recovers +{scenario.recovery.withIrRetainer} a
+                turn instead of +{scenario.recovery.base}.
+              </p>
             </li>
           </ul>
           {!affordable && <p className="mt-2 font-bold">Planned spend exceeds credits. Trim the cart.</p>}
@@ -346,6 +474,9 @@ export default function Game() {
                   {n}
                 </p>
               ))}
+              {ev.effectiveSeverity > 0 && (
+                <p className="text-sm mt-1 font-bold">{whatWouldHaveHelped(ev)}</p>
+              )}
               {ev.firedTechniqueRefs.length > 0 && (
                 <p className="text-sm mt-1">
                   Learn more:{' '}

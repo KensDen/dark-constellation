@@ -23,7 +23,12 @@ const ASSET_DAMAGE_PER_SEVERITY = 12
 const DEBRIS_LOSS_CHANCE_PER_SEVERITY = 0.2
 const SSA_MANEUVER_COST = 5
 const GNSS_JAM_DURATION = 2
-const TIER_A_FLEET_SHARE = 1 / 3
+// Exported so UI copy can interpolate the real values instead of
+// duplicating them as prose literals that rot when tuning changes.
+export const TIER_A_FLEET_SHARE = 1 / 3
+export const MITIGATION_PER_COUNTER = 1
+export const CHAIN_BONUS = 2
+export const SSA_MITIGATION_BONUS = 2
 
 // Tier A attestation only pulls its weight once a meaningful share of the
 // sensored fleet actually flies Tier A packages.
@@ -97,7 +102,7 @@ export function forecastFor(state: GameState, turn: number): IntelForecast {
   )
   const lines: string[] = []
   if (intelLevel === 0) {
-    lines.push('COLDWAKE activity expected. No reliable indicators at current intel investment.')
+    lines.push('Forecast unavailable at intel level 0. Raise intel investment in the procure phase to see what is coming.')
   } else if (intelLevel === 1) {
     const layers = [...new Set(slotEvents.flat().flatMap((e) => e.layers))]
     lines.push(`Indicators point at the ${layers.join(' and ')} segment${layers.length > 1 ? 's' : ''}.`)
@@ -175,7 +180,7 @@ function resolveEvent(state: GameState, ev: ThreatEvent, rng: Rng, flags: ChainF
           : 'Tier A sensor stack resisted the injection. Chain broken.',
       )
     } else {
-      chainBonus = 2
+      chainBonus = CHAIN_BONUS
       notes.push('KESTREL is navigating on LiDAR alone. The injection landed at full potency.')
     }
   }
@@ -186,7 +191,7 @@ function resolveEvent(state: GameState, ev: ThreatEvent, rng: Rng, flags: ChainF
       notes.push('Firmware attestation is in place but most of the fleet is still Tier B.')
       continue
     }
-    mitigation += 1
+    mitigation += MITIGATION_PER_COUNTER
   }
 
   // Tier A is immune to the implant (spec Sections 5 and 8): the implant
@@ -205,7 +210,7 @@ function resolveEvent(state: GameState, ev: ThreatEvent, rng: Rng, flags: ChainF
 
   if (ev.effect.special === 'debrisStrike' && state.counters.includes('ssaManeuver')) {
     if (state.credits >= SSA_MANEUVER_COST) {
-      mitigation += 2
+      mitigation += SSA_MITIGATION_BONUS
       state.credits -= SSA_MANEUVER_COST
       notes.push(`SSA warning received; conjunction avoidance burn executed (-${SSA_MANEUVER_COST}).`)
     } else {
