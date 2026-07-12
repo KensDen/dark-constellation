@@ -1,1 +1,34 @@
 @import "tailwindcss";
+
+/* Design tokens (design brief v0.2). Green is the terminal chrome; the
+   hero's blue and magenta are state accents with meaning: blue = friendly
+   and defense, magenta = hostile and threat. Amber is for alerts. */
+@theme {
+  --color-base: #05060e;
+  --color-panel: #0a0d18;
+  --color-ink: #cfe0d6;
+  --color-ink-dim: #8fa89b;
+  --color-phosphor: #35f095;
+  --color-phosphor-dim: #1f9c63;
+  --color-hero-blue: #4db2ff;
+  --color-hero-magenta: #ff4d9d;
+  --color-alert-amber: #ffb84d;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+html {
+  background-color: var(--color-base);
+}
+
+body {
+  background-color: var(--color-base);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Focus visibility on a dark terminal surface. */
+:focus-visible {
+  outline: 2px solid var(--color-phosphor);
+  outline-offset: 2px;
+}

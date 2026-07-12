@@ -1,8 +1,12 @@
 # DARK CONSTELLATION
 
+![Split-sphere key art banner](public/readme-banner.webp)
+
 A turn-based space and drone cybersecurity strategy sim. Fully client-side, deployed as a static site on GitHub Pages.
 
-Status: Round 1, playable skeleton. A pure deterministic engine, one scenario, a subset of the threat deck as validated data, and a text-first 12-turn loop. Visual identity arrives in a later round.
+Play it: https://kensden.github.io/dark-constellation/
+
+Status: Round 2, visual identity. Phosphor terminal chrome over the R1 playable skeleton: committed SVG assets (wordmark, event-vector icons, layer badges), the owner-supplied split-sphere hero, hero-derived state colors (blue for friendly and defense, magenta for hostile and threat), and a live three.js constellation on the title screen.
 
 All organizations, vendors, and threat actors in the game fiction are original and fictional.
 

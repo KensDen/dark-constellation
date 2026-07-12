@@ -36,7 +36,7 @@ run('determinism + content integrity tests (spec 11.2, 11.3)', () => {
   sh('npx vitest run')
 })
 
-const AUTHORED = /\.(md|ts|tsx|html|css|yml|yaml|json|mjs|sh)$/
+const AUTHORED = /\.(md|ts|tsx|html|css|yml|yaml|json|mjs|sh|svg)$/
 // Tracked plus untracked-but-not-ignored, so new files are covered before
 // their first commit.
 const trackedAuthoredFiles = () =>
