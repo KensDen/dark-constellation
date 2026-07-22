@@ -11,6 +11,7 @@
 // analysis is cited, no named individuals or companies.
 
 import type { ThreatEvent } from '../engine/types'
+import { ADVERSARY } from '../config'
 
 export const THREATS: ThreatEvent[] = [
   // 1
@@ -617,7 +618,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'An operator clicks a convincing link and hands over credentials. Lateral movement follows. The oldest vector in the deck, and still the cheapest one COLDWAKE runs.',
+      `An operator clicks a convincing link and hands over credentials. Lateral movement follows. The oldest vector in the deck, and still the cheapest one ${ADVERSARY} runs.`,
     learnMoreCards: [
       {
         title: 'Phishing stays undefeated',

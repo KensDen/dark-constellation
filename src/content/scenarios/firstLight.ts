@@ -1,4 +1,4 @@
-// Scenario: FIRST LIGHT. 12 turns, escalating COLDWAKE activity, BLACKOUT
+// Scenario: FIRST LIGHT. 12 turns, escalating adversary activity, BLACKOUT
 // CHAIN scripted mid-game and again as the finale. R3 wires the full
 // 18-event deck into the campaign; economy numbers are unchanged from R1
 // (tuning happens in the dynamics round, against the R3 baseline sweep).

@@ -511,7 +511,7 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng): G
     notes.push('KESTREL remains in LiDAR-fallback navigation while GNSS denial persists.')
   }
 
-  // COLDWAKE plays the deck, then the rare opportunity roll.
+  // The adversary plays the deck, then the rare opportunity roll.
   const plan = scenario.campaign.find((p) => p.turn === next.turn)
   const resolved: ResolvedEvent[] = []
   for (const slot of plan?.slots ?? []) {
