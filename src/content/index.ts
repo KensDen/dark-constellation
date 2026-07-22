@@ -23,3 +23,20 @@ export const COUNTERMEASURE_COUNT = DEFAULT_SCENARIO.countermeasures.length
 export const TECHNIQUE_REF_COUNT = new Set(
   DEFAULT_SCENARIO.events.flatMap((e) => e.techniqueRefs.map((r) => `${r.framework}:${r.id}`)),
 ).size
+export const SOURCE_COUNT = new Set(
+  DEFAULT_SCENARIO.events.flatMap((e) => e.learnMoreCards.flatMap((c) => c.sources.map((s) => s.url))),
+).size
+// References not yet confirmed against the live framework and source
+// sites. Displayed while nonzero so the pending-verification state is
+// visible in the UI, never implied away.
+export const UNVERIFIED_REF_COUNT =
+  new Set(
+    DEFAULT_SCENARIO.events.flatMap((e) =>
+      e.techniqueRefs.filter((r) => r.status !== 'verified').map((r) => `${r.framework}:${r.id}`),
+    ),
+  ).size +
+  new Set(
+    DEFAULT_SCENARIO.events.flatMap((e) =>
+      e.learnMoreCards.flatMap((c) => c.sources.filter((s) => s.status !== 'verified').map((s) => s.url)),
+    ),
+  ).size

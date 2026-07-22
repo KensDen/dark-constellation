@@ -1,7 +1,7 @@
-// Scenario: FIRST LIGHT. The R1 campaign: 12 turns, escalating COLDWAKE
-// activity, BLACKOUT CHAIN scripted mid-game and again as the finale.
-// Economy numbers start from the spec Section 9 placeholders; tuned so a
-// prepared architect clears the win threshold and a passive one collapses.
+// Scenario: FIRST LIGHT. 12 turns, escalating COLDWAKE activity, BLACKOUT
+// CHAIN scripted mid-game and again as the finale. R3 wires the full
+// 18-event deck into the campaign; economy numbers are unchanged from R1
+// (tuning happens in the dynamics round, against the R3 baseline sweep).
 
 import type { Scenario } from '../../engine/types'
 import { ADVERSARY, CONSTELLATION, PLAYER_ORG, SQUADRON } from '../../config'
@@ -35,22 +35,31 @@ export const FIRST_LIGHT: Scenario = {
     { kind: 'drone', tier: 'B' },
     { kind: 'groundStation', tier: 'B' },
   ],
+  // The scripted beats from R1 hold their turns (implant on 5, chain on 7
+  // and 12); the R3 events join the draw pools around them, quiet early
+  // reconnaissance first, louder attacks as the campaign escalates.
   campaign: [
     { turn: 1, slots: [] },
-    { turn: 2, slots: [{ drawFrom: ['ops-phishing', 'uplink-jamming'] }] },
+    { turn: 2, slots: [{ drawFrom: ['ops-phishing', 'uplink-jamming', 'downlink-eavesdropping'] }] },
     { turn: 3, slots: [{ fixed: 'uplink-jamming' }] },
-    { turn: 4, slots: [{ drawFrom: ['ops-phishing', 'uplink-jamming', 'debris-conjunction'] }] },
+    { turn: 4, slots: [{ drawFrom: ['ops-phishing', 'uplink-jamming', 'debris-conjunction', 'telemetry-replay'] }] },
     { turn: 5, slots: [{ fixed: 'supply-chain-implant' }] },
-    { turn: 6, slots: [{ fixed: 'pnt-jamming' }] },
+    { turn: 6, slots: [{ fixed: 'pnt-jamming' }, { drawFrom: ['gnss-spoofing', 'time-spoof'] }] },
     { turn: 7, slots: [{ fixed: 'blackout-chain' }] },
-    { turn: 8, slots: [{ fixed: 'ground-ransomware' }] },
+    { turn: 8, slots: [{ fixed: 'ground-ransomware' }, { drawFrom: ['rogue-ground-station', 'training-data-poisoning'] }] },
     {
       turn: 9,
-      slots: [{ drawFrom: ['uplink-jamming', 'ops-phishing'] }, { drawFrom: ['debris-conjunction', 'lidar-injection'] }],
+      slots: [
+        { drawFrom: ['uplink-jamming', 'ops-phishing', 'rogue-ground-station'] },
+        { drawFrom: ['debris-conjunction', 'lidar-injection', 'lidar-dazzle'] },
+      ],
     },
-    { turn: 10, slots: [{ fixed: 'debris-conjunction' }] },
-    { turn: 11, slots: [{ fixed: 'pnt-jamming' }, { drawFrom: ['lidar-injection', 'uplink-jamming'] }] },
-    { turn: 12, slots: [{ fixed: 'blackout-chain' }, { drawFrom: ['ground-ransomware', 'ops-phishing'] }] },
+    { turn: 10, slots: [{ fixed: 'debris-conjunction' }, { drawFrom: ['insider-exfil', 'backhaul-exfil'] }] },
+    { turn: 11, slots: [{ fixed: 'pnt-jamming' }, { drawFrom: ['lidar-injection', 'lidar-blinding', 'uplink-jamming'] }] },
+    {
+      turn: 12,
+      slots: [{ fixed: 'blackout-chain' }, { drawFrom: ['ground-ransomware', 'ops-phishing', 'training-data-poisoning'] }],
+    },
   ],
   briefIntro: `You are the mission assurance architect at ${PLAYER_ORG}, standing up ${CONSTELLATION} (nine planned smallsats, one with a docking LiDAR package) and ${SQUADRON} (an ISR drone squadron on LiDAR and GNSS navigation) for a disaster-response tasking. ${ADVERSARY}, a threat group with a taste for layered attacks, has taken an interest. Twelve turns. Keep the Mission Assurance Index above threshold and stay solvent.`,
   events: THREATS,

@@ -33,3 +33,15 @@ export const WIN_SCRIPT: Record<number, TurnActions> = {
 export const LOSS_SCRIPT: Record<number, TurnActions> = Object.fromEntries(
   Array.from({ length: 12 }, (_, i) => [i + 1, NO_OP]),
 )
+
+// LAZY_SCRIPT is the half-hearted middle line for the balance sweep: some
+// cheap, late, unfocused buys, no sensor fusion, no intel, no plan for the
+// BLACKOUT CHAIN. The tuning target for the dynamics round is that this
+// line loses far more often than the prepared line.
+export const LAZY_SCRIPT: Record<number, TurnActions> = {
+  ...LOSS_SCRIPT,
+  2: a({ buyCounters: ['antiJam'] }),
+  4: a({ buyCounters: ['groundZeroTrust'] }),
+  6: a({ buyAssets: [{ kind: 'drone', tier: 'B' }] }),
+  8: a({ buyCounters: ['linkAuth'] }),
+}
