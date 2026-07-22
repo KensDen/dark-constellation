@@ -134,9 +134,28 @@ async function checkUrl(url) {
   }
 }
 
+// atlas.mitre.org serves its technique pages as a client-rendered SPA and
+// returns HTTP 404 status to non-browser fetchers for every deep link
+// (verified 2026-07-12: curl with any user agent gets 404 on /techniques/*
+// and even /matrices, while browsers render the real page; the site's own
+// navigation links to these exact paths). The deep URLs are canonical and
+// were content-verified by rendered fetch in the R3 verification round, so
+// for this host a 404 is the expected non-browser status: the check
+// instead requires the ATLAS origin itself to be reachable, and any
+// non-404 error status still fails.
+function isKnownSpaStatusArtifact(url, status) {
+  return url.startsWith('https://atlas.mitre.org/') && status === 404
+}
+
 async function linkCheck() {
   const urls = contentUrls()
   if (urls.length === 0) return `FAIL: no URLs found in src/content; the deck should carry sources`
+  if (urls.some((u) => u.startsWith('https://atlas.mitre.org/'))) {
+    const origin = await checkUrl('https://atlas.mitre.org/')
+    if (!origin.network && (origin.status < 200 || origin.status >= 400)) {
+      return `FAIL: atlas.mitre.org origin returned HTTP ${origin.status}; ATLAS links cannot be presumed alive`
+    }
+  }
   const results = []
   let cursor = 0
   await Promise.all(
@@ -148,7 +167,9 @@ async function linkCheck() {
       }
     }),
   )
-  const broken = results.filter((r) => !r.network && (r.status < 200 || r.status >= 400))
+  const broken = results.filter(
+    (r) => !r.network && (r.status < 200 || r.status >= 400) && !isKnownSpaStatusArtifact(r.url, r.status),
+  )
   const unreachable = results.filter((r) => r.network)
   if (unreachable.length === results.length) return 'SKIP (offline: no URL reachable at the network layer)'
   if (broken.length || unreachable.length) {

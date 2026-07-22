@@ -1,13 +1,14 @@
-// Threat deck, full R3 structure: all 18 rows of spec Section 7 (the
-// 6a/6b and 11a/11b splits included). IMPORTANT: every framework ref and
-// learn-more source in this file is status verify-at-build. None has been
-// confirmed against the live framework sites yet; the build session that
-// authored this round had no route to them, so IDs, names, and URLs come
-// from the spec and search-index metadata only. The verification round
-// that completes R3 must check each one on the live site before flipping
-// any status to verified (spec Section 12 acceptance). Real-world cases
-// behind events 8 and 14 stay abstracted: institutional analysis is
-// cited, no named individuals or companies.
+// Threat deck, full R3 set: all 18 rows of spec Section 7 (the 6a/6b and
+// 11a/11b splits included). Every framework ref and learn-more source in
+// this file was verified against the live site in the R3 verification
+// round (2026-07-12): each URL fetched, ID and name confirmed against the
+// page, and independently re-checked. Names follow the live pages
+// verbatim. atlas.mitre.org note: its server returns HTTP 404 status for
+// deep links to non-browser fetchers while serving the real page to
+// browsers; those URLs are canonical and content-verified, and the
+// battery link check carries a documented exception for that host.
+// Real-world cases behind events 8 and 14 stay abstracted: institutional
+// analysis is cited, no named individuals or companies.
 
 import type { ThreatEvent } from '../engine/types'
 
@@ -26,9 +27,9 @@ export const THREATS: ThreatEvent[] = [
       {
         framework: 'SPARTA',
         id: 'EX-0016.03',
-        name: 'Jamming: Position, Navigation, and Timing (PNT)',
+        name: 'Jamming: Position, Navigation, and Timing (PNT) Jamming',
         url: 'https://sparta.aerospace.org/technique/EX-0016/03/',
-        status: 'verify-at-build',
+        status: 'verified',
       },
     ],
     blurb:
@@ -43,7 +44,7 @@ export const THREATS: ThreatEvent[] = [
             title: 'CISA: Positioning, Navigation, and Timing (PNT) risk management',
             url: 'https://www.cisa.gov/topics/risk-management/positioning-navigation-and-timing',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -64,7 +65,7 @@ export const THREATS: ThreatEvent[] = [
         id: 'EX-0016.01',
         name: 'Jamming: Uplink Jamming',
         url: 'https://sparta.aerospace.org/technique/EX-0016/01/',
-        status: 'verify-at-build',
+        status: 'verified',
       },
     ],
     blurb:
@@ -79,7 +80,7 @@ export const THREATS: ThreatEvent[] = [
             title: 'CISA AA22-076A: Strengthening Cybersecurity of SATCOM Network Providers and Customers',
             url: 'https://www.cisa.gov/news-events/cybersecurity-advisories/aa22-076a',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -100,7 +101,7 @@ export const THREATS: ThreatEvent[] = [
         id: 'EX-0014.04',
         name: 'Spoofing: Position, Navigation, and Timing (PNT) Spoofing',
         url: 'https://sparta.aerospace.org/technique/EX-0014/04/',
-        status: 'verify-at-build',
+        status: 'verified',
       },
     ],
     blurb:
@@ -115,13 +116,13 @@ export const THREATS: ThreatEvent[] = [
             title: 'EUSPA: Galileo Open Service Navigation Message Authentication (OSNMA)',
             url: 'https://www.euspa.europa.eu/galileo-osnma',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
           {
             title: 'CISA: Positioning, Navigation, and Timing (PNT) risk management',
             url: 'https://www.cisa.gov/topics/risk-management/positioning-navigation-and-timing',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -142,7 +143,7 @@ export const THREATS: ThreatEvent[] = [
         id: 'EX-0014.01',
         name: 'Spoofing: Time Spoof',
         url: 'https://sparta.aerospace.org/technique/EX-0014/01/',
-        status: 'verify-at-build',
+        status: 'verified',
       },
     ],
     blurb:
@@ -157,13 +158,13 @@ export const THREATS: ThreatEvent[] = [
             title: 'EUSPA: Galileo Open Service Navigation Message Authentication (OSNMA)',
             url: 'https://www.euspa.europa.eu/galileo-osnma',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
           {
             title: 'CISA: Positioning, Navigation, and Timing (PNT) risk management',
             url: 'https://www.cisa.gov/topics/risk-management/positioning-navigation-and-timing',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -184,7 +185,7 @@ export const THREATS: ThreatEvent[] = [
         id: 'EX-0014.03',
         name: 'Spoofing: Sensor Data',
         url: 'https://sparta.aerospace.org/technique/EX-0014/03/',
-        status: 'verify-at-build',
+        status: 'verified',
         citation: 'Atlantic Council, Small Satellites: The Implications for National Security (2022)',
       },
     ],
@@ -200,7 +201,7 @@ export const THREATS: ThreatEvent[] = [
             title: 'Atlantic Council: Small Satellites, The Implications for National Security (2022)',
             url: 'https://www.atlanticcouncil.org/in-depth-research-reports/report/small-satellites-the-implications-for-national-security/',
             type: 'report',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -222,7 +223,7 @@ export const THREATS: ThreatEvent[] = [
         id: 'AML.T0043',
         name: 'Craft Adversarial Data',
         url: 'https://atlas.mitre.org/techniques/AML.T0043',
-        status: 'verify-at-build',
+        status: 'verified',
         citation: 'Cao et al. (ACM CCS 2019); Sun et al. (USENIX Security 2020)',
       },
     ],
@@ -238,13 +239,13 @@ export const THREATS: ThreatEvent[] = [
             title: 'Cao et al., Adversarial Sensor Attack on LiDAR-based Perception in Autonomous Driving (CCS 2019)',
             url: 'https://arxiv.org/abs/1907.06826',
             type: 'paper',
-            status: 'verify-at-build',
+            status: 'verified',
           },
           {
             title: 'Sun et al., Towards Robust LiDAR-based Perception in Autonomous Driving (USENIX Security 2020)',
-            url: 'https://www.usenix.org/conference/usenixsecurity20/presentation/sun',
+            url: 'https://arxiv.org/abs/2006.16974',
             type: 'paper',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -266,7 +267,7 @@ export const THREATS: ThreatEvent[] = [
         id: 'AML.T0043',
         name: 'Craft Adversarial Data',
         url: 'https://atlas.mitre.org/techniques/AML.T0043',
-        status: 'verify-at-build',
+        status: 'verified',
         citation: 'Sun et al. (USENIX Security 2020); Hallyburton et al. (USENIX Security 2022)',
       },
     ],
@@ -280,15 +281,15 @@ export const THREATS: ThreatEvent[] = [
         sources: [
           {
             title: 'Sun et al., Towards Robust LiDAR-based Perception in Autonomous Driving (USENIX Security 2020)',
-            url: 'https://www.usenix.org/conference/usenixsecurity20/presentation/sun',
+            url: 'https://arxiv.org/abs/2006.16974',
             type: 'paper',
-            status: 'verify-at-build',
+            status: 'verified',
           },
           {
             title: 'Hallyburton et al., Security Analysis of Camera-LiDAR Fusion Against Black-Box Attacks (USENIX Security 2022)',
-            url: 'https://www.usenix.org/conference/usenixsecurity22/presentation/hallyburton',
+            url: 'https://arxiv.org/abs/2106.07098',
             type: 'paper',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -307,16 +308,16 @@ export const THREATS: ThreatEvent[] = [
       {
         framework: 'SPARTA',
         id: 'DE-0003.12',
-        name: 'Poison AI/ML Training for Evasion',
+        name: 'On-Board Values Obfuscation: Poison AI/ML Training for Evasion',
         url: 'https://sparta.aerospace.org/technique/DE-0003/12/',
-        status: 'verify-at-build',
+        status: 'verified',
       },
       {
         framework: 'ATLAS',
         id: 'AML.T0020',
         name: 'Poison Training Data',
         url: 'https://atlas.mitre.org/techniques/AML.T0020',
-        status: 'verify-at-build',
+        status: 'verified',
       },
     ],
     blurb:
@@ -331,7 +332,7 @@ export const THREATS: ThreatEvent[] = [
             title: 'Gu et al., BadNets: Identifying Vulnerabilities in the Machine Learning Model Supply Chain (2017)',
             url: 'https://arxiv.org/abs/1708.06733',
             type: 'paper',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -350,9 +351,9 @@ export const THREATS: ThreatEvent[] = [
       {
         framework: 'SPARTA',
         id: 'PER-0002.02',
-        name: 'Backdoor: Software',
+        name: 'Backdoor: Software Backdoor',
         url: 'https://sparta.aerospace.org/technique/PER-0002/02/',
-        status: 'verify-at-build',
+        status: 'verified',
         citation: 'Atlantic Council, Small Satellites: The Implications for National Security (2022)',
       },
       {
@@ -360,7 +361,7 @@ export const THREATS: ThreatEvent[] = [
         id: 'T1195',
         name: 'Supply Chain Compromise',
         url: 'https://attack.mitre.org/techniques/T1195/',
-        status: 'verify-at-build',
+        status: 'verified',
       },
     ],
     blurb:
@@ -375,7 +376,7 @@ export const THREATS: ThreatEvent[] = [
             title: 'Atlantic Council: Small Satellites, The Implications for National Security (2022)',
             url: 'https://www.atlanticcouncil.org/in-depth-research-reports/report/small-satellites-the-implications-for-national-security/',
             type: 'report',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -396,7 +397,7 @@ export const THREATS: ThreatEvent[] = [
         id: 'IA-0008.01',
         name: 'Rogue External Entity: Rogue Ground Station',
         url: 'https://sparta.aerospace.org/technique/IA-0008/01/',
-        status: 'verify-at-build',
+        status: 'verified',
       },
     ],
     blurb:
@@ -411,7 +412,7 @@ export const THREATS: ThreatEvent[] = [
             title: 'CISA AA22-076A: Strengthening Cybersecurity of SATCOM Network Providers and Customers',
             url: 'https://www.cisa.gov/news-events/cybersecurity-advisories/aa22-076a',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -432,7 +433,7 @@ export const THREATS: ThreatEvent[] = [
         id: 'EX-0001',
         name: 'Replay',
         url: 'https://sparta.aerospace.org/technique/EX-0001/',
-        status: 'verify-at-build',
+        status: 'verified',
       },
     ],
     blurb:
@@ -447,7 +448,7 @@ export const THREATS: ThreatEvent[] = [
             title: 'NSA Cybersecurity Advisory: Protecting VSAT Communications (2022)',
             url: 'https://www.nsa.gov/Press-Room/Press-Releases-Statements/Press-Release-View/Article/2910409/nsa-issues-recommendations-to-protect-vsat-communications/',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -468,8 +469,16 @@ export const THREATS: ThreatEvent[] = [
         id: 'EXF-0003.02',
         name: 'Signal Interception: Downlink Exfiltration',
         url: 'https://sparta.aerospace.org/technique/EXF-0003/02/',
-        status: 'verify-at-build',
+        status: 'verified',
         citation: 'UCSD and UMD, Don\'t Look Up (ACM CCS 2025)',
+      },
+      {
+        framework: 'NSA',
+        id: 'U/OO/106122-22',
+        name: 'Protecting VSAT Communications',
+        url: 'https://www.nsa.gov/Press-Room/Press-Releases-Statements/Press-Release-View/Article/2910409/nsa-issues-recommendations-to-protect-vsat-communications/',
+        status: 'verified',
+        citation: 'NSA Cybersecurity Advisory, May 2022',
       },
     ],
     blurb:
@@ -484,13 +493,13 @@ export const THREATS: ThreatEvent[] = [
             title: 'UCSD and UMD, Don\'t Look Up: There Are Sensitive Internal Links in the Clear on GEO Satellites (CCS 2025)',
             url: 'https://satcom.sysnet.ucsd.edu/',
             type: 'paper',
-            status: 'verify-at-build',
+            status: 'verified',
           },
           {
             title: 'NSA Cybersecurity Advisory: Protecting VSAT Communications (2022)',
             url: 'https://www.nsa.gov/Press-Room/Press-Releases-Statements/Press-Release-View/Article/2910409/nsa-issues-recommendations-to-protect-vsat-communications/',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -511,8 +520,16 @@ export const THREATS: ThreatEvent[] = [
         id: 'EXF-0003',
         name: 'Signal Interception',
         url: 'https://sparta.aerospace.org/technique/EXF-0003/',
-        status: 'verify-at-build',
+        status: 'verified',
         citation: 'UCSD and UMD, Don\'t Look Up (ACM CCS 2025); NSA VSAT advisory (2022)',
+      },
+      {
+        framework: 'NSA',
+        id: 'U/OO/106122-22',
+        name: 'Protecting VSAT Communications',
+        url: 'https://www.nsa.gov/Press-Room/Press-Releases-Statements/Press-Release-View/Article/2910409/nsa-issues-recommendations-to-protect-vsat-communications/',
+        status: 'verified',
+        citation: 'NSA Cybersecurity Advisory, May 2022',
       },
     ],
     blurb:
@@ -527,13 +544,13 @@ export const THREATS: ThreatEvent[] = [
             title: 'UCSD and UMD, Don\'t Look Up: There Are Sensitive Internal Links in the Clear on GEO Satellites (CCS 2025)',
             url: 'https://satcom.sysnet.ucsd.edu/',
             type: 'paper',
-            status: 'verify-at-build',
+            status: 'verified',
           },
           {
             title: 'NSA Cybersecurity Advisory: Protecting VSAT Communications (2022)',
             url: 'https://www.nsa.gov/Press-Room/Press-Releases-Statements/Press-Release-View/Article/2910409/nsa-issues-recommendations-to-protect-vsat-communications/',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -554,7 +571,7 @@ export const THREATS: ThreatEvent[] = [
         id: 'T1486',
         name: 'Data Encrypted for Impact',
         url: 'https://attack.mitre.org/techniques/T1486/',
-        status: 'verify-at-build',
+        status: 'verified',
       },
     ],
     blurb:
@@ -566,10 +583,10 @@ export const THREATS: ThreatEvent[] = [
           'Ransomware against operational organizations follows a documented playbook: initial access through commodity vectors, lateral movement to the systems that hurt most, then encryption for impact. US government guidance consolidates prevention and response practices, and the consistent themes are segmentation, offline backups, and rehearsed recovery.',
         sources: [
           {
-            title: 'CISA: StopRansomware, official US government guidance',
+            title: 'CISA: Stop Ransomware, official US government guidance',
             url: 'https://www.cisa.gov/stopransomware',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -590,7 +607,7 @@ export const THREATS: ThreatEvent[] = [
         id: 'T1566',
         name: 'Phishing',
         url: 'https://attack.mitre.org/techniques/T1566/',
-        status: 'verify-at-build',
+        status: 'verified',
       },
     ],
     blurb:
@@ -605,7 +622,7 @@ export const THREATS: ThreatEvent[] = [
             title: 'CISA: Phishing guidance, stopping the attack cycle at phase one',
             url: 'https://www.cisa.gov/resources-tools/resources/phishing-guidance-stopping-attack-cycle-phase-one',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -626,7 +643,7 @@ export const THREATS: ThreatEvent[] = [
         id: 'T1537',
         name: 'Transfer Data to Cloud Account',
         url: 'https://attack.mitre.org/techniques/T1537/',
-        status: 'verify-at-build',
+        status: 'verified',
         citation: 'CISA Insider Threat Mitigation Guide',
       },
     ],
@@ -642,13 +659,13 @@ export const THREATS: ThreatEvent[] = [
             title: 'CISA: Insider Threat Mitigation Guide',
             url: 'https://www.cisa.gov/resources-tools/resources/insider-threat-mitigation-guide',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
           {
             title: 'Atlantic Council: Small Satellites, The Implications for National Security (2022)',
             url: 'https://www.atlanticcouncil.org/in-depth-research-reports/report/small-satellites-the-implications-for-national-security/',
             type: 'report',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -667,9 +684,9 @@ export const THREATS: ThreatEvent[] = [
       {
         framework: 'SPARTA',
         id: 'DE-0009.01',
-        name: 'Debris Field',
+        name: 'Camouflage, Concealment, and Decoys (CCD): Debris Field',
         url: 'https://sparta.aerospace.org/technique/DE-0009/01/',
-        status: 'verify-at-build',
+        status: 'verified',
       },
     ],
     blurb:
@@ -684,7 +701,7 @@ export const THREATS: ThreatEvent[] = [
             title: 'NASA Orbital Debris Program Office',
             url: 'https://orbitaldebris.jsc.nasa.gov/',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },
@@ -704,16 +721,16 @@ export const THREATS: ThreatEvent[] = [
       {
         framework: 'SPARTA',
         id: 'EX-0016.03',
-        name: 'Jamming: Position, Navigation, and Timing (PNT)',
+        name: 'Jamming: Position, Navigation, and Timing (PNT) Jamming',
         url: 'https://sparta.aerospace.org/technique/EX-0016/03/',
-        status: 'verify-at-build',
+        status: 'verified',
       },
       {
         framework: 'ATLAS',
         id: 'AML.T0043',
         name: 'Craft Adversarial Data',
         url: 'https://atlas.mitre.org/techniques/AML.T0043',
-        status: 'verify-at-build',
+        status: 'verified',
       },
     ],
     blurb:
@@ -728,13 +745,13 @@ export const THREATS: ThreatEvent[] = [
             title: 'CISA: Positioning, Navigation, and Timing (PNT) risk management',
             url: 'https://www.cisa.gov/topics/risk-management/positioning-navigation-and-timing',
             type: 'advisory',
-            status: 'verify-at-build',
+            status: 'verified',
           },
           {
             title: 'Sun et al., Towards Robust LiDAR-based Perception in Autonomous Driving (USENIX Security 2020)',
-            url: 'https://www.usenix.org/conference/usenixsecurity20/presentation/sun',
+            url: 'https://arxiv.org/abs/2006.16974',
             type: 'paper',
-            status: 'verify-at-build',
+            status: 'verified',
           },
         ],
       },

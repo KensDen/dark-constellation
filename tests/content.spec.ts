@@ -25,31 +25,17 @@ describe('content integrity', () => {
     }
   })
 
-  // R3 shipped as structure-only: this session's network policy blocked
-  // every framework site, so zero refs could be web-verified and all of
-  // them remain explicitly verify-at-build. This acceptance test is the
-  // tripwire for the verification round that completes R3; unskip it there.
-  it.skip('R3-final acceptance (pending verification round): zero verify-at-build refs remain', () => {
-    const unverified = DEFAULT_SCENARIO.events.flatMap((ev) =>
-      ev.techniqueRefs.filter((r) => r.status !== 'verified').map((r) => `${ev.id}: ${r.framework} ${r.id}`),
-    )
+  // R3-final acceptance, unskipped in the verification round that closed
+  // R3 (every ref and source live-verified 2026-07-12). This supersedes
+  // the partial-round invariant that guarded the structure-only state.
+  it('R3-final acceptance: zero verify-at-build refs or sources remain', () => {
+    const unverified = DEFAULT_SCENARIO.events.flatMap((ev) => [
+      ...ev.techniqueRefs.filter((r) => r.status !== 'verified').map((r) => `${ev.id}: ${r.framework} ${r.id}`),
+      ...ev.learnMoreCards.flatMap((card) =>
+        card.sources.filter((s) => s.status !== 'verified').map((s) => `${ev.id}: ${s.url}`),
+      ),
+    ])
     expect(unverified).toEqual([])
-  })
-
-  it('partial-round invariant: no ref or source claims verified status without a verification pass', () => {
-    // Until the verification round runs, nothing in the deck may present
-    // itself as verified. Flipping any status to verified requires the
-    // live web check that this test's skipped sibling then enforces.
-    for (const ev of DEFAULT_SCENARIO.events) {
-      for (const ref of ev.techniqueRefs) {
-        expect(ref.status, `${ev.id}: ${ref.framework} ${ref.id}`).toBe('verify-at-build')
-      }
-      for (const card of ev.learnMoreCards) {
-        for (const src of card.sources) {
-          expect(src.status, `${ev.id}: ${src.url}`).toBe('verify-at-build')
-        }
-      }
-    }
   })
 
   it('every event carries at least one sourced learn-more card', () => {
@@ -70,11 +56,9 @@ describe('content integrity', () => {
     }
   })
 
-  // Deferred with the verification round: SPARTA CM IDs and their
-  // defense-in-depth tiers can only be mapped against the live site, which
-  // this session could not reach. The structure (types, schema, UI) ships
-  // now; unskip when the mapping lands.
-  it.skip('R3-final acceptance (pending verification round): every countermeasure maps to SPARTA CMs', () => {
+  // Unskipped in the verification round: every mapping below was read off
+  // the live SPARTA CM pages, tier included.
+  it('R3-final acceptance: every countermeasure maps to SPARTA CMs', () => {
     for (const cm of DEFAULT_SCENARIO.countermeasures) {
       expect(cm.spartaCms.length, cm.id).toBeGreaterThan(0)
       for (const ref of cm.spartaCms) {
