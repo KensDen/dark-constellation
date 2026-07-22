@@ -24,8 +24,10 @@ const SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), 'determinism
 const WIN_SEED = 20260712
 const LOSS_SEED = 4041
 
+// Standard difficulty is pinned here (R5): its multipliers are exactly 1 on
+// every axis, so the snapshot must stay byte-identical to the pre-R5 hash.
 function playGame(seed: number, script: Record<number, TurnActions>): GameState {
-  let state = newGame(DEFAULT_SCENARIO, seed)
+  let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
   while (state.status === 'playing') {
     const actions = script[state.turn] ?? NO_OP
     state = resolveTurn(state, actions, turnRng(state.seed, state.turn))

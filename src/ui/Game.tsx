@@ -30,9 +30,11 @@ import {
   DEPLOY_ETA,
   MITIGATION_PER_COUNTER,
   SSA_MITIGATION_BONUS,
+  DIFFICULTIES,
   SURGE_TOKEN_CAP,
   TIER_A_FLEET_SHARE,
   effectiveIntel,
+  incomeFor,
   newGame,
   resolveTurn,
 } from '../engine/reducer'
@@ -42,6 +44,7 @@ import type {
   AssetBuy,
   AssetKind,
   CountermeasureId,
+  Difficulty,
   GameState,
   Layer,
   ResolvedEvent,
@@ -52,6 +55,7 @@ import type {
 
 import Wordmark from './Wordmark'
 import defeatSphereUrl from './assets/defeat-sphere.webp'
+import winSphereUrl from './assets/win-sphere.webp'
 import heroUrl from './assets/hero.webp'
 import heroPlaceholderUrl from './assets/hero-placeholder.webp'
 import frameUrl from './assets/constellation-frame.svg'
@@ -170,6 +174,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const [phase, setPhase] = useState<Phase>((initial?.phase as Phase) ?? 'brief')
   const [actions, setActions] = useState<TurnActions>(EMPTY_ACTIONS)
   const [seedInput, setSeedInput] = useState(String(DEFAULT_SEED))
+  const [difficulty, setDifficulty] = useState<Difficulty>('standard')
   const [notice, setNotice] = useState('')
   const [codeInput, setCodeInput] = useState('')
   const [slots, setSlots] = useState<SaveMeta[]>(() => saveStore.list())
@@ -195,6 +200,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
         turnsSurvived: state.history.length,
         totalTurns: scenario.totalTurns,
         scenarioId: scenario.id,
+        difficulty: state.difficulty,
         recordedAt: new Date().toISOString(),
       })
     }
@@ -249,7 +255,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
 
   const start = () => {
     const seed = Number.parseInt(seedInput, 10)
-    beginGame(newGame(scenario, Number.isFinite(seed) ? seed : DEFAULT_SEED), 'brief')
+    beginGame(newGame(scenario, Number.isFinite(seed) ? seed : DEFAULT_SEED, difficulty), 'brief')
   }
 
   const newCampaign = () => {
@@ -350,6 +356,31 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
           </button>
         </div>
 
+        <fieldset className="mt-4 border border-phosphor/30 bg-panel p-3">
+          <legend className={`${h2cls} px-1`}>Difficulty</legend>
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(DIFFICULTIES) as Difficulty[]).map((d) => (
+              <button
+                key={d}
+                onClick={() => setDifficulty(d)}
+                aria-pressed={difficulty === d}
+                className={`font-mono text-sm border px-3 py-1 ${
+                  difficulty === d
+                    ? 'border-phosphor bg-phosphor/15 text-phosphor'
+                    : 'border-phosphor/40 text-ink-dim hover:bg-phosphor/10'
+                }`}
+              >
+                {DIFFICULTIES[d].label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-sm text-ink-dim">{DIFFICULTIES[difficulty].blurb}</p>
+          <p className="mt-1 font-mono text-xs text-ink-dim">
+            Condition pressure x{DIFFICULTIES[difficulty].conditionPressure}, income x
+            {DIFFICULTIES[difficulty].income}, starting credits x{DIFFICULTIES[difficulty].startCredits}.
+          </p>
+        </fieldset>
+
         <details className="mt-4 border border-phosphor/20 bg-panel p-3">
           <summary className="cursor-pointer font-mono text-sm text-phosphor">Load a saved game or save code</summary>
           <div className="mt-3">
@@ -416,7 +447,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   // budget gate mirrors that: this turn's spendable total, not last turn's
   // ending balance.
   const turnIncome =
-    scenario.incomePerTurn +
+    incomeFor(state.difficulty, scenario.incomePerTurn) +
     (coverage(state.assets) >= scenario.slaBonus.coverageMin ? scenario.slaBonus.credits : 0)
   const available = state.credits + turnIncome
   const cost = plannedCost(state, actions)
@@ -425,10 +456,17 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const displayTurn = phase === 'aftermath' && lastRecord ? lastRecord.turn : Math.min(state.turn, scenario.totalTurns)
 
   const resolve = () => {
-    const next = resolveTurn(state, actions, turnRng(state.seed, state.turn))
-    setState(next)
-    setActions(EMPTY_ACTIONS)
-    setPhase('aftermath')
+    // The engine is the authority on affordability. If the UI gate and the
+    // engine ever disagree, surface the reason instead of dying silently:
+    // a throw inside an event handler never reaches an error boundary.
+    try {
+      const next = resolveTurn(state, actions, turnRng(state.seed, state.turn))
+      setState(next)
+      setActions(EMPTY_ACTIONS)
+      setPhase('aftermath')
+    } catch (e) {
+      flash(e instanceof Error ? `Turn could not resolve: ${e.message}` : 'Turn could not resolve.')
+    }
   }
 
   const nextTurn = () => setPhase('brief')
@@ -538,7 +576,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
       <p className="mt-1 text-sm">
         Turn {displayTurn} of {scenario.totalTurns} | Credits {state.credits} | Coverage {coverage(state.assets)} |
         Link {state.meters.linkAvailability} | Data {state.meters.dataIntegrity} | Sensor{' '}
-        {state.meters.sensorIntegrity} | Intel level {state.intelLevel}
+        {state.meters.sensorIntegrity} | Intel level {state.intelLevel} | {DIFFICULTIES[state.difficulty].label}
       </p>
       <details className="mt-1 text-sm font-sans text-ink-dim">
         <summary className="cursor-pointer">What these numbers mean</summary>
@@ -567,7 +605,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
             incident response retainer.
           </li>
           <li>
-            Credits: the budget. Income +{scenario.incomePerTurn} a turn plus any SLA bonus. Repairs come out of it,
+            Credits: the budget. Income +{incomeFor(state.difficulty, scenario.incomePerTurn)} a turn plus any SLA bonus. Repairs come out of it,
             and below zero the program folds.
           </li>
           <li>
@@ -655,22 +693,25 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     const won = state.status === 'won'
     return (
       <main className="relative min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
-        {/* Defeat backdrop (R3.5): dimmed and duotoned toward state-magenta,
-            lazy-loaded on loss only, behind the report card. */}
-        {!won && (
-          <div aria-hidden="true" className="fixed inset-0 -z-10 pointer-events-none">
-            <img
-              src={defeatSphereUrl}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              className="w-full h-full object-cover opacity-25"
-              style={{ filter: 'grayscale(1) brightness(0.5) sepia(1) hue-rotate(270deg) saturate(4)' }}
-            />
-            <div className="absolute inset-0 bg-base/70" />
-          </div>
-        )}
-        <div className="flex items-center justify-between gap-2">
+        {/* Outcome backdrop: dimmed and duotoned toward the state colour,
+            magenta on a loss (R3.5) and blue on a win (R5), lazy-loaded and
+            symmetric. Only the one that applies is ever requested. */}
+        <div aria-hidden="true" className="fixed inset-0 z-0 pointer-events-none">
+          <img
+            src={won ? winSphereUrl : defeatSphereUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className="w-full h-full object-cover opacity-60"
+            style={{
+              filter: won
+                ? 'grayscale(1) brightness(0.55) sepia(1) hue-rotate(175deg) saturate(4)'
+                : 'grayscale(1) brightness(0.5) sepia(1) hue-rotate(270deg) saturate(4)',
+            }}
+          />
+          <div className="absolute inset-0 bg-base/60" />
+        </div>
+        <div className="relative z-10 flex items-center justify-between gap-2">
           <h1>
             <Wordmark size="clamp(0.6rem, 3vw, 1.4rem)" />
           </h1>
@@ -681,11 +722,11 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
           )}
         </div>
         <h2
-          className={`mt-6 font-display text-xl sm:text-2xl tracking-widest ${won ? 'text-hero-blue' : 'text-hero-magenta'}`}
+          className={`relative z-10 mt-6 font-display text-xl sm:text-2xl tracking-widest ${won ? 'text-hero-blue' : 'text-hero-magenta'}`}
         >
           {won ? 'MISSION ASSURED' : 'MISSION FAILED'}
         </h2>
-        <p className="mt-2">
+        <p className="relative z-10 mt-2">
           {won
             ? `The architecture held through turn ${scenario.totalTurns}.`
             : state.lossReason === 'insolvency'
@@ -694,15 +735,16 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
                 ? 'Mission Assurance Index collapse. The architecture came apart under the campaign.'
                 : `End of campaign below the win threshold of ${scenario.winThreshold}.`}
         </p>
-        <p className="mt-4 font-mono text-xl text-phosphor">
+        <p className="relative z-10 mt-4 font-mono text-xl text-phosphor">
           Final MAI: {lastRecord?.maiScore ?? 0}
           <span className="text-ink-dim text-sm">
             {' '}
-            | turns survived {state.history.length} of {scenario.totalTurns} | seed {state.seed}
+            | turns survived {state.history.length} of {scenario.totalTurns} | seed {state.seed} |{' '}
+            {DIFFICULTIES[state.difficulty].label}
           </span>
         </p>
-        <h3 className={`${h2cls} mt-6`}>Technique report card</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+        <h3 className={`${h2cls} relative z-10 mt-6`}>Technique report card</h3>
+        <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
           {report.burned.map((t) => (
             <div key={t.id} className="border border-hero-magenta/50 bg-hero-magenta/5 p-2 font-mono text-xs">
               <p className="text-hero-magenta font-bold flex items-center gap-2">
@@ -727,14 +769,14 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
             <p className="text-ink-dim">No technique fired or was shut out this run.</p>
           )}
         </div>
-        <div className="mt-6 pt-3 border-t border-phosphor/30 flex flex-wrap items-center justify-between gap-2">
+        <div className="relative z-10 mt-6 pt-3 border-t border-phosphor/30 flex flex-wrap items-center justify-between gap-2">
           <Wordmark size="0.7rem" />
           <p className="font-mono text-xs text-ink-dim">
             {won ? 'assured' : 'failed'} at MAI {lastRecord?.maiScore ?? 0} | seed {state.seed} |
             kensden.github.io/dark-constellation
           </p>
         </div>
-        <div className="mt-6 flex flex-wrap gap-2">
+        <div className="relative z-10 mt-6 flex flex-wrap gap-2">
           <button className={btn} onClick={copyResult}>
             Copy result
           </button>

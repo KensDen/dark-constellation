@@ -8,9 +8,14 @@
 import { SCENARIOS } from '../content'
 import type { GameState } from '../engine/types'
 
-// Bump when the persisted shape changes; older codes are then rejected with
-// a message rather than corrupt-loaded (R4 item 6).
-export const SAVE_VERSION = 1
+// Bump when the persisted shape changes. Versions we know how to migrate
+// are upgraded on load; anything else is rejected with a message rather
+// than corrupt-loaded (R4 item 6).
+//
+// v1 (R4): no difficulty field, all campaigns were the Standard tuning.
+// v2 (R5): adds difficulty. v1 saves migrate forward as Standard.
+export const SAVE_VERSION = 2
+const OLDEST_MIGRATABLE = 1
 
 export type SavePhase = 'brief' | 'procure' | 'harden' | 'aftermath'
 
@@ -48,6 +53,7 @@ function isPlainState(s: unknown): s is Omit<GameState, 'scenario'> {
   const m = st.meters as Record<string, unknown> | undefined
   return (
     (st.status === 'playing' || st.status === 'won' || st.status === 'lost') &&
+    (st.difficulty === 'easy' || st.difficulty === 'standard' || st.difficulty === 'expert') &&
     num(st.seed) &&
     num(st.turn) &&
     num(st.credits) &&
@@ -76,17 +82,22 @@ export function restoreGame(p: unknown): { state: GameState; phase: SavePhase } 
   if (!p || typeof p !== 'object') throw new SaveError('This is not a valid save.')
   const rec = p as Partial<PersistedGame>
   if (typeof rec.version !== 'number') throw new SaveError('This save is missing its version.')
-  if (rec.version !== SAVE_VERSION) {
+  if (rec.version > SAVE_VERSION || rec.version < OLDEST_MIGRATABLE) {
     throw new SaveError(
-      `This save is version ${rec.version}, but this build reads version ${SAVE_VERSION}. It cannot be loaded.`,
+      `This save is version ${rec.version}, but this build reads versions ${OLDEST_MIGRATABLE} to ${SAVE_VERSION}. It cannot be loaded.`,
     )
   }
   const scenario = SCENARIOS.find((s) => s.id === rec.scenarioId)
   if (!scenario) throw new SaveError(`This save references an unknown scenario (${String(rec.scenarioId)}).`)
-  if (!isPlainState(rec.state)) throw new SaveError('This save is corrupt or incomplete.')
+  // Migrate forward. v1 predates difficulty, so those campaigns were played
+  // on the Standard tuning and load as Standard; they are never rejected.
+  const raw = rec.state as Record<string, unknown> | undefined
+  const migrated =
+    rec.version < 2 && raw && typeof raw === 'object' ? { ...raw, difficulty: 'standard' } : raw
+  if (!isPlainState(migrated)) throw new SaveError('This save is corrupt or incomplete.')
   const phase: SavePhase =
     rec.phase === 'procure' || rec.phase === 'harden' || rec.phase === 'aftermath' ? rec.phase : 'brief'
-  return { state: { ...(rec.state as Omit<GameState, 'scenario'>), scenario } as GameState, phase }
+  return { state: { ...(migrated as Omit<GameState, 'scenario'>), scenario } as GameState, phase }
 }
 
 // UTF-8-safe base64, so save codes survive copy-paste through any channel.

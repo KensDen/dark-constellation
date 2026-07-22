@@ -72,10 +72,27 @@ describe('save code determinism', () => {
 })
 
 describe('save robustness', () => {
-  it('rejects a save from a different schema version with a message', () => {
+  it('rejects a save from a future schema version with a message', () => {
     const mid = playTo(SEED, 3, WIN_SCRIPT)
     const p = captureGame(mid, 'brief', '2026-07-22T00:00:00.000Z')
     expect(() => restoreGame({ ...p, version: SAVE_VERSION + 99 })).toThrow(SaveError)
+  })
+
+  it('migrates a v1 save forward as Standard rather than rejecting it', () => {
+    // A v1 save is exactly a v2 save minus the difficulty field.
+    const mid = playTo(SEED, 5, WIN_SCRIPT)
+    const p = captureGame(mid, 'harden', '2026-07-22T00:00:00.000Z')
+    const legacyState = { ...p.state } as Record<string, unknown>
+    delete legacyState.difficulty
+    const legacy = { ...p, version: 1, state: legacyState }
+
+    const restored = restoreGame(legacy)
+    expect(restored.state.difficulty).toBe('standard')
+    expect(restored.phase).toBe('harden')
+    // And it still resolves: a migrated save is a playable save.
+    expect(() =>
+      resolveTurn(restored.state, NO_OP, turnRng(restored.state.seed, restored.state.turn)),
+    ).not.toThrow()
   })
 
   it('rejects garbage and non-prefixed codes without throwing raw errors', () => {

@@ -3,6 +3,8 @@
 // interface only: no remote SDK is imported, and a remote sink would drop
 // in against this same contract with zero engine or UI changes.
 
+import type { Difficulty } from '../engine/types'
+
 export interface ScoreEntry {
   outcome: 'won' | 'lost'
   mai: number
@@ -10,6 +12,8 @@ export interface ScoreEntry {
   turnsSurvived: number
   totalTurns: number
   scenarioId: string
+  // Absent on entries recorded before R5; those runs were all Standard.
+  difficulty?: Difficulty
   recordedAt: string // ISO, presentation only
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "dark-constellation",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -29,5 +29,13 @@
     "typescript": "~6.0.2",
     "vite": "^8.1.1",
     "vitest": "^4.1.10"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Kendall Connell",
+  "description": "A turn-based space and drone cybersecurity strategy sim. Every threat maps to a live-verified SPARTA, MITRE ATT&CK, or MITRE ATLAS technique.",
+  "homepage": "https://kensden.github.io/dark-constellation/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KensDen/dark-constellation.git"
   }
 }

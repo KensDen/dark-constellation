@@ -9,6 +9,7 @@
 // tick, commendations, win/loss.
 
 import type {
+  Difficulty,
   Asset,
   ChainFlags,
   Countermeasure,
@@ -55,6 +56,49 @@ export const DEPLOY_ETA: Record<Asset['kind'], { min: number; max: number }> = {
   drone: { min: 1, max: 1 },
 }
 export const DEPLOY_SLIP_CHANCE = 0.25 // sats only, +1 turn
+
+// Difficulty multipliers (R5). Standard is exactly 1 on every axis, so a
+// Standard campaign resolves identically to the pre-R5 tuning. Easy eases
+// the sustained pressure and widens the budget; Expert does the reverse.
+// Every derived value is rounded to an integer, and rounding a value times
+// 1 returns that value unchanged.
+export interface DifficultyProfile {
+  label: string
+  blurb: string
+  conditionPressure: number
+  income: number
+  startCredits: number
+}
+
+export const DIFFICULTIES: Record<Difficulty, DifficultyProfile> = {
+  easy: {
+    label: 'EASY',
+    blurb: 'Conditions press lighter and the budget runs wider. For learning the deck.',
+    conditionPressure: 0.8,
+    income: 1.2,
+    startCredits: 1.2,
+  },
+  standard: {
+    label: 'STANDARD',
+    blurb: 'The tuned campaign. Prepared play wins most runs; reasonable play is a genuine coin flip.',
+    conditionPressure: 1,
+    income: 1,
+    startCredits: 1,
+  },
+  expert: {
+    label: 'EXPERT',
+    blurb: 'Conditions bite harder and credits are tight. Every turn of delay costs you.',
+    conditionPressure: 1.2,
+    income: 0.85,
+    startCredits: 0.85,
+  },
+}
+
+export const conditionPressureFor = (d: Difficulty): number =>
+  Math.round(CONDITION_PRESSURE_PER_SEVERITY * DIFFICULTIES[d].conditionPressure)
+export const incomeFor = (d: Difficulty, base: number): number => Math.round(base * DIFFICULTIES[d].income)
+export const startCreditsFor = (d: Difficulty, base: number): number =>
+  Math.round(base * DIFFICULTIES[d].startCredits)
 
 const layerFor = (kind: Asset['kind']): Asset['layer'] =>
   kind === 'drone' ? 'AIR' : kind === 'groundStation' ? 'GROUND' : 'ORBIT'
@@ -109,7 +153,7 @@ function mitigationFor(state: GameState, ev: ThreatEvent, notes?: string[]): num
 
 const jamConditionActive = (state: GameState) => state.conditions.some((c) => c.eventId === 'pnt-jamming')
 
-export function newGame(scenario: Scenario, seed: number): GameState {
+export function newGame(scenario: Scenario, seed: number, difficulty: Difficulty = 'standard'): GameState {
   const assets = scenario.starterAssets.map((s, i) => ({
     id: `start-${s.kind}-${i + 1}`,
     kind: s.kind,
@@ -122,7 +166,8 @@ export function newGame(scenario: Scenario, seed: number): GameState {
     seed,
     turn: 1,
     status: 'playing',
-    credits: scenario.startCredits,
+    difficulty,
+    credits: startCreditsFor(difficulty, scenario.startCredits),
     intelLevel: 0,
     irRetainer: false,
     assets,
@@ -402,7 +447,7 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng): G
   const intelBoostBefore = next.intelBoostTurns
 
   // Income, SLA bonus, recovery.
-  next.credits += scenario.incomePerTurn
+  next.credits += incomeFor(next.difficulty, scenario.incomePerTurn)
   if (coverage(next.assets) >= scenario.slaBonus.coverageMin) {
     next.credits += scenario.slaBonus.credits
     notes.push(`Coverage SLA met: +${scenario.slaBonus.credits} credits.`)
@@ -449,7 +494,10 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng): G
     const pressureSeverity = Math.max(0, cond.baseSeverity - mitigationFor(next, def))
     if (pressureSeverity > 0) {
       for (const meter of def.effect.meters) {
-        next.meters[meter] = Math.max(0, next.meters[meter] - pressureSeverity * CONDITION_PRESSURE_PER_SEVERITY)
+        next.meters[meter] = Math.max(
+          0,
+          next.meters[meter] - pressureSeverity * conditionPressureFor(next.difficulty),
+        )
       }
       notes.push(`${cond.name} continues: sustained pressure on the mission.`)
     } else {

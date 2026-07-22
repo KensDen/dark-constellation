@@ -48,7 +48,7 @@ const trackedAuthoredFiles = () =>
   sh('git ls-files --cached --others --exclude-standard')
     .split('\n')
     .filter(Boolean)
-    .filter((f) => AUTHORED.test(f) || f.startsWith('scripts/hooks/'))
+    .filter((f) => AUTHORED.test(f) || f.startsWith('scripts/hooks/') || f === 'LICENSE')
     .filter((f) => f !== 'package-lock.json')
 
 run('no em dashes in docs, code, or copy (spec 13.6)', () => {
@@ -134,6 +134,19 @@ async function checkUrl(url) {
   }
 }
 
+// A live third-party host can return a transient 429 or 5xx (rate limiting,
+// a brief outage). Those are not broken links, so retry once before calling
+// it: genuine 404s and persistent failures still fail the battery.
+const RETRY_DELAY_MS = 4000
+const isTransient = (r) => !r.network && (r.status === 429 || r.status >= 500)
+
+async function checkUrlWithRetry(url) {
+  const first = await checkUrl(url)
+  if (!isTransient(first)) return first
+  await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+  return checkUrl(url)
+}
+
 // atlas.mitre.org serves its technique pages as a client-rendered SPA and
 // returns HTTP 404 status to non-browser fetchers for every deep link
 // (verified 2026-07-12: curl with any user agent gets 404 on /techniques/*
@@ -151,7 +164,7 @@ async function linkCheck() {
   const urls = contentUrls()
   if (urls.length === 0) return `FAIL: no URLs found in src/content; the deck should carry sources`
   if (urls.some((u) => u.startsWith('https://atlas.mitre.org/'))) {
-    const origin = await checkUrl('https://atlas.mitre.org/')
+    const origin = await checkUrlWithRetry('https://atlas.mitre.org/')
     if (!origin.network && (origin.status < 200 || origin.status >= 400)) {
       return `FAIL: atlas.mitre.org origin returned HTTP ${origin.status}; ATLAS links cannot be presumed alive`
     }
@@ -163,7 +176,7 @@ async function linkCheck() {
       while (cursor < urls.length) {
         const url = urls[cursor]
         cursor += 1
-        results.push(await checkUrl(url))
+        results.push(await checkUrlWithRetry(url))
       }
     }),
   )

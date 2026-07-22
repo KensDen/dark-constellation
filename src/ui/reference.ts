@@ -35,7 +35,7 @@ function techniqueEntries(): GlossaryEntry[] {
     .map(({ ref, events }) => ({
       term: `${techniqueLabel(ref)}: ${ref.name}`,
       category: 'Technique' as const,
-      body: `${ref.framework} framework technique. Appears in: ${[...events].join(', ')}.`,
+      body: `${ref.framework === 'NSA' ? 'NSA cybersecurity advisory' : `${ref.framework} framework technique`}. Appears in: ${[...events].join(', ')}.`,
       refs: [{ label: 'Framework page', url: ref.url }],
     }))
     .sort((a, b) => a.term.localeCompare(b.term))

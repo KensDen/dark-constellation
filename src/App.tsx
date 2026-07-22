@@ -12,10 +12,11 @@ import HowToPlay from './ui/HowToPlay'
 import IntroSequence, { hasSeenIntro } from './ui/IntroSequence'
 import MainMenu, { type MenuTarget } from './ui/MainMenu'
 import Scoreboard from './ui/Scoreboard'
+import Credits from './ui/Credits'
 import TerminalChrome from './ui/TerminalChrome'
 import { LocalStorageStore, type RestoredGame } from './persistence'
 
-type Screen = 'intro' | 'menu' | 'game' | 'scoreboard' | 'howto' | 'manual' | 'glossary'
+type Screen = 'intro' | 'menu' | 'game' | 'scoreboard' | 'howto' | 'manual' | 'glossary' | 'credits'
 
 const STATUS: Record<Screen, string> = {
   intro: 'BOOT',
@@ -25,6 +26,7 @@ const STATUS: Record<Screen, string> = {
   howto: 'REFERENCE',
   manual: 'REFERENCE',
   glossary: 'REFERENCE',
+  credits: 'REFERENCE',
 }
 
 const store = new LocalStorageStore()
@@ -70,6 +72,7 @@ function App() {
             {screen === 'howto' && <HowToPlay onBack={toMenu} />}
             {screen === 'manual' && <FieldManual onBack={toMenu} />}
             {screen === 'glossary' && <Glossary onBack={toMenu} />}
+            {screen === 'credits' && <Credits onBack={toMenu} />}
           </div>
         </div>
       )}

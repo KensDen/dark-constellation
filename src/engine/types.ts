@@ -2,6 +2,11 @@
 // The engine is content-agnostic: it consumes whatever validated data the
 // scenario carries. Content modules import these types, never the reverse.
 
+// Difficulty (R5): documented multipliers on condition pressure and the
+// economy. Standard is exactly 1 on every axis, so a Standard campaign is
+// behavior-identical to the pre-R5 tuning.
+export type Difficulty = 'easy' | 'standard' | 'expert'
+
 export type Layer = 'ORBIT' | 'AIR' | 'GROUND'
 export type TrustTier = 'A' | 'B'
 export type Vector = 'rf' | 'optical' | 'cyber' | 'supplyChain' | 'human' | 'environmental'
@@ -226,6 +231,7 @@ export interface TurnRecord {
 
 export interface GameState {
   scenario: Scenario
+  difficulty: Difficulty
   seed: number
   turn: number // next turn to resolve, 1..totalTurns
   status: 'playing' | 'won' | 'lost'

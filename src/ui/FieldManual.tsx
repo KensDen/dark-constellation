@@ -70,7 +70,8 @@ export default function FieldManual({ onBack }: { onBack: () => void }) {
         <p>
           Some attacks are not single strikes. Jamming, spoofing, eavesdropping, and ransomware become active
           conditions that last a hidden {durMin} to {durMax} turns, pressing the meters by{' '}
-          {CONDITION_PRESSURE_PER_SEVERITY} per unmitigated severity every turn until they lift. Conditions stack, and
+          {CONDITION_PRESSURE_PER_SEVERITY} per unmitigated severity every turn on Standard difficulty (Easy and Expert
+          scale that figure) until they lift. Conditions stack, and
           the sustained pressure is what makes a campaign hard, not any one landing. Buying the right countermeasure
           while a condition is live reduces its remaining bite. Only high intel estimates how many turns a condition
           has left.

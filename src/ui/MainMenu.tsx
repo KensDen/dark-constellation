@@ -5,7 +5,7 @@
 import { useEffect } from 'react'
 import Wordmark from './Wordmark'
 
-export type MenuTarget = 'resume' | 'game' | 'scoreboard' | 'howto' | 'manual' | 'glossary'
+export type MenuTarget = 'resume' | 'game' | 'scoreboard' | 'howto' | 'manual' | 'glossary' | 'credits'
 
 const BASE_ITEMS: { label: string; target: MenuTarget }[] = [
   { label: 'NEW OPERATION', target: 'game' },
@@ -13,6 +13,7 @@ const BASE_ITEMS: { label: string; target: MenuTarget }[] = [
   { label: 'HOW TO PLAY', target: 'howto' },
   { label: 'FIELD MANUAL', target: 'manual' },
   { label: 'GLOSSARY', target: 'glossary' },
+  { label: 'CREDITS', target: 'credits' },
 ]
 
 export default function MainMenu({

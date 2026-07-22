@@ -4,7 +4,8 @@
 // plain text with no image generation and no external calls.
 
 import { GAME_TITLE } from '../config'
-import type { GameState, Vector } from '../engine/types'
+import { DIFFICULTIES } from '../engine/reducer'
+import type { Difficulty, GameState, Vector } from '../engine/types'
 
 export interface ReportData {
   outcome: 'won' | 'lost'
@@ -12,6 +13,7 @@ export interface ReportData {
   turnsSurvived: number
   totalTurns: number
   seed: number
+  difficulty: Difficulty
   burned: { id: string; name: string; vector?: Vector }[]
   resisted: { id: string; name: string; vector?: Vector }[]
 }
@@ -45,6 +47,7 @@ export function reportData(state: GameState): ReportData {
     turnsSurvived: state.history.length,
     totalTurns: scenario.totalTurns,
     seed: state.seed,
+    difficulty: state.difficulty,
     burned: toList(burned),
     resisted: toList(resisted),
   }
@@ -54,7 +57,9 @@ export function shareText(state: GameState): string {
   const r = reportData(state)
   const lines: string[] = []
   lines.push(`${GAME_TITLE}: ${r.outcome === 'won' ? 'MISSION ASSURED' : 'MISSION FAILED'}`)
-  lines.push(`Final MAI ${r.mai} | survived ${r.turnsSurvived} of ${r.totalTurns} turns | seed ${r.seed}`)
+  lines.push(
+    `Final MAI ${r.mai} | survived ${r.turnsSurvived} of ${r.totalTurns} turns | ${DIFFICULTIES[r.difficulty].label} | seed ${r.seed}`,
+  )
   lines.push('')
   lines.push(`Resilient to (${r.resisted.length}): ${r.resisted.map((t) => t.id).join(', ') || 'none'}`)
   lines.push(`Compromised by (${r.burned.length}): ${r.burned.map((t) => t.id).join(', ') || 'none'}`)
