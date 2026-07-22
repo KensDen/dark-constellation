@@ -4,7 +4,7 @@
 // All game logic is unchanged from R1.5.
 
 import { Suspense, lazy, useState } from 'react'
-import { ADVERSARY, GAME_TITLE, SQUADRON } from '../config'
+import { ADVERSARY, SQUADRON } from '../config'
 import {
   COUNTERMEASURE_COUNT,
   DEFAULT_SCENARIO,
@@ -39,7 +39,8 @@ import type {
   Vector,
 } from '../engine/types'
 
-import wordmarkUrl from './assets/wordmark.svg'
+import Wordmark from './Wordmark'
+import defeatSphereUrl from './assets/defeat-sphere.webp'
 import heroUrl from './assets/hero.webp'
 import heroPlaceholderUrl from './assets/hero-placeholder.webp'
 import frameUrl from './assets/constellation-frame.svg'
@@ -125,7 +126,7 @@ function plannedCost(state: GameState, actions: TurnActions): number {
   return total
 }
 
-export default function Game() {
+export default function Game({ onExit }: { onExit?: () => void }) {
   const [state, setState] = useState<GameState | null>(null)
   const [phase, setPhase] = useState<Phase>('brief')
   const [actions, setActions] = useState<TurnActions>(EMPTY_ACTIONS)
@@ -180,9 +181,16 @@ export default function Game() {
   if (!state) {
     return (
       <main className="min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
-        <h1>
-          <img src={wordmarkUrl} alt={GAME_TITLE} className="w-full max-w-xl mx-auto" />
-        </h1>
+        <div className="flex items-center justify-between gap-2">
+          <h1>
+            <Wordmark size="clamp(0.6rem, 3vw, 1.4rem)" />
+          </h1>
+          {onExit && (
+            <button className={`${btn} text-sm`} onClick={onExit}>
+              Back to menu
+            </button>
+          )}
+        </div>
         <div
           className="mt-4 border border-phosphor/20 max-w-xl mx-auto"
           style={{ backgroundImage: `url(${heroPlaceholderUrl})`, backgroundSize: 'cover', aspectRatio: '1 / 1' }}
@@ -203,7 +211,10 @@ export default function Game() {
           {' | '}
           <span className="text-phosphor">green: mission chrome</span>
         </p>
-        <p className="mt-4">{scenario.briefIntro}</p>
+        <div className="mt-4 border-l-2 border-phosphor/50 pl-3">
+          <p className="font-mono text-xs text-phosphor tracking-widest">&gt; DIRECTORATE TRANSMISSION_</p>
+          <p className="mt-1">{scenario.briefIntro}</p>
+        </div>
         {jobFraming}
         <p className="mt-4 font-mono text-sm text-ink-dim">Scenario: {scenario.name}.</p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -490,12 +501,34 @@ export default function Game() {
     }
     const won = state.status === 'won'
     return (
-      <main className="min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
-        <h1>
-          <img src={wordmarkUrl} alt={GAME_TITLE} className="w-full max-w-md" />
-        </h1>
+      <main className="relative min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
+        {/* Defeat backdrop (R3.5): dimmed and duotoned toward state-magenta,
+            lazy-loaded on loss only, behind the report card. */}
+        {!won && (
+          <div aria-hidden="true" className="fixed inset-0 -z-10 pointer-events-none">
+            <img
+              src={defeatSphereUrl}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="w-full h-full object-cover opacity-25"
+              style={{ filter: 'grayscale(1) brightness(0.5) sepia(1) hue-rotate(270deg) saturate(4)' }}
+            />
+            <div className="absolute inset-0 bg-base/70" />
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-2">
+          <h1>
+            <Wordmark size="clamp(0.6rem, 3vw, 1.4rem)" />
+          </h1>
+          {onExit && (
+            <button className={`${btn} text-sm`} onClick={onExit}>
+              Back to menu
+            </button>
+          )}
+        </div>
         <h2
-          className={`mt-6 font-mono font-bold text-2xl tracking-widest ${won ? 'text-hero-blue' : 'text-hero-magenta'}`}
+          className={`mt-6 font-display text-xl sm:text-2xl tracking-widest ${won ? 'text-hero-blue' : 'text-hero-magenta'}`}
         >
           {won ? 'MISSION ASSURED' : 'MISSION FAILED'}
         </h2>
@@ -546,24 +579,38 @@ export default function Game() {
           )}
         </div>
         <div className="mt-6 pt-3 border-t border-phosphor/30 flex flex-wrap items-center justify-between gap-2">
-          <img src={wordmarkUrl} alt="" aria-hidden="true" className="h-5 w-auto" />
+          <Wordmark size="0.7rem" />
           <p className="font-mono text-xs text-ink-dim">
             {won ? 'assured' : 'failed'} at MAI {lastRecord?.maiScore ?? 0} | seed {state.seed} |
             kensden.github.io/dark-constellation
           </p>
         </div>
-        <button className={`${btn} mt-6`} onClick={() => setState(null)}>
-          New campaign
-        </button>
+        <div className="mt-6 flex flex-wrap gap-2">
+          <button className={btn} onClick={() => setState(null)}>
+            New campaign
+          </button>
+          {onExit && (
+            <button className={btn} onClick={onExit}>
+              Back to menu
+            </button>
+          )}
+        </div>
       </main>
     )
   }
 
   return (
     <main className="min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
-      <h1>
-        <img src={wordmarkUrl} alt={GAME_TITLE} className="w-full max-w-md" />
-      </h1>
+      <div className="flex items-center justify-between gap-2">
+        <h1>
+          <Wordmark size="clamp(0.6rem, 3vw, 1.4rem)" />
+        </h1>
+        {onExit && (
+          <button className={`${btn} text-sm`} onClick={onExit}>
+            Back to menu
+          </button>
+        )}
+      </div>
       {statusPanel}
 
       {phase === 'brief' && (

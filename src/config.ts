@@ -6,3 +6,7 @@ export const PLAYER_ORG = 'the Directorate'
 export const CONSTELLATION = 'HELIOS-9'
 export const SQUADRON = 'KESTREL'
 export const ADVERSARY = 'COLDWAKE'
+
+// Diegetic terminal chrome (R3.5), all fiction, presentation only.
+export const DEPARTMENT = 'DIRECTORATE // OFFICE OF MISSION ASSURANCE'
+export const TERMINAL_ID = 'MAC-7'
