@@ -64,19 +64,55 @@ export const threatEffectSchema = z.object({
   repairCostPerSeverity: z.number().int().min(0),
 })
 
-export const threatEventSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  layers: z.array(z.enum(['ORBIT', 'AIR', 'GROUND'])).min(1),
-  vector: z.enum(['rf', 'optical', 'cyber', 'supplyChain', 'human', 'environmental']),
-  baseSeverity: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-  counters: z.array(countermeasureIdSchema),
-  techniqueRefs: z.array(techniqueRefSchema).min(1), // every event carries at least one ref
-  chainsWith: z.array(z.string()).optional(),
-  effect: threatEffectSchema,
-  blurb: z.string().min(1),
-  learnMoreCards: z.array(learnMoreCardSchema).min(1),
-})
+export const threatEventSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    kind: z.enum(['threat', 'opportunity']).optional(),
+    layers: z.array(z.enum(['ORBIT', 'AIR', 'GROUND'])).min(1),
+    vector: z.enum(['rf', 'optical', 'cyber', 'supplyChain', 'human', 'environmental']),
+    baseSeverity: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    counters: z.array(countermeasureIdSchema),
+    techniqueRefs: z.array(techniqueRefSchema),
+    chainsWith: z.array(z.string()).optional(),
+    effect: threatEffectSchema,
+    // Landed events with a duration become active conditions (R3.25).
+    duration: z
+      .object({ min: z.number().int().min(1), max: z.number().int().min(1) })
+      .refine((d) => d.max >= d.min, { message: 'duration max must be at least min' })
+      .optional(),
+    benefit: z
+      .object({
+        credits: z.number().int().positive().optional(),
+        intelBoostTurns: z.number().int().positive().optional(),
+        expediteTurns: z.number().int().positive().optional(),
+      })
+      .optional(),
+    blurb: z.string().min(1),
+    learnMoreCards: z.array(learnMoreCardSchema),
+  })
+  .superRefine((ev, ctx) => {
+    const kind = ev.kind ?? 'threat'
+    if (kind === 'threat') {
+      // Every threat teaches: at least one framework ref and one sourced card.
+      if (ev.techniqueRefs.length === 0) {
+        ctx.addIssue({ code: 'custom', message: `threat ${ev.id} carries no technique ref` })
+      }
+      if (ev.learnMoreCards.length === 0) {
+        ctx.addIssue({ code: 'custom', message: `threat ${ev.id} carries no learn-more card` })
+      }
+      if (ev.benefit) {
+        ctx.addIssue({ code: 'custom', message: `threat ${ev.id} must not carry a benefit` })
+      }
+    } else {
+      if (!ev.benefit || Object.keys(ev.benefit).length === 0) {
+        ctx.addIssue({ code: 'custom', message: `opportunity ${ev.id} carries no benefit` })
+      }
+      if (ev.duration) {
+        ctx.addIssue({ code: 'custom', message: `opportunity ${ev.id} must not carry a duration` })
+      }
+    }
+  })
 
 const assetKindSchema = z.enum(['sat', 'rpoSat', 'drone', 'groundStation'])
 const tierSchema = z.enum(['A', 'B'])
@@ -117,6 +153,9 @@ export const scenarioSchema = z
               message: 'slot must have exactly one of fixed or drawFrom',
             }),
         ),
+        opportunity: z
+          .object({ chance: z.number().gt(0).lte(1), drawFrom: z.array(z.string()).min(1) })
+          .optional(),
       }),
     ),
     briefIntro: z.string().min(1),
@@ -133,12 +172,22 @@ export const scenarioSchema = z
       ctx.addIssue({ code: 'custom', message: 'duplicate countermeasure ids' })
     }
     // Full-deck rule (R3): an event that no campaign slot can ever draw is
-    // dead content and fails validation.
+    // dead content and fails validation. Opportunity rolls count as
+    // reachability, and threats must not hide in opportunity pools.
     const reachable = new Set<string>()
     for (const plan of s.campaign) {
       for (const slot of plan.slots) {
         if (slot.fixed) reachable.add(slot.fixed)
         for (const id of slot.drawFrom ?? []) reachable.add(id)
+      }
+      for (const id of plan.opportunity?.drawFrom ?? []) {
+        reachable.add(id)
+        const ev = s.events.find((e) => e.id === id)
+        if (!ev) {
+          ctx.addIssue({ code: 'custom', message: `opportunity roll references unknown event ${id}` })
+        } else if ((ev.kind ?? 'threat') !== 'opportunity') {
+          ctx.addIssue({ code: 'custom', message: `opportunity roll on turn ${plan.turn} draws non-opportunity ${id}` })
+        }
       }
     }
     for (const ev of s.events) {

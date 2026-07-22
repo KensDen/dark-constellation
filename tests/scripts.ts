@@ -45,3 +45,21 @@ export const LAZY_SCRIPT: Record<number, TurnActions> = {
   6: a({ buyAssets: [{ kind: 'drone', tier: 'B' }] }),
   8: a({ buyCounters: ['linkAuth'] }),
 }
+
+// MIXED_SCRIPT (R3.25): reasonable but imperfect play. Real defenses, but
+// bought a little late and incomplete: fusion retrofit lands just before
+// the first chain rather than well ahead of it, intel only reaches level
+// 1, coverage is grown but never maxed, and there is no Tier A fleet.
+// Deploy slips and hidden condition durations make the outcome genuinely
+// uncertain seed to seed. This is the balance-uncertainty line.
+export const MIXED_SCRIPT: Record<number, TurnActions> = {
+  ...LOSS_SCRIPT,
+  1: a({ buyCounters: ['antiJam'], buyIntelLevel: true, buyAssets: [{ kind: 'sat', tier: 'B' }] }),
+  2: a({ buyCounters: ['groundZeroTrust'], buyAssets: [{ kind: 'sat', tier: 'B' }] }),
+  3: a({ buyCounters: ['linkAuth'] }),
+  4: a({ buyCounters: ['pntAuth'] }),
+  5: a({ buyCounters: ['ssaManeuver'] }),
+  6: a({ buyCounters: ['sensorFusion'], buyAssets: [{ kind: 'drone', tier: 'B' }] }),
+  8: a({ buyCounters: ['encryptedBackhaul'], buyIrRetainer: true }),
+  10: a({ buyAssets: [{ kind: 'drone', tier: 'B' }] }),
+}

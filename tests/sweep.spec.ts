@@ -9,7 +9,7 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState, TurnActions } from '../src/engine/types'
-import { LAZY_SCRIPT, LOSS_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
+import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
 
 const SEEDS = 300
 
@@ -26,6 +26,7 @@ describe.runIf(process.env.SWEEP)('balance baseline sweep', () => {
   it(`plays each line across ${SEEDS} seeds and reports the baseline`, () => {
     const lines = [
       ['prepared', WIN_SCRIPT],
+      ['mixed', MIXED_SCRIPT],
       ['lazy', LAZY_SCRIPT],
       ['passive', LOSS_SCRIPT],
     ] as const

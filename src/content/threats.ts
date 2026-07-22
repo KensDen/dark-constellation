@@ -23,6 +23,7 @@ export const THREATS: ThreatEvent[] = [
     counters: ['antiJam'],
     chainsWith: ['blackout-chain'],
     effect: { meters: ['linkAvailability'], special: 'jamsGnss', repairCostPerSeverity: 2 },
+    duration: { min: 2, max: 3 },
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -59,6 +60,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 2,
     counters: ['antiJam', 'linkAuth'],
     effect: { meters: ['linkAvailability'], repairCostPerSeverity: 2 },
+    duration: { min: 2, max: 3 },
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -95,6 +97,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 2,
     counters: ['pntAuth'],
     effect: { meters: ['sensorIntegrity'], repairCostPerSeverity: 3 },
+    duration: { min: 2, max: 3 },
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -463,6 +466,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 1,
     counters: ['linkAuth', 'encryptedBackhaul'],
     effect: { meters: ['dataIntegrity'], assetDamage: false, repairCostPerSeverity: 1 },
+    duration: { min: 2, max: 3 },
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -514,6 +518,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 2,
     counters: ['linkAuth', 'encryptedBackhaul'],
     effect: { meters: ['dataIntegrity'], assetDamage: false, repairCostPerSeverity: 2 },
+    duration: { min: 2, max: 3 },
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -565,6 +570,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 3,
     counters: ['groundZeroTrust'],
     effect: { meters: ['dataIntegrity'], repairCostPerSeverity: 5 },
+    duration: { min: 2, max: 3 },
     techniqueRefs: [
       {
         framework: 'ATTACK',

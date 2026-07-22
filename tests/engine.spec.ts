@@ -17,7 +17,11 @@ import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
 
 const SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), 'determinism.snap.json')
 
-const WIN_SEED = 20260711
+// With the R3.25 dynamics, prepared play no longer wins on every seed
+// (target ~75 to 85 percent). WIN_SEED is a confirmed win for the prepared
+// line; LOSS_SEED a confirmed loss for the do-nothing line. Both anchor the
+// determinism snapshot.
+const WIN_SEED = 20260712
 const LOSS_SEED = 4041
 
 function playGame(seed: number, script: Record<number, TurnActions>): GameState {
@@ -80,7 +84,9 @@ describe('reachability by real play', () => {
   })
 
   it('the supply-chain implant never damages Tier A assets (spec Sections 5 and 8)', () => {
-    const buyTierA: TurnActions = { ...NO_OP, buyAssets: [{ kind: 'sat', tier: 'A' }] }
+    // A Tier A drone deploys in one turn, so it is reliably on station well
+    // before the scripted turn-5 implant.
+    const buyTierA: TurnActions = { ...NO_OP, buyAssets: [{ kind: 'drone', tier: 'A' }] }
     for (let seed = 1; seed <= 50; seed += 1) {
       let state = newGame(DEFAULT_SCENARIO, seed)
       state = resolveTurn(state, buyTierA, turnRng(state.seed, state.turn))
@@ -89,12 +95,60 @@ describe('reachability by real play', () => {
       }
       if (state.status !== 'playing') continue
       const tierABefore = state.assets.filter((a) => a.tier === 'A').map((a) => a.integrity)
+      expect(tierABefore.length).toBeGreaterThan(0)
       state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn)) // turn 5: scripted implant
       const implant = state.history.find((h) => h.turn === 5)?.events.find((e) => e.eventId === 'supply-chain-implant')
       expect(implant).toBeTruthy()
       const tierAAfter = state.assets.filter((a) => a.tier === 'A').map((a) => a.integrity)
       expect(tierAAfter).toEqual(tierABefore)
     }
+  })
+
+  it('a jam becomes an active condition that holds LiDAR fallback, then expires', () => {
+    let state = newGame(DEFAULT_SCENARIO, LOSS_SEED)
+    while (state.status === 'playing' && state.turn <= 6) {
+      state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn)) // turn 6: fixed pnt-jamming
+    }
+    const jam = state.conditions.find((c) => c.eventId === 'pnt-jamming')
+    expect(jam, 'pnt-jamming should be an active condition after turn 6').toBeTruthy()
+    expect(jam!.remainingTurns).toBeGreaterThanOrEqual(1)
+    expect(state.flags.lidarFallback).toBe(true)
+    // Play out with no new jams and confirm the condition eventually lifts.
+    let sawExpiry = false
+    for (let i = 0; i < 4 && state.status === 'playing'; i += 1) {
+      state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
+      if (!state.conditions.some((c) => c.instanceId === jam!.instanceId)) sawExpiry = true
+    }
+    expect(sawExpiry).toBe(true)
+  })
+
+  it('deployments arrive after their ETA, not instantly', () => {
+    let state = newGame(DEFAULT_SCENARIO, WIN_SEED)
+    const before = state.assets.length
+    state = resolveTurn(state, { ...NO_OP, buyAssets: [{ kind: 'sat', tier: 'B' }] }, turnRng(state.seed, state.turn))
+    expect(state.assets.length, 'sat should not be operational the turn it is bought').toBe(before)
+    expect(state.pipeline.length).toBe(1)
+    expect(state.pipeline[0].etaTurns).toBeGreaterThanOrEqual(1)
+    let arrived = false
+    for (let i = 0; i < 4 && state.status === 'playing'; i += 1) {
+      state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
+      if (state.assets.length > before) arrived = true
+    }
+    expect(arrived, 'sat should reach orbit within a few turns').toBe(true)
+  })
+
+  it('a surge token clears one active condition and is consumed', () => {
+    let state = newGame(DEFAULT_SCENARIO, LOSS_SEED)
+    while (state.status === 'playing' && state.turn <= 6) {
+      state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
+    }
+    const cond = state.conditions[0]
+    expect(cond).toBeTruthy()
+    const tokensBefore = state.surgeTokens
+    expect(tokensBefore).toBeGreaterThan(0)
+    state = resolveTurn(state, { ...NO_OP, spendSurgeOn: cond.instanceId }, turnRng(state.seed, state.turn))
+    expect(state.conditions.some((c) => c.instanceId === cond.instanceId)).toBe(false)
+    expect(state.surgeTokens).toBe(tokensBefore - 1)
   })
 
   it('the BLACKOUT CHAIN lands at full potency against a single-sensor posture', () => {

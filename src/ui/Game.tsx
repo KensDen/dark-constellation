@@ -8,16 +8,20 @@ import { ADVERSARY, GAME_TITLE, SQUADRON } from '../config'
 import {
   COUNTERMEASURE_COUNT,
   DEFAULT_SCENARIO,
-  EVENT_COUNT,
+  OPPORTUNITY_EVENT_COUNT,
   SOURCE_COUNT,
   TECHNIQUE_REF_COUNT,
+  THREAT_EVENT_COUNT,
   UNVERIFIED_REF_COUNT,
 } from '../content'
 import {
   CHAIN_BONUS,
+  DEPLOY_ETA,
   MITIGATION_PER_COUNTER,
   SSA_MITIGATION_BONUS,
+  SURGE_TOKEN_CAP,
   TIER_A_FLEET_SHARE,
+  effectiveIntel,
   newGame,
   resolveTurn,
 } from '../engine/reducer'
@@ -81,10 +85,10 @@ const kindLabels: Record<AssetKind, string> = {
 // Plain-language effect of buying each asset kind, shown at the point of
 // purchase so the reason for every buy is legible.
 const assetEffects: Record<AssetKind, string> = {
-  sat: `+${COVERAGE_PER_SAT} coverage`,
-  rpoSat: `+${COVERAGE_PER_SAT} coverage, hosts the docking LiDAR (no extra effect in this build)`,
-  drone: `+${COVERAGE_PER_DRONE} coverage, flies the LiDAR mapping sorties`,
-  groundStation: 'no coverage; ground ops capacity with no game effect in this build',
+  sat: `+${COVERAGE_PER_SAT} coverage, ${DEPLOY_ETA.sat.min} to ${DEPLOY_ETA.sat.max} turns to orbit`,
+  rpoSat: `+${COVERAGE_PER_SAT} coverage, ${DEPLOY_ETA.rpoSat.min} to ${DEPLOY_ETA.rpoSat.max} turns to orbit; hosts the docking LiDAR (no extra effect in this build)`,
+  drone: `+${COVERAGE_PER_DRONE} coverage, deploys next turn; flies the LiDAR mapping sorties`,
+  groundStation: `no coverage, ${DEPLOY_ETA.groundStation.min} to ${DEPLOY_ETA.groundStation.max} turns to stand up; ground ops capacity with no game effect in this build`,
 }
 
 const vectorIcons: Record<Vector, string> = {
@@ -129,6 +133,12 @@ export default function Game() {
 
   const scenario = DEFAULT_SCENARIO
 
+  // Derived from content so the help text tracks any duration retune.
+  const durations = scenario.events.flatMap((e) => (e.duration ? [e.duration.min, e.duration.max] : []))
+  const conditionDurationRange = durations.length
+    ? `${Math.min(...durations)} to ${Math.max(...durations)} turns`
+    : 'a few turns'
+
   // Item 1: the three-line job framing, shown on the start screen and again
   // in the turn 1 brief so a skimming player can state the objective.
   const jobFraming = (
@@ -144,6 +154,10 @@ export default function Game() {
       <p className="mt-1">
         3. Spend credits each turn on fleet and defenses to slow the erosion. MAI below {scenario.collapseThreshold}{' '}
         or a budget forced below zero ends the campaign early.
+      </p>
+      <p className="mt-1 text-ink-dim">
+        Some attacks become active conditions that press every turn until they lift. Deployments take turns to
+        arrive. Spend surge authority to clear a condition, and hold the win line under pressure for commendations.
       </p>
     </div>
   )
@@ -208,8 +222,9 @@ export default function Game() {
         </div>
         <div className="mt-6 flex justify-center">{constellationVisual}</div>
         <p className="mt-6 text-sm text-ink-dim">
-          Content loaded from data: {EVENT_COUNT} threat events, {COUNTERMEASURE_COUNT} countermeasures,{' '}
-          {TECHNIQUE_REF_COUNT} framework techniques, {SOURCE_COUNT} cited sources.
+          Content loaded from data: {THREAT_EVENT_COUNT} threat events, {OPPORTUNITY_EVENT_COUNT} opportunity events,{' '}
+          {COUNTERMEASURE_COUNT} countermeasures, {TECHNIQUE_REF_COUNT} framework techniques, {SOURCE_COUNT} cited
+          sources.
           {UNVERIFIED_REF_COUNT > 0 && (
             <span>
               {' '}
@@ -256,6 +271,53 @@ export default function Game() {
     })
 
   const shortEventName = (id: string) => scenario.events.find((e) => e.id === id)?.name.split(' (')[0] ?? id
+
+  // Surge authority (item 4): queue one live condition to be cleared when
+  // the turn resolves. The reducer applies it before condition pressure, so
+  // a queued condition never presses again. Toggle to change the mind.
+  const toggleSurge = (instanceId: string) =>
+    setActions({ ...actions, spendSurgeOn: actions.spendSurgeOn === instanceId ? undefined : instanceId })
+
+  // Item 1 UI: active-conditions panel with per-condition elapsed counters.
+  // Only high intel estimates how many turns a condition has left; otherwise
+  // the remaining span stays hidden, as the mechanic intends.
+  const showsDurationEstimate = effectiveIntel(state) >= 3
+  const canSurge = state.surgeTokens > 0 && phase !== 'aftermath'
+  const activeConditions =
+    state.conditions.length > 0 ? (
+      <div className="mt-2 border border-hero-magenta/40 bg-hero-magenta/5 p-2">
+        <p className="text-xs font-bold text-hero-magenta uppercase tracking-widest">
+          Active conditions ({state.conditions.length}), sustained pressure each turn
+        </p>
+        <ul className="mt-1">
+          {state.conditions.map((c) => {
+            const queued = actions.spendSurgeOn === c.instanceId
+            const elapsed = state.turn - c.startedTurn
+            return (
+              <li key={c.instanceId} className="text-xs mt-1 flex flex-wrap items-center gap-2">
+                <span className={queued ? 'text-ink-dim line-through' : 'text-hero-magenta'}>{c.name}</span>
+                <span className="text-ink-dim">
+                  live since turn {c.startedTurn} ({elapsed} turn{elapsed === 1 ? '' : 's'})
+                  {showsDurationEstimate ? `, intel estimates ~${c.remainingTurns} left` : ', duration unknown'}
+                </span>
+                {queued ? (
+                  <button className={`${btn} px-1 py-0 text-xs`} onClick={() => toggleSurge(c.instanceId)}>
+                    surge queued, undo
+                  </button>
+                ) : (
+                  canSurge &&
+                  !actions.spendSurgeOn && (
+                    <button className={`${btn} px-1 py-0 text-xs`} onClick={() => toggleSurge(c.instanceId)}>
+                      surge clear
+                    </button>
+                  )
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+    ) : null
 
   // Item 6: say in plain words why damage landed and what was missing, with
   // each counter's real worth. When everything applicable was owned, name
@@ -333,6 +395,20 @@ export default function Game() {
             Credits: the budget. Income +{scenario.incomePerTurn} a turn plus any SLA bonus. Repairs come out of it,
             and below zero the program folds.
           </li>
+          <li>
+            Conditions: some attacks (jamming, spoofing, eavesdropping, ransomware) stay active for a hidden{' '}
+            {conditionDurationRange}, pressing the meters every turn until they lift. They stack.
+          </li>
+          <li>
+            Surge authority: hold one or more (cap {SURGE_TOKEN_CAP}). Spend one in any decision phase to clear a
+            condition. Earn one by holding the win line under two or more conditions; the IR retainer grants one on
+            purchase.
+          </li>
+          <li>
+            Commendations: end a turn at or above the win line with conditions active, or fully counter an attack, for
+            credit and, under heavier pressure, meter bonuses.
+          </li>
+          <li>Deployments arrive after a lead time; sats can slip a turn. Watch the in-transit line.</li>
         </ul>
       </details>
       {state.flags.lidarFallback && (
@@ -357,6 +433,30 @@ export default function Game() {
               .join('; ')
           : 'none'}
       </p>
+      {(state.pipeline.length > 0 || state.pendingCounters.length > 0) && (
+        <p className="mt-1 text-xs text-ink-dim">
+          In transit:{' '}
+          {[
+            ...state.pipeline.map(
+              (p) => `${kindLabels[p.kind]} ${p.tier} (ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'})`,
+            ),
+            ...state.pendingCounters.map(
+              (p) =>
+                `${scenario.countermeasures.find((c) => c.id === p.id)?.name ?? p.id} retrofit (ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'})`,
+            ),
+          ].join('; ')}
+        </p>
+      )}
+      <p className="mt-2 text-xs font-mono">
+        <span className="text-alert-amber">
+          Surge authority: {state.surgeTokens} of {SURGE_TOKEN_CAP}
+        </span>
+        <span className="text-ink-dim"> (spend one in any phase to clear an active condition)</span>
+        {state.intelBoostTurns > 0 && (
+          <span className="text-hero-blue"> | allied intel boost active ({state.intelBoostTurns} more turn{state.intelBoostTurns === 1 ? '' : 's'})</span>
+        )}
+      </p>
+      {activeConditions}
     </section>
   )
 
@@ -632,10 +732,34 @@ export default function Game() {
               {n}
             </p>
           ))}
+          {lastRecord.commendations.length > 0 && (
+            <div className="mt-2 border border-hero-blue/50 bg-hero-blue/5 p-2">
+              <p className="text-xs font-bold text-hero-blue uppercase tracking-widest">Commendations</p>
+              {lastRecord.commendations.map((c, i) => (
+                <p key={i} className="text-sm mt-1 text-hero-blue">
+                  {c}
+                </p>
+              ))}
+            </div>
+          )}
           {lastRecord.events.length === 0 && <p className="mt-2">No adversary activity this turn.</p>}
           {lastRecord.events.map((ev, i) => {
             const def = scenario.events.find((e) => e.id === ev.eventId)
+            const isOpportunity = (def?.kind ?? 'threat') === 'opportunity'
             const landed = ev.effectiveSeverity > 0
+            if (isOpportunity) {
+              return (
+                <div key={i} className="border p-3 mt-2 border-hero-blue/50 bg-hero-blue/5">
+                  <h3 className="font-bold font-mono text-hero-blue">Opportunity: {ev.name}</h3>
+                  {ev.notes.map((n, j) => (
+                    <p key={j} className="text-sm mt-1 text-hero-blue">
+                      {n}
+                    </p>
+                  ))}
+                  {def && <p className="text-sm mt-1 text-ink-dim">{def.blurb}</p>}
+                </div>
+              )
+            }
             return (
               <div
                 key={i}

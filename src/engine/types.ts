@@ -78,9 +78,20 @@ export interface ThreatEffect {
   repairCostPerSeverity: number
 }
 
+// Positive effects carried by opportunity events (R3.25): direct credits,
+// a temporary intel-fidelity boost, or expediting one in-transit deploy.
+export interface OpportunityBenefit {
+  credits?: number
+  intelBoostTurns?: number
+  expediteTurns?: number
+}
+
 export interface ThreatEvent {
   id: string
   name: string
+  // Threats are the default; opportunities are rare beneficial draws from
+  // the same deck flow with relaxed sourcing requirements.
+  kind?: 'threat' | 'opportunity'
   layers: Layer[]
   vector: Vector
   baseSeverity: 1 | 2 | 3
@@ -88,6 +99,11 @@ export interface ThreatEvent {
   techniqueRefs: TechniqueRef[]
   chainsWith?: string[]
   effect: ThreatEffect
+  // Events with a duration become active conditions on landing: per-turn
+  // pressure for a span rolled from seeded RNG inside this range, hidden
+  // from the player.
+  duration?: { min: number; max: number }
+  benefit?: OpportunityBenefit
   blurb: string // plain-English why-this-matters, one paragraph
   learnMoreCards: LearnMoreCard[]
 }
@@ -101,6 +117,8 @@ export interface EventSlot {
 export interface TurnPlan {
   turn: number
   slots: EventSlot[]
+  // Rare beneficial draw, rolled after the threat slots resolve.
+  opportunity?: { chance: number; drawFrom: string[] }
 }
 
 export interface Scenario {
@@ -145,8 +163,31 @@ export interface Asset {
 }
 
 export interface ChainFlags {
-  gnssJammedTurns: number // remaining turns of GNSS denial
-  lidarFallback: boolean // drones navigating on LiDAR odometry
+  lidarFallback: boolean // drones navigating on LiDAR odometry while a jam condition lives
+}
+
+// A landed event with a duration becomes an active condition: per-turn
+// pressure until it expires. remainingTurns is rolled hidden; the UI shows
+// elapsed time, and only high intel estimates what is left.
+export interface ActiveCondition {
+  instanceId: string
+  eventId: string
+  name: string
+  startedTurn: number
+  remainingTurns: number
+  baseSeverity: number
+}
+
+export interface PendingAsset {
+  id: string
+  kind: AssetKind
+  tier: TrustTier
+  etaTurns: number
+}
+
+export interface PendingCounter {
+  id: CountermeasureId
+  etaTurns: number
 }
 
 export interface IntelForecast {
@@ -175,6 +216,11 @@ export interface TurnRecord {
   coverage: number
   maiScore: number
   flags: ChainFlags
+  // Names of conditions that applied pressure this turn, commendations
+  // earned, and the surge authority balance after the turn.
+  conditionsActive: string[]
+  commendations: string[]
+  surgeTokensAfter: number
   notes: string[]
 }
 
@@ -191,6 +237,11 @@ export interface GameState {
   counters: CountermeasureId[]
   meters: { linkAvailability: number; dataIntegrity: number; sensorIntegrity: number }
   flags: ChainFlags
+  conditions: ActiveCondition[]
+  pipeline: PendingAsset[]
+  pendingCounters: PendingCounter[]
+  surgeTokens: number
+  intelBoostTurns: number
   forecast: IntelForecast
   history: TurnRecord[]
 }
@@ -205,4 +256,7 @@ export interface TurnActions {
   buyCounters: CountermeasureId[]
   buyIntelLevel: boolean
   buyIrRetainer: boolean
+  // Spend one surge authority token to clear the named active condition
+  // (by instanceId) before this turn's pressure applies.
+  spendSurgeOn?: string
 }

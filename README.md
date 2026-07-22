@@ -6,7 +6,7 @@ A turn-based space and drone cybersecurity strategy sim. Fully client-side, depl
 
 Play it: https://kensden.github.io/dark-constellation/
 
-Status: Round 3, partial: structure only, no refs verified. The full threat deck from the spec ships (all counts derived from data at build time) and every event carries a learn-more card, but zero framework refs or source URLs could be web-verified this round: the build environment had no route to the framework sites, so every reference is explicitly marked verify-at-build in the data and labeled as such in the UI. The SPARTA countermeasure ID and tier mapping is deferred to the verification round for the same reason (the structure ships, the arrays are empty). Balance is untouched this round; a recorded baseline sweep (npm run sweep) feeds the dynamics round that follows.
+Status: Round 3.25, dynamics. The full threat deck ships with every framework ref and source live-verified, and the round adds persistent conditions (attacks that press for a hidden span and stack), resilience and mitigation commendations, deployment lead times with an in-transit pipeline, spendable surge authority to clear a condition, and three rare opportunity events. Retuned so play is genuinely uncertain: across 300-seed sweeps (npm run sweep) prepared play wins around 83 percent, a reasonable-but-imperfect line lands near 53 percent, and passive play near zero. All counts derive from content data at build time.
 
 All organizations, vendors, and threat actors in the game fiction are original and fictional.
 

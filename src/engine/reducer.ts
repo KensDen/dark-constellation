@@ -1,7 +1,12 @@
-// The turn resolver (spec Sections 4, 6, 9). Pure and deterministic:
-// resolveTurn(state, actions, rng) -> state. No Date, no Math.random.
-// Callers derive the rng with turnRng(state.seed, state.turn) so replay
-// and reload resolve identically.
+// The turn resolver (spec Sections 4, 6, 9; dynamics per R3.25). Pure and
+// deterministic: resolveTurn(state, actions, rng) -> state. No Date, no
+// Math.random. Callers derive the rng with turnRng(state.seed, state.turn)
+// so replay and reload resolve identically.
+//
+// Turn order: income and recovery, pipeline arrivals, purchases and surge
+// spend, condition pressure, event resolution (threats may create or
+// refresh conditions; opportunities grant benefits), condition expiry
+// tick, commendations, win/loss.
 
 import type {
   Asset,
@@ -20,18 +25,34 @@ import { assetPrice, coverage, maiScore } from './scoring'
 
 const METER_DAMAGE_PER_SEVERITY = 6
 const ASSET_DAMAGE_PER_SEVERITY = 12
-const DEBRIS_LOSS_CHANCE_PER_SEVERITY = 0.2
+const DEBRIS_LOSS_CHANCE_PER_SEVERITY = 0.35
 const SSA_MANEUVER_COST = 5
-const GNSS_JAM_DURATION = 2
 // Exported so UI copy can interpolate the real values instead of
 // duplicating them as prose literals that rot when tuning changes.
 export const TIER_A_FLEET_SHARE = 1 / 3
 export const MITIGATION_PER_COUNTER = 1
 export const CHAIN_BONUS = 2
-export const SSA_MITIGATION_BONUS = 2
+export const SSA_MITIGATION_BONUS = 1
+// Dynamics tuning (R3.25). Conditions press every turn they stay live;
+// commendations pay out for holding the line under pressure and for
+// zeroing an attack outright; surge authority clears a condition on
+// demand; deployments take real time to arrive.
+export const CONDITION_PRESSURE_PER_SEVERITY = 5
+export const RESILIENCE_CREDITS = [0, 8, 14, 20] // index by min(3, active conditions)
+export const RESILIENCE_HEAL = [0, 0, 4, 7] // all meters, same tiers
+export const MITIGATION_COMMENDATION_CREDITS = 3
+export const SURGE_START_TOKENS = 1
+export const SURGE_TOKEN_CAP = 3
+export const IR_RETAINER_BONUS_TOKENS = 1
+export const FUSION_RETROFIT_TURNS = 1
+export const DEPLOY_ETA: Record<Asset['kind'], { min: number; max: number }> = {
+  sat: { min: 2, max: 3 },
+  rpoSat: { min: 2, max: 3 },
+  groundStation: { min: 1, max: 2 },
+  drone: { min: 1, max: 1 },
+}
+export const DEPLOY_SLIP_CHANCE = 0.25 // sats only, +1 turn
 
-// Tier A attestation only pulls its weight once a meaningful share of the
-// sensored fleet actually flies Tier A packages.
 const layerFor = (kind: Asset['kind']): Asset['layer'] =>
   kind === 'drone' ? 'AIR' : kind === 'groundStation' ? 'GROUND' : 'ORBIT'
 
@@ -63,6 +84,28 @@ function tierAShare(assets: Asset[]): number {
   return sensored.filter((a) => a.tier === 'A').length / sensored.length
 }
 
+// Mitigation from owned counters against one event, shared by direct
+// resolution and per-turn condition pressure so buying a counter while a
+// condition lives reduces its remaining bite.
+function mitigationFor(state: GameState, ev: ThreatEvent, notes?: string[]): number {
+  let mitigation = 0
+  for (const cid of ev.counters) {
+    if (!state.counters.includes(cid)) continue
+    if (cid === 'tierAAttestation' && tierAShare(state.assets) < TIER_A_FLEET_SHARE) {
+      notes?.push('Firmware attestation is in place but most of the fleet is still Tier B.')
+      continue
+    }
+    // Debris mitigation is the paid avoidance burn only (handled in the
+    // debrisStrike block), never a passive discount: maneuver fuel has to
+    // be spent, so an unfunded SSA subscription does not soften the strike.
+    if (cid === 'ssaManeuver' && ev.effect.special === 'debrisStrike') continue
+    mitigation += MITIGATION_PER_COUNTER
+  }
+  return mitigation
+}
+
+const jamConditionActive = (state: GameState) => state.conditions.some((c) => c.eventId === 'pnt-jamming')
+
 export function newGame(scenario: Scenario, seed: number): GameState {
   const assets = scenario.starterAssets.map((s, i) => ({
     id: `start-${s.kind}-${i + 1}`,
@@ -82,7 +125,12 @@ export function newGame(scenario: Scenario, seed: number): GameState {
     assets,
     counters: [],
     meters: { linkAvailability: 100, dataIntegrity: 100, sensorIntegrity: 100 },
-    flags: { gnssJammedTurns: 0, lidarFallback: false },
+    flags: { lidarFallback: false },
+    conditions: [],
+    pipeline: [],
+    pendingCounters: [],
+    surgeTokens: SURGE_START_TOKENS,
+    intelBoostTurns: 0,
     forecast: { turn: 1, lines: [] },
     history: [],
   }
@@ -90,9 +138,16 @@ export function newGame(scenario: Scenario, seed: number): GameState {
   return state
 }
 
+// Effective intel fidelity: investment level plus any temporary boost from
+// an allied data share, capped at the top level.
+export function effectiveIntel(state: GameState): number {
+  return Math.min(3, state.intelLevel + (state.intelBoostTurns > 0 ? 1 : 0))
+}
+
 // Intel brief fidelity scales with investment (spec Section 4).
 export function forecastFor(state: GameState, turn: number): IntelForecast {
-  const { scenario, intelLevel } = state
+  const { scenario } = state
+  const intelLevel = effectiveIntel(state)
   const plan = scenario.campaign.find((p) => p.turn === turn)
   if (!plan || plan.slots.length === 0) {
     return { turn, lines: ['No adversary activity forecast. Quiet is not the same as safe.'] }
@@ -122,7 +177,7 @@ export function forecastFor(state: GameState, turn: number): IntelForecast {
   return { turn, lines }
 }
 
-function applyPurchases(state: GameState, actions: TurnActions, purchases: string[]): void {
+function applyPurchases(state: GameState, actions: TurnActions, rng: Rng, purchases: string[]): void {
   const { scenario } = state
   if (actions.buyIntelLevel && state.intelLevel !== 3) {
     const cost = scenario.prices.intelLevels[state.intelLevel]
@@ -135,36 +190,46 @@ function applyPurchases(state: GameState, actions: TurnActions, purchases: strin
     state.credits -= ir.cost
     state.irRetainer = true
     state.counters.push('irRetainer')
-    purchases.push(`${ir.name} (-${ir.cost})`)
+    state.surgeTokens = Math.min(SURGE_TOKEN_CAP, state.surgeTokens + IR_RETAINER_BONUS_TOKENS)
+    purchases.push(`${ir.name} (-${ir.cost}, +${IR_RETAINER_BONUS_TOKENS} surge authority)`)
   }
   for (const id of [...new Set(actions.buyCounters)]) {
     if (id === 'irRetainer' || id === 'intelInvestment' || state.counters.includes(id)) continue
+    if (state.pendingCounters.some((p) => p.id === id)) continue
     const cm = counterById(scenario, id)
     state.credits -= cm.cost
-    state.counters.push(id)
-    purchases.push(`${cm.name} (-${cm.cost})`)
+    if (id === 'sensorFusion') {
+      state.pendingCounters.push({ id, etaTurns: FUSION_RETROFIT_TURNS })
+      purchases.push(`${cm.name} (-${cm.cost}, retrofit, active in ${FUSION_RETROFIT_TURNS} turn)`)
+    } else {
+      state.counters.push(id)
+      purchases.push(`${cm.name} (-${cm.cost})`)
+    }
   }
   actions.buyAssets.forEach((buy, i) => {
     const price = assetPrice(scenario, buy.kind, buy.tier)
     state.credits -= price
-    state.assets.push({
+    const eta = DEPLOY_ETA[buy.kind]
+    let etaTurns = eta.min + rng.int(eta.max - eta.min + 1)
+    if ((buy.kind === 'sat' || buy.kind === 'rpoSat') && rng.chance(DEPLOY_SLIP_CHANCE)) {
+      etaTurns += 1
+    }
+    state.pipeline.push({
       id: `t${state.turn}-${buy.kind}-${i + 1}`,
       kind: buy.kind,
-      layer: layerFor(buy.kind),
       tier: buy.tier,
-      integrity: 100,
+      etaTurns,
     })
-    purchases.push(`${kindLabel[buy.kind]} Tier ${buy.tier} (-${price})`)
+    purchases.push(`${kindLabel[buy.kind]} Tier ${buy.tier} (-${price}, in transit)`)
   })
   if (state.credits < 0) {
     throw new Error('invalid actions: purchases exceed available credits')
   }
 }
 
-function resolveEvent(state: GameState, ev: ThreatEvent, rng: Rng, flags: ChainFlags): ResolvedEvent {
+function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng, flags: ChainFlags): ResolvedEvent {
   const notes: string[] = []
   let chainBonus = 0
-  let mitigation = 0
   let fizzled = false
 
   // BLACKOUT CHAIN (spec Section 6): LiDAR attacks gain potency while
@@ -185,14 +250,7 @@ function resolveEvent(state: GameState, ev: ThreatEvent, rng: Rng, flags: ChainF
     }
   }
 
-  for (const cid of ev.counters) {
-    if (!state.counters.includes(cid)) continue
-    if (cid === 'tierAAttestation' && tierAShare(state.assets) < TIER_A_FLEET_SHARE) {
-      notes.push('Firmware attestation is in place but most of the fleet is still Tier B.')
-      continue
-    }
-    mitigation += MITIGATION_PER_COUNTER
-  }
+  let mitigation = mitigationFor(state, ev, notes)
 
   // Tier A is immune to the implant (spec Sections 5 and 8): the implant
   // both activates in and damages a Tier B host only.
@@ -224,9 +282,26 @@ function resolveEvent(state: GameState, ev: ThreatEvent, rng: Rng, flags: ChainF
     for (const meter of ev.effect.meters) {
       state.meters[meter] = Math.max(0, state.meters[meter] - effectiveSeverity * METER_DAMAGE_PER_SEVERITY)
     }
-    if (ev.effect.special === 'jamsGnss') {
-      flags.gnssJammedTurns = Math.max(flags.gnssJammedTurns, GNSS_JAM_DURATION)
-      if (liveDrones(state.assets).length > 0) {
+    // A landed event with a duration becomes (or refreshes) an active
+    // condition. The rolled span is hidden from the player.
+    if (ev.duration) {
+      const span = ev.duration.min + rng.int(ev.duration.max - ev.duration.min + 1)
+      const existing = state.conditions.find((c) => c.eventId === ev.id)
+      if (existing) {
+        existing.remainingTurns = Math.max(existing.remainingTurns, span)
+        notes.push(`${ev.name.split(' (')[0]} pressure renewed. The condition persists.`)
+      } else {
+        state.conditions.push({
+          instanceId: `${ev.id}-t${state.turn}`,
+          eventId: ev.id,
+          name: ev.name.split(' (')[0],
+          startedTurn: state.turn,
+          remainingTurns: span,
+          baseSeverity: ev.baseSeverity,
+        })
+        notes.push('This is not a single strike: it is now an active condition applying pressure every turn.')
+      }
+      if (ev.effect.special === 'jamsGnss' && liveDrones(state.assets).length > 0) {
         flags.lidarFallback = true
         notes.push('GNSS denied across the AO. KESTREL drones fell back to LiDAR odometry.')
       }
@@ -239,11 +314,10 @@ function resolveEvent(state: GameState, ev: ThreatEvent, rng: Rng, flags: ChainF
         notes.push(`Conjunction with uncontrolled debris. ${kindLabel[hit.kind]} ${hit.id} lost.`)
       }
     }
-    const targetLayers = ev.layers
     const candidates =
       ev.effect.special === 'implantTierB'
         ? [] // the implant damages its Tier B host, picked above
-        : liveAssets(state.assets).filter((a) => targetLayers.includes(a.layer))
+        : liveAssets(state.assets).filter((a) => ev.layers.includes(a.layer))
     if (implantHost) candidates.push(implantHost)
     if (candidates.length > 0 && ev.effect.special !== 'debrisStrike' && ev.effect.assetDamage !== false) {
       const target = implantHost ?? rng.pick(candidates)
@@ -274,6 +348,44 @@ function resolveEvent(state: GameState, ev: ThreatEvent, rng: Rng, flags: ChainF
   }
 }
 
+function resolveOpportunity(state: GameState, ev: ThreatEvent): ResolvedEvent {
+  const notes: string[] = []
+  const b = ev.benefit ?? {}
+  if (b.credits) {
+    state.credits += b.credits
+    notes.push(`+${b.credits} credits appropriated to the program.`)
+  }
+  if (b.intelBoostTurns) {
+    state.intelBoostTurns = Math.max(state.intelBoostTurns, b.intelBoostTurns)
+    notes.push(`Allied tracking data raises forecast fidelity by one level for ${b.intelBoostTurns} turns.`)
+  }
+  if (b.expediteTurns) {
+    // Only an item still more than a turn out can actually arrive sooner;
+    // one already due next turn cannot be advanced, so the slot is resold.
+    const soonest = state.pipeline
+      .filter((p) => p.etaTurns > 1)
+      .sort((x, y) => x.etaTurns - y.etaTurns)[0]
+    if (soonest) {
+      soonest.etaTurns = Math.max(1, soonest.etaTurns - b.expediteTurns)
+      notes.push(`${kindLabel[soonest.kind]} ${soonest.id} manifested on the rideshare: arrival moved up a turn.`)
+    } else {
+      state.credits += 5
+      notes.push('No deployment far enough out to expedite; the slot resold for +5 credits.')
+    }
+  }
+  return {
+    eventId: ev.id,
+    name: ev.name,
+    baseSeverity: 0,
+    chainBonus: 0,
+    mitigation: 0,
+    effectiveSeverity: 0,
+    repairCost: 0,
+    notes,
+    firedTechniqueRefs: [],
+  }
+}
+
 export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng): GameState {
   if (state.status !== 'playing') throw new Error('game is over; cannot resolve further turns')
   const scenario = state.scenario
@@ -281,6 +393,10 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng): G
   const next: GameState = JSON.parse(JSON.stringify(state))
   const notes: string[] = []
   const purchases: string[] = []
+  const commendations: string[] = []
+  // Boost turns granted this turn must not be counted down before they are
+  // used, so the intel share delivers the full span it advertises.
+  const intelBoostBefore = next.intelBoostTurns
 
   // Income, SLA bonus, recovery.
   next.credits += scenario.incomePerTurn
@@ -293,26 +409,112 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng): G
     next.meters[key] = Math.min(100, next.meters[key] + recovery)
   }
 
-  applyPurchases(next, actions, purchases)
+  // Pipeline arrivals, then countdown for what is still in transit.
+  const arrivals = next.pipeline.filter((p) => p.etaTurns <= 1)
+  next.pipeline = next.pipeline.filter((p) => p.etaTurns > 1)
+  for (const p of next.pipeline) p.etaTurns -= 1
+  for (const a of arrivals) {
+    next.assets.push({ id: a.id, kind: a.kind, layer: layerFor(a.kind), tier: a.tier, integrity: 100 })
+    notes.push(`${kindLabel[a.kind]} ${a.id} arrived on station and is operational.`)
+  }
+  const counterArrivals = next.pendingCounters.filter((p) => p.etaTurns <= 1)
+  next.pendingCounters = next.pendingCounters.filter((p) => p.etaTurns > 1)
+  for (const p of next.pendingCounters) p.etaTurns -= 1
+  for (const c of counterArrivals) {
+    next.counters.push(c.id)
+    notes.push(`${counterById(scenario, c.id).name} retrofit complete and active.`)
+  }
 
-  // Chain state entering the turn.
-  next.flags.lidarFallback = next.flags.gnssJammedTurns > 0 && liveDrones(next.assets).length > 0
+  applyPurchases(next, actions, rng, purchases)
+
+  // Surge authority: clear one named active condition before pressure.
+  if (actions.spendSurgeOn) {
+    const idx = next.conditions.findIndex((c) => c.instanceId === actions.spendSurgeOn)
+    if (idx >= 0 && next.surgeTokens > 0) {
+      const cleared = next.conditions[idx]
+      next.conditions.splice(idx, 1)
+      next.surgeTokens -= 1
+      notes.push(`Surge authority spent: ${cleared.name} cleared by an emergency response push.`)
+    }
+  }
+
+  // Per-turn pressure from live conditions. Mitigation is recomputed, so a
+  // counter bought this turn blunts the rest of the condition's life.
+  const enduredConditions = next.conditions.map((c) => c.name)
+  for (const cond of next.conditions) {
+    const def = eventById(scenario, cond.eventId)
+    const pressureSeverity = Math.max(0, cond.baseSeverity - mitigationFor(next, def))
+    if (pressureSeverity > 0) {
+      for (const meter of def.effect.meters) {
+        next.meters[meter] = Math.max(0, next.meters[meter] - pressureSeverity * CONDITION_PRESSURE_PER_SEVERITY)
+      }
+      notes.push(`${cond.name} continues: sustained pressure on the mission.`)
+    } else {
+      notes.push(`${cond.name} continues, but current defenses hold it below effect threshold.`)
+    }
+  }
+
+  // Chain state entering resolution: the jam condition holds the fallback.
+  next.flags.lidarFallback = jamConditionActive(next) && liveDrones(next.assets).length > 0
   if (next.flags.lidarFallback) {
     notes.push('KESTREL remains in LiDAR-fallback navigation while GNSS denial persists.')
   }
 
-  // COLDWAKE plays the deck.
+  // COLDWAKE plays the deck, then the rare opportunity roll.
   const plan = scenario.campaign.find((p) => p.turn === next.turn)
   const resolved: ResolvedEvent[] = []
   for (const slot of plan?.slots ?? []) {
     const id = slot.fixed ?? (slot.drawFrom && slot.drawFrom.length > 0 ? rng.pick(slot.drawFrom) : undefined)
     if (!id) continue
-    resolved.push(resolveEvent(next, eventById(scenario, id), rng, next.flags))
+    resolved.push(resolveThreat(next, eventById(scenario, id), rng, next.flags))
+  }
+  if (plan?.opportunity && plan.opportunity.drawFrom.length > 0 && rng.chance(plan.opportunity.chance)) {
+    const id = rng.pick(plan.opportunity.drawFrom)
+    resolved.push(resolveOpportunity(next, eventById(scenario, id)))
   }
 
-  // Jam clock ticks at end of turn.
-  if (next.flags.gnssJammedTurns > 0) next.flags.gnssJammedTurns -= 1
-  next.flags.lidarFallback = next.flags.gnssJammedTurns > 0 && liveDrones(next.assets).length > 0
+  // Conditions age at end of turn; expiry is announced.
+  for (const cond of [...next.conditions]) {
+    cond.remainingTurns -= 1
+    if (cond.remainingTurns <= 0) {
+      next.conditions = next.conditions.filter((c) => c.instanceId !== cond.instanceId)
+      notes.push(`${cond.name} subsided. The condition has lifted.`)
+    }
+  }
+  next.flags.lidarFallback = jamConditionActive(next) && liveDrones(next.assets).length > 0
+
+  // Commendations (R3.25): zeroing a live attack, and holding the win line
+  // while conditions press.
+  for (const ev of resolved) {
+    const def = eventById(scenario, ev.eventId)
+    if ((def.kind ?? 'threat') === 'threat' && ev.effectiveSeverity === 0 && ev.mitigation > 0 && ev.baseSeverity > 0) {
+      next.credits += MITIGATION_COMMENDATION_CREDITS
+      commendations.push(
+        `Mitigation commendation: ${ev.name.split(' (')[0]} fully countered (+${MITIGATION_COMMENDATION_CREDITS} credits).`,
+      )
+    }
+  }
+  const maiNow = maiScore(next)
+  if (enduredConditions.length > 0 && maiNow >= scenario.winThreshold) {
+    const tier = Math.min(3, enduredConditions.length)
+    next.credits += RESILIENCE_CREDITS[tier]
+    if (RESILIENCE_HEAL[tier] > 0) {
+      for (const key of ['linkAvailability', 'dataIntegrity', 'sensorIntegrity'] as const) {
+        next.meters[key] = Math.min(100, next.meters[key] + RESILIENCE_HEAL[tier])
+      }
+    }
+    commendations.push(
+      `Resilience commendation, tier ${tier}: held the win line under ${enduredConditions.length} active condition${enduredConditions.length > 1 ? 's' : ''} (+${RESILIENCE_CREDITS[tier]} credits${RESILIENCE_HEAL[tier] > 0 ? `, +${RESILIENCE_HEAL[tier]} all meters` : ''}).`,
+    )
+    if (enduredConditions.length >= 2 && next.surgeTokens < SURGE_TOKEN_CAP) {
+      next.surgeTokens += 1
+      commendations.push('Surge authority granted for sustained operations under pressure (+1, spend to clear a condition).')
+    }
+  }
+
+  // Only count down a boost that was already running at the start of the
+  // turn; one granted this turn keeps its full advertised span.
+  if (next.intelBoostTurns > 0 && next.intelBoostTurns <= intelBoostBefore) next.intelBoostTurns -= 1
 
   const record: TurnRecord = {
     turn: next.turn,
@@ -323,6 +525,9 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng): G
     coverage: coverage(next.assets),
     maiScore: maiScore(next),
     flags: { ...next.flags },
+    conditionsActive: enduredConditions,
+    commendations,
+    surgeTokensAfter: next.surgeTokens,
     notes,
   }
   next.history.push(record)

@@ -19,6 +19,8 @@ export const SCENARIOS: Scenario[] = [validate(FIRST_LIGHT)]
 export const DEFAULT_SCENARIO = SCENARIOS[0]
 
 export const EVENT_COUNT = DEFAULT_SCENARIO.events.length
+export const THREAT_EVENT_COUNT = DEFAULT_SCENARIO.events.filter((e) => (e.kind ?? 'threat') === 'threat').length
+export const OPPORTUNITY_EVENT_COUNT = DEFAULT_SCENARIO.events.filter((e) => e.kind === 'opportunity').length
 export const COUNTERMEASURE_COUNT = DEFAULT_SCENARIO.countermeasures.length
 export const TECHNIQUE_REF_COUNT = new Set(
   DEFAULT_SCENARIO.events.flatMap((e) => e.techniqueRefs.map((r) => `${r.framework}:${r.id}`)),
