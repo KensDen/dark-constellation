@@ -6,11 +6,14 @@ import type { Asset, GameState, Scenario } from './types'
 
 export const COVERAGE_PER_SAT = 12
 export const COVERAGE_PER_DRONE = 4
+// Coverage and the three trust meters are 0..100 percentages; this is the
+// shared ceiling. Exported so UI copy interpolates it (R4 item 5).
+export const METER_CAP = 100
 
 export function coverage(assets: Asset[]): number {
   const sats = assets.filter((a) => (a.kind === 'sat' || a.kind === 'rpoSat') && a.integrity > 0).length
   const drones = assets.filter((a) => a.kind === 'drone' && a.integrity > 0).length
-  return Math.min(100, sats * COVERAGE_PER_SAT + drones * COVERAGE_PER_DRONE)
+  return Math.min(METER_CAP, sats * COVERAGE_PER_SAT + drones * COVERAGE_PER_DRONE)
 }
 
 export function maiScore(state: GameState): number {

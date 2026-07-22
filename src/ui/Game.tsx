@@ -3,8 +3,19 @@
 // magenta = hostile/threat, amber = alerts), monospace HUD over sans body.
 // All game logic is unchanged from R1.5.
 
-import { Suspense, lazy, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { ADVERSARY, SQUADRON } from '../config'
+import {
+  LocalScoreSink,
+  LocalStorageStore,
+  SaveError,
+  captureGame,
+  decodeSaveCode,
+  encodeSaveCode,
+  type RestoredGame,
+  type SaveMeta,
+} from '../persistence'
+import { reportData, shareText } from './reportCard'
 import {
   COUNTERMEASURE_COUNT,
   DEFAULT_SCENARIO,
@@ -112,6 +123,34 @@ const btn =
 const panel = 'border border-phosphor/30 bg-panel p-3'
 const h2cls = 'font-mono font-bold text-phosphor uppercase tracking-widest text-sm'
 
+// Persistence singletons (R4). Local implementations behind the SaveStore
+// and ScoreSink interfaces; the remote seam is v2 and not imported.
+const saveStore = new LocalStorageStore()
+const scoreSink = new LocalScoreSink()
+
+// Copy text to the clipboard with a synchronous fallback for browsers that
+// gate the async clipboard API.
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(ta)
+      return ok
+    } catch {
+      return false
+    }
+  }
+}
+
 function plannedCost(state: GameState, actions: TurnActions): number {
   const s = state.scenario
   let total = 0
@@ -126,13 +165,42 @@ function plannedCost(state: GameState, actions: TurnActions): number {
   return total
 }
 
-export default function Game({ onExit }: { onExit?: () => void }) {
-  const [state, setState] = useState<GameState | null>(null)
-  const [phase, setPhase] = useState<Phase>('brief')
+export default function Game({ onExit, initial }: { onExit?: () => void; initial?: RestoredGame | null }) {
+  const [state, setState] = useState<GameState | null>(initial?.state ?? null)
+  const [phase, setPhase] = useState<Phase>((initial?.phase as Phase) ?? 'brief')
   const [actions, setActions] = useState<TurnActions>(EMPTY_ACTIONS)
   const [seedInput, setSeedInput] = useState(String(DEFAULT_SEED))
+  const [notice, setNotice] = useState('')
+  const [codeInput, setCodeInput] = useState('')
+  const [slots, setSlots] = useState<SaveMeta[]>(() => saveStore.list())
+  const recordedRef = useRef(false)
 
   const scenario = DEFAULT_SCENARIO
+
+  // Autosave every turn/phase change while playing, for refresh-safe
+  // resume. On game over, record the score once and clear the autosave so
+  // a finished run is not offered for resume.
+  useEffect(() => {
+    if (!state) return
+    if (state.status === 'playing') {
+      saveStore.autosave(state, phase)
+    } else if (!recordedRef.current) {
+      recordedRef.current = true
+      saveStore.clearAutosave()
+      const last = state.history[state.history.length - 1]
+      scoreSink.record({
+        outcome: state.status,
+        mai: last?.maiScore ?? 0,
+        seed: state.seed,
+        turnsSurvived: state.history.length,
+        totalTurns: scenario.totalTurns,
+        scenarioId: scenario.id,
+        recordedAt: new Date().toISOString(),
+      })
+    }
+  }, [state, phase, scenario])
+
+  const flash = (msg: string) => setNotice(msg)
 
   // Derived from content so the help text tracks any duration retune.
   const durations = scenario.events.flatMap((e) => (e.duration ? [e.duration.min, e.duration.max] : []))
@@ -171,11 +239,61 @@ export default function Game({ onExit }: { onExit?: () => void }) {
     </Suspense>
   )
 
+  const beginGame = (next: GameState, nextPhase: Phase) => {
+    recordedRef.current = false
+    setState(next)
+    setActions(EMPTY_ACTIONS)
+    setPhase(nextPhase)
+    setNotice('')
+  }
+
   const start = () => {
     const seed = Number.parseInt(seedInput, 10)
-    setState(newGame(scenario, Number.isFinite(seed) ? seed : DEFAULT_SEED))
+    beginGame(newGame(scenario, Number.isFinite(seed) ? seed : DEFAULT_SEED), 'brief')
+  }
+
+  const newCampaign = () => {
+    recordedRef.current = false
+    setState(null)
     setActions(EMPTY_ACTIONS)
     setPhase('brief')
+    setSlots(saveStore.list())
+    setNotice('')
+  }
+
+  // Load from a pasted save code (R4 item 2), with graceful failure.
+  const loadCode = () => {
+    try {
+      const restored = decodeSaveCode(codeInput)
+      beginGame(restored.state, restored.phase as Phase)
+    } catch (e) {
+      flash(e instanceof SaveError ? e.message : 'That save code could not be read.')
+    }
+  }
+
+  const loadSlot = (id: string) => {
+    const restored = saveStore.load(id)
+    if (restored) beginGame(restored.state, restored.phase as Phase)
+    else flash('That save could not be loaded.')
+  }
+
+  const saveSlot = () => {
+    if (!state) return
+    const name = `Turn ${Math.min(state.turn, scenario.totalTurns)} save`
+    saveStore.save(state, phase, name)
+    setSlots(saveStore.list())
+    flash('Saved to a slot.')
+  }
+
+  const exportCode = async () => {
+    if (!state) return
+    const code = encodeSaveCode(captureGame(state, phase, new Date().toISOString()))
+    flash((await copyToClipboard(code)) ? 'Save code copied to clipboard.' : 'Copy failed; select and copy manually.')
+  }
+
+  const copyResult = async () => {
+    if (!state) return
+    flash((await copyToClipboard(shareText(state))) ? 'Result summary copied.' : 'Copy failed; try again.')
   }
 
   if (!state) {
@@ -231,6 +349,52 @@ export default function Game({ onExit }: { onExit?: () => void }) {
             Start campaign
           </button>
         </div>
+
+        <details className="mt-4 border border-phosphor/20 bg-panel p-3">
+          <summary className="cursor-pointer font-mono text-sm text-phosphor">Load a saved game or save code</summary>
+          <div className="mt-3">
+            <label className="font-mono text-sm">
+              Paste a save code:
+              <textarea
+                className="mt-1 w-full border border-phosphor/40 bg-base text-ink px-2 py-1 font-mono text-xs h-16"
+                value={codeInput}
+                onChange={(e) => setCodeInput(e.target.value)}
+                placeholder="DC1-..."
+                aria-label="save code"
+              />
+            </label>
+            <button className={`${btn} mt-1 text-sm`} disabled={!codeInput.trim()} onClick={loadCode}>
+              Load from code
+            </button>
+          </div>
+          {slots.length > 0 && (
+            <div className="mt-3">
+              <p className="font-mono text-sm text-phosphor">Saved slots ({slots.length})</p>
+              <ul className="mt-1">
+                {slots.map((s) => (
+                  <li key={s.id} className="flex flex-wrap items-center gap-2 mt-1 text-sm">
+                    <span className="font-mono">{s.name}</span>
+                    <span className="text-ink-dim text-xs">{s.savedAt.slice(0, 16).replace('T', ' ')}</span>
+                    <button className={`${btn} px-2 py-0 text-xs`} onClick={() => loadSlot(s.id)}>
+                      load
+                    </button>
+                    <button
+                      className={`${btn} px-2 py-0 text-xs`}
+                      onClick={() => {
+                        saveStore.remove(s.id)
+                        setSlots(saveStore.list())
+                      }}
+                    >
+                      delete
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </details>
+        {notice && <p className="mt-2 font-mono text-sm text-alert-amber">{notice}</p>}
+
         <div className="mt-6 flex justify-center">{constellationVisual}</div>
         <p className="mt-6 text-sm text-ink-dim">
           Content loaded from data: {THREAT_EVENT_COUNT} threat events, {OPPORTUNITY_EVENT_COUNT} opportunity events,{' '}
@@ -468,37 +632,26 @@ export default function Game({ onExit }: { onExit?: () => void }) {
         )}
       </p>
       {activeConditions}
+      {state.status === 'playing' && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 pt-2 border-t border-phosphor/15">
+          <button className={`${btn} text-xs py-0.5`} onClick={saveSlot}>
+            Save
+          </button>
+          <button className={`${btn} text-xs py-0.5`} onClick={exportCode}>
+            Export code
+          </button>
+          <span className="text-xs text-ink-dim">Autosaved each turn. Reload resumes here.</span>
+        </div>
+      )}
+      {notice && <p className="mt-1 font-mono text-xs text-alert-amber">{notice}</p>}
     </section>
   )
 
   // The deciding turn's aftermath still renders before the report card.
   if (state.status !== 'playing' && phase !== 'aftermath') {
-    // Authoritative technique-to-vector map from the content deck: the
-    // FIRST event carrying a ref defines its icon, so a technique shared
-    // across events (EX-0016.03 on both the jam and the chain) keeps its
-    // primary vector regardless of which event fired last.
-    const refVector = new Map<string, Vector>()
-    for (const evDef of scenario.events) {
-      for (const ref of evDef.techniqueRefs) {
-        const key = `${ref.framework} ${ref.id}`
-        if (!refVector.has(key)) refVector.set(key, evDef.vector)
-      }
-    }
-    const burned = new Map<string, string>()
-    const resisted = new Map<string, string>()
-    for (const rec of state.history) {
-      for (const ev of rec.events) {
-        const def = scenario.events.find((e) => e.id === ev.eventId)
-        for (const ref of ev.firedTechniqueRefs) {
-          burned.set(`${ref.framework} ${ref.id}`, ref.name)
-        }
-        if (ev.effectiveSeverity === 0) {
-          for (const ref of def?.techniqueRefs ?? []) {
-            resisted.set(`${ref.framework} ${ref.id}`, ref.name)
-          }
-        }
-      }
-    }
+    // The same report data feeds the on-screen card and the shareable
+    // summary, so they can never disagree (R4).
+    const report = reportData(state)
     const won = state.status === 'won'
     return (
       <main className="relative min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
@@ -550,31 +703,27 @@ export default function Game({ onExit }: { onExit?: () => void }) {
         </p>
         <h3 className={`${h2cls} mt-6`}>Technique report card</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-          {[...burned.entries()].map(([id, name]) => (
-            <div key={id} className="border border-hero-magenta/50 bg-hero-magenta/5 p-2 font-mono text-xs">
+          {report.burned.map((t) => (
+            <div key={t.id} className="border border-hero-magenta/50 bg-hero-magenta/5 p-2 font-mono text-xs">
               <p className="text-hero-magenta font-bold flex items-center gap-2">
-                {refVector.has(id) && (
-                  <img src={vectorIcons[refVector.get(id) as Vector]} alt="" className="w-5 h-5" />
-                )}
+                {t.vector && <img src={vectorIcons[t.vector]} alt="" className="w-5 h-5" />}
                 COMPROMISED
               </p>
-              <p className="mt-1">{id}</p>
-              <p className="text-ink-dim font-sans">{name}</p>
+              <p className="mt-1">{t.id}</p>
+              <p className="text-ink-dim font-sans">{t.name}</p>
             </div>
           ))}
-          {[...resisted.entries()].map(([id, name]) => (
-            <div key={id} className="border border-hero-blue/50 bg-hero-blue/5 p-2 font-mono text-xs">
+          {report.resisted.map((t) => (
+            <div key={t.id} className="border border-hero-blue/50 bg-hero-blue/5 p-2 font-mono text-xs">
               <p className="text-hero-blue font-bold flex items-center gap-2">
-                {refVector.has(id) && (
-                  <img src={vectorIcons[refVector.get(id) as Vector]} alt="" className="w-5 h-5" />
-                )}
+                {t.vector && <img src={vectorIcons[t.vector]} alt="" className="w-5 h-5" />}
                 RESILIENT
               </p>
-              <p className="mt-1">{id}</p>
-              <p className="text-ink-dim font-sans">{name}</p>
+              <p className="mt-1">{t.id}</p>
+              <p className="text-ink-dim font-sans">{t.name}</p>
             </div>
           ))}
-          {burned.size === 0 && resisted.size === 0 && (
+          {report.burned.length === 0 && report.resisted.length === 0 && (
             <p className="text-ink-dim">No technique fired or was shut out this run.</p>
           )}
         </div>
@@ -586,7 +735,13 @@ export default function Game({ onExit }: { onExit?: () => void }) {
           </p>
         </div>
         <div className="mt-6 flex flex-wrap gap-2">
-          <button className={btn} onClick={() => setState(null)}>
+          <button className={btn} onClick={copyResult}>
+            Copy result
+          </button>
+          <button className={btn} onClick={exportCode}>
+            Export save code
+          </button>
+          <button className={btn} onClick={newCampaign}>
             New campaign
           </button>
           {onExit && (
@@ -595,6 +750,7 @@ export default function Game({ onExit }: { onExit?: () => void }) {
             </button>
           )}
         </div>
+        {notice && <p className="mt-2 font-mono text-sm text-alert-amber">{notice}</p>}
       </main>
     )
   }

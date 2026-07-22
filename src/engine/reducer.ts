@@ -21,7 +21,7 @@ import type {
   TurnRecord,
 } from './types'
 import type { Rng } from './rng'
-import { assetPrice, coverage, maiScore } from './scoring'
+import { METER_CAP, assetPrice, coverage, maiScore } from './scoring'
 
 const METER_DAMAGE_PER_SEVERITY = 6
 const ASSET_DAMAGE_PER_SEVERITY = 12
@@ -43,6 +43,9 @@ export const RESILIENCE_HEAL = [0, 0, 4, 7] // all meters, same tiers
 export const MITIGATION_COMMENDATION_CREDITS = 3
 export const SURGE_START_TOKENS = 1
 export const SURGE_TOKEN_CAP = 3
+// You earn a surge token by holding the win line under at least this many
+// active conditions. Exported so UI copy interpolates it (R4 item 5).
+export const SURGE_EARN_MIN_CONDITIONS = 2
 export const IR_RETAINER_BONUS_TOKENS = 1
 export const FUSION_RETROFIT_TURNS = 1
 export const DEPLOY_ETA: Record<Asset['kind'], { min: number; max: number }> = {
@@ -406,7 +409,7 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng): G
   }
   const recovery = next.irRetainer ? scenario.recovery.withIrRetainer : scenario.recovery.base
   for (const key of ['linkAvailability', 'dataIntegrity', 'sensorIntegrity'] as const) {
-    next.meters[key] = Math.min(100, next.meters[key] + recovery)
+    next.meters[key] = Math.min(METER_CAP, next.meters[key] + recovery)
   }
 
   // Pipeline arrivals, then countdown for what is still in transit.
@@ -500,13 +503,13 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng): G
     next.credits += RESILIENCE_CREDITS[tier]
     if (RESILIENCE_HEAL[tier] > 0) {
       for (const key of ['linkAvailability', 'dataIntegrity', 'sensorIntegrity'] as const) {
-        next.meters[key] = Math.min(100, next.meters[key] + RESILIENCE_HEAL[tier])
+        next.meters[key] = Math.min(METER_CAP, next.meters[key] + RESILIENCE_HEAL[tier])
       }
     }
     commendations.push(
       `Resilience commendation, tier ${tier}: held the win line under ${enduredConditions.length} active condition${enduredConditions.length > 1 ? 's' : ''} (+${RESILIENCE_CREDITS[tier]} credits${RESILIENCE_HEAL[tier] > 0 ? `, +${RESILIENCE_HEAL[tier]} all meters` : ''}).`,
     )
-    if (enduredConditions.length >= 2 && next.surgeTokens < SURGE_TOKEN_CAP) {
+    if (enduredConditions.length >= SURGE_EARN_MIN_CONDITIONS && next.surgeTokens < SURGE_TOKEN_CAP) {
       next.surgeTokens += 1
       commendations.push('Surge authority granted for sustained operations under pressure (+1, spend to clear a condition).')
     }

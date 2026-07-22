@@ -1,23 +1,36 @@
-// Main menu (R3.5): NEW OPERATION / HOW TO PLAY / FIELD MANUAL / GLOSSARY,
-// styled with [F1] to [F4] keys and wired to the real function keys on
-// desktop. On touch, the keys are just labels.
+// Main menu (R3.5, extended R4): the entries are wired to [F1]..[Fn] keys
+// on desktop and taps on touch. A RESUME entry appears first when a game is
+// in progress (an autosave exists).
 
 import { useEffect } from 'react'
 import Wordmark from './Wordmark'
 
-export type MenuTarget = 'game' | 'howto' | 'manual' | 'glossary'
+export type MenuTarget = 'resume' | 'game' | 'scoreboard' | 'howto' | 'manual' | 'glossary'
 
-const ITEMS: { key: string; code: string; label: string; target: MenuTarget }[] = [
-  { key: 'F1', code: 'F1', label: 'NEW OPERATION', target: 'game' },
-  { key: 'F2', code: 'F2', label: 'HOW TO PLAY', target: 'howto' },
-  { key: 'F3', code: 'F3', label: 'FIELD MANUAL', target: 'manual' },
-  { key: 'F4', code: 'F4', label: 'GLOSSARY', target: 'glossary' },
+const BASE_ITEMS: { label: string; target: MenuTarget }[] = [
+  { label: 'NEW OPERATION', target: 'game' },
+  { label: 'SCOREBOARD', target: 'scoreboard' },
+  { label: 'HOW TO PLAY', target: 'howto' },
+  { label: 'FIELD MANUAL', target: 'manual' },
+  { label: 'GLOSSARY', target: 'glossary' },
 ]
 
-export default function MainMenu({ onSelect }: { onSelect: (t: MenuTarget) => void }) {
+export default function MainMenu({
+  onSelect,
+  resumeAvailable,
+}: {
+  onSelect: (t: MenuTarget) => void
+  resumeAvailable: boolean
+}) {
+  const items = (resumeAvailable ? [{ label: 'RESUME OPERATION', target: 'resume' as MenuTarget }] : []).concat(
+    BASE_ITEMS,
+  )
+  // Function keys follow position: item i is bound to F(i+1).
+  const withKeys = items.map((item, i) => ({ ...item, key: `F${i + 1}` }))
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const item = ITEMS.find((i) => i.code === e.key)
+      const item = withKeys.find((i) => i.key === e.key)
       if (item) {
         e.preventDefault()
         onSelect(item.target)
@@ -25,7 +38,7 @@ export default function MainMenu({ onSelect }: { onSelect: (t: MenuTarget) => vo
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onSelect])
+  }, [onSelect, withKeys])
 
   return (
     <main className="min-h-screen p-4 sm:p-8 max-w-3xl mx-auto flex flex-col justify-center">
@@ -36,7 +49,7 @@ export default function MainMenu({ onSelect }: { onSelect: (t: MenuTarget) => vo
         </p>
       </div>
       <nav className="mt-8 space-y-2 max-w-md w-full mx-auto">
-        {ITEMS.map((item) => (
+        {withKeys.map((item) => (
           <button
             key={item.target}
             onClick={() => onSelect(item.target)}
@@ -50,7 +63,7 @@ export default function MainMenu({ onSelect }: { onSelect: (t: MenuTarget) => vo
         ))}
       </nav>
       <p className="mt-8 text-center font-mono text-xs text-ink-dim">
-        <span className="hidden sm:inline">Press [F1] to [F4], or select an option to continue.</span>
+        <span className="hidden sm:inline">Press [F1] to [F{withKeys.length}], or select an option to continue.</span>
         <span className="sm:hidden">Tap an option to continue.</span>
       </p>
     </main>

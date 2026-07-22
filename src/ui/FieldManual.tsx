@@ -13,10 +13,11 @@ import {
   IR_RETAINER_BONUS_TOKENS,
   MITIGATION_COMMENDATION_CREDITS,
   RESILIENCE_CREDITS,
+  SURGE_EARN_MIN_CONDITIONS,
   SURGE_START_TOKENS,
   SURGE_TOKEN_CAP,
 } from '../engine/reducer'
-import { COVERAGE_PER_DRONE, COVERAGE_PER_SAT } from '../engine/scoring'
+import { COVERAGE_PER_DRONE, COVERAGE_PER_SAT, METER_CAP } from '../engine/scoring'
 
 const s = DEFAULT_SCENARIO
 const durations = s.events.flatMap((e) => (e.duration ? [e.duration.min, e.duration.max] : []))
@@ -56,7 +57,9 @@ export default function FieldManual({ onBack }: { onBack: () => void }) {
         <p>
           MAI is a weighted blend of Coverage, Link availability, Data integrity, and Sensor integrity. Coverage is
           how much of the area the fleet sees (each sat {COVERAGE_PER_SAT}, each drone {COVERAGE_PER_DRONE}, capped at
-          100); at {s.slaBonus.coverageMin} or more the coverage SLA pays +{s.slaBonus.credits} credits a turn. The
+          {' '}
+          {METER_CAP}); at {s.slaBonus.coverageMin} or more the coverage SLA pays +{s.slaBonus.credits} credits a
+          turn. The
           other three meters are trust: jamming drives Link down, ransomware and eavesdropping drive Data down, LiDAR
           and spoofing attacks drive Sensor down. Damaged meters recover +{s.recovery.base} a turn, or +
           {s.recovery.withIrRetainer} with the incident response retainer.
@@ -96,8 +99,8 @@ export default function FieldManual({ onBack }: { onBack: () => void }) {
         <p>
           You hold surge authority tokens (start with {SURGE_START_TOKENS}, cap {SURGE_TOKEN_CAP}). Spend one in any
           decision phase to immediately clear an active condition. The incident response retainer grants +
-          {IR_RETAINER_BONUS_TOKENS} on purchase, and you earn one by holding the win line under two or more
-          conditions.
+          {IR_RETAINER_BONUS_TOKENS} on purchase, and you earn one by holding the win line under{' '}
+          {SURGE_EARN_MIN_CONDITIONS} or more conditions.
         </p>
         <p>
           Commendations reward composure under pressure. End a turn at or above the win line with conditions active
