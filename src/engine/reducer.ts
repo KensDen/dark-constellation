@@ -245,7 +245,7 @@ function resolveEvent(state: GameState, ev: ThreatEvent, rng: Rng, flags: ChainF
         ? [] // the implant damages its Tier B host, picked above
         : liveAssets(state.assets).filter((a) => targetLayers.includes(a.layer))
     if (implantHost) candidates.push(implantHost)
-    if (candidates.length > 0 && ev.effect.special !== 'debrisStrike') {
+    if (candidates.length > 0 && ev.effect.special !== 'debrisStrike' && ev.effect.assetDamage !== false) {
       const target = implantHost ?? rng.pick(candidates)
       target.integrity = Math.max(0, target.integrity - effectiveSeverity * ASSET_DAMAGE_PER_SEVERITY)
       notes.push(

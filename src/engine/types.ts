@@ -16,29 +16,65 @@ export interface TechniqueRef {
   citation?: string
 }
 
+// Learn-more cards (spec Sections 7 and 16): the educational payload per
+// event. Sources carry the same explicit verification status as technique
+// refs: verify-at-build until the URL and claim are confirmed against the
+// live site, and the UI labels them accordingly.
+export interface LearnMoreSource {
+  title: string
+  url: string
+  type: 'paper' | 'report' | 'advisory'
+  status: 'verified' | 'verify-at-build'
+}
+
+export interface LearnMoreCard {
+  title: string
+  body: string
+  sources: LearnMoreSource[]
+}
+
 export type CountermeasureId =
   | 'linkAuth'
   | 'antiJam'
+  | 'pntAuth'
   | 'sensorFusion'
   | 'tierAAttestation'
+  | 'mlPipelineIntegrity'
   | 'groundZeroTrust'
+  | 'insiderProgram'
   | 'ssaManeuver'
+  | 'encryptedBackhaul'
   | 'intelInvestment'
   | 'irRetainer'
+
+// Mapping to the SPARTA countermeasure catalog (spec Section 8, R3).
+// Tier is SPARTA's defense-in-depth tier for the countermeasure as
+// published on sparta.aerospace.org, verified at build via the web.
+export interface SpartaCmRef {
+  id: string
+  name: string
+  url: string
+  tier: string
+}
 
 export interface Countermeasure {
   id: CountermeasureId
   name: string
   cost: number
   counters: string[] // ThreatEvent ids; empty means posture-wide (intel, IR)
+  spartaCms: SpartaCmRef[]
   blurb: string
 }
 
 // What an event does when it lands. Meters name the MAI components the
-// damage applies to; specials trigger engine mechanics.
+// damage applies to; specials trigger engine mechanics. assetDamage false
+// marks confidentiality-loss events (eavesdropping, exfiltration, replay,
+// latent poisoning): they erode trust meters without physically degrading
+// an asset.
 export interface ThreatEffect {
   meters: ('linkAvailability' | 'dataIntegrity' | 'sensorIntegrity')[]
   special?: 'jamsGnss' | 'chainExploit' | 'implantTierB' | 'debrisStrike'
+  assetDamage?: boolean
   repairCostPerSeverity: number
 }
 
@@ -53,6 +89,7 @@ export interface ThreatEvent {
   chainsWith?: string[]
   effect: ThreatEffect
   blurb: string // plain-English why-this-matters, one paragraph
+  learnMoreCards: LearnMoreCard[]
 }
 
 // Campaign script: each turn draws fixed events, random events, or both.

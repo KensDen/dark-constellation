@@ -5,7 +5,14 @@
 
 import { Suspense, lazy, useState } from 'react'
 import { ADVERSARY, GAME_TITLE, SQUADRON } from '../config'
-import { COUNTERMEASURE_COUNT, DEFAULT_SCENARIO, EVENT_COUNT, TECHNIQUE_REF_COUNT } from '../content'
+import {
+  COUNTERMEASURE_COUNT,
+  DEFAULT_SCENARIO,
+  EVENT_COUNT,
+  SOURCE_COUNT,
+  TECHNIQUE_REF_COUNT,
+  UNVERIFIED_REF_COUNT,
+} from '../content'
 import {
   CHAIN_BONUS,
   MITIGATION_PER_COUNTER,
@@ -202,7 +209,14 @@ export default function Game() {
         <div className="mt-6 flex justify-center">{constellationVisual}</div>
         <p className="mt-6 text-sm text-ink-dim">
           Content loaded from data: {EVENT_COUNT} threat events, {COUNTERMEASURE_COUNT} countermeasures,{' '}
-          {TECHNIQUE_REF_COUNT} framework techniques. R1 skeleton subset; the full deck lands in R3.
+          {TECHNIQUE_REF_COUNT} framework techniques, {SOURCE_COUNT} cited sources.
+          {UNVERIFIED_REF_COUNT > 0 && (
+            <span>
+              {' '}
+              {UNVERIFIED_REF_COUNT} reference{UNVERIFIED_REF_COUNT === 1 ? '' : 's'} still await live web
+              verification and are labeled verify-at-build on their cards.
+            </span>
+          )}
         </p>
       </main>
     )
@@ -302,14 +316,14 @@ export default function Game() {
             {COVERAGE_PER_SAT}, each drone {COVERAGE_PER_DRONE}. At {scenario.slaBonus.coverageMin} or more, the
             coverage SLA pays +{scenario.slaBonus.credits} credits a turn.
           </li>
-          <li>Link: command and data links available. Jamming drives it down.</li>
+          <li>Link: command and data links available. Jamming, link intrusion, and time spoofing drive it down.</li>
           <li>
-            Data: mission data you can trust. Ransomware, phishing, firmware implants, and the BLACKOUT CHAIN drive
-            it down.
+            Data: mission data you can trust, kept confidential and intact. Ransomware, phishing, replay,
+            eavesdropping, insider exfiltration, firmware implants, and the BLACKOUT CHAIN drive it down.
           </li>
           <li>
-            Sensor: sensors telling the truth. LiDAR injection, firmware implants, and the BLACKOUT CHAIN drive it
-            down.
+            Sensor: sensors telling the truth. LiDAR dazzle, injection and blinding, GNSS spoofing, training-data
+            poisoning, firmware implants, and the BLACKOUT CHAIN drive it down.
           </li>
           <li>
             Damaged meters recover +{scenario.recovery.base} a turn, or +{scenario.recovery.withIrRetainer} with the
@@ -550,6 +564,20 @@ export default function Game() {
                     Answers: {cm.counters.map((id) => shortEventName(id)).join(', ') || 'posture-wide'}
                   </p>
                   <p className="text-sm ml-6 text-ink-dim">{cm.blurb}</p>
+                  {cm.spartaCms.length > 0 && (
+                    <p className="ml-6 font-mono text-xs text-ink-dim">
+                      SPARTA:{' '}
+                      {cm.spartaCms.map((ref, j) => (
+                        <span key={ref.id}>
+                          {j > 0 ? '; ' : ''}
+                          <a className="underline" href={ref.url} target="_blank" rel="noreferrer">
+                            {ref.id} {ref.name}
+                          </a>{' '}
+                          ({ref.tier})
+                        </span>
+                      ))}
+                    </p>
+                  )}
                 </li>
               ))}
             <li className="mt-3">
@@ -568,6 +596,20 @@ export default function Game() {
                 Answers: everything, indirectly. Every damaged meter recovers +{scenario.recovery.withIrRetainer} a
                 turn instead of +{scenario.recovery.base}.
               </p>
+              {(scenario.countermeasures.find((c) => c.id === 'irRetainer')?.spartaCms ?? []).length > 0 && (
+                <p className="ml-6 font-mono text-xs text-ink-dim">
+                  SPARTA:{' '}
+                  {(scenario.countermeasures.find((c) => c.id === 'irRetainer')?.spartaCms ?? []).map((ref, j) => (
+                    <span key={ref.id}>
+                      {j > 0 ? '; ' : ''}
+                      <a className="underline" href={ref.url} target="_blank" rel="noreferrer">
+                        {ref.id} {ref.name}
+                      </a>{' '}
+                      ({ref.tier})
+                    </span>
+                  ))}
+                </p>
+              )}
             </li>
           </ul>
           {!affordable && (
@@ -624,7 +666,7 @@ export default function Game() {
                 {landed && <p className="text-sm mt-1 font-bold text-alert-amber">{whatWouldHaveHelped(ev)}</p>}
                 {ev.firedTechniqueRefs.length > 0 && (
                   <p className="text-sm mt-1">
-                    Learn more:{' '}
+                    Techniques:{' '}
                     {ev.firedTechniqueRefs.map((ref, j) => (
                       <span key={j}>
                         {j > 0 ? '; ' : ''}
@@ -636,6 +678,26 @@ export default function Game() {
                     ))}
                   </p>
                 )}
+                {(def?.learnMoreCards ?? []).map((card, j) => (
+                  <details key={j} className="mt-2 border border-phosphor/20 bg-panel p-2">
+                    <summary className="cursor-pointer text-sm font-mono text-phosphor">
+                      Learn more: {card.title}
+                    </summary>
+                    <p className="text-sm mt-2">{card.body}</p>
+                    <ul className="list-disc ml-6 mt-2 text-sm">
+                      {card.sources.map((src, k) => (
+                        <li key={k}>
+                          <a className="underline text-ink" href={src.url} target="_blank" rel="noreferrer">
+                            {src.title}
+                          </a>{' '}
+                          <span className="text-ink-dim font-mono text-xs">
+                            [{src.type}] [{src.status}]
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ))}
               </div>
             )
           })}

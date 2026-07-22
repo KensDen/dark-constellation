@@ -12,28 +12,55 @@ export const techniqueRefSchema = z.object({
   citation: z.string().optional(),
 })
 
+export const learnMoreSourceSchema = z.object({
+  title: z.string().min(1),
+  url: z.string().url(),
+  type: z.enum(['paper', 'report', 'advisory']),
+  status: z.enum(['verified', 'verify-at-build']),
+})
+
+// Every event teaches: at least one card, every card sourced.
+export const learnMoreCardSchema = z.object({
+  title: z.string().min(1),
+  body: z.string().min(1),
+  sources: z.array(learnMoreSourceSchema).min(1),
+})
+
 export const countermeasureIdSchema = z.enum([
   'linkAuth',
   'antiJam',
+  'pntAuth',
   'sensorFusion',
   'tierAAttestation',
+  'mlPipelineIntegrity',
   'groundZeroTrust',
+  'insiderProgram',
   'ssaManeuver',
+  'encryptedBackhaul',
   'intelInvestment',
   'irRetainer',
 ])
+
+export const spartaCmRefSchema = z.object({
+  id: z.string().regex(/^CM\d{4}$/),
+  name: z.string().min(1),
+  url: z.string().url(),
+  tier: z.string().min(1),
+})
 
 export const countermeasureSchema = z.object({
   id: countermeasureIdSchema,
   name: z.string().min(1),
   cost: z.number().int().min(0).max(15),
   counters: z.array(z.string().min(1)),
+  spartaCms: z.array(spartaCmRefSchema),
   blurb: z.string().min(1),
 })
 
 export const threatEffectSchema = z.object({
   meters: z.array(z.enum(['linkAvailability', 'dataIntegrity', 'sensorIntegrity'])),
   special: z.enum(['jamsGnss', 'chainExploit', 'implantTierB', 'debrisStrike']).optional(),
+  assetDamage: z.boolean().optional(),
   repairCostPerSeverity: z.number().int().min(0),
 })
 
@@ -48,6 +75,7 @@ export const threatEventSchema = z.object({
   chainsWith: z.array(z.string()).optional(),
   effect: threatEffectSchema,
   blurb: z.string().min(1),
+  learnMoreCards: z.array(learnMoreCardSchema).min(1),
 })
 
 const assetKindSchema = z.enum(['sat', 'rpoSat', 'drone', 'groundStation'])
@@ -103,6 +131,20 @@ export const scenarioSchema = z
     const counterIds = new Set(s.countermeasures.map((c) => c.id))
     if (counterIds.size !== s.countermeasures.length) {
       ctx.addIssue({ code: 'custom', message: 'duplicate countermeasure ids' })
+    }
+    // Full-deck rule (R3): an event that no campaign slot can ever draw is
+    // dead content and fails validation.
+    const reachable = new Set<string>()
+    for (const plan of s.campaign) {
+      for (const slot of plan.slots) {
+        if (slot.fixed) reachable.add(slot.fixed)
+        for (const id of slot.drawFrom ?? []) reachable.add(id)
+      }
+    }
+    for (const ev of s.events) {
+      if (!reachable.has(ev.id)) {
+        ctx.addIssue({ code: 'custom', message: `event ${ev.id} is never reachable in the campaign` })
+      }
     }
     const seenTurns = new Set<number>()
     for (const plan of s.campaign) {

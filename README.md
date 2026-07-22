@@ -6,7 +6,7 @@ A turn-based space and drone cybersecurity strategy sim. Fully client-side, depl
 
 Play it: https://kensden.github.io/dark-constellation/
 
-Status: Round 2, visual identity. Phosphor terminal chrome over the R1 playable skeleton: committed SVG assets (wordmark, event-vector icons, layer badges), the owner-supplied split-sphere hero, hero-derived state colors (blue for friendly and defense, magenta for hostile and threat), and a live three.js constellation on the title screen.
+Status: Round 3, partial: structure only, no refs verified. The full threat deck from the spec ships (all counts derived from data at build time) and every event carries a learn-more card, but zero framework refs or source URLs could be web-verified this round: the build environment had no route to the framework sites, so every reference is explicitly marked verify-at-build in the data and labeled as such in the UI. The SPARTA countermeasure ID and tier mapping is deferred to the verification round for the same reason (the structure ships, the arrays are empty). Balance is untouched this round; a recorded baseline sweep (npm run sweep) feeds the dynamics round that follows.
 
 All organizations, vendors, and threat actors in the game fiction are original and fictional.
 
@@ -27,7 +27,7 @@ npm run dev
 node scripts/battery.mjs
 ```
 
-Runs typecheck, production build, the determinism and content test suites, and repo hygiene checks. Must be green before a round closes.
+Runs typecheck, production build, the determinism and content test suites, the content link check (every source URL in the deck must resolve; skips gracefully offline), and repo hygiene checks. Must be green before a round closes.
 
 The determinism test replays fixed-seed full games and compares a hash of the event log against the committed snapshot in `tests/determinism.snap.json`. After a deliberate engine or content change, regenerate it with `UPDATE_SNAPSHOTS=1 npx vitest run` and commit the diff knowingly.
 
