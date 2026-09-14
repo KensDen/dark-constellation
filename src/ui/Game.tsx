@@ -1,9 +1,13 @@
 // Text-first game shell, restyled in R2 per design brief v0.2: phosphor
 // terminal chrome, hero-derived state accents (blue = friendly/defense,
 // magenta = hostile/threat, amber = alerts), monospace HUD over sans body.
-// All game logic is unchanged from R1.5.
+// All game logic is unchanged from R1.5. The game-feel pass (Round 2) adds
+// a playback phase between resolve and aftermath: the director plays the
+// resolved turn beat by beat over a presented state, and instant speed
+// (the reduced-motion default) skips straight to the aftermath exactly as
+// v1.0 did. The engine call is untouched.
 
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { ADVERSARY, SQUADRON } from '../config'
 import {
   LocalScoreSink,
@@ -14,8 +18,11 @@ import {
   encodeSaveCode,
   type RestoredGame,
   type SaveMeta,
+  type SavePhase,
 } from '../persistence'
 import { reportData, shareText } from './reportCard'
+import DirectorView from '../director/DirectorView'
+import { SpeedSelect, defaultSpeed, deriveBeats, loadSpeedPreference, saveSpeedPreference, type Beat, type Speed } from '../director'
 import {
   COUNTERMEASURE_COUNT,
   DEFAULT_SCENARIO,
@@ -89,7 +96,17 @@ const EMPTY_ACTIONS: TurnActions = {
   buyIrRetainer: false,
 }
 
-type Phase = 'brief' | 'procure' | 'harden' | 'aftermath'
+// The playback phase is presentation only (Round 2): it sits between
+// resolve and aftermath and is never persisted. A reload during playback
+// lands on the aftermath, which is what instant mode shows anyway.
+type Phase = SavePhase | 'playback'
+const persistPhase = (p: Phase): SavePhase => (p === 'playback' ? 'aftermath' : p)
+
+interface PlaybackSession {
+  before: GameState
+  after: GameState
+  beats: Beat[]
+}
 
 const kindLabels: Record<AssetKind, string> = {
   sat: 'Imaging sat',
@@ -179,6 +196,20 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const [codeInput, setCodeInput] = useState('')
   const [slots, setSlots] = useState<SaveMeta[]>(() => saveStore.list())
   const recordedRef = useRef(false)
+  // Director playback (Round 2). `presented` is the state the HUD shows
+  // while beats play; `state` is always the engine's output.
+  const [playback, setPlayback] = useState<PlaybackSession | null>(null)
+  const [presented, setPresented] = useState<GameState | null>(null)
+  const [speed, setSpeedState] = useState<Speed>(() => defaultSpeed(prefersReducedMotion, loadSpeedPreference()))
+  const setSpeed = useCallback((s: Speed) => {
+    setSpeedState(s)
+    saveSpeedPreference(s)
+  }, [])
+  const finishPlayback = useCallback(() => {
+    setPlayback(null)
+    setPresented(null)
+    setPhase('aftermath')
+  }, [])
 
   const scenario = DEFAULT_SCENARIO
 
@@ -188,7 +219,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   useEffect(() => {
     if (!state) return
     if (state.status === 'playing') {
-      saveStore.autosave(state, phase)
+      saveStore.autosave(state, persistPhase(phase))
     } else if (!recordedRef.current) {
       recordedRef.current = true
       saveStore.clearAutosave()
@@ -249,6 +280,8 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     recordedRef.current = false
     setState(next)
     setActions(EMPTY_ACTIONS)
+    setPlayback(null)
+    setPresented(null)
     setPhase(nextPhase)
     setNotice('')
   }
@@ -262,6 +295,8 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     recordedRef.current = false
     setState(null)
     setActions(EMPTY_ACTIONS)
+    setPlayback(null)
+    setPresented(null)
     setPhase('brief')
     setSlots(saveStore.list())
     setNotice('')
@@ -286,14 +321,14 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const saveSlot = () => {
     if (!state) return
     const name = `Turn ${Math.min(state.turn, scenario.totalTurns)} save`
-    saveStore.save(state, phase, name)
+    saveStore.save(state, persistPhase(phase), name)
     setSlots(saveStore.list())
     flash('Saved to a slot.')
   }
 
   const exportCode = async () => {
     if (!state) return
-    const code = encodeSaveCode(captureGame(state, phase, new Date().toISOString()))
+    const code = encodeSaveCode(captureGame(state, persistPhase(phase), new Date().toISOString()))
     flash((await copyToClipboard(code)) ? 'Save code copied to clipboard.' : 'Copy failed; select and copy manually.')
   }
 
@@ -453,7 +488,11 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const cost = plannedCost(state, actions)
   const affordable = cost <= available
   const lastRecord = state.history[state.history.length - 1]
-  const displayTurn = phase === 'aftermath' && lastRecord ? lastRecord.turn : Math.min(state.turn, scenario.totalTurns)
+  const displayTurn =
+    (phase === 'aftermath' || phase === 'playback') && lastRecord ? lastRecord.turn : Math.min(state.turn, scenario.totalTurns)
+  // During playback the HUD follows the director's presented state; at
+  // every other time it is the engine's state.
+  const shown = phase === 'playback' && presented ? presented : state
 
   const resolve = () => {
     // The engine is the authority on affordability. If the UI gate and the
@@ -461,9 +500,29 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     // a throw inside an event handler never reaches an error boundary.
     try {
       const next = resolveTurn(state, actions, turnRng(state.seed, state.turn))
+      // The director derives its beats from the two states. It is
+      // presentation only: instant speed never runs it (the v1.0 path,
+      // unchanged), and if derivation ever fails the turn still stands and
+      // the aftermath shows the engine's result directly.
+      let beats: Beat[] | null = null
+      if (speed !== 'instant') {
+        try {
+          beats = deriveBeats(state, next)
+        } catch {
+          beats = null
+        }
+      }
       setState(next)
       setActions(EMPTY_ACTIONS)
-      setPhase('aftermath')
+      if (!beats) {
+        setPlayback(null)
+        setPresented(null)
+        setPhase('aftermath')
+      } else {
+        setPlayback({ before: state, after: next, beats })
+        setPresented(state)
+        setPhase('playback')
+      }
     } catch (e) {
       flash(e instanceof Error ? `Turn could not resolve: ${e.message}` : 'Turn could not resolve.')
     }
@@ -494,17 +553,19 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   // Item 1 UI: active-conditions panel with per-condition elapsed counters.
   // Only high intel estimates how many turns a condition has left; otherwise
   // the remaining span stays hidden, as the mechanic intends.
-  const showsDurationEstimate = effectiveIntel(state) >= 3
-  const canSurge = state.surgeTokens > 0 && phase !== 'aftermath'
+  const showsDurationEstimate = effectiveIntel(shown) >= 3
+  const canSurge = state.surgeTokens > 0 && phase !== 'aftermath' && phase !== 'playback'
   const activeConditions =
-    state.conditions.length > 0 ? (
+    shown.conditions.length > 0 ? (
       <div className="mt-2 border border-hero-magenta/40 bg-hero-magenta/5 p-2">
         <p className="text-xs font-bold text-hero-magenta uppercase tracking-widest">
-          Active conditions ({state.conditions.length}), sustained pressure each turn
+          Active conditions ({shown.conditions.length}), sustained pressure each turn
         </p>
         <ul className="mt-1">
-          {state.conditions.map((c) => {
+          {shown.conditions.map((c) => {
             const queued = actions.spendSurgeOn === c.instanceId
+            // Counted from the engine's turn so the number does not jump when
+            // playback hands over to the aftermath.
             const elapsed = state.turn - c.startedTurn
             return (
               <li key={c.instanceId} className="text-xs mt-1 flex flex-wrap items-center gap-2">
@@ -571,12 +632,12 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     <section className={`${panel} mt-4 font-mono`}>
       <h2 className="sr-only">Posture</h2>
       <p className="font-bold text-phosphor">
-        MAI {maiScore(state)} (win line {scenario.winThreshold}, collapse below {scenario.collapseThreshold})
+        MAI {maiScore(shown)} (win line {scenario.winThreshold}, collapse below {scenario.collapseThreshold})
       </p>
       <p className="mt-1 text-sm">
-        Turn {displayTurn} of {scenario.totalTurns} | Credits {state.credits} | Coverage {coverage(state.assets)} |
-        Link {state.meters.linkAvailability} | Data {state.meters.dataIntegrity} | Sensor{' '}
-        {state.meters.sensorIntegrity} | Intel level {state.intelLevel} | {DIFFICULTIES[state.difficulty].label}
+        Turn {displayTurn} of {scenario.totalTurns} | Credits {shown.credits} | Coverage {coverage(shown.assets)} |
+        Link {shown.meters.linkAvailability} | Data {shown.meters.dataIntegrity} | Sensor{' '}
+        {shown.meters.sensorIntegrity} | Intel level {shown.intelLevel} | {DIFFICULTIES[shown.difficulty].label}
       </p>
       <details className="mt-1 text-sm font-sans text-ink-dim">
         <summary className="cursor-pointer">What these numbers mean</summary>
@@ -605,7 +666,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
             incident response retainer.
           </li>
           <li>
-            Credits: the budget. Income +{incomeFor(state.difficulty, scenario.incomePerTurn)} a turn plus any SLA bonus. Repairs come out of it,
+            Credits: the budget. Income +{incomeFor(shown.difficulty, scenario.incomePerTurn)} a turn plus any SLA bonus. Repairs come out of it,
             and below zero the program folds.
           </li>
           <li>
@@ -624,7 +685,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
           <li>Deployments arrive after a lead time; sats can slip a turn. Watch the in-transit line.</li>
         </ul>
       </details>
-      {state.flags.lidarFallback && (
+      {shown.flags.lidarFallback && (
         <p className="font-bold mt-2 border border-hero-magenta/60 bg-hero-magenta/10 text-hero-magenta p-2">
           BLACKOUT CHAIN ARMED: GNSS is jammed and {SQUADRON} is navigating on LiDAR alone. The next LiDAR attack
           lands harder (+{CHAIN_BONUS} severity) unless sensor fusion cross-checks are in place or every drone flies
@@ -632,28 +693,28 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
         </p>
       )}
       <p className="mt-2 text-xs text-ink-dim">
-        Fleet: {state.assets.filter((a) => a.integrity > 0).length} operational assets (
-        {state.assets
+        Fleet: {shown.assets.filter((a) => a.integrity > 0).length} operational assets (
+        {shown.assets
           .filter((a) => a.integrity > 0)
           .map((a) => `${kindLabels[a.kind]} ${a.tier}`)
           .join(', ') || 'none'}
         )
       </p>
       <p className="mt-1 text-xs text-hero-blue">
-        Countermeasures: {state.counters.length > 0
-          ? state.counters
+        Countermeasures: {shown.counters.length > 0
+          ? shown.counters
               .map((id) => scenario.countermeasures.find((c) => c.id === id)?.name ?? id)
               .join('; ')
           : 'none'}
       </p>
-      {(state.pipeline.length > 0 || state.pendingCounters.length > 0) && (
+      {(shown.pipeline.length > 0 || shown.pendingCounters.length > 0) && (
         <p className="mt-1 text-xs text-ink-dim">
           In transit:{' '}
           {[
-            ...state.pipeline.map(
+            ...shown.pipeline.map(
               (p) => `${kindLabels[p.kind]} ${p.tier} (ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'})`,
             ),
-            ...state.pendingCounters.map(
+            ...shown.pendingCounters.map(
               (p) =>
                 `${scenario.countermeasures.find((c) => c.id === p.id)?.name ?? p.id} retrofit (ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'})`,
             ),
@@ -662,11 +723,11 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
       )}
       <p className="mt-2 text-xs font-mono">
         <span className="text-alert-amber">
-          Surge authority: {state.surgeTokens} of {SURGE_TOKEN_CAP}
+          Surge authority: {shown.surgeTokens} of {SURGE_TOKEN_CAP}
         </span>
         <span className="text-ink-dim"> (spend one in any phase to clear an active condition)</span>
-        {state.intelBoostTurns > 0 && (
-          <span className="text-hero-blue"> | allied intel boost active ({state.intelBoostTurns} more turn{state.intelBoostTurns === 1 ? '' : 's'})</span>
+        {shown.intelBoostTurns > 0 && (
+          <span className="text-hero-blue"> | allied intel boost active ({shown.intelBoostTurns} more turn{shown.intelBoostTurns === 1 ? '' : 's'})</span>
         )}
       </p>
       {activeConditions}
@@ -685,8 +746,9 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     </section>
   )
 
-  // The deciding turn's aftermath still renders before the report card.
-  if (state.status !== 'playing' && phase !== 'aftermath') {
+  // The deciding turn's playback and aftermath still render before the
+  // report card, exactly as the aftermath alone did in v1.0.
+  if (state.status !== 'playing' && phase !== 'aftermath' && phase !== 'playback') {
     // The same report data feeds the on-screen card and the shareable
     // summary, so they can never disagree (R4).
     const report = reportData(state)
@@ -960,13 +1022,40 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
           {!affordable && (
             <p className="mt-2 font-bold font-mono text-alert-amber">Planned spend exceeds credits. Trim the cart.</p>
           )}
-          <button className={`${btn} mt-4`} disabled={!affordable} onClick={resolve}>
-            4. Resolve turn {state.turn}
-          </button>
-          <button className={`${btn} mt-4 ml-2`} onClick={() => setPhase('procure')}>
-            Back to procurement
-          </button>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button className={btn} disabled={!affordable} onClick={resolve}>
+              4. Resolve turn {state.turn}
+            </button>
+            <button className={btn} onClick={() => setPhase('procure')}>
+              Back to procurement
+            </button>
+          </div>
+          {/* The adversary phase plays back beat by beat unless the speed is
+              instant, which resolves straight to the aftermath as v1.0 did.
+              The control lives here as well as in the playback view, because
+              instant never mounts that view and would otherwise be a choice
+              with no way back. */}
+          <div className="mt-3 pt-3 border-t border-phosphor/15">
+            <SpeedSelect speed={speed} onChange={setSpeed} />
+            <p className="mt-1 font-mono text-xs text-ink-dim">
+              {speed === 'instant'
+                ? 'Results appear at once, with no beat-by-beat playback.'
+                : 'The adversary phase plays out beat by beat. Tap to advance, or skip at any point.'}
+            </p>
+          </div>
         </section>
+      )}
+
+      {phase === 'playback' && playback && (
+        <DirectorView
+          before={playback.before}
+          after={playback.after}
+          beats={playback.beats}
+          speed={speed}
+          onSpeedChange={setSpeed}
+          onPresented={setPresented}
+          onDone={finishPlayback}
+        />
       )}
 
       {phase === 'aftermath' && lastRecord && (

@@ -8,7 +8,9 @@
 // public CI never sees the deny-list.
 
 import { execSync, spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { gzipSync } from 'node:zlib'
 
 const failures = []
 
@@ -37,7 +39,27 @@ run('typecheck + production build', () => {
   sh('npm run build')
 })
 
-run('determinism + content integrity tests (spec 11.2, 11.3)', () => {
+// Bundle budget (game-feel brief section 8): the gzipped main chunk must
+// stay under the recorded threshold. Measured with Node's zlib at its
+// default level so the number is reproducible from the battery alone; the
+// baseline and budget live in tests/bundle-budget.json and any library
+// addition records its delta there.
+run('bundle budget: gzipped main chunk under threshold (game-feel brief 8)', () => {
+  const budget = JSON.parse(readFileSync('tests/bundle-budget.json', 'utf8'))
+  const dir = join('dist', 'assets')
+  const chunks = readdirSync(dir).filter((f) => /^index-.*\.js$/.test(f))
+  if (chunks.length !== 1) throw new Error(`expected one main chunk in ${dir}, found ${chunks.length}`)
+  const gz = gzipSync(readFileSync(join(dir, chunks[0]))).length
+  const delta = gz - budget.baselineGzipBytes
+  process.stdout.write(
+    `${chunks[0]} ${gz} bytes gzipped (baseline ${budget.baselineGzipBytes}, ${delta >= 0 ? '+' : ''}${delta}; budget ${budget.budgetGzipBytes}) ... `,
+  )
+  if (gz > budget.budgetGzipBytes) {
+    throw new Error(`main chunk is ${gz} bytes gzipped, over the ${budget.budgetGzipBytes} byte budget`)
+  }
+})
+
+run('vitest suites: determinism, content, persistence, readme, director, cues (spec 11.2, 11.3; brief 8)', () => {
   sh('npx vitest run')
 })
 

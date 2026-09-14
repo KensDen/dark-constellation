@@ -112,8 +112,9 @@ npm run dev
 node scripts/battery.mjs
 ```
 
-Runs typecheck, production build, the determinism, content, and persistence test suites, a
-copy-style scan, and the online content link check. Must be green before a round closes.
+Runs typecheck, production build, a bundle budget on the gzipped main chunk, the determinism,
+content, persistence, director, and cue-coverage test suites, a copy-style scan, and the online
+content link check. Must be green before a round closes.
 
 The determinism test replays fixed-seed full games on Standard difficulty and compares a hash of
 the event log against the committed snapshot in `tests/determinism.snap.json`. After a deliberate
