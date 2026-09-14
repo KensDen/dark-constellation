@@ -24,12 +24,16 @@ import type {
 import type { Rng } from './rng'
 import { METER_CAP, assetPrice, coverage, maiScore } from './scoring'
 
-const METER_DAMAGE_PER_SEVERITY = 6
 const ASSET_DAMAGE_PER_SEVERITY = 12
 const DEBRIS_LOSS_CHANCE_PER_SEVERITY = 0.35
-const SSA_MANEUVER_COST = 5
 // Exported so UI copy can interpolate the real values instead of
-// duplicating them as prose literals that rot when tuning changes.
+// duplicating them as prose literals that rot when tuning changes, and so
+// the presentation layer can read the numbers it needs instead of
+// mirroring them or parsing them back out of note text (game-feel brief
+// v0.5, principle 7).
+export const METER_DAMAGE_PER_SEVERITY = 6
+export const SSA_MANEUVER_COST = 5
+export const RIDESHARE_RESELL_CREDITS = 5
 export const TIER_A_FLEET_SHARE = 1 / 3
 export const MITIGATION_PER_COUNTER = 1
 export const CHAIN_BONUS = 2
@@ -417,8 +421,10 @@ function resolveOpportunity(state: GameState, ev: ThreatEvent): ResolvedEvent {
       soonest.etaTurns = Math.max(1, soonest.etaTurns - b.expediteTurns)
       notes.push(`${kindLabel[soonest.kind]} ${soonest.id} manifested on the rideshare: arrival moved up a turn.`)
     } else {
-      state.credits += 5
-      notes.push('No deployment far enough out to expedite; the slot resold for +5 credits.')
+      state.credits += RIDESHARE_RESELL_CREDITS
+      notes.push(
+        `No deployment far enough out to expedite; the slot resold for +${RIDESHARE_RESELL_CREDITS} credits.`,
+      )
     }
   }
   return {

@@ -2,11 +2,12 @@
   "what": "Gzipped size of the production main chunk (dist/assets/index-*.js), measured by scripts/battery.mjs with Node zlib gzipSync at its default level.",
   "v1_0GzipBytes": 110745,
   "v1_0Commit": "a2c575f",
-  "baselineGzipBytes": 117601,
-  "baselineRound": "game-feel Round 2 (director, placeholder cues)",
+  "baselineGzipBytes": 122673,
+  "baselineRound": "game-feel Round 3 (visual cue vocabulary, reading diet)",
   "baselineRecordedAt": "2026-09-14",
   "budgetGzipBytes": 140000,
-  "headroomGzipBytes": 22399,
+  "headroomGzipBytes": 17327,
   "baselineNodeVersion": "v26.3.0",
-  "budgetNote": "Threshold set from the Round 2 baseline with headroom for the cue vocabulary (Round 3), the Web Audio effects module (Round 4) and the procedural music bed (Round 6). Any library addition must record its delta here in its own commit."
+  "budgetNote": "Threshold set from the Round 2 baseline with headroom for the Web Audio effects module (Round 4), the outcome cinematics (Round 5) and the procedural music bed (Round 6). Round 3 spent 5072 bytes on the visual cue vocabulary and the reading diet. Any library addition records its delta here in its own commit.",
+  "r2GzipBytes": 117601
 }

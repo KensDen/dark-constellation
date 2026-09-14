@@ -8,29 +8,32 @@
 // residual reconciliation against the real after-state. The engine and
 // the content modules are untouched; nothing here feeds resolveTurn.
 //
-// Every number is taken from the record, the scenario, or an exported
-// engine constant, with one exception: METER_DAMAGE_PER_SEVERITY is a
-// private engine constant and meter damage leaves no number in any note,
-// so it is mirrored here. Private engine helpers are restated rather than
-// imported: mitigationFor, tierAShare, liveAssets and liveDrones, the
-// short-name split, and the GNSS-denial test behind lidarFallback (keyed
-// here on the event's effect where the engine keys on the event id; the
-// two agree for this deck). Two engine literals are read back from the
-// notes the engine writes (the SSA burn amount and the rideshare resell).
+// Every number comes from the record, the scenario, or an exported engine
+// constant. Nothing is mirrored and no constant is parsed out of note
+// prose (brief v0.5, principle 7); the engine exports the three values
+// presentation needs. Note text is still read for the two things only the
+// engine's own rolls know: which asset an event hit and the integrity it
+// was left at, and which in-transit item a rideshare expedited. Private
+// engine helpers are restated rather than imported: mitigationFor,
+// tierAShare, liveAssets and liveDrones, the short-name split, and the
+// GNSS-denial test behind lidarFallback (keyed here on the event's effect
+// where the engine keys on the event id; the two agree for this deck).
 // Two fallbacks restate engine formats only if an engine invariant is ever
 // broken (an arriving asset missing from after.assets; a condition applied
 // and gone in the same turn). tests/director.spec.ts proves the whole
-// ledger, mirror and restatements included, reproduces the engine's
-// after-state with an empty residual on every turn of hundreds of games,
-// so none of it can drift silently.
+// ledger, restatements included, reproduces the engine's after-state with
+// an empty residual on every turn of hundreds of games, so none of it can
+// drift silently.
 
 import {
-  DEPLOY_ETA,
   IR_RETAINER_BONUS_TOKENS,
+  METER_DAMAGE_PER_SEVERITY,
   MITIGATION_COMMENDATION_CREDITS,
   MITIGATION_PER_COUNTER,
   RESILIENCE_CREDITS,
   RESILIENCE_HEAL,
+  RIDESHARE_RESELL_CREDITS,
+  SSA_MANEUVER_COST,
   SURGE_EARN_MIN_CONDITIONS,
   SURGE_TOKEN_CAP,
   TIER_A_FLEET_SHARE,
@@ -40,11 +43,8 @@ import {
 import { METER_CAP, assetPrice, coverage, maiScore } from '../engine/scoring'
 import type { ActiveCondition, Asset, GameState, Scenario, ThreatEvent } from '../engine/types'
 import { applyPatch, cloneModeled, residualPatch } from './patch'
+import { kindLabels } from '../ui/labels'
 import { type Beat, type BeatKind, type MeterKey, type Patch } from './types'
-
-// Mirror of the engine's private meter damage per point of effective
-// severity (reducer.ts). Pinned by the zero-residual ledger test.
-export const METER_DAMAGE_PER_SEVERITY = 6
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T
 
@@ -107,8 +107,10 @@ const techniques = (ev: ThreatEvent) => ev.techniqueRefs.map((r) => ({ tag: `${r
 const ASSET_OUTCOME =
   /\b((?:start|t\d+)-(?:sat|rpoSat|drone|groundStation)-\d+) (?:degraded to (\d+) percent integrity|disabled|lost)\./
 const EXPEDITED = /\b((?:start|t\d+)-(?:sat|rpoSat|drone|groundStation)-\d+) manifested on the rideshare/
-const SSA_BURN = /conjunction avoidance burn executed \(-(\d+)\)/
-const RESELL = /resold for \+(\d+) credits/
+// The engine only executes the avoidance burn when it can afford it, so
+// the note says whether it happened; the amount comes from the constant.
+const SSA_BURN_EXECUTED = 'conjunction avoidance burn executed'
+const RESELL_NOTE = 'resold for'
 
 const isConditionNote = (n: string) =>
   n.startsWith('This is not a single strike') ||
@@ -180,7 +182,7 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
       : { id: p.id, kind: p.kind, layer: p.kind === 'drone' ? 'AIR' : p.kind === 'groundStation' ? 'GROUND' : 'ORBIT', tier: p.tier, integrity: 100 }
     push({
       kind: 'deploy-arrived',
-      title: `${p.kind} ${p.id} on station`,
+      title: `${kindLabels[p.kind]} ${p.tier} on station`,
       subjectId: p.id,
       lines: noteIncluding(`${p.id} arrived on station`),
       patch: { pipelineRemove: [p.id], assetsAdd: [asset] },
@@ -251,26 +253,23 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
     if (cost) patch.credits = -cost
     const bought = intelBought || irBought || newCounters.length > 0 || boughtPending.length > 0 || boughtAssets.length > 0
     if (bought) {
+      // Silent by decision (brief v0.5 section 6): the buy already fired
+      // its cue in the procurement phase, so replaying it here would
+      // duplicate a cue and spend the reading budget twice. The beat stays
+      // in the ledger because the patch is load-bearing.
       push({
         kind: 'procurement',
+        visible: false,
         title: `Procurement confirmed: ${cost} credits`,
-        lines: record.purchases,
+        lines: [...record.purchases],
         patch,
       })
     }
   }
 
-  // 4. Slips: the engine rolls a slip into the ETA at purchase, so a slip
-  // is certain only when the ETA exceeds the kind's published maximum.
-  for (const p of boughtAssets) {
-    if (p.etaTurns > DEPLOY_ETA[p.kind].max) {
-      push({
-        kind: 'deploy-slipped',
-        title: `${p.kind} ${p.id} slipped: ETA ${p.etaTurns} turns`,
-        subjectId: p.id,
-      })
-    }
-  }
+  // The engine has no deployment-slip event: the roll happens once inside
+  // applyPurchases and is folded into the ETA the player already sees, so
+  // there is nothing to show here (brief v0.5 section 6, cue removed).
 
   // 5. Surge authority: a before-condition that neither pressed this turn
   // (absent from conditionsActive) nor survived was cleared by surge.
@@ -355,8 +354,7 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
         if (soonest) {
           patch.pipelineEta = { [soonest.id]: Math.max(1, soonest.etaTurns - b.expediteTurns) }
         } else {
-          const m = ev.notes.map((n) => n.match(RESELL)).find(Boolean)
-          if (m) credits += Number.parseInt(m[1], 10)
+          if (ev.notes.some((n) => n.includes(RESELL_NOTE))) credits += RIDESHARE_RESELL_CREDITS
         }
       }
       if (credits) patch.credits = credits
@@ -366,7 +364,7 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
         subjectId: ev.eventId,
         cueKey: `event:${ev.eventId}`,
         layers: def.layers,
-        lines: ev.notes,
+        lines: [...ev.notes],
         patch,
       })
       continue
@@ -387,8 +385,7 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
     let credits = -ev.repairCost
     const assetIntegrity: Record<string, number> = {}
     for (const n of ev.notes) {
-      const burn = n.match(SSA_BURN)
-      if (burn) credits -= Number.parseInt(burn[1], 10)
+      if (n.includes(SSA_BURN_EXECUTED)) credits -= SSA_MANEUVER_COST
       const hit = n.match(ASSET_OUTCOME)
       if (hit && shadow.assets.some((a) => a.id === hit[1])) {
         assetIntegrity[hit[1]] = hit[2] !== undefined ? Number.parseInt(hit[2], 10) : 0

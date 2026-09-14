@@ -8,11 +8,14 @@
 // public CI never sees the deny-list.
 
 import { execSync, spawnSync } from 'node:child_process'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 
 const failures = []
+// Stamped before anything builds, so the bundle layer can tell a chunk
+// this run produced from one an earlier build left behind.
+const batteryStartedAt = Date.now()
 
 function report(name, outcome) {
   console.log(outcome)
@@ -46,20 +49,34 @@ run('typecheck + production build', () => {
 // addition records its delta there.
 run('bundle budget: gzipped main chunk under threshold (game-feel brief 8)', () => {
   const budget = JSON.parse(readFileSync('tests/bundle-budget.json', 'utf8'))
+  // The recorded headroom is derived, so it cannot quietly disagree with
+  // the two numbers it sits between.
+  const headroom = budget.budgetGzipBytes - budget.baselineGzipBytes
+  if (budget.headroomGzipBytes !== headroom) {
+    throw new Error(
+      `bundle-budget.json records headroom ${budget.headroomGzipBytes}, but budget minus baseline is ${headroom}`,
+    )
+  }
   const dir = join('dist', 'assets')
   const chunks = readdirSync(dir).filter((f) => /^index-.*\.js$/.test(f))
   if (chunks.length !== 1) throw new Error(`expected one main chunk in ${dir}, found ${chunks.length}`)
-  const gz = gzipSync(readFileSync(join(dir, chunks[0]))).length
+  const chunkPath = join(dir, chunks[0])
+  // Measure only a chunk this run built: a stale dist would otherwise
+  // report a size that no longer matches the source.
+  if (statSync(chunkPath).mtimeMs < batteryStartedAt) {
+    throw new Error(`${chunks[0]} predates this battery run; dist is stale, rebuild before measuring`)
+  }
+  const gz = gzipSync(readFileSync(chunkPath)).length
   const delta = gz - budget.baselineGzipBytes
   process.stdout.write(
-    `${chunks[0]} ${gz} bytes gzipped (baseline ${budget.baselineGzipBytes}, ${delta >= 0 ? '+' : ''}${delta}; budget ${budget.budgetGzipBytes}) ... `,
+    `${chunks[0]} ${gz} bytes gzipped (baseline ${budget.baselineGzipBytes}, ${delta >= 0 ? '+' : ''}${delta}; budget ${budget.budgetGzipBytes}, headroom ${headroom}) ... `,
   )
   if (gz > budget.budgetGzipBytes) {
     throw new Error(`main chunk is ${gz} bytes gzipped, over the ${budget.budgetGzipBytes} byte budget`)
   }
 })
 
-run('vitest suites: determinism, content, persistence, readme, director, cues (spec 11.2, 11.3; brief 8)', () => {
+run('vitest suites: determinism, content, persistence, readme, director, cues, reading diet (spec 11.2, 11.3; brief 8)', () => {
   sh('npx vitest run')
 })
 

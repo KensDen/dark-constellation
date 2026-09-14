@@ -8,7 +8,7 @@
 // v1.0 did. The engine call is untouched.
 
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
-import { ADVERSARY, SQUADRON } from '../config'
+import { ADVERSARY } from '../config'
 import {
   LocalScoreSink,
   LocalStorageStore,
@@ -22,7 +22,24 @@ import {
 } from '../persistence'
 import { reportData, shareText } from './reportCard'
 import DirectorView from '../director/DirectorView'
-import { SpeedSelect, defaultSpeed, deriveBeats, loadSpeedPreference, saveSpeedPreference, type Beat, type Speed } from '../director'
+import {
+  SpeedSelect,
+  defaultSpeed,
+  deriveBeats,
+  isSpeed,
+  loadSpeedPreference,
+  saveSpeedPreference,
+  type Beat,
+  type Speed,
+} from '../director'
+import Readout from './cues/Meter'
+import ConditionBadge, { useBadgePhases } from './cues/ConditionBadge'
+import Teletype, { TransmissionBar } from './cues/Teletype'
+import { CUE_MS, prefersReducedMotionNow, useCueClass, useReducedMotion } from './cues/motion'
+import { layerBadges, vectorIcons } from './cues/icons'
+import { kindLabels } from './labels'
+import { CHAIN_ARMED_LINE, briefCopy, hudLabels, hudStatusLine } from './brief'
+import { verdictFor } from './verdict'
 import {
   COUNTERMEASURE_COUNT,
   DEFAULT_SCENARIO,
@@ -46,18 +63,16 @@ import {
   resolveTurn,
 } from '../engine/reducer'
 import { turnRng } from '../engine/rng'
-import { COVERAGE_PER_DRONE, COVERAGE_PER_SAT, assetPrice, coverage, maiScore } from '../engine/scoring'
+import { COVERAGE_PER_DRONE, COVERAGE_PER_SAT, METER_CAP, assetPrice, coverage, maiScore } from '../engine/scoring'
 import type {
   AssetBuy,
   AssetKind,
   CountermeasureId,
   Difficulty,
   GameState,
-  Layer,
   ResolvedEvent,
   TrustTier,
   TurnActions,
-  Vector,
 } from '../engine/types'
 
 import Wordmark from './Wordmark'
@@ -66,15 +81,6 @@ import winSphereUrl from './assets/win-sphere.webp'
 import heroUrl from './assets/hero.webp'
 import heroPlaceholderUrl from './assets/hero-placeholder.webp'
 import frameUrl from './assets/constellation-frame.svg'
-import iconRf from './assets/icon-rf.svg'
-import iconLidar from './assets/icon-lidar.svg'
-import iconSupplyChain from './assets/icon-supply-chain.svg'
-import iconInsider from './assets/icon-insider.svg'
-import iconCyber from './assets/icon-cyber.svg'
-import iconDebris from './assets/icon-debris.svg'
-import badgeOrbit from './assets/badge-orbit.svg'
-import badgeAir from './assets/badge-air.svg'
-import badgeGround from './assets/badge-ground.svg'
 
 // The animation is decoration; nothing about it may take the game down.
 // A failed chunk fetch (stale index.html after a redeploy, flaky network)
@@ -84,9 +90,6 @@ const Constellation = lazy(() =>
   import('./Constellation').catch(() => ({ default: FrameStill as unknown as (typeof import('./Constellation'))['default'] })),
 )
 
-const prefersReducedMotion =
-  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
 const DEFAULT_SEED = 20260711
 
 const EMPTY_ACTIONS: TurnActions = {
@@ -95,6 +98,10 @@ const EMPTY_ACTIONS: TurnActions = {
   buyIntelLevel: false,
   buyIrRetainer: false,
 }
+
+// A stable empty list, so the badge hook's dependency does not change
+// identity on every render of the start screen.
+const EMPTY_CONDITIONS: GameState['conditions'] = []
 
 // The playback phase is presentation only (Round 2): it sits between
 // resolve and aftermath and is never persisted. A reload during playback
@@ -108,13 +115,6 @@ interface PlaybackSession {
   beats: Beat[]
 }
 
-const kindLabels: Record<AssetKind, string> = {
-  sat: 'Imaging sat',
-  rpoSat: 'RPO servicing sat',
-  drone: 'Drone',
-  groundStation: 'Ground station',
-}
-
 // Plain-language effect of buying each asset kind, shown at the point of
 // purchase so the reason for every buy is legible.
 const assetEffects: Record<AssetKind, string> = {
@@ -124,23 +124,17 @@ const assetEffects: Record<AssetKind, string> = {
   groundStation: `no coverage, ${DEPLOY_ETA.groundStation.min} to ${DEPLOY_ETA.groundStation.max} turns to stand up; ground ops capacity with no game effect in this build`,
 }
 
-const vectorIcons: Record<Vector, string> = {
-  rf: iconRf,
-  optical: iconLidar,
-  supplyChain: iconSupplyChain,
-  human: iconInsider,
-  cyber: iconCyber,
-  environmental: iconDebris,
-}
-
-const layerBadges: Record<Layer, string> = {
-  ORBIT: badgeOrbit,
-  AIR: badgeAir,
-  GROUND: badgeGround,
-}
-
 const btn =
   'font-mono border border-phosphor/60 text-phosphor px-3 py-1 hover:bg-phosphor/10 disabled:opacity-40 disabled:cursor-not-allowed'
+// Tiles take a press: the scale is motion-only, the border and background
+// carry the press for reduced motion (brief v0.5 section 6).
+const tileBtn = `dc-tile ${btn} active:bg-phosphor/20 active:border-phosphor`
+// A refused tile swaps its colour utilities rather than appending others:
+// Tailwind resolves a conflict by stylesheet order, not by class order.
+// The box is otherwise identical to tileBtn, so a refusal never changes
+// the tile's size and shifts the row.
+const tileBtnDenied =
+  'dc-tile font-mono border border-hero-magenta text-hero-magenta bg-hero-magenta/10 px-3 py-1'
 const panel = 'border border-phosphor/30 bg-panel p-3'
 const h2cls = 'font-mono font-bold text-phosphor uppercase tracking-widest text-sm'
 
@@ -200,7 +194,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   // while beats play; `state` is always the engine's output.
   const [playback, setPlayback] = useState<PlaybackSession | null>(null)
   const [presented, setPresented] = useState<GameState | null>(null)
-  const [speed, setSpeedState] = useState<Speed>(() => defaultSpeed(prefersReducedMotion, loadSpeedPreference()))
+  const [speed, setSpeedState] = useState<Speed>(() => defaultSpeed(prefersReducedMotionNow(), loadSpeedPreference()))
   const setSpeed = useCallback((s: Speed) => {
     setSpeedState(s)
     saveSpeedPreference(s)
@@ -210,6 +204,47 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     setPresented(null)
     setPhase('aftermath')
   }, [])
+  // Cue state. These sit with the other top-level hooks because the start
+  // screen returns early below, and hook order cannot depend on whether a
+  // campaign is in progress.
+  const reducedMotion = useReducedMotion()
+  // Cannot-afford cue (brief v0.5 section 6): the tile shakes and the
+  // spend line flashes. A nonce restarts the animation on a repeat press.
+  const [denied, setDenied] = useState<{ id: string; nonce: number } | null>(null)
+  const denialShake = useCueClass(denied?.nonce ?? null, 'dc-shake', reducedMotion)
+  // The colour half of the cue is not motion, so it plays under reduced
+  // motion too; the stylesheet drops only the animation there.
+  const denialFlash = useCueClass(denied?.nonce ?? null, 'dc-flash-bad', false)
+  // A refusal is a flash, not a state: it lifts on its own, and at once if
+  // the cart or the phase changes, so a fixed cart never carries a stale
+  // warning.
+  useEffect(() => {
+    if (!denied) return
+    const id = window.setTimeout(() => setDenied(null), CUE_MS)
+    return () => window.clearTimeout(id)
+  }, [denied])
+  useEffect(() => {
+    setDenied(null)
+  }, [actions, phase])
+  // During playback the HUD follows the director's presented state, so the
+  // badge cues fire on the beat that applies them rather than jumping to
+  // the engine's end state. Computed here because hooks run before the
+  // start-screen early return below.
+  const shownOrNull = phase === 'playback' && presented ? presented : state
+  const { badges, phases } = useBadgePhases(
+    shownOrNull?.conditions ?? EMPTY_CONDITIONS,
+    reducedMotion,
+    shownOrNull?.turn,
+    // A seed identifies the campaign, so loading a save or starting a new
+    // game adopts its conditions instead of announcing them as arrivals.
+    shownOrNull ? `${shownOrNull.seed}-${shownOrNull.difficulty}` : 'none',
+  )
+  // A player who turns reduced motion on mid-session and has never chosen
+  // a speed gets instant from then on, without a reload.
+  useEffect(() => {
+    if (!reducedMotion || isSpeed(loadSpeedPreference())) return
+    setSpeedState((current) => (current === 'instant' ? current : 'instant'))
+  }, [reducedMotion])
 
   const scenario = DEFAULT_SCENARIO
 
@@ -268,7 +303,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     </div>
   )
 
-  const constellationVisual = prefersReducedMotion ? (
+  const constellationVisual = reducedMotion ? (
     <FrameStill />
   ) : (
     <Suspense fallback={<FrameStill />}>
@@ -490,9 +525,8 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const lastRecord = state.history[state.history.length - 1]
   const displayTurn =
     (phase === 'aftermath' || phase === 'playback') && lastRecord ? lastRecord.turn : Math.min(state.turn, scenario.totalTurns)
-  // During playback the HUD follows the director's presented state; at
-  // every other time it is the engine's state.
-  const shown = phase === 'playback' && presented ? presented : state
+  // Narrowed from the nullable value computed with the hooks above.
+  const shown = shownOrNull ?? state
 
   const resolve = () => {
     // The engine is the authority on affordability. If the UI gate and the
@@ -530,17 +564,32 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
 
   const nextTurn = () => setPhase('brief')
 
-  const addAsset = (kind: AssetKind, tier: TrustTier) =>
+  // The engine is the authority on affordability; this keeps the cart
+  // inside the same budget so the gate never has to refuse at resolve time.
+  const afford = (price: number, tileId: string): boolean => {
+    if (cost + price <= available) return true
+    setDenied((d) => ({ id: tileId, nonce: (d?.nonce ?? 0) + 1 }))
+    return false
+  }
+
+  const addAsset = (kind: AssetKind, tier: TrustTier) => {
+    const price = assetPrice(scenario, kind, tier)
+    if (!afford(price, `${kind}-${tier}`)) return
     setActions({ ...actions, buyAssets: [...actions.buyAssets, { kind, tier }] })
+  }
   const removeAsset = (index: number) =>
     setActions({ ...actions, buyAssets: actions.buyAssets.filter((_, i) => i !== index) })
-  const toggleCounter = (id: (typeof scenario.countermeasures)[number]['id']) =>
+  const toggleCounter = (id: (typeof scenario.countermeasures)[number]['id']) => {
+    const already = actions.buyCounters.includes(id)
+    if (!already) {
+      const price = scenario.countermeasures.find((c) => c.id === id)?.cost ?? 0
+      if (!afford(price, `cm-${id}`)) return
+    }
     setActions({
       ...actions,
-      buyCounters: actions.buyCounters.includes(id)
-        ? actions.buyCounters.filter((c) => c !== id)
-        : [...actions.buyCounters, id],
+      buyCounters: already ? actions.buyCounters.filter((c) => c !== id) : [...actions.buyCounters, id],
     })
+  }
 
   const shortEventName = (id: string) => scenario.events.find((e) => e.id === id)?.name.split(' (')[0] ?? id
 
@@ -553,43 +602,39 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   // Item 1 UI: active-conditions panel with per-condition elapsed counters.
   // Only high intel estimates how many turns a condition has left; otherwise
   // the remaining span stays hidden, as the mechanic intends.
+  const brief = briefCopy(shown)
+  const hud = hudLabels(shown)
   const showsDurationEstimate = effectiveIntel(shown) >= 3
   const canSurge = state.surgeTokens > 0 && phase !== 'aftermath' && phase !== 'playback'
   const activeConditions =
-    shown.conditions.length > 0 ? (
+    badges.length > 0 ? (
       <div className="mt-2 border border-hero-magenta/40 bg-hero-magenta/5 p-2">
         <p className="text-xs font-bold text-hero-magenta uppercase tracking-widest">
-          Active conditions ({shown.conditions.length}), sustained pressure each turn
+          Active conditions ({shown.conditions.length || badges.length})
         </p>
-        <ul className="mt-1">
-          {shown.conditions.map((c) => {
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {badges.map((c) => {
             const queued = actions.spendSurgeOn === c.instanceId
             // Counted from the engine's turn so the number does not jump when
             // playback hands over to the aftermath.
             const elapsed = state.turn - c.startedTurn
+            const def = scenario.events.find((e) => e.id === c.eventId)
+            const offerSurge = phases[c.instanceId] !== 'clearing' && (queued || (canSurge && !actions.spendSurgeOn))
             return (
-              <li key={c.instanceId} className="text-xs mt-1 flex flex-wrap items-center gap-2">
-                <span className={queued ? 'text-ink-dim line-through' : 'text-hero-magenta'}>{c.name}</span>
-                <span className="text-ink-dim">
-                  live since turn {c.startedTurn} ({elapsed} turn{elapsed === 1 ? '' : 's'})
-                  {showsDurationEstimate ? `, intel estimates ~${c.remainingTurns} left` : ', duration unknown'}
-                </span>
-                {queued ? (
-                  <button className={`${btn} px-1 py-0 text-xs`} onClick={() => toggleSurge(c.instanceId)}>
-                    surge queued, undo
-                  </button>
-                ) : (
-                  canSurge &&
-                  !actions.spendSurgeOn && (
-                    <button className={`${btn} px-1 py-0 text-xs`} onClick={() => toggleSurge(c.instanceId)}>
-                      surge clear
-                    </button>
-                  )
-                )}
-              </li>
+              <ConditionBadge
+                key={c.instanceId}
+                condition={c}
+                layer={def?.layers[0]}
+                phase={phases[c.instanceId] ?? 'attached'}
+                elapsed={elapsed}
+                remainingEstimate={showsDurationEstimate ? c.remainingTurns : undefined}
+                queuedForSurge={queued}
+                onSurge={offerSurge ? () => toggleSurge(c.instanceId) : undefined}
+                surgeLabel={queued ? 'undo' : 'surge'}
+              />
             )
           })}
-        </ul>
+        </div>
       </div>
     ) : null
 
@@ -631,13 +676,33 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const statusPanel = (
     <section className={`${panel} mt-4 font-mono`}>
       <h2 className="sr-only">Posture</h2>
-      <p className="font-bold text-phosphor">
-        MAI {maiScore(shown)} (win line {scenario.winThreshold}, collapse below {scenario.collapseThreshold})
-      </p>
-      <p className="mt-1 text-sm">
-        Turn {displayTurn} of {scenario.totalTurns} | Credits {shown.credits} | Coverage {coverage(shown.assets)} |
-        Link {shown.meters.linkAvailability} | Data {shown.meters.dataIntegrity} | Sensor{' '}
-        {shown.meters.sensorIntegrity} | Intel level {shown.intelLevel} | {DIFFICULTIES[shown.difficulty].label}
+      {/* Meters ease and count to their new values, with the tone carrying
+          the direction; MAI strobes while it sits under the win line
+          (brief v0.5 section 6). Reduced motion keeps the numbers and the
+          colour and drops the movement. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
+        <Readout
+          label={hud.mai}
+          value={maiScore(shown)}
+          max={METER_CAP}
+          warnBelow={scenario.winThreshold}
+          strobeOnWarn
+        />
+        {/* During the decision phases the ticker shows what the cart
+            leaves, so a buy ticks the number down as the brief asks; at
+            every other time it is the engine's balance. */}
+        <Readout
+          label={hud.credits}
+          value={phase === 'procure' || phase === 'harden' ? available - cost : shown.credits}
+          basis={phase === 'procure' || phase === 'harden' ? 'cart' : 'balance'}
+        />
+        <Readout label={hud.coverage} value={coverage(shown.assets)} max={METER_CAP} />
+        <Readout label={hud.link} value={shown.meters.linkAvailability} max={METER_CAP} />
+        <Readout label={hud.data} value={shown.meters.dataIntegrity} max={METER_CAP} />
+        <Readout label={hud.sensor} value={shown.meters.sensorIntegrity} max={METER_CAP} />
+      </div>
+      <p className="mt-2 text-xs text-ink-dim">
+        {hudStatusLine(shown, DIFFICULTIES[shown.difficulty].label, displayTurn)}
       </p>
       <details className="mt-1 text-sm font-sans text-ink-dim">
         <summary className="cursor-pointer">What these numbers mean</summary>
@@ -686,50 +751,59 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
         </ul>
       </details>
       {shown.flags.lidarFallback && (
-        <p className="font-bold mt-2 border border-hero-magenta/60 bg-hero-magenta/10 text-hero-magenta p-2">
-          BLACKOUT CHAIN ARMED: GNSS is jammed and {SQUADRON} is navigating on LiDAR alone. The next LiDAR attack
-          lands harder (+{CHAIN_BONUS} severity) unless sensor fusion cross-checks are in place or every drone flies
-          Tier A sensors.
-        </p>
+        <details className="mt-2 border border-hero-magenta/60 bg-hero-magenta/10 p-2">
+          <summary className="cursor-pointer font-bold text-hero-magenta">{CHAIN_ARMED_LINE}</summary>
+          <p className="mt-1 text-sm text-hero-magenta">
+            GNSS is jammed, so the next LiDAR attack lands harder (+{CHAIN_BONUS} severity) unless sensor fusion
+            cross-checks are in place or every drone flies Tier A sensors.
+          </p>
+        </details>
       )}
-      <p className="mt-2 text-xs text-ink-dim">
-        Fleet: {shown.assets.filter((a) => a.integrity > 0).length} operational assets (
-        {shown.assets
-          .filter((a) => a.integrity > 0)
-          .map((a) => `${kindLabels[a.kind]} ${a.tier}`)
-          .join(', ') || 'none'}
-        )
-      </p>
-      <p className="mt-1 text-xs text-hero-blue">
-        Countermeasures: {shown.counters.length > 0
-          ? shown.counters
-              .map((id) => scenario.countermeasures.find((c) => c.id === id)?.name ?? id)
-              .join('; ')
-          : 'none'}
-      </p>
-      {(shown.pipeline.length > 0 || shown.pendingCounters.length > 0) && (
-        <p className="mt-1 text-xs text-ink-dim">
-          In transit:{' '}
-          {[
-            ...shown.pipeline.map(
-              (p) => `${kindLabels[p.kind]} ${p.tier} (ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'})`,
-            ),
-            ...shown.pendingCounters.map(
-              (p) =>
-                `${scenario.countermeasures.find((c) => c.id === p.id)?.name ?? p.id} retrofit (ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'})`,
-            ),
-          ].join('; ')}
+      {/* Reading diet (brief v0.5 section 5): the fleet, the countermeasure
+          list, the in-transit line and the surge detail are reference, not
+          the decision, so they sit one tap away rather than on screen
+          before the first input. */}
+      <details className="mt-2">
+        <summary className="cursor-pointer font-mono text-xs text-phosphor">Posture detail</summary>
+        <p className="mt-2 text-xs text-ink-dim">
+          Fleet: {shown.assets.filter((a) => a.integrity > 0).length} operational assets (
+          {shown.assets
+            .filter((a) => a.integrity > 0)
+            .map((a) => `${kindLabels[a.kind]} ${a.tier}`)
+            .join(', ') || 'none'}
+          )
         </p>
-      )}
-      <p className="mt-2 text-xs font-mono">
-        <span className="text-alert-amber">
-          Surge authority: {shown.surgeTokens} of {SURGE_TOKEN_CAP}
-        </span>
-        <span className="text-ink-dim"> (spend one in any phase to clear an active condition)</span>
-        {shown.intelBoostTurns > 0 && (
-          <span className="text-hero-blue"> | allied intel boost active ({shown.intelBoostTurns} more turn{shown.intelBoostTurns === 1 ? '' : 's'})</span>
+        <p className="mt-1 text-xs text-hero-blue">
+          Countermeasures: {shown.counters.length > 0
+            ? shown.counters
+                .map((id) => scenario.countermeasures.find((c) => c.id === id)?.name ?? id)
+                .join('; ')
+            : 'none'}
+        </p>
+        {(shown.pipeline.length > 0 || shown.pendingCounters.length > 0) && (
+          <p className="mt-1 text-xs text-ink-dim">
+            In transit:{' '}
+            {[
+              ...shown.pipeline.map(
+                (p) => `${kindLabels[p.kind]} ${p.tier} (ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'})`,
+              ),
+              ...shown.pendingCounters.map(
+                (p) =>
+                  `${scenario.countermeasures.find((c) => c.id === p.id)?.name ?? p.id} retrofit (ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'})`,
+              ),
+            ].join('; ')}
+          </p>
         )}
-      </p>
+        <p className="mt-2 text-xs font-mono">
+          <span className="text-alert-amber">
+            Surge authority: {shown.surgeTokens} of {SURGE_TOKEN_CAP}
+          </span>
+          <span className="text-ink-dim"> (spend one in any phase to clear an active condition)</span>
+          {shown.intelBoostTurns > 0 && (
+            <span className="text-hero-blue"> | allied intel boost active ({shown.intelBoostTurns} more turn{shown.intelBoostTurns === 1 ? '' : 's'})</span>
+          )}
+        </p>
+      </details>
       {activeConditions}
       {state.status === 'playing' && (
         <div className="mt-2 flex flex-wrap items-center gap-2 pt-2 border-t border-phosphor/15">
@@ -739,7 +813,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
           <button className={`${btn} text-xs py-0.5`} onClick={exportCode}>
             Export code
           </button>
-          <span className="text-xs text-ink-dim">Autosaved each turn. Reload resumes here.</span>
+          <span className="text-xs text-ink-dim">Autosaved each turn.</span>
         </div>
       )}
       {notice && <p className="mt-1 font-mono text-xs text-alert-amber">{notice}</p>}
@@ -876,12 +950,35 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
       {phase === 'brief' && (
         <section className="mt-4">
           <h2 className={h2cls}>1. Intel brief, turn {state.turn}</h2>
-          {state.turn === 1 && state.history.length === 0 && jobFraming}
-          <ul className="list-disc ml-6 mt-2 font-mono text-sm">
-            {state.forecast.lines.map((line, i) => (
-              <li key={i}>{line}</li>
-            ))}
-          </ul>
+          {/* Reading diet (brief v0.5 section 5): a headline of eight words
+              or fewer, one threat-vector line, and the technique tag. The
+              full forecast is one tap away, and the turn-1 job framing sits
+              with it rather than in front of the first decision. */}
+          <div className="mt-2">
+            <TransmissionBar cueKey={state.turn}>
+              <p className="mt-1 font-mono text-base sm:text-lg text-phosphor">
+                <Teletype text={brief.headline} cueKey={state.turn} />
+              </p>
+            </TransmissionBar>
+            <p className="mt-2 text-sm">{brief.vector}</p>
+            {brief.tag && (
+              <p className="mt-1 font-mono text-xs text-ink-dim">
+                Technique:{' '}
+                <a className="underline text-ink" href={brief.tagUrl} target="_blank" rel="noreferrer">
+                  {brief.tag}
+                </a>
+              </p>
+            )}
+            <details className="mt-3 border border-phosphor/20 bg-panel p-2">
+              <summary className="cursor-pointer font-mono text-xs text-phosphor">Expand full brief</summary>
+              <ul className="list-disc ml-6 mt-2 font-mono text-sm">
+                {state.forecast.lines.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+              {state.turn === 1 && state.history.length === 0 && jobFraming}
+            </details>
+          </div>
           <button className={`${btn} mt-4`} onClick={() => setPhase('procure')}>
             To procurement
           </button>
@@ -891,7 +988,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
       {phase === 'procure' && (
         <section className="mt-4">
           <h2 className={h2cls}>2. Procure and deploy</h2>
-          <p className="mt-2 text-sm font-mono">
+          <p className={`mt-2 text-sm font-mono ${denialFlash}`}>
             Planned spend: {cost} of {available} credits available (current {state.credits} plus {turnIncome} turn
             income).
           </p>
@@ -900,7 +997,11 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
               <li key={kind} className="mt-2">
                 {kindLabels[kind]} <span className="text-ink-dim text-sm">({assetEffects[kind]})</span>:{' '}
                 {(kind === 'groundStation' ? (['B'] as TrustTier[]) : (['B', 'A'] as TrustTier[])).map((tier) => (
-                  <button key={tier} className={`${btn} ml-2 text-sm`} onClick={() => addAsset(kind, tier)}>
+                  <button
+                    key={tier}
+                    className={`${denied?.id === `${kind}-${tier}` ? `${tileBtnDenied} ${denialShake}` : tileBtn} ml-2 text-sm`}
+                    onClick={() => addAsset(kind, tier)}
+                  >
                     {kind === 'groundStation'
                       ? `Buy (${assetPrice(scenario, kind, tier)})`
                       : `Buy Tier ${tier} (${assetPrice(scenario, kind, tier)})`}
@@ -932,7 +1033,11 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
                 type="checkbox"
                 checked={actions.buyIntelLevel}
                 disabled={state.intelLevel >= 3}
-                onChange={(e) => setActions({ ...actions, buyIntelLevel: e.target.checked })}
+                onChange={(e) => {
+                  const intelPrice = state.intelLevel !== 3 ? scenario.prices.intelLevels[state.intelLevel] : 0
+                  if (e.target.checked && !afford(intelPrice, 'intel')) return
+                  setActions({ ...actions, buyIntelLevel: e.target.checked })
+                }}
               />{' '}
               Raise intel to level {Math.min(3, state.intelLevel + 1)} (
               {state.intelLevel !== 3 ? scenario.prices.intelLevels[state.intelLevel] : 'maxed'}) for a sharper
@@ -948,7 +1053,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
       {phase === 'harden' && (
         <section className="mt-4">
           <h2 className={h2cls}>3. Harden and configure</h2>
-          <p className="mt-2 text-sm font-mono">
+          <p className={`mt-2 text-sm font-mono ${denialFlash}`}>
             Planned spend: {cost} of {available} credits available (current {state.credits} plus {turnIncome} turn
             income).
           </p>
@@ -956,7 +1061,12 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
             {scenario.countermeasures
               .filter((cm) => cm.id !== 'intelInvestment' && cm.id !== 'irRetainer')
               .map((cm) => (
-                <li key={cm.id} className="mt-3">
+                <li
+                  key={cm.id}
+                  className={`dc-tile mt-3 border border-transparent p-1 ${
+                    denied?.id === `cm-${cm.id}` ? `${denialShake} border-hero-magenta/60` : ''
+                  } ${actions.buyCounters.includes(cm.id) ? 'border-hero-blue/40 bg-hero-blue/5' : ''}`}
+                >
                   <label>
                     <input
                       type="checkbox"
@@ -993,7 +1103,11 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
                   type="checkbox"
                   checked={state.irRetainer || actions.buyIrRetainer}
                   disabled={state.irRetainer}
-                  onChange={(e) => setActions({ ...actions, buyIrRetainer: e.target.checked })}
+                  onChange={(e) => {
+                    const price = scenario.countermeasures.find((c) => c.id === 'irRetainer')?.cost ?? 0
+                    if (e.target.checked && !afford(price, 'cm-irRetainer')) return
+                    setActions({ ...actions, buyIrRetainer: e.target.checked })
+                  }}
                 />{' '}
                 Incident response retainer (
                 {scenario.countermeasures.find((c) => c.id === 'irRetainer')?.cost}
@@ -1023,10 +1137,10 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
             <p className="mt-2 font-bold font-mono text-alert-amber">Planned spend exceeds credits. Trim the cart.</p>
           )}
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button className={btn} disabled={!affordable} onClick={resolve}>
+            <button className={tileBtn} disabled={!affordable} onClick={resolve}>
               4. Resolve turn {state.turn}
             </button>
-            <button className={btn} onClick={() => setPhase('procure')}>
+            <button className={tileBtn} onClick={() => setPhase('procure')}>
               Back to procurement
             </button>
           </div>
@@ -1061,13 +1175,14 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
       {phase === 'aftermath' && lastRecord && (
         <section className="mt-4">
           <h2 className={h2cls}>5. Aftermath, turn {lastRecord.turn}</h2>
-          {lastRecord.notes.map((n, i) => (
-            <p key={i} className="mt-1 font-mono text-sm">
-              {n}
-            </p>
-          ))}
+          {/* The playback was the report, so the aftermath opens on one
+              verdict line; the engine's full ledger is one tap away (brief
+              v0.5 section 5). */}
+          <p className="mt-2 text-base text-ink">{verdictFor(lastRecord, scenario)}</p>
           {lastRecord.commendations.length > 0 && (
-            <div className="mt-2 border border-hero-blue/50 bg-hero-blue/5 p-2">
+            <div
+              className={`mt-2 border border-hero-blue/50 bg-hero-blue/5 p-2 ${reducedMotion ? '' : 'dc-ribbon-in'}`}
+            >
               <p className="text-xs font-bold text-hero-blue uppercase tracking-widest">Commendations</p>
               {lastRecord.commendations.map((c, i) => (
                 <p key={i} className="text-sm mt-1 text-hero-blue">
@@ -1076,89 +1191,106 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
               ))}
             </div>
           )}
-          {lastRecord.events.length === 0 && <p className="mt-2">No adversary activity this turn.</p>}
-          {lastRecord.events.map((ev, i) => {
-            const def = scenario.events.find((e) => e.id === ev.eventId)
-            const isOpportunity = (def?.kind ?? 'threat') === 'opportunity'
-            const landed = ev.effectiveSeverity > 0
-            if (isOpportunity) {
+          {/* The playback was the report; the per-event ledger with its
+              severity math, counterfactuals and citations stays one tap
+              away (brief v0.5 section 5). */}
+          {/* At instant speed there was no playback, so the aftermath is
+              the only report of the turn and opens with the ledger already
+              expanded. */}
+          <details className="mt-2 border border-phosphor/20 bg-panel p-2" open={speed === 'instant'}>
+            <summary className="cursor-pointer font-mono text-xs text-phosphor">
+              Details: turn ledger ({lastRecord.events.length} event{lastRecord.events.length === 1 ? '' : 's'},{' '}
+              {lastRecord.notes.length} note{lastRecord.notes.length === 1 ? '' : 's'})
+            </summary>
+            {lastRecord.notes.map((n, i) => (
+              <p key={i} className="mt-1 font-mono text-sm">
+                {n}
+              </p>
+            ))}
+            {lastRecord.events.length === 0 && <p className="mt-2">No adversary activity this turn.</p>}
+            {lastRecord.events.map((ev, i) => {
+              const def = scenario.events.find((e) => e.id === ev.eventId)
+              const isOpportunity = (def?.kind ?? 'threat') === 'opportunity'
+              const landed = ev.effectiveSeverity > 0
+              if (isOpportunity) {
+                return (
+                  <div key={i} className="border p-3 mt-2 border-hero-blue/50 bg-hero-blue/5">
+                    <h3 className="font-bold font-mono text-hero-blue">Opportunity: {ev.name}</h3>
+                    {ev.notes.map((n, j) => (
+                      <p key={j} className="text-sm mt-1 text-hero-blue">
+                        {n}
+                      </p>
+                    ))}
+                    {def && <p className="text-sm mt-1 text-ink-dim">{def.blurb}</p>}
+                  </div>
+                )
+              }
               return (
-                <div key={i} className="border p-3 mt-2 border-hero-blue/50 bg-hero-blue/5">
-                  <h3 className="font-bold font-mono text-hero-blue">Opportunity: {ev.name}</h3>
+                <div
+                  key={i}
+                  className={`border p-3 mt-2 ${landed ? 'border-hero-magenta/50 bg-hero-magenta/5' : 'border-phosphor/30 bg-panel'}`}
+                >
+                  <h3 className="font-bold font-mono flex items-center gap-2">
+                    {def && <img src={vectorIcons[def.vector]} alt="" aria-hidden="true" className="w-6 h-6" />}
+                    <span className={landed ? 'text-hero-magenta' : 'text-phosphor'}>{ev.name}</span>
+                    <span className="ml-auto flex gap-2">
+                      {def?.layers.map((layer) => (
+                        <span key={layer} className="flex flex-col items-center">
+                          <img src={layerBadges[layer]} alt="" className="h-7 w-auto" />
+                          <span className="font-mono text-[9px] text-ink-dim leading-none mt-0.5">{layer}</span>
+                        </span>
+                      ))}
+                    </span>
+                  </h3>
+                  <p className={`text-sm font-mono mt-1 ${landed ? 'text-hero-magenta' : 'text-ink-dim'}`}>
+                    Severity {ev.baseSeverity} base {ev.chainBonus > 0 ? `+ ${ev.chainBonus} chain ` : ''}
+                    {ev.mitigation > 0 ? `- ${ev.mitigation} mitigated ` : ''}= {ev.effectiveSeverity} effective.
+                    {ev.repairCost > 0 ? ` Repairs: ${ev.repairCost} credits.` : ''}
+                  </p>
                   {ev.notes.map((n, j) => (
-                    <p key={j} className="text-sm mt-1 text-hero-blue">
+                    <p key={j} className="text-sm mt-1">
                       {n}
                     </p>
                   ))}
-                  {def && <p className="text-sm mt-1 text-ink-dim">{def.blurb}</p>}
+                  {landed && <p className="text-sm mt-1 font-bold text-alert-amber">{whatWouldHaveHelped(ev)}</p>}
+                  {ev.firedTechniqueRefs.length > 0 && (
+                    <p className="text-sm mt-1">
+                      Techniques:{' '}
+                      {ev.firedTechniqueRefs.map((ref, j) => (
+                        <span key={j}>
+                          {j > 0 ? '; ' : ''}
+                          <a className="underline text-ink" href={ref.url} target="_blank" rel="noreferrer">
+                            {ref.framework} {ref.id}, {ref.name}
+                          </a>{' '}
+                          <span className="text-ink-dim font-mono text-xs">[{ref.status}]</span>
+                        </span>
+                      ))}
+                    </p>
+                  )}
+                  {(def?.learnMoreCards ?? []).map((card, j) => (
+                    <details key={j} className="mt-2 border border-phosphor/20 bg-panel p-2">
+                      <summary className="cursor-pointer text-sm font-mono text-phosphor">
+                        Learn more: {card.title}
+                      </summary>
+                      <p className="text-sm mt-2">{card.body}</p>
+                      <ul className="list-disc ml-6 mt-2 text-sm">
+                        {card.sources.map((src, k) => (
+                          <li key={k}>
+                            <a className="underline text-ink" href={src.url} target="_blank" rel="noreferrer">
+                              {src.title}
+                            </a>{' '}
+                            <span className="text-ink-dim font-mono text-xs">
+                              [{src.type}] [{src.status}]
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  ))}
                 </div>
               )
-            }
-            return (
-              <div
-                key={i}
-                className={`border p-3 mt-2 ${landed ? 'border-hero-magenta/50 bg-hero-magenta/5' : 'border-phosphor/30 bg-panel'}`}
-              >
-                <h3 className="font-bold font-mono flex items-center gap-2">
-                  {def && <img src={vectorIcons[def.vector]} alt={`${def.vector} vector`} className="w-6 h-6" />}
-                  <span className={landed ? 'text-hero-magenta' : 'text-phosphor'}>{ev.name}</span>
-                  <span className="ml-auto flex gap-2">
-                    {def?.layers.map((layer) => (
-                      <span key={layer} className="flex flex-col items-center">
-                        <img src={layerBadges[layer]} alt="" className="h-7 w-auto" />
-                        <span className="font-mono text-[9px] text-ink-dim leading-none mt-0.5">{layer}</span>
-                      </span>
-                    ))}
-                  </span>
-                </h3>
-                <p className={`text-sm font-mono mt-1 ${landed ? 'text-hero-magenta' : 'text-ink-dim'}`}>
-                  Severity {ev.baseSeverity} base {ev.chainBonus > 0 ? `+ ${ev.chainBonus} chain ` : ''}
-                  {ev.mitigation > 0 ? `- ${ev.mitigation} mitigated ` : ''}= {ev.effectiveSeverity} effective.
-                  {ev.repairCost > 0 ? ` Repairs: ${ev.repairCost} credits.` : ''}
-                </p>
-                {ev.notes.map((n, j) => (
-                  <p key={j} className="text-sm mt-1">
-                    {n}
-                  </p>
-                ))}
-                {landed && <p className="text-sm mt-1 font-bold text-alert-amber">{whatWouldHaveHelped(ev)}</p>}
-                {ev.firedTechniqueRefs.length > 0 && (
-                  <p className="text-sm mt-1">
-                    Techniques:{' '}
-                    {ev.firedTechniqueRefs.map((ref, j) => (
-                      <span key={j}>
-                        {j > 0 ? '; ' : ''}
-                        <a className="underline text-ink" href={ref.url} target="_blank" rel="noreferrer">
-                          {ref.framework} {ref.id}, {ref.name}
-                        </a>{' '}
-                        <span className="text-ink-dim font-mono text-xs">[{ref.status}]</span>
-                      </span>
-                    ))}
-                  </p>
-                )}
-                {(def?.learnMoreCards ?? []).map((card, j) => (
-                  <details key={j} className="mt-2 border border-phosphor/20 bg-panel p-2">
-                    <summary className="cursor-pointer text-sm font-mono text-phosphor">
-                      Learn more: {card.title}
-                    </summary>
-                    <p className="text-sm mt-2">{card.body}</p>
-                    <ul className="list-disc ml-6 mt-2 text-sm">
-                      {card.sources.map((src, k) => (
-                        <li key={k}>
-                          <a className="underline text-ink" href={src.url} target="_blank" rel="noreferrer">
-                            {src.title}
-                          </a>{' '}
-                          <span className="text-ink-dim font-mono text-xs">
-                            [{src.type}] [{src.status}]
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                ))}
-              </div>
-            )
-          })}
+            })}
+          </details>
           <button className={`${btn} mt-4`} onClick={nextTurn}>
             {state.status === 'playing' ? `To turn ${state.turn} intel brief` : 'View final report'}
           </button>

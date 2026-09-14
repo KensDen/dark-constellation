@@ -72,6 +72,17 @@ function* playTurns(seed: number, line: Line, difficulty: Difficulty = 'standard
 }
 
 const modeled = (s: GameState) => Object.fromEntries(MODELED_FIELDS.map((k) => [k, s[k]]))
+// The mutation guard's projection is wider than the ledger's: deriveBeats
+// reads history and forecast too, and an in-place edit of either would
+// corrupt live state with the sweep still green.
+const readable = (s: GameState) => ({
+  ...modeled(s),
+  history: s.history,
+  forecast: s.forecast,
+  // The scenario is a shared module singleton, so a write there would
+  // outlive the call and poison every later game in the process.
+  scenario: s.scenario,
+})
 
 const replay = (before: GameState, beats: Beat[]) => beats.reduce((s, b) => applyPatch(s, b.patch), before)
 
@@ -107,6 +118,7 @@ const never: Scheduler = () => {
 describe('presentation adapter: zero-residual ledger against the engine', () => {
   it('reproduces the after-state of every turn of every line, seed and difficulty with no settle beat', () => {
     const seen = new Set<BeatKind>()
+    const namespaces = new Set<string>()
     let turns = 0
     for (const [name, line] of LINES) {
       for (const difficulty of DIFFICULTIES) {
@@ -114,14 +126,20 @@ describe('presentation adapter: zero-residual ledger against the engine', () => 
           for (const { before, after } of playTurns(seed, line, difficulty)) {
             turns += 1
             const where = `${name} line, ${difficulty}, seed ${seed}, turn ${before.turn}`
-            const untouched = JSON.stringify(modeled(before))
+            // Derivation reads both states and must mutate neither. The
+            // after-state matters most: an adapter that wrote to it would
+            // move the target the residual is measured against, so the
+            // sweep would come back empty while the ledger was wrong.
+            const beforeUntouched = JSON.stringify(readable(before))
+            const afterUntouched = JSON.stringify(readable(after))
             const beats = deriveBeats(before, after)
-            // Derivation never mutates the before-state it reads.
-            expect(JSON.stringify(modeled(before)), where).toBe(untouched)
+            expect(JSON.stringify(readable(before)), `${where}: before mutated`).toBe(beforeUntouched)
+            expect(JSON.stringify(readable(after)), `${where}: after mutated`).toBe(afterUntouched)
             for (const b of beats) {
               seen.add(b.kind)
               // Deck-keyed beats must resolve through the deck's own ids, not
               // fall back to the generic kind cue.
+              namespaces.add(b.cueKey.slice(0, b.cueKey.indexOf(':')))
               if (ID_KEYED_KINDS.includes(b.kind)) {
                 expect(b.cueKey, `${where}: ${b.id}`).toMatch(/^(event|condition|counter):/)
                 expect(b.cueKey.slice(b.cueKey.indexOf(':') + 1), `${where}: ${b.id}`).toBe(b.subjectId)
@@ -140,6 +158,12 @@ describe('presentation adapter: zero-residual ledger against the engine', () => 
     const expected = BEAT_KINDS.filter((k) => k !== 'settle')
     for (const kind of expected) expect(seen.has(kind), `beat kind ${kind} never observed in the sweep`).toBe(true)
     expect(seen.has('settle')).toBe(false)
+    // Every cue namespace is exercised by real play, not by one fixture:
+    // the counter namespace in particular only appears when a retrofit
+    // lands, which the prepared line reaches part way through a campaign.
+    for (const ns of ['beat', 'event', 'condition', 'counter']) {
+      expect(namespaces.has(ns), `cue namespace ${ns} never observed in the sweep`).toBe(true)
+    }
   })
 
   it('models every dynamic field of the engine state, so a new engine field cannot slip past the ledger', () => {
@@ -147,8 +171,48 @@ describe('presentation adapter: zero-residual ledger against the engine', () => 
     // static scenario, the seed, the turn counter, status and loss reason,
     // difficulty, the forecast, and the history the record lives in.
     const engineOwned = new Set(['scenario', 'seed', 'turn', 'status', 'lossReason', 'difficulty', 'forecast', 'history'])
-    const dynamic = Object.keys(newGame(DEFAULT_SCENARIO, 1)).filter((k) => !engineOwned.has(k))
+    // A fresh game does not carry every key: optional fields such as
+    // lossReason only appear once the engine sets them. Union the keys
+    // across a new game, several mid-campaign states and both endings, so
+    // a field the engine adds lazily still has to be modeled or excluded.
+    const keys = new Set<string>()
+    const collect = (s: GameState) => Object.keys(s).forEach((k) => keys.add(k))
+    collect(newGame(DEFAULT_SCENARIO, 1))
+    for (const [, line] of LINES) {
+      for (const difficulty of DIFFICULTIES) {
+        for (const seed of [1, 2, 3]) {
+          for (const { before, after } of playTurns(seed, line, difficulty)) {
+            collect(before)
+            collect(after)
+          }
+        }
+      }
+    }
+    // Drive the third loss branch too: a line that spends to the edge of
+    // its budget every turn takes repair costs it cannot cover. Collected
+    // for its keys either way, so an economy retune that moves the ending
+    // does not fail this test for an unrelated reason.
+    const spendToTheEdge: Line = (state) => ({
+      ...NO_OP,
+      buyAssets: state.credits > 35 ? [{ kind: 'rpoSat', tier: 'A' }] : [],
+    })
+    const endings = new Set<string>()
+    for (let seed = 1; seed <= 60; seed += 1) {
+      for (const { before, after } of playTurns(seed, spendToTheEdge)) {
+        collect(before)
+        collect(after)
+        if (after.status !== 'playing') endings.add(after.lossReason ?? after.status)
+      }
+    }
+    // Report what the sweep reached rather than demanding one ending.
+    expect(endings.size, 'the spendthrift line never ended a campaign').toBeGreaterThan(0)
+    const dynamic = [...keys].filter((k) => !engineOwned.has(k))
     expect(new Set(dynamic)).toEqual(new Set(MODELED_FIELDS))
+    // And the exclusions are real fields, not a typo that hides a gap.
+    const everyKey = new Set([...keys])
+    for (const owned of engineOwned) {
+      expect(everyKey.has(owned), `engine-owned field ${owned} is not a GameState key`).toBe(true)
+    }
   })
 
   it('pins the content assumption the expedite reconstruction relies on', () => {
@@ -213,6 +277,23 @@ describe('beat grain fixtures', () => {
     expect(buy.patch.pendingCountersAdd?.map((p) => p.id)).toEqual(['sensorFusion'])
     expect(buy.patch.pipelineAdd?.map((p) => p.kind)).toEqual(['sat'])
     expect(buy.lines).toEqual(after.history[0].purchases)
+    // Silent by decision (brief v0.5 section 6): the buy already fired its
+    // cue in the procurement phase.
+    expect(buy.visible, 'the procurement beat must render nothing').toBe(false)
+  })
+
+  it('pins exactly which beats are silent bookkeeping', () => {
+    // The ledger needs these patches, and the player must not see them.
+    // Pinned as a set so adding a beat forces a decision either way.
+    const silent = new Set<string>()
+    for (const [, line] of LINES) {
+      for (let seed = 1; seed <= 10; seed += 1) {
+        for (const { before, after } of playTurns(seed, line)) {
+          for (const b of deriveBeats(before, after)) if (!b.visible) silent.add(b.kind)
+        }
+      }
+    }
+    expect([...silent].sort()).toEqual(['end-of-turn-tick', 'procurement'])
   })
 
   it('the fusion retrofit arrives as a countermeasure beat the turn after purchase', () => {
@@ -221,6 +302,13 @@ describe('beat grain fixtures', () => {
     const arrival = beats.find((b) => b.kind === 'deploy-arrived' && b.subjectId === 'sensorFusion')!
     expect(arrival).toBeTruthy()
     expect(arrival.cueKey).toBe('counter:sensorFusion')
+    // No engine id or raw enum value reaches a beat title.
+    for (const { before, after } of playTurns(WIN_SEED, scripted(WIN_SCRIPT))) {
+      for (const b of deriveBeats(before, after)) {
+        expect(b.title, `${b.id}: engine id in title`).not.toMatch(/\b(?:start|t\d+)-(?:sat|rpoSat|drone|groundStation)-\d+\b/)
+        expect(b.title, `${b.id}: raw enum in title`).not.toMatch(/\b(?:rpoSat|groundStation|supplyChain)\b/)
+      }
+    }
     expect(arrival.patch.countersAdd).toEqual(['sensorFusion'])
   })
 
@@ -312,10 +400,11 @@ describe('beat grain fixtures', () => {
       expect(opp.patch.pipelineEta).toEqual({ 't3-sat-1': finalEta })
       expect(beats.some((b) => b.kind === 'settle')).toBe(false)
       expect(modeled(replay(before, beats))).toEqual(modeled(after))
-      if (entry.etaTurns > 3) {
-        slipped += 1
-        expect(beats.some((b) => b.kind === 'deploy-slipped' && b.subjectId === 't3-sat-1')).toBe(true)
-      }
+      // A rolled ETA above the kind's published maximum means the engine
+      // slipped this purchase. There is no beat for it (the roll is folded
+      // into the ETA at purchase), but the reconstruction must still
+      // recover the pre-expedite value.
+      if (entry.etaTurns > 3) slipped += 1
     }
     expect(expedited, 'no seed exercised a same-turn expedite').toBeGreaterThan(0)
     expect(slipped, 'no seed exercised a slipped and expedited purchase').toBeGreaterThan(0)

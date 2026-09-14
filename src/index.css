@@ -92,3 +92,202 @@ body {
     }
   }
 }
+
+/* ---------------------------------------------------------------------
+   Cue vocabulary (game-feel brief v0.5 section 6, Round 3). CSS first, no
+   dependencies. Every motion rule lives inside a no-preference media
+   query, so reduced motion gets the same state changes with none of the
+   movement: badges still attach and clear, meters still read the right
+   number, nothing strobes or shakes. Colour-only cues (flash tones) stay
+   on in both modes because they carry meaning, but they do not animate.
+   --------------------------------------------------------------------- */
+
+/* Tile press: the control takes the press even without motion, via the
+   border and background; the scale is the motion-only half. */
+.dc-tile {
+  transition: background-color 120ms ease-out, border-color 120ms ease-out, transform 90ms ease-out;
+}
+
+/* Condition and layer badges. The attached state is structural, so it is
+   set in both modes; only the entrance and the pulse are motion. Opacity
+   is a fade, not movement, so it stays in both modes; the transform
+   transition is movement and lives under the guard below. */
+.dc-badge {
+  transition: opacity 180ms ease-out;
+}
+
+.dc-flash-bad {
+  color: var(--color-hero-magenta);
+}
+
+.dc-flash-good {
+  color: var(--color-hero-blue);
+}
+
+/* The meter bar eases its width in both modes: it is a value readout, and
+   a 260ms width transition is not motion a reduced-motion user needs
+   protecting from. The count-up that accompanies it is disabled in JS. */
+.dc-meter-fill {
+  transition: width 260ms ease-out, background-color 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dc-meter-fill {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dc-badge {
+    transition: opacity 180ms ease-out, transform 180ms ease-out;
+  }
+
+  .dc-tile:active {
+    transform: scale(0.97);
+  }
+
+
+  .dc-shake {
+    animation: dc-shake 320ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  }
+
+  .dc-flash-bad {
+    animation: dc-flash-bad 520ms ease-out both;
+  }
+
+  .dc-flash-good {
+    animation: dc-flash-good 520ms ease-out both;
+  }
+
+  .dc-badge-attach {
+    animation: dc-badge-attach 420ms ease-out both;
+  }
+
+  .dc-badge-clear {
+    animation: dc-badge-clear 520ms ease-out both;
+  }
+
+  .dc-badge-tick {
+    animation: dc-pulse-soft 700ms ease-out both;
+  }
+
+  .dc-pulse-hostile {
+    animation: dc-pulse-hostile 620ms ease-out both;
+  }
+
+  .dc-pulse-friendly {
+    animation: dc-pulse-friendly 620ms ease-out both;
+  }
+
+  .dc-card-in {
+    animation: dc-card-in 260ms ease-out both;
+  }
+
+  .dc-transmission-in {
+    animation: dc-transmission-in 320ms ease-out both;
+  }
+
+  .dc-strobe {
+    animation: dc-strobe 1.6s ease-in-out infinite;
+  }
+
+  .dc-asset-light {
+    animation: dc-asset-light 900ms ease-out both;
+  }
+
+  .dc-token-burn {
+    animation: dc-token-burn 560ms ease-in both;
+  }
+
+  .dc-ribbon-in {
+    animation: dc-ribbon-in 420ms cubic-bezier(0.22, 1.2, 0.36, 1) both;
+  }
+
+  .dc-blackout {
+    animation: dc-blackout 900ms ease-in-out both;
+  }
+}
+
+@keyframes dc-shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(3px); }
+  30%, 50%, 70% { transform: translateX(-5px); }
+  40%, 60% { transform: translateX(5px); }
+}
+
+@keyframes dc-flash-bad {
+  0% { color: var(--color-hero-magenta); text-shadow: 0 0 10px var(--color-hero-magenta); }
+  100% { color: var(--color-hero-magenta); text-shadow: none; }
+}
+
+@keyframes dc-flash-good {
+  0% { color: var(--color-hero-blue); text-shadow: 0 0 10px var(--color-hero-blue); }
+  100% { color: var(--color-hero-blue); text-shadow: none; }
+}
+
+@keyframes dc-badge-attach {
+  0% { opacity: 0; transform: scale(0.6) translateY(-6px); }
+  55% { opacity: 1; transform: scale(1.12); box-shadow: 0 0 14px var(--color-hero-magenta); }
+  100% { opacity: 1; transform: scale(1); box-shadow: none; }
+}
+
+@keyframes dc-badge-clear {
+  0% { opacity: 1; transform: scale(1); box-shadow: 0 0 14px var(--color-phosphor); }
+  100% { opacity: 0; transform: scale(0.8); box-shadow: none; }
+}
+
+@keyframes dc-pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@keyframes dc-pulse-hostile {
+  0% { transform: scale(1); filter: drop-shadow(0 0 0 var(--color-hero-magenta)); }
+  45% { transform: scale(1.18); filter: drop-shadow(0 0 8px var(--color-hero-magenta)); }
+  100% { transform: scale(1); filter: drop-shadow(0 0 0 var(--color-hero-magenta)); }
+}
+
+@keyframes dc-pulse-friendly {
+  0% { transform: scale(1); filter: drop-shadow(0 0 0 var(--color-hero-blue)); }
+  45% { transform: scale(1.14); filter: drop-shadow(0 0 8px var(--color-hero-blue)); }
+  100% { transform: scale(1); filter: drop-shadow(0 0 0 var(--color-hero-blue)); }
+}
+
+@keyframes dc-card-in {
+  0% { opacity: 0; transform: translateY(8px) scaleY(0.94); }
+  100% { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+@keyframes dc-transmission-in {
+  0% { opacity: 0; transform: translateX(-12px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes dc-strobe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes dc-asset-light {
+  0% { filter: brightness(1); }
+  40% { filter: brightness(2.2) drop-shadow(0 0 10px var(--color-hero-blue)); }
+  100% { filter: brightness(1); }
+}
+
+@keyframes dc-token-burn {
+  0% { opacity: 1; transform: scale(1); }
+  40% { opacity: 1; transform: scale(1.25); filter: drop-shadow(0 0 10px var(--color-alert-amber)); }
+  100% { opacity: 0.25; transform: scale(0.85); }
+}
+
+@keyframes dc-ribbon-in {
+  0% { opacity: 0; transform: translateY(-14px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes dc-blackout {
+  0% { filter: none; }
+  35% { filter: brightness(0.25) saturate(0.4); }
+  70% { filter: brightness(0.5) saturate(0.6); }
+  100% { filter: none; }
+}

@@ -26,7 +26,6 @@ export type BeatKind =
   | 'turn-start'
   | 'deploy-arrived'
   | 'procurement'
-  | 'deploy-slipped'
   | 'surge-spent'
   | 'condition-pressure'
   | 'chain-armed'
@@ -45,7 +44,6 @@ export const BEAT_KINDS: BeatKind[] = [
   'turn-start',
   'deploy-arrived',
   'procurement',
-  'deploy-slipped',
   'surge-spent',
   'condition-pressure',
   'chain-armed',

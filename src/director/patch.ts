@@ -5,7 +5,8 @@
 // field the ledger models, so the adapter can prove it reproduced the turn
 // (empty residual) or reconcile exactly when it did not.
 
-import type { AssetKind, GameState, Scenario } from '../engine/types'
+import type { GameState } from '../engine/types'
+import { kindLabels } from '../ui/labels'
 import { METER_KEYS, type BeatKind, type MeterKey, type Patch } from './types'
 
 type Modeled = Pick<
@@ -190,10 +191,11 @@ export function residualPatch(shadow: GameState, after: GameState): Patch | null
   return any ? patch : null
 }
 
-// Plain-text delta lines for the placeholder view (Round 2) and, later,
-// for the meter and credit cues. Only fields that moved are listed. Each
-// line carries a tone decided per field, never inferred from the text, so
-// the view can colour damage and gains without guessing.
+// Delta lines for the playback card. Every line names things the way the
+// HUD does: no engine ids, no raw enum values (brief v0.5 section 5, and
+// the Round 2 review finding on placeholder copy). Each line carries a
+// tone decided per field, never inferred from the text, so the view can
+// colour damage and gains without guessing.
 export type DeltaTone = 'good' | 'bad' | 'neutral'
 export interface DeltaLine {
   text: string
@@ -206,30 +208,32 @@ const METER_LABEL: Record<MeterKey, string> = {
   sensorIntegrity: 'Sensor',
 }
 
-// Player-facing asset kind names, the same words the HUD uses.
-export const ASSET_KIND_LABEL: Record<AssetKind, string> = {
-  sat: 'Imaging sat',
-  rpoSat: 'RPO servicing sat',
-  drone: 'Drone',
-  groundStation: 'Ground station',
-}
-
-// Engine asset and pipeline ids carry their kind (start-drone-4,
-// t9-rpoSat-1), so a player-facing line can name the thing rather than
-// print a raw identifier. Unparseable ids fall back to the id itself.
-const ASSET_ID = /^(?:start|t\d+)-(sat|rpoSat|drone|groundStation)-\d+$/
-export function assetLabel(id: string): string {
-  const kind = ASSET_ID.exec(id)?.[1] as AssetKind | undefined
-  return kind ? `${ASSET_KIND_LABEL[kind]} ${id}` : id
-}
-
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`)
 
 // The beat kind refines a tone the sign alone would get wrong: credits
-// spent on purpose in the procurement beat are not damage.
-export function describePatch(patch: Patch, scenario: Scenario, kind?: BeatKind): DeltaLine[] {
+// spent on purpose are not damage.
+export function describePatch(patch: Patch, state: GameState, kind?: BeatKind): DeltaLine[] {
   const out: DeltaLine[] = []
+  const scenario = state.scenario
   const counterName = (id: string) => scenario.countermeasures.find((c) => c.id === id)?.name ?? id
+  // Assets and in-transit items are named by kind and trust tier, which is
+  // what the fleet list shows; the engine id never reaches the player.
+  const assetName = (id: string) => {
+    const asset = state.assets.find((a) => a.id === id)
+    if (asset) {
+      // The fleet holds several assets of a kind and tier, so a plain
+      // "Drone B" could not say which one was hit or tie two turns of
+      // damage to the same airframe. An ordinal over the like assets does,
+      // without putting the engine's id on screen.
+      const alike = state.assets.filter((a) => a.kind === asset.kind && a.tier === asset.tier)
+      const label = `${kindLabels[asset.kind]} ${asset.tier}`
+      if (alike.length < 2) return label
+      return `${label} #${alike.findIndex((a) => a.id === id) + 1}`
+    }
+    const pending = state.pipeline.find((p) => p.id === id)
+    return pending ? `${kindLabels[pending.kind]} ${pending.tier}` : 'Asset'
+  }
+
   for (const key of METER_KEYS) {
     const d = patch.meters?.[key]
     if (d) out.push({ text: `${METER_LABEL[key]} ${signed(d)}`, tone: d > 0 ? 'good' : 'bad' })
@@ -249,19 +253,27 @@ export function describePatch(patch: Patch, scenario: Scenario, kind?: BeatKind)
     })
   }
   if (patch.irRetainer) out.push({ text: `${counterName('irRetainer')} active`, tone: 'good' })
-  for (const a of patch.assetsAdd ?? []) out.push({ text: `${ASSET_KIND_LABEL[a.kind]} ${a.tier} on station`, tone: 'good' })
+  for (const a of patch.assetsAdd ?? []) {
+    // The arrival beat's own title already says this; repeating it below
+    // spends the reading budget twice on one sentence.
+    if (kind === 'deploy-arrived') continue
+    out.push({ text: `${kindLabels[a.kind]} ${a.tier} on station`, tone: 'good' })
+  }
   for (const [id, v] of Object.entries(patch.assetIntegrity ?? {})) {
-    out.push({ text: v === 0 ? `${assetLabel(id)} lost` : `${assetLabel(id)} integrity ${v}`, tone: 'bad' })
+    out.push({ text: v === 0 ? `${assetName(id)} lost` : `${assetName(id)} down to ${v} percent`, tone: 'bad' })
   }
   for (const c of patch.conditionsAdd ?? []) out.push({ text: `Condition applied: ${c.name}`, tone: 'bad' })
   for (const p of patch.pipelineAdd ?? []) {
-    out.push({ text: `${ASSET_KIND_LABEL[p.kind]} ${p.tier} in transit, ETA ${p.etaTurns}`, tone: 'neutral' })
+    out.push({
+      text: `${kindLabels[p.kind]} ${p.tier} in transit, ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'}`,
+      tone: 'neutral',
+    })
   }
   for (const [id, v] of Object.entries(patch.pipelineEta ?? {})) {
-    out.push({ text: `${assetLabel(id)} ETA ${v} turn${v === 1 ? '' : 's'}`, tone: 'neutral' })
+    out.push({ text: `${assetName(id)} ETA ${v} turn${v === 1 ? '' : 's'}`, tone: 'neutral' })
   }
   for (const p of patch.pendingCountersAdd ?? []) {
-    out.push({ text: `${counterName(p.id)} retrofit, ETA ${p.etaTurns}`, tone: 'neutral' })
+    out.push({ text: `${counterName(p.id)} retrofit, ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'}`, tone: 'neutral' })
   }
   for (const id of patch.countersAdd ?? []) out.push({ text: `${counterName(id)} active`, tone: 'good' })
   if (patch.flags?.lidarFallback !== undefined) {

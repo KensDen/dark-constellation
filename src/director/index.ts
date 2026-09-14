@@ -3,16 +3,12 @@
 // registry, and the placeholder view. Presentation only; nothing here is
 // imported by the engine or the content modules.
 
-// METER_DAMAGE_PER_SEVERITY is the adapter's mirror of a private engine
-// constant, pinned by the ledger sweep; it is not an engine export.
-export { deriveBeats, METER_DAMAGE_PER_SEVERITY, ID_KEYED_KINDS } from './beats'
+export { deriveBeats, ID_KEYED_KINDS } from './beats'
 export {
   applyPatch,
   cloneModeled,
   residualPatch,
   describePatch,
-  assetLabel,
-  ASSET_KIND_LABEL,
   MODELED_FIELDS,
   type DeltaLine,
   type DeltaTone,
@@ -32,6 +28,21 @@ export {
   type Scheduler,
   type Speed,
 } from './director'
-export { BEAT_CUES, CONDITION_CUES, COUNTER_CUES, EVENT_CUES, resolveCue, type Cue } from './cues'
+export {
+  BEAT_CUES,
+  CONDITION_CUES,
+  COUNTER_CUES,
+  EVENT_CUES,
+  SECTION_6_ROWS,
+  CARD_SAFE_VISUALS,
+  VISUAL_CLASS,
+  VISUAL_MS,
+  resolveCue,
+  visualClass,
+  visualFor,
+  type Cue,
+  type Section6Row,
+  type VisualCue,
+} from './cues'
 export { default as SpeedSelect } from './SpeedSelect'
 export { BEAT_KINDS, METER_KEYS, type Beat, type BeatKind, type MeterKey, type Patch } from './types'

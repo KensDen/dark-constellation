@@ -1,17 +1,21 @@
-// Placeholder playback view (Round 2). Renders the current beat as plain
-// text: its cue label, title, technique tags, layers, severity, deltas and
-// the engine's own lines. Tap the card, press Space or Enter with nothing
-// focused, or use NEXT to advance; speed is 1x, 2x or instant; SKIP (Esc)
-// ends playback at any point. Rounds 3 and 4 replace the text with visual
-// and sound cues; the director underneath does not change.
+// Playback view (Round 3). Each beat now lands as a visual cue from the
+// registry rather than as plain text: the threat card flips in, the
+// affected layer badges pulse, conditions attach and clear, commendations
+// drop a ribbon, and the BLACKOUT CHAIN darkens the card. The engine's own
+// prose moved behind DETAILS, so the beat reads as deltas and a headline
+// (brief v0.5 section 5). Tap the card, press Space or Enter with nothing
+// focused, or use NEXT to advance; SKIP or Escape ends playback.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { GameState } from '../engine/types'
-import { resolveCue } from './cues'
+import { CARD_SAFE_VISUALS, VISUAL_CLASS, VISUAL_MS, resolveCue, visualFor } from './cues'
 import { Director, type DirectorSnapshot, type Speed } from './director'
 import { describePatch, type DeltaTone } from './patch'
 import SpeedSelect from './SpeedSelect'
 import type { Beat } from './types'
+import { useCueClass, useReducedMotion } from '../ui/cues/motion'
+import { layerBadges, vectorIcons } from '../ui/cues/icons'
+import { DEFAULT_SCENARIO } from '../content'
 
 // 44px minimum hit boxes (brief principle 5: designed for a thumb at 375px).
 const btn =
@@ -22,6 +26,9 @@ const toneClass: Record<DeltaTone, string> = {
   bad: 'text-hero-magenta',
   neutral: 'text-ink',
 }
+
+const HOSTILE_KINDS = new Set(['threat', 'condition-applied', 'condition-renewed', 'condition-pressure', 'chain-armed'])
+const FRIENDLY_KINDS = new Set(['commendation', 'opportunity', 'deploy-arrived', 'condition-cleared', 'surge-spent'])
 
 export interface DirectorViewProps {
   before: GameState
@@ -36,6 +43,7 @@ export interface DirectorViewProps {
 export default function DirectorView({ before, after, beats, speed, onSpeedChange, onPresented, onDone }: DirectorViewProps) {
   const directorRef = useRef<Director | null>(null)
   const [snap, setSnap] = useState<DirectorSnapshot | null>(null)
+  const reduced = useReducedMotion()
   // Always the current speed, readable from the construction effect without
   // making it a dependency; later changes go through setSpeed so playback
   // position is kept.
@@ -96,17 +104,39 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
     return () => window.removeEventListener('keydown', onKey)
   }, [advance, skip])
 
+  const beat = snap && snap.status !== 'done' ? snap.beat : null
+  const cueKey = beat?.cueKey ?? ''
+  // The beat's treatment either belongs on the card or on a marker inside
+  // it: the badge and token families end hidden, so running one on the
+  // card would fade the card away (see CARD_SAFE_VISUALS).
+  const visual = beat ? visualFor(cueKey, beat.kind) : undefined
+  const onCard = !!visual && CARD_SAFE_VISUALS.has(visual)
+  const cardClass = (onCard && VISUAL_CLASS[visual]) || 'dc-card-in'
+  const cardCue = useCueClass(beat?.id ?? null, cardClass, reduced, onCard && visual ? VISUAL_MS[visual] : 260)
+  const markerClass = !onCard && visual ? VISUAL_CLASS[visual] : ''
+  // The marker holds its end state rather than clearing: badge-clear
+  // finishes at opacity zero and token-burn at a quarter, so dropping the
+  // class would snap the marker back to full strength as the cue ended.
+  const markerCue = useCueClass(markerClass ? (beat?.id ?? null) : null, markerClass, reduced, 0)
+
   // The live region is mounted for the life of the view, empty at first, so
   // the opening beat's title is a change to an existing region and gets
   // announced like every later one.
-  const beat = snap && snap.status !== 'done' ? snap.beat : null
   const cue = beat ? resolveCue(beat.cueKey) ?? resolveCue(`beat:${beat.kind}`) : undefined
-  const deltas = beat ? describePatch(beat.patch, before.scenario, beat.kind) : []
+  const deltas = beat && snap ? describePatch(beat.patch, snap.presented, beat.kind) : []
+  const def = beat?.subjectId ? DEFAULT_SCENARIO.events.find((e) => e.id === beat.subjectId) : undefined
+  const lost = beat?.kind === 'outcome' && beat.title.startsWith('MISSION FAILED')
+  const hostile = beat ? HOSTILE_KINDS.has(beat.kind) || lost : false
+  const border = beat
+    ? hostile
+      ? 'border-hero-magenta/50'
+      : FRIENDLY_KINDS.has(beat.kind) || beat.kind === 'outcome'
+        ? 'border-hero-blue/50'
+        : 'border-phosphor/30'
+    : 'border-phosphor/30'
 
   return (
     <section className={beat ? 'mt-4' : undefined}>
-      {/* Assistive tech hears the beat title only; the card itself is a
-          plain click region so its text and links stay exposed. */}
       <p className="sr-only" aria-live="polite">
         {beat?.title ?? ''}
       </p>
@@ -120,15 +150,60 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
           </div>
           <div
             onClick={(e) => {
-              if ((e.target as HTMLElement).closest('a, button')) return
+              if ((e.target as HTMLElement).closest('a, button, summary')) return
               advance()
             }}
-            className="mt-2 border border-hero-magenta/40 bg-panel p-3 cursor-pointer select-none"
+            className={`mt-2 border ${border} bg-panel p-3 cursor-pointer select-none ${cardCue}`}
           >
-            <p className="font-mono text-xs text-ink-dim uppercase tracking-widest">{cue?.label ?? beat.kind}</p>
-            <p className="mt-1 font-mono font-bold text-phosphor">{beat.title}</p>
+            <div className="flex items-start gap-2">
+              {def && (
+                <img
+                  src={vectorIcons[def.vector]}
+                  alt=""
+                  aria-hidden="true"
+                  className="w-6 h-6 shrink-0"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-xs text-ink-dim uppercase tracking-widest">
+                  {/* The marker carries treatments that were authored for a
+                      badge, so the card itself is never animated out. */}
+                  {markerClass && (
+                    <span
+                      aria-hidden="true"
+                      className={`inline-block w-2 h-2 mr-1.5 align-middle ${
+                        hostile ? 'bg-hero-magenta' : 'bg-phosphor'
+                      } ${markerCue}`}
+                    />
+                  )}
+                  {cue?.label ?? 'Turn event'}
+                </p>
+                <p className={`mt-0.5 font-mono font-bold ${hostile ? 'text-hero-magenta' : 'text-phosphor'}`}>
+                  {beat.title}
+                </p>
+              </div>
+              {/* The affected layers pulse as the hit lands. */}
+              {beat.layers && beat.layers.length > 0 && (
+                <span className="flex shrink-0 gap-1.5">
+                  {beat.layers.map((layer) => (
+                    <span key={layer} className="flex flex-col items-center">
+                      <img
+                        src={layerBadges[layer]}
+                        alt=""
+                        aria-hidden="true"
+                        className={`h-7 w-auto ${
+                          reduced ? '' : hostile ? 'dc-pulse-hostile' : 'dc-pulse-friendly'
+                        }`}
+                      />
+                      <span className="font-mono text-[9px] text-ink-dim leading-none mt-0.5">{layer}</span>
+                    </span>
+                  ))}
+                </span>
+              )}
+            </div>
+
             {beat.techniques && beat.techniques.length > 0 && (
-              <p className="mt-1 font-mono text-xs text-ink">
+              <p className="mt-2 font-mono text-xs text-ink">
                 Technique{beat.techniques.length > 1 ? 's' : ''}:{' '}
                 {beat.techniques.map((t, i) => (
                   <span key={t.tag}>
@@ -139,9 +214,6 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
                   </span>
                 ))}
               </p>
-            )}
-            {beat.layers && beat.layers.length > 0 && (
-              <p className="font-mono text-xs text-ink-dim">Layers: {beat.layers.join(', ')}</p>
             )}
             {beat.severity && (
               <p className="font-mono text-xs text-ink-dim">
@@ -159,15 +231,17 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
                 ))}
               </ul>
             )}
-            {beat.lines.map((line, i) => (
-              <p key={i} className="mt-1 text-sm">
-                {line}
-              </p>
-            ))}
-            {import.meta.env.DEV && (
-              <p className="mt-2 font-mono text-xs text-ink-dim" aria-hidden="true">
-                cue: {beat.cueKey} (visual {cue?.visual ?? 'none'}, sound {cue?.sound ?? 'none'})
-              </p>
+            {/* The engine's prose is the ledger, not the report; it stays
+                one tap away (brief v0.5 section 5). */}
+            {beat.lines.length > 0 && (
+              <details className="mt-2">
+                <summary className="cursor-pointer font-mono text-xs text-phosphor">Details</summary>
+                {beat.lines.map((line, i) => (
+                  <p key={i} className="mt-1 text-sm">
+                    {line}
+                  </p>
+                ))}
+              </details>
             )}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
