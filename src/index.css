@@ -204,6 +204,26 @@ body {
     animation: dc-token-burn 560ms ease-in both;
   }
 
+  /* EXECUTE TURN's hold ring: the fill sweeps the control for as long as
+     the press has to be held. Its duration is set inline from the same
+     constant the timer uses, so the two cannot drift. */
+  .dc-hold-fill {
+    animation: dc-hold-fill linear both;
+    transform-origin: left center;
+  }
+
+  /* A bought item sliding into the manifest. */
+  .dc-manifest-in {
+    animation: dc-manifest-in 320ms ease-out both;
+  }
+
+  /* The dim the adversary phase enters through. It plays on the way in and
+     blocks nothing: the engine has already resolved the turn by the time
+     this runs (principle 3, nothing waits on a cue). */
+  .dc-phase-dim {
+    animation: dc-phase-dim 420ms ease-out both;
+  }
+
   .dc-ribbon-in {
     animation: dc-ribbon-in 420ms cubic-bezier(0.22, 1.2, 0.36, 1) both;
   }
@@ -218,6 +238,37 @@ body {
   20%, 80% { transform: translateX(3px); }
   30%, 50%, 70% { transform: translateX(-5px); }
   40%, 60% { transform: translateX(5px); }
+}
+
+@keyframes dc-hold-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes dc-manifest-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes dc-phase-dim {
+  from {
+    opacity: 0.15;
+    filter: brightness(0.35);
+  }
+  to {
+    opacity: 1;
+    filter: brightness(1);
+  }
 }
 
 @keyframes dc-flash-bad {

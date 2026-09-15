@@ -14,6 +14,7 @@ import { describePatch, type DeltaTone } from './patch'
 import SpeedSelect from './SpeedSelect'
 import type { Beat } from './types'
 import { useCueClass, useReducedMotion } from '../ui/cues/motion'
+import { onVisibilityChange, pageVisible, playbackPaused } from '../ui/cues/visibility'
 import { layerBadges, vectorIcons } from '../ui/cues/icons'
 import { DEFAULT_SCENARIO } from '../content'
 
@@ -79,6 +80,12 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
   useEffect(() => {
     directorRef.current?.setSpeed(speed)
   }, [speed])
+
+  // Hidden means paused, for every channel (src/ui/cues/visibility.ts).
+  useEffect(() => {
+    directorRef.current?.setPaused(playbackPaused(pageVisible()))
+    return onVisibilityChange((visible) => directorRef.current?.setPaused(playbackPaused(visible)))
+  }, [before, after, beats])
 
   useLayoutEffect(() => {
     if (snap) onPresented(snap.presented, snap.chosenCredits)

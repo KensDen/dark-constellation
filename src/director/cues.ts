@@ -200,16 +200,14 @@ export const SECTION_6_ROWS: Section6Row[] = [
   {
     beat: 'Buy fleet or countermeasure',
     visual: 'tile-press',
-    where: 'ui/Game.tsx procurement tiles',
-    deferred: 'the item sliding into the manifest',
+    // A fleet buy slides into the manifest; a countermeasure has no
+    // manifest entry to slide into and carries its selected state on the
+    // tile instead. Recorded so the row is not read as promising a
+    // manifest entrance the countermeasure half never had.
+    where: 'ui/Game.tsx procurement tiles (fleet buys slide into the manifest; countermeasure tiles hold their state in place)',
   },
   { beat: 'Cannot afford', visual: 'shake-flash', where: 'ui/Game.tsx procurement tiles' },
-  {
-    beat: 'EXECUTE TURN',
-    visual: 'tile-press',
-    where: 'ui/Game.tsx resolve control',
-    deferred: 'the hold-to-confirm ring and the dim into the adversary phase',
-  },
+  { beat: 'EXECUTE TURN', visual: 'tile-press', where: 'ui/Game.tsx resolve control' },
   { beat: 'Adversary event lands', visual: 'card-hostile', where: 'director/DirectorView.tsx' },
   { beat: 'Condition applied', visual: 'badge-attach', where: 'ui/cues/ConditionBadge.tsx' },
   { beat: 'Condition persists into a new turn', visual: 'badge-tick', where: 'ui/cues/ConditionBadge.tsx' },
@@ -223,7 +221,8 @@ export const SECTION_6_ROWS: Section6Row[] = [
     beat: 'Deployment arrives',
     visual: 'asset-light',
     where: 'director/DirectorView.tsx',
-    deferred: 'lighting the matching satellite on the constellation frame',
+    deferred:
+      'lighting the matching satellite on the constellation frame, which needs the frame to be on screen during playback; it renders only on the start screen today',
   },
   { beat: 'Campaign won', visual: 'outcome-sweep', where: 'director/DirectorView.tsx', cinematicInRound5: true },
   { beat: 'Campaign lost', visual: 'outcome-sweep', where: 'director/DirectorView.tsx', cinematicInRound5: true },

@@ -678,6 +678,39 @@ describe('director playback', () => {
     d.dispose()
   })
 
+  it('holds its position while the page is hidden, and resumes where it stopped', () => {
+    // Hidden means paused (src/ui/cues/visibility.ts). A locked phone
+    // mid-playback is the normal way a turn gets interrupted on the
+    // platform this is reviewed on, and playback presents a turn the
+    // engine has already resolved, so stopping costs nothing and resuming
+    // decides nothing.
+    const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 8)
+    const beats = deriveBeats(before, after)
+    const clock = fakeScheduler()
+    const d = new Director(before, after, beats, { speed: '1x', schedule: clock.schedule })
+    const opening = d.snapshot().beat?.id
+    expect(clock.pending.length, 'playback should be armed before it is paused').toBe(1)
+
+    d.setPaused(true)
+    expect(clock.pending.length, 'a hidden page must not leave a beat armed').toBe(0)
+    expect(d.snapshot().beat?.id, 'pausing must not advance the beat').toBe(opening)
+    // Time passing behind a locked screen does not move the turn on.
+    expect(clock.fire()).toBe(false)
+    expect(d.snapshot().beat?.id).toBe(opening)
+
+    // The player can still drive it by hand while hidden, because that is
+    // the player asking rather than a timer firing.
+    d.advance()
+    const tapped = d.snapshot().beat?.id
+    expect(tapped).not.toBe(opening)
+    expect(clock.pending.length, 'a tap while paused must not re-arm the timer').toBe(0)
+
+    d.setPaused(false)
+    expect(clock.pending.length, 'coming back should re-arm from where it stopped').toBe(1)
+    expect(d.snapshot().beat?.id, 'resuming must not skip the beat that was on screen').toBe(tapped)
+    d.dispose()
+  })
+
   it('declares only what a skip still has to apply, from any point in the turn', () => {
     // finish() resets the declaration before summing the beats it is about
     // to apply, and deleting that reset left the suite green: a skip taken

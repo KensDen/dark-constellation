@@ -5,12 +5,22 @@
 // tone that maps the wrong way, or a phase whose class was renamed out of
 // the CSS and now animates nothing.
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { BAR_TONE, FLASH_CLASS, TONE_TEXT, toneForDelta, unchosenDelta } from '../src/ui/cues/Meter'
+import {
+  HOLD_IDLE,
+  HOLD_MS,
+  firesImmediately,
+  holdReducer,
+  isSyntheticActivation,
+  type HoldEvent,
+  type HoldState,
+} from '../src/ui/cues/HoldButton'
+import { countUpMode, playbackPaused } from '../src/ui/cues/visibility'
 import { PHASE_CLASS, PHASE_MS, nextPhases, settlesFor, type BadgePhase } from '../src/ui/cues/ConditionBadge'
 import { kindLabels, vectorLabels } from '../src/ui/labels'
 import { DEFAULT_SCENARIO } from '../src/content'
@@ -395,6 +405,288 @@ describe('condition badge phases', () => {
     // resting one is already resting.
     expect(settlesFor({ a: 'clearing', b: 'attached' })).toEqual([])
     expect(settlesFor({})).toEqual([])
+  })
+})
+
+describe('the hidden-page policy', () => {
+  it('states one policy the three channels answer to', () => {
+    // The policy is a decision, so it is asserted rather than inferred:
+    // hidden means paused, and every channel lands on the truth of the
+    // beat being shown.
+    expect(playbackPaused(false)).toBe(true)
+    expect(playbackPaused(true)).toBe(false)
+    // A hidden page and a reduced-motion preference mean the same thing to
+    // a number: show it, do not animate it.
+    expect(countUpMode(true, false)).toBe('ease')
+    expect(countUpMode(false, false)).toBe('snap')
+    expect(countUpMode(true, true)).toBe('snap')
+    expect(countUpMode(false, true)).toBe('snap')
+  })
+
+  it('wires the policy into the three places that answer to it', () => {
+    // The policy is worth nothing if its consumers stop consulting it, and
+    // the pure functions being right says nothing about that. The pass
+    // that reviewed this candidate proved each of these could be reverted
+    // with the suite green.
+    const source = (...parts: string[]) =>
+      readFileSync(join(SRC, ...parts), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .split('\n')
+        .filter((line) => !/^\s*\/\//.test(line))
+        .join('\n')
+    const motion = source('ui', 'cues', 'motion.ts')
+    const view = source('director', 'DirectorView.tsx')
+
+    // The count-up asks the policy rather than checking the preference
+    // alone; reverting this is how the hidden half of the policy vanishes.
+    expect(motion, 'the count-up must consult the policy').toMatch(
+      /countUpMode\(\s*visible\s*,\s*reduced\s*\)\s*===\s*'snap'/,
+    )
+    // Both halves of the director's wiring: the state the page is in when
+    // playback starts, and every change after it. Without the first, a
+    // turn committed on an already-hidden page runs to the end behind the
+    // lock screen, which is the scenario the policy exists for.
+    expect(view, 'playback must adopt the page state it starts in').toMatch(
+      /setPaused\(\s*playbackPaused\(\s*pageVisible\(\)\s*\)\s*\)/,
+    )
+    expect(view, 'playback must follow the page state as it changes').toMatch(
+      /onVisibilityChange\(\s*\(visible\)\s*=>[\s\S]{0,80}setPaused\(\s*playbackPaused\(\s*visible\s*\)\s*\)/,
+    )
+  })
+
+  it('keeps the hidden-page decision in one place', () => {
+    // The point of the policy is that the channels stop guessing
+    // separately. A second module reading document.hidden is that
+    // guessing coming back, so the DOM surface stays inside the policy.
+    const offenders: string[] = []
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) {
+          walk(full)
+          continue
+        }
+        if (!/\.(ts|tsx)$/.test(entry.name)) continue
+        if (full.endsWith(join('cues', 'visibility.ts'))) continue
+        const source = readFileSync(full, 'utf8')
+        if (/document\.(hidden|visibilityState)|'visibilitychange'|"visibilitychange"/.test(source)) {
+          offenders.push(full.slice(SRC.length + 1))
+        }
+      }
+    }
+    walk(SRC)
+    expect(offenders.join(', '), 'these read the page state directly instead of the policy').toBe('')
+  })
+})
+
+describe('the prelude controls', () => {
+  it('does not commit the turn on an ordinary click or tap', () => {
+    // The defect this replaced: the control kept a flag saying a pointer
+    // gesture was in flight and cleared it on pointerup, which the browser
+    // dispatches BEFORE the click it synthesises from the same gesture. So
+    // every real mouse click and every real tap arrived at the click
+    // handler with the flag already false and committed the turn at once.
+    // Script-dispatched pointer events produce no click, which is why
+    // driving the page from script did not show it.
+    //
+    // The sequence below is exactly what a browser sends for one click.
+    const play = (events: HoldEvent[], disabled = false) => {
+      let state: HoldState = HOLD_IDLE
+      const effects: string[] = []
+      for (const event of events) {
+        const step = holdReducer(state, event, { disabled })
+        state = step.state
+        effects.push(step.effect)
+      }
+      return { state, effects }
+    }
+
+    const tap = play([
+      { type: 'pointerdown', pointerId: 1, primary: true },
+      { type: 'pointerup', pointerId: 1 },
+      { type: 'click', detail: 1 },
+    ])
+    expect(tap.effects, 'a quick tap must start the hold, cancel it, and commit nothing').toEqual([
+      'start',
+      'cancel',
+      'none',
+    ])
+
+    // Held to the end: one confirm, and the trailing click adds nothing.
+    const held = play([
+      { type: 'pointerdown', pointerId: 1, primary: true },
+      { type: 'elapsed' },
+      { type: 'pointerup', pointerId: 1 },
+      { type: 'click', detail: 1 },
+    ])
+    expect(held.effects).toEqual(['start', 'confirm', 'none', 'none'])
+
+    // A click with no pointer behind it is a keyboard or assistive
+    // activation, and those do not hold.
+    expect(play([{ type: 'click', detail: 0 }]).effects).toEqual(['confirm'])
+    expect(isSyntheticActivation(0)).toBe(true)
+    expect(isSyntheticActivation(1)).toBe(false)
+    expect(isSyntheticActivation(2)).toBe(false)
+
+    // Keyboard fires at once, and the click the browser may follow with is
+    // swallowed rather than committing a second time.
+    expect(
+      play([
+        { type: 'keydown', key: 'Enter', repeat: false },
+        { type: 'click', detail: 0 },
+      ]).effects,
+    ).toEqual(['confirm', 'none'])
+    expect(play([{ type: 'keydown', key: 'a', repeat: false }]).effects).toEqual(['none'])
+    expect(play([{ type: 'keydown', key: ' ', repeat: true }]).effects).toEqual(['none'])
+
+    // A stale timer cannot confirm a gesture that is already over, and no
+    // gesture confirms twice.
+    expect(
+      play([
+        { type: 'pointerdown', pointerId: 1, primary: true },
+        { type: 'elapsed' },
+        { type: 'elapsed' },
+      ]).effects,
+    ).toEqual(['start', 'confirm', 'none'])
+    expect(play([{ type: 'elapsed' }]).effects).toEqual(['none'])
+
+    // Secondary buttons open menus; they do not commit turns.
+    expect(play([{ type: 'pointerdown', pointerId: 1, primary: false }]).effects).toEqual(['none'])
+
+    // A second finger neither restarts the hold nor cancels it by lifting.
+    expect(
+      play([
+        { type: 'pointerdown', pointerId: 1, primary: true },
+        { type: 'pointerdown', pointerId: 2, primary: true },
+        { type: 'pointerup', pointerId: 2 },
+        { type: 'elapsed' },
+      ]).effects,
+    ).toEqual(['start', 'none', 'none', 'confirm'])
+
+    // Dragging off the control cancels, as releasing early does.
+    expect(
+      play([
+        { type: 'pointerdown', pointerId: 1, primary: true },
+        { type: 'pointerlost', pointerId: 1 },
+        { type: 'elapsed' },
+      ]).effects,
+    ).toEqual(['start', 'cancel', 'none'])
+
+    // A disabled control commits nothing on any path.
+    for (const event of [
+      { type: 'pointerdown', pointerId: 1, primary: true },
+      { type: 'click', detail: 0 },
+      { type: 'keydown', key: 'Enter', repeat: false },
+      { type: 'elapsed' },
+    ] as HoldEvent[]) {
+      expect(play([event], true).effects, `${event.type} committed while disabled`).toEqual(['none'])
+    }
+  })
+
+  it('holds a pointer press and fires a keyboard or assistive activation at once', () => {
+    // The hold exists so the one irreversible action in the game is not a
+    // tap that can land by accident. It is a pointer gesture with a ring
+    // to read; holding a key is a different gesture with nothing to watch,
+    // and an assistive activation arrives as a click with no press behind
+    // it, so both fire at once.
+    expect(firesImmediately('key')).toBe(true)
+    expect(firesImmediately('pointer')).toBe(false)
+    // Long enough to be deliberate, short enough not to feel stuck.
+    expect(HOLD_MS).toBeGreaterThanOrEqual(400)
+    expect(HOLD_MS).toBeLessThanOrEqual(900)
+  })
+
+  it('routes every input the control receives through the rules', () => {
+    // The rules above are worth nothing if the handlers stop asking them.
+    // Mutating each handler to bypass the reducer left the suite green,
+    // which is the same seam the declaration chain had: the pure rule is
+    // tested, the endpoint is tested, the wire between them is not. Pinned
+    // by spelling until the Round 5 DOM environment can press the button
+    // for real, and it will fail on an innocent rename until then.
+    const hold = readFileSync(join(SRC, 'ui', 'cues', 'HoldButton.tsx'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .split('\n')
+      .filter((line) => !/^\s*\/\//.test(line))
+      .join('\n')
+    const routes: [string, RegExp][] = [
+      ['a press', /onPointerDown=\{\(e\) => send\(\{ type: 'pointerdown', pointerId: e\.pointerId, primary: e\.button === 0 \}\)\}/],
+      ['a release', /onPointerUp=\{\(e\) => send\(\{ type: 'pointerup', pointerId: e\.pointerId \}\)\}/],
+      ['a drag off the control', /onPointerLeave=\{\(e\) => send\(\{ type: 'pointerlost', pointerId: e\.pointerId \}\)\}/],
+      ['a cancelled touch', /onPointerCancel=\{\(e\) => send\(\{ type: 'pointerlost', pointerId: e\.pointerId \}\)\}/],
+      ['a key', /send\(\{ type: 'keydown', key: e\.key, repeat: e\.repeat \}\)/],
+      ['a click', /onClick=\{\(e\) => send\(\{ type: 'click', detail: e\.detail \}\)\}/],
+    ]
+    for (const [what, pattern] of routes) {
+      expect(hold, `${what} no longer reaches the rules`).toMatch(pattern)
+    }
+    // And the reducer is the only thing that may commit: a handler calling
+    // onConfirm itself is the defect this control was rebuilt to remove.
+    const handlers = hold.slice(hold.indexOf('<button'))
+    expect(handlers, 'no handler may commit the turn directly').not.toMatch(/on[A-Z]\w+=\{[^}]*confirmRef\.current\(\)/)
+  })
+
+  it('drops the ring under reduced motion and keeps the hold', () => {
+    // The hold is a safety affordance, not decoration: reduced motion
+    // removes the ring and the label carries the state. Inverting this
+    // condition would either animate for a player who asked for no motion
+    // or hide the only feedback the gesture has.
+    const hold = readFileSync(join(SRC, 'ui', 'cues', 'HoldButton.tsx'), 'utf8')
+    expect(hold, 'the ring renders only while holding and only without reduced motion').toMatch(
+      /\{holding && !reduced && \(/,
+    )
+    // The label is the reduced-motion channel, so it has to change too.
+    expect(hold).toMatch(/\{holding \? holdingLabel : label\}/)
+  })
+
+  it('drives the ring from the same constant as the timer', () => {
+    // The fill sweeps for exactly as long as the press must be held, so
+    // the stylesheet declares no duration of its own and the component
+    // sets it inline from holdMs. A duration in the stylesheet would be a
+    // second copy of the number and would drift.
+    const hold = readFileSync(join(SRC, 'ui', 'cues', 'HoldButton.tsx'), 'utf8')
+    expect(hold, 'the ring must take its duration from the hold itself').toMatch(
+      /animationDuration:\s*`\$\{holdMs\}ms`/,
+    )
+    const rule = /\.dc-hold-fill\s*\{([^}]*)\}/.exec(CSS)
+    expect(rule, '.dc-hold-fill is not in the stylesheet').not.toBeNull()
+    expect(rule![1], 'the stylesheet must not declare its own hold duration').not.toMatch(/\d+m?s/)
+  })
+
+  it('wires the prelude cues to the controls they belong to', () => {
+    // Same idiom and the same limitation as the declaration chain: no DOM
+    // here, so the wiring is read from the source with comments stripped.
+    const game = readFileSync(join(SRC, 'ui', 'Game.tsx'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .split('\n')
+      .filter((line) => !/^\s*\/\//.test(line))
+      .join('\n')
+    // The resolve control is the hold control, not a plain button.
+    expect(game, 'the resolve control must be the hold control').toMatch(
+      /<HoldButton[\s\S]*?onConfirm=\{\s*resolve\s*\}/,
+    )
+    // Any plain control that resolves, however the handler is spelled:
+    // wrapping it in an arrow defeated the earlier form of this check.
+    expect(game, 'a plain resolve button must not sit beside it').not.toMatch(
+      /<button[\s\S]{0,240}?onClick=\{[^}]*\bresolve\b/,
+    )
+    // The hold length is the control's whole point, so the call site does
+    // not get to shorten it to a tap.
+    expect(game, 'the resolve control must not override the hold length').not.toMatch(
+      /<HoldButton[\s\S]*?holdMs=/,
+    )
+    // The manifest entrance is applied to the entry that was just added.
+    expect(game, 'the manifest cue must be keyed to the entry that was added').toMatch(
+      /arrived\?\.index === i \? manifestCue : undefined/,
+    )
+    // The adversary phase enters through the dim, and the dim is keyed to
+    // the turn being played. Pinning the wrapper alone left the key free
+    // to be neutralised, which renders the class once and never again.
+    expect(game, 'the playback section must enter through the dim').toMatch(
+      /<div className=\{phaseDim\}>[\s\S]{0,200}?<DirectorView/,
+    )
+    expect(game, 'the dim must be keyed to the turn it plays').toMatch(
+      /useCueClass\(\s*phase === 'playback' \? `dim-\$\{state\?\.turn \?\? 0\}` : null\s*,\s*'dc-phase-dim'/,
+    )
   })
 })
 

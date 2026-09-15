@@ -112,6 +112,7 @@ export class Director {
   private presented: GameState
   private status: 'playing' | 'done' = 'playing'
   private cancelTimer: Cancel | null = null
+  private paused = false
   private chosenCredits = 0
   private listeners = new Set<() => void>()
   private readonly visibleTotal: number
@@ -176,7 +177,10 @@ export class Director {
 
   private arm(): void {
     this.clearTimer()
-    if (this.status === 'done' || this.speed === 'instant') return
+    // Hidden means paused (src/ui/cues/visibility.ts): the beat on screen
+    // when the phone locked is the beat on screen when it wakes. Tapping
+    // still advances, because that is the player asking.
+    if (this.status === 'done' || this.speed === 'instant' || this.paused) return
     const divisor = SPEED_DIVISOR[this.speed]
     const beat = this.index >= 0 && this.index < this.beats.length ? this.beats[this.index] : null
     const dwell = Math.max(this.dwellMs / divisor, beat ? this.cueMs(beat) : 0)
@@ -211,6 +215,18 @@ export class Director {
   skip(): void {
     if (this.status === 'done') return
     this.finish()
+  }
+
+  // The page went away or came back. Pausing holds the current beat;
+  // resuming re-arms from where it stopped rather than catching up, since
+  // nothing was missed that the player could have seen.
+  setPaused(paused: boolean): void {
+    if (paused === this.paused) return
+    this.paused = paused
+    if (this.status === 'done') return
+    if (paused) this.clearTimer()
+    else this.arm()
+    this.emit()
   }
 
   setSpeed(speed: Speed): void {

@@ -8,6 +8,7 @@
 // the quiet treatment on the next render, with no reload.
 
 import { useEffect, useRef, useState } from 'react'
+import { countUpMode, onVisibilityChange, pageVisible } from './visibility'
 
 const QUERY = '(prefers-reduced-motion: reduce)'
 
@@ -49,7 +50,20 @@ export function useReducedMotion(): boolean {
 // real one within a frame or two.
 export const COUNT_MS = 420
 
+// Live, because a page can be hidden and shown mid-count and the policy
+// has to apply to the count in flight, not only to the one that starts
+// after the player comes back.
+export function usePageVisible(): boolean {
+  const [visible, setVisible] = useState(pageVisible)
+  useEffect(() => {
+    setVisible(pageVisible())
+    return onVisibilityChange(setVisible)
+  }, [])
+  return visible
+}
+
 export function useCountUp(target: number, reduced: boolean, durationMs = COUNT_MS): number {
+  const visible = usePageVisible()
   const [shown, setShown] = useState(target)
   // The value actually on screen, so an interrupted count resumes from
   // where it stopped rather than from the last completed target.
@@ -59,7 +73,11 @@ export function useCountUp(target: number, reduced: boolean, durationMs = COUNT_
   useEffect(() => {
     const from = shownRef.current
     if (from === target) return
-    if (reduced || typeof requestAnimationFrame !== 'function') {
+    // Hidden means the number is shown, not animated (the policy in
+    // ./visibility.ts). An animation nobody can see is not an animation,
+    // and a hidden page stops delivering frames anyway: this is what the
+    // safety timeout below was doing by accident, now said out loud.
+    if (countUpMode(visible, reduced) === 'snap' || typeof requestAnimationFrame !== 'function') {
       shownRef.current = target
       setShown(target)
       return
@@ -96,7 +114,7 @@ export function useCountUp(target: number, reduced: boolean, durationMs = COUNT_
       cancelAnimationFrame(frameRef.current)
       window.clearTimeout(safety)
     }
-  }, [target, reduced, durationMs])
+  }, [target, reduced, durationMs, visible])
 
   return shown
 }

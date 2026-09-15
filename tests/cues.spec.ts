@@ -195,6 +195,9 @@ describe('visual cue vocabulary (Round 3)', () => {
       'dc-flash-bad',
       'dc-badge',
       'dc-tile:active',
+      'dc-hold-fill',
+      'dc-manifest-in',
+      'dc-phase-dim',
     ]) {
       expect(guarded, `${selector} must be declared inside the reduced-motion guard`).toContain(`.${selector} {`)
     }
@@ -257,6 +260,29 @@ describe('visual cue vocabulary (Round 3)', () => {
     }
     expect(unwired.join('\n')).toBe('')
     expect(kindsSeen.size, 'the sweep produced too few beat kinds to prove anything').toBeGreaterThan(8)
+  })
+
+  it('keeps the arrival row deferred while the frame it needs is off screen', () => {
+    // The row owes "lighting the matching satellite on the constellation
+    // frame", and the frame renders only on the start screen: there is
+    // nothing on screen during playback to light. Marking the row done
+    // without putting the frame there would be the brief drifting from the
+    // code, which principle 12 forbids, so the row stays deferred until
+    // the playback screen actually renders the frame.
+    const game = readFileSync(join(SRC, 'ui', 'Game.tsx'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .split('\n')
+      .filter((line) => !/^\s*\/\//.test(line))
+      .join('\n')
+    const playbackBlock = /\{phase === 'playback' && playback && \(([\s\S]*?)\n {6}\)\}/.exec(game)
+    expect(playbackBlock, 'the playback branch is not where this guard expects it').not.toBeNull()
+    const frameOnScreen = /constellationVisual|<Constellation/.test(playbackBlock![1])
+    const row = SECTION_6_ROWS.find((r) => r.beat === 'Deployment arrives')
+    expect(row, 'the arrival row is gone').toBeDefined()
+    if (!frameOnScreen) {
+      expect(row!.deferred, 'the arrival row owes the frame lighting and must say so').toBeTruthy()
+      expect(row!.deferred, 'the deferred note must say what is missing').toMatch(/frame/i)
+    }
   })
 
   it('records what each deferred row still owes', () => {

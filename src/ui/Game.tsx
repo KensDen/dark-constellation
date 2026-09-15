@@ -22,6 +22,7 @@ import {
 } from '../persistence'
 import { reportData, shareText } from './reportCard'
 import DirectorView from '../director/DirectorView'
+import HoldButton from './cues/HoldButton'
 import {
   SpeedSelect,
   defaultSpeed,
@@ -225,10 +226,16 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   // Cannot-afford cue (brief v0.5 section 6): the tile shakes and the
   // spend line flashes. A nonce restarts the animation on a repeat press.
   const [denied, setDenied] = useState<{ id: string; nonce: number } | null>(null)
+  // The manifest entry a buy just added, so it can slide in (brief section
+  // 4: "item slides into the manifest"). Cleared when the cart empties.
+  const [arrived, setArrived] = useState<{ index: number; nonce: number } | null>(null)
   const denialShake = useCueClass(denied?.nonce ?? null, 'dc-shake', reducedMotion)
   // The colour half of the cue is not motion, so it plays under reduced
   // motion too; the stylesheet drops only the animation there.
   const denialFlash = useCueClass(denied?.nonce ?? null, 'dc-flash-bad', false)
+  // The manifest entrance, and the dim the adversary phase enters through.
+  const manifestCue = useCueClass(arrived?.nonce ?? null, 'dc-manifest-in', reducedMotion, 320)
+  const phaseDim = useCueClass(phase === 'playback' ? `dim-${state?.turn ?? 0}` : null, 'dc-phase-dim', reducedMotion, 420)
   // A refusal is a flash, not a state: it lifts on its own, and at once if
   // the cart or the phase changes, so a fixed cart never carries a stale
   // warning.
@@ -566,6 +573,8 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
       }
       setState(next)
       setActions(EMPTY_ACTIONS)
+      // The cart is gone, so the entry the cue pointed at is too.
+      setArrived(null)
       if (!beats) {
         setPlayback(null)
         setPresented(null)
@@ -593,10 +602,16 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const addAsset = (kind: AssetKind, tier: TrustTier) => {
     const price = assetPrice(scenario, kind, tier)
     if (!afford(price, `${kind}-${tier}`)) return
+    // The new entry is the last one, and the nonce restarts the cue when
+    // the same kind is bought twice in a row.
+    setArrived({ index: actions.buyAssets.length, nonce: (arrived?.nonce ?? 0) + 1 })
     setActions({ ...actions, buyAssets: [...actions.buyAssets, { kind, tier }] })
   }
-  const removeAsset = (index: number) =>
+  const removeAsset = (index: number) => {
+    // The cue points at a row by index, so a removal invalidates it.
+    setArrived(null)
     setActions({ ...actions, buyAssets: actions.buyAssets.filter((_, i) => i !== index) })
+  }
   const toggleCounter = (id: (typeof scenario.countermeasures)[number]['id']) => {
     const already = actions.buyCounters.includes(id)
     if (!already) {
@@ -1038,7 +1053,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
           {actions.buyAssets.length > 0 && (
             <ul className="list-disc ml-6 mt-2 font-mono text-sm text-hero-blue">
               {actions.buyAssets.map((buy: AssetBuy, i: number) => (
-                <li key={i}>
+                <li key={i} className={arrived?.index === i ? manifestCue : undefined}>
                   {kindLabels[buy.kind]} Tier {buy.tier} ({assetPrice(scenario, buy.kind, buy.tier)}){' '}
                   <button className={`${btn} px-1 py-0 text-xs`} onClick={() => removeAsset(i)}>
                     remove
@@ -1157,9 +1172,17 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
             <p className="mt-2 font-bold font-mono text-alert-amber">Planned spend exceeds credits. Trim the cart.</p>
           )}
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button className={tileBtn} disabled={!affordable} onClick={resolve}>
-              4. Resolve turn {state.turn}
-            </button>
+            {/* The turn is the one irreversible action in the game, so it
+                asks for a deliberate gesture rather than a tap that can
+                land by accident on a phone (brief section 4). A keyboard
+                or assistive activation fires at once. */}
+            <HoldButton
+              className={`${tileBtn} min-h-11 px-4`}
+              disabled={!affordable}
+              onConfirm={resolve}
+              label={`4. Hold to resolve turn ${state.turn}`}
+              holdingLabel={`Hold... resolving turn ${state.turn}`}
+            />
             <button className={tileBtn} onClick={() => setPhase('procure')}>
               Back to procurement
             </button>
@@ -1180,16 +1203,21 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
         </section>
       )}
 
+      {/* The adversary phase enters through a dim. It plays on the way in
+          and blocks nothing: the engine resolved the turn before this
+          renders (principle 3). */}
       {phase === 'playback' && playback && (
-        <DirectorView
-          before={playback.before}
-          after={playback.after}
-          beats={playback.beats}
-          speed={speed}
-          onSpeedChange={setSpeed}
-          onPresented={showPresented}
-          onDone={finishPlayback}
-        />
+        <div className={phaseDim}>
+          <DirectorView
+            before={playback.before}
+            after={playback.after}
+            beats={playback.beats}
+            speed={speed}
+            onSpeedChange={setSpeed}
+            onPresented={showPresented}
+            onDone={finishPlayback}
+          />
+        </div>
       )}
 
       {phase === 'aftermath' && lastRecord && (
