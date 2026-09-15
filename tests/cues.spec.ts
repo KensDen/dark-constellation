@@ -203,24 +203,6 @@ describe('visual cue vocabulary (Round 3)', () => {
     }
   })
 
-  it('keys the layer badges to the beat, so a repeated layer pulses again', () => {
-    // The badge pulse is a class the JSX writes directly rather than a cue
-    // routed through useCueClass, because a hook call inside the layer map
-    // would make the hook count vary with the number of layers. What makes
-    // it replay is therefore element identity: the wrapper has to be keyed
-    // by something that changes per beat, or two consecutive beats on the
-    // same layer at the same tone reuse a node whose animation has already
-    // finished and the pulse is silent. There is no DOM in this suite, so
-    // the structure is read from the source; the regression it pins
-    // shipped as `key={layer}`.
-    const source = readFileSync(join(SRC, 'director', 'DirectorView.tsx'), 'utf8')
-    const map = /beat\.layers\.map\(\(layer\) => \(([\s\S]*?)\)\)/.exec(source)
-    expect(map, 'the layer badge row is not where this guard expects it').not.toBeNull()
-    const key = /key=\{([^}]*)\}/.exec(map![1])
-    expect(key, 'the layer badge wrapper carries no key').not.toBeNull()
-    expect(key![1], 'the layer badge key must change from beat to beat').toContain('beat.id')
-  })
-
   it('has a real visual for every row of section 6, in a file that exists', () => {
     expect(SECTION_6_ROWS.length).toBeGreaterThan(0)
     for (const row of SECTION_6_ROWS) {

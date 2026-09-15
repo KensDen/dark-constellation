@@ -5,7 +5,11 @@
 // at once and nothing animates; the tone colour still carries the meaning.
 
 import { useEffect, useRef, useState } from 'react'
-import { CUE_MS, useCountUp, useCueClass, useReducedMotion } from './motion'
+import { COUNT_MS, CUE_MS, useCountUp, useCueClass, useReducedMotion } from './motion'
+
+// Re-exported for the DOM suite, which drives the count and has to know
+// how long it runs; the readout itself uses the hook's default.
+export const COUNT_MS_FOR_TESTS = COUNT_MS
 
 export type MeterTone = 'good' | 'bad' | 'neutral'
 

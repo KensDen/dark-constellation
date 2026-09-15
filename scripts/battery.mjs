@@ -8,10 +8,11 @@
 // public CI never sees the deny-list.
 
 import { execSync, spawnSync } from 'node:child_process'
-import { readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { gzipSync } from 'node:zlib'
+
+import { measureBundle } from './bundle-budget.mjs'
 
 const failures = []
 // Stamped before anything builds, so the bundle layer can tell a chunk
@@ -49,32 +50,12 @@ run('typecheck + production build', () => {
 // baseline and budget live in tests/bundle-budget.json and any library
 // addition records its delta there.
 run('bundle budget: gzipped main chunk under threshold (game-feel brief 8)', () => {
+  // The layer's own logic lives in scripts/bundle-budget.mjs so the suite
+  // can call it with fixtures; this is the wiring, and the numbers it
+  // prints are the ones measured here.
   const budget = JSON.parse(readFileSync('tests/bundle-budget.json', 'utf8'))
-  // The recorded headroom is derived, so it cannot quietly disagree with
-  // the two numbers it sits between.
-  const headroom = budget.budgetGzipBytes - budget.baselineGzipBytes
-  if (budget.headroomGzipBytes !== headroom) {
-    throw new Error(
-      `bundle-budget.json records headroom ${budget.headroomGzipBytes}, but budget minus baseline is ${headroom}`,
-    )
-  }
-  const dir = join('dist', 'assets')
-  const chunks = readdirSync(dir).filter((f) => /^index-.*\.js$/.test(f))
-  if (chunks.length !== 1) throw new Error(`expected one main chunk in ${dir}, found ${chunks.length}`)
-  const chunkPath = join(dir, chunks[0])
-  // Measure only a chunk this run built: a stale dist would otherwise
-  // report a size that no longer matches the source.
-  if (statSync(chunkPath).mtimeMs < batteryStartedAt) {
-    throw new Error(`${chunks[0]} predates this battery run; dist is stale, rebuild before measuring`)
-  }
-  const gz = gzipSync(readFileSync(chunkPath)).length
-  const delta = gz - budget.baselineGzipBytes
-  process.stdout.write(
-    `${chunks[0]} ${gz} bytes gzipped (baseline ${budget.baselineGzipBytes}, ${delta >= 0 ? '+' : ''}${delta}; budget ${budget.budgetGzipBytes}, headroom ${headroom}) ... `,
-  )
-  if (gz > budget.budgetGzipBytes) {
-    throw new Error(`main chunk is ${gz} bytes gzipped, over the ${budget.budgetGzipBytes} byte budget`)
-  }
+  const { line } = measureBundle({ budget, startedAt: batteryStartedAt })
+  process.stdout.write(`${line} ... `)
 })
 
 // The zero-residual ledger sweep is the broadest correctness guard on the

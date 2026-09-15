@@ -26,13 +26,6 @@ import { useReducedMotion } from './motion'
 
 export const HOLD_MS = 600
 
-export type Activation = 'pointer' | 'key'
-
-// Keyboard and assistive activations fire at once; a pointer press holds.
-export function firesImmediately(activation: Activation): boolean {
-  return activation === 'key'
-}
-
 // A click carries detail 0 only when no pointer produced it: keyboard
 // activation, assistive activation, and element.click() from script. A
 // mouse click and a touch tap both carry at least 1, and both must hold.
@@ -111,7 +104,6 @@ export interface HoldButtonProps {
   onConfirm: () => void
   disabled?: boolean
   className?: string
-  holdMs?: number
 }
 
 export default function HoldButton({
@@ -120,7 +112,6 @@ export default function HoldButton({
   onConfirm,
   disabled,
   className,
-  holdMs = HOLD_MS,
 }: HoldButtonProps) {
   const reduced = useReducedMotion()
   const timerRef = useRef(0)
@@ -142,7 +133,7 @@ export default function HoldButton({
       setHolding(state.holding)
       if (effect === 'start') {
         window.clearTimeout(timerRef.current)
-        timerRef.current = window.setTimeout(() => sendRef.current({ type: 'elapsed' }), holdMs)
+        timerRef.current = window.setTimeout(() => sendRef.current({ type: 'elapsed' }), HOLD_MS)
       } else if (effect === 'cancel') {
         window.clearTimeout(timerRef.current)
       } else if (effect === 'confirm') {
@@ -150,7 +141,7 @@ export default function HoldButton({
         confirmRef.current()
       }
     },
-    [disabled, holdMs],
+    [disabled],
   )
   sendRef.current = send
 
@@ -165,7 +156,29 @@ export default function HoldButton({
       style={{ touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' }}
       className={`dc-hold relative overflow-hidden ${className ?? ''}`}
       onContextMenu={(e) => e.preventDefault()}
-      onPointerDown={(e) => send({ type: 'pointerdown', pointerId: e.pointerId, primary: e.button === 0 })}
+      onPointerDown={(e) => {
+        // A touch pointer is captured implicitly, which means no leave
+        // event fires while the finger is down and a press slid off the
+        // control would still commit. Releasing the capture gives touch
+        // the same abort a mouse has.
+        //
+        // The capture belongs to the pointerdown's TARGET and to nothing
+        // else, which for most taps is the label span inside the button
+        // rather than the button itself: the first version of this
+        // released from currentTarget, found no capture there, and did
+        // nothing for the majority of real presses. The target covers both
+        // cases, since a finger on the padding targets the button; a
+        // currentTarget term alongside it was redundant by construction
+        // and could never be exercised.
+        const el = e.target as Element & {
+          hasPointerCapture?: (id: number) => boolean
+          releasePointerCapture?: (id: number) => void
+        }
+        if (typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId)) {
+          el.releasePointerCapture?.(e.pointerId)
+        }
+        send({ type: 'pointerdown', pointerId: e.pointerId, primary: e.button === 0 })
+      }}
       onPointerUp={(e) => send({ type: 'pointerup', pointerId: e.pointerId })}
       onPointerLeave={(e) => send({ type: 'pointerlost', pointerId: e.pointerId })}
       onPointerCancel={(e) => send({ type: 'pointerlost', pointerId: e.pointerId })}
@@ -182,7 +195,7 @@ export default function HoldButton({
         <span
           aria-hidden="true"
           className="dc-hold-fill absolute inset-0 bg-phosphor/25"
-          style={{ animationDuration: `${holdMs}ms` }}
+          style={{ animationDuration: `${HOLD_MS}ms` }}
         />
       )}
       <span className="relative">{holding ? holdingLabel : label}</span>
