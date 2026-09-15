@@ -118,56 +118,80 @@ const never: Scheduler = () => {
   throw new Error('instant playback must never schedule a timer')
 }
 
+// The broadest correctness guard on the branch: it is the only thing
+// proving the presentation ledger reconciles with the engine across every
+// line, difficulty and seed. It ran at about 4,000ms against vitest's
+// 5,000ms default, which made it least trustworthy exactly when
+// multi-agent verification loaded the machine: 7,560ms and a failing
+// suite under eight concurrent workers. The ceiling is raised to seven
+// times the idle duration, far enough that only a hang reaches it, and
+// the duration itself is reported by the battery rather than gated,
+// because a gated number would flake under load for the same reason the
+// timeout did (brief v0.9 section 7).
+const LEDGER_SWEEP_TIMEOUT_MS = 30_000
+
 describe('presentation adapter: zero-residual ledger against the engine', () => {
-  it('reproduces the after-state of every turn of every line, seed and difficulty with no settle beat', () => {
-    const seen = new Set<BeatKind>()
-    const namespaces = new Set<string>()
-    let turns = 0
-    for (const [name, line] of LINES) {
-      for (const difficulty of DIFFICULTIES) {
-        for (let seed = 1; seed <= SEEDS; seed += 1) {
-          for (const { before, after } of playTurns(seed, line, difficulty)) {
-            turns += 1
-            const where = `${name} line, ${difficulty}, seed ${seed}, turn ${before.turn}`
-            // Derivation reads both states and must mutate neither. The
-            // after-state matters most: an adapter that wrote to it would
-            // move the target the residual is measured against, so the
-            // sweep would come back empty while the ledger was wrong.
-            const beforeUntouched = JSON.stringify(readable(before))
-            const afterUntouched = JSON.stringify(readable(after))
-            const beats = deriveBeats(before, after)
-            expect(JSON.stringify(readable(before)), `${where}: before mutated`).toBe(beforeUntouched)
-            expect(JSON.stringify(readable(after)), `${where}: after mutated`).toBe(afterUntouched)
-            for (const b of beats) {
-              seen.add(b.kind)
-              // Deck-keyed beats must resolve through the deck's own ids, not
-              // fall back to the generic kind cue.
-              namespaces.add(b.cueKey.slice(0, b.cueKey.indexOf(':')))
-              if (ID_KEYED_KINDS.includes(b.kind)) {
-                expect(b.cueKey, `${where}: ${b.id}`).toMatch(/^(event|condition|counter):/)
-                expect(b.cueKey.slice(b.cueKey.indexOf(':') + 1), `${where}: ${b.id}`).toBe(b.subjectId)
+  it(
+    'reproduces the after-state of every turn of every line, seed and difficulty with no settle beat',
+    () => {
+      const seen = new Set<BeatKind>()
+      const namespaces = new Set<string>()
+      let turns = 0
+      for (const [name, line] of LINES) {
+        for (const difficulty of DIFFICULTIES) {
+          for (let seed = 1; seed <= SEEDS; seed += 1) {
+            for (const { before, after } of playTurns(seed, line, difficulty)) {
+              turns += 1
+              const where = `${name} line, ${difficulty}, seed ${seed}, turn ${before.turn}`
+              // Derivation reads both states and must mutate neither. The
+              // after-state matters most: an adapter that wrote to it would
+              // move the target the residual is measured against, so the
+              // sweep would come back empty while the ledger was wrong.
+              const beforeUntouched = JSON.stringify(readable(before))
+              const afterUntouched = JSON.stringify(readable(after))
+              const beats = deriveBeats(before, after)
+              expect(JSON.stringify(readable(before)), `${where}: before mutated`).toBe(beforeUntouched)
+              expect(JSON.stringify(readable(after)), `${where}: after mutated`).toBe(afterUntouched)
+              for (const b of beats) {
+                seen.add(b.kind)
+                // Deck-keyed beats must resolve through the deck's own ids, not
+                // fall back to the generic kind cue.
+                namespaces.add(b.cueKey.slice(0, b.cueKey.indexOf(':')))
+                if (ID_KEYED_KINDS.includes(b.kind)) {
+                  expect(b.cueKey, `${where}: ${b.id}`).toMatch(/^(event|condition|counter):/)
+                  expect(b.cueKey.slice(b.cueKey.indexOf(':') + 1), `${where}: ${b.id}`).toBe(b.subjectId)
+                }
               }
+              const settle = beats.find((b) => b.kind === 'settle')
+              expect(settle, `${where}: residual ${JSON.stringify(settle?.patch)}`).toBeUndefined()
+              expect(modeled(replay(before, beats)), where).toEqual(modeled(after))
             }
-            const settle = beats.find((b) => b.kind === 'settle')
-            expect(settle, `${where}: residual ${JSON.stringify(settle?.patch)}`).toBeUndefined()
-            expect(modeled(replay(before, beats)), where).toEqual(modeled(after))
           }
         }
       }
-    }
-    expect(turns).toBeGreaterThan(SEEDS * DIFFICULTIES.length * LINES.length * 4)
-    // Every kind of beat the adapter can emit actually occurred in real
-    // play, except the reconciliation beat, which must never be needed.
-    const expected = BEAT_KINDS.filter((k) => k !== 'settle')
-    for (const kind of expected) expect(seen.has(kind), `beat kind ${kind} never observed in the sweep`).toBe(true)
-    expect(seen.has('settle')).toBe(false)
-    // Every cue namespace is exercised by real play, not by one fixture:
-    // the counter namespace in particular only appears when a retrofit
-    // lands, which the prepared line reaches part way through a campaign.
-    for (const ns of ['beat', 'event', 'condition', 'counter']) {
-      expect(namespaces.has(ns), `cue namespace ${ns} never observed in the sweep`).toBe(true)
-    }
-  })
+      expect(turns).toBeGreaterThan(SEEDS * DIFFICULTIES.length * LINES.length * 4)
+      // An absolute floor as well as a relative one. The bound above is a
+      // formula over the fixture sizes, so cutting SEEDS or LINES cuts the
+      // work and the bound together and the sweep still passes, quietly
+      // covering a fraction of what it used to. The duration the battery
+      // prints would drop with it, and that number is reported rather than
+      // gated by policy (brief v0.9 section 7), so this is where a
+      // collapse in coverage has to fail.
+      expect(turns, 'the ledger sweep now covers far fewer turns than it did').toBeGreaterThanOrEqual(1500)
+      // Every kind of beat the adapter can emit actually occurred in real
+      // play, except the reconciliation beat, which must never be needed.
+      const expected = BEAT_KINDS.filter((k) => k !== 'settle')
+      for (const kind of expected) expect(seen.has(kind), `beat kind ${kind} never observed in the sweep`).toBe(true)
+      expect(seen.has('settle')).toBe(false)
+      // Every cue namespace is exercised by real play, not by one fixture:
+      // the counter namespace in particular only appears when a retrofit
+      // lands, which the prepared line reaches part way through a campaign.
+      for (const ns of ['beat', 'event', 'condition', 'counter']) {
+        expect(namespaces.has(ns), `cue namespace ${ns} never observed in the sweep`).toBe(true)
+      }
+    },
+    LEDGER_SWEEP_TIMEOUT_MS,
+  )
 
   it('models every dynamic field of the engine state, so a new engine field cannot slip past the ledger', () => {
     // Fields the engine owns outright and the director never patches: the
@@ -654,7 +678,49 @@ describe('director playback', () => {
     d.dispose()
   })
 
-  it('declares the spend on a skip as well, where every patch lands at once', () => {
+  it('declares only what a skip still has to apply, from any point in the turn', () => {
+    // finish() resets the declaration before summing the beats it is about
+    // to apply, and deleting that reset left the suite green: a skip taken
+    // after the purchase had already been applied still declared it, so a
+    // repair bill in the same jump landed neutral instead of hostile. The
+    // old skip test only ever skipped from the first beat, which is the
+    // one position where the two behaviours agree.
+    // Turn 8 of the prepared line, not turn 1: thirteen beats, eleven of
+    // them visible, with the purchase third. Turn 1 has three beats, so
+    // "from any point in the turn" would have meant two points, both of
+    // them before the purchase.
+    const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 8)
+    const beats = deriveBeats(before, after)
+    expect(beats.length, 'the fixture is too small for this test to mean anything').toBeGreaterThanOrEqual(8)
+    expect(beats.findIndex((b) => b.kind === 'procurement'), 'the fixture has no purchase to declare').toBeGreaterThan(0)
+    let sawNothingLeft = false
+    let sawSomethingLeft = false
+    let stopsChecked = 0
+    for (let stop = 0; stop <= beats.length; stop += 1) {
+      const clock = fakeScheduler()
+      const d = new Director(before, after, beats, { speed: '1x', schedule: clock.schedule })
+      for (let step = 0; step < stop && d.snapshot().status === 'playing'; step += 1) d.advance()
+      if (d.snapshot().status === 'done') {
+        d.dispose()
+        continue
+      }
+      const applied = d.snapshot().index
+      d.skip()
+      const owed = beats.slice(applied + 1).reduce((n, b) => n + chosenCreditsOf(b), 0)
+      expect(d.snapshot().chosenCredits, `skipping after beat ${applied} declares the wrong spend`).toBe(owed)
+      if (owed === 0) sawNothingLeft = true
+      else sawSomethingLeft = true
+      stopsChecked += 1
+      d.dispose()
+    }
+    // Both sides of the distinction have to occur, or the test proves
+    // nothing: a skip before the purchase owes it, a skip after does not.
+    expect(sawSomethingLeft, 'no skip point still owed the purchase').toBe(true)
+    expect(sawNothingLeft, 'no skip point had the purchase already applied').toBe(true)
+    expect(stopsChecked, 'too few skip points to call this any point in the turn').toBeGreaterThanOrEqual(8)
+  })
+
+  it('declares the spend on a skip from the first beat, where every patch lands at once', () => {
     const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 1)
     const beats = deriveBeats(before, after)
     const spend = -(beats.find((b) => b.kind === 'procurement')!.patch.credits ?? 0)

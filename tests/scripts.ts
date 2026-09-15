@@ -15,6 +15,19 @@ export const NO_OP: TurnActions = {
 const a = (partial: Partial<TurnActions>): TurnActions => ({ ...NO_OP, ...partial })
 
 // Keyed by turn number, 1..12.
+//
+// KNOWN ILLEGAL ON EXPERT at seeds 41, 104, 238 and 277, all at turn 9,
+// where the prepared line cannot afford its Tier A sat and resolveTurn
+// refuses the cart. All four are outside the twelve seeds the suite
+// sweeps, so nothing fails today; widening that sweep without funding
+// turn 9 will fail on them. The fix is parked because this script is
+// hashed by the determinism snapshot, so changing it needs its own round
+// and a re-approved snapshot (brief v0.9, Appendix E).
+//
+// Note the asymmetry while you are here: TOP_INTEL_SCRIPT is asserted
+// legal across 100 seeds on every difficulty in tests/reading-diet.spec.ts;
+// this script has no such assertion, which is why its bad seeds are a
+// comment rather than a failing test.
 export const WIN_SCRIPT: Record<number, TurnActions> = {
   1: a({ buyCounters: ['sensorFusion', 'antiJam'], buyAssets: [{ kind: 'sat', tier: 'B' }], buyIntelLevel: true }),
   2: a({ buyAssets: [{ kind: 'sat', tier: 'B' }] }),

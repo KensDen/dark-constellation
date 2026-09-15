@@ -8,7 +8,8 @@
 // public CI never sees the deny-list.
 
 import { execSync, spawnSync } from 'node:child_process'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 
@@ -76,8 +77,44 @@ run('bundle budget: gzipped main chunk under threshold (game-feel brief 8)', () 
   }
 })
 
+// The zero-residual ledger sweep is the broadest correctness guard on the
+// branch and the slowest test in the suite. Its duration is REPORTED here
+// and never gated (brief v0.9 section 7): it belongs in the round report
+// next to the bundle size, but a threshold on it would fail under load for
+// the same reason its 5,000ms timeout did, which is to say exactly when
+// multi-agent verification is running. The layer does fail if the sweep is
+// missing from the run, so renaming or deleting it cannot quietly drop the
+// number this line exists to publish.
+const LEDGER_SWEEP_TEST = 'reproduces the after-state of every turn of every line, seed and difficulty with no settle beat'
+
 run('vitest suites: determinism, content, persistence, readme, director, cues, reading diet (spec 11.2, 11.3; brief 8)', () => {
-  sh('npx vitest run')
+  const resultsPath = join(tmpdir(), `dc-battery-vitest-${process.pid}.json`)
+  try {
+    sh(`npx vitest run --reporter=default --reporter=json --outputFile.json=${JSON.stringify(resultsPath)}`)
+    const results = JSON.parse(readFileSync(resultsPath, 'utf8'))
+    const sweep = results.testResults
+      .flatMap((file) => file.assertionResults ?? [])
+      .find((test) => test.title === LEDGER_SWEEP_TEST)
+    if (!sweep) {
+      throw new Error(
+        'the ledger sweep did not run under the name this layer reports; if it was renamed, update LEDGER_SWEEP_TEST',
+      )
+    }
+    // Present is not the same as executed. A skipped test keeps its title
+    // in the report and carries no duration at all, so the check above
+    // passed and this line printed NaNms while the battery went green;
+    // it.skip, it.todo and describe.skip on the block all reached it. A
+    // five second test is the first thing anyone skips under pressure, and
+    // this repo already normalises conditional skipping elsewhere.
+    if (sweep.status !== 'passed' || !Number.isFinite(sweep.duration)) {
+      throw new Error(
+        `the ledger sweep did not run (status ${sweep.status}); the broadest correctness guard on the branch has to execute for this battery to be green`,
+      )
+    }
+    process.stdout.write(`ledger sweep ${Math.round(sweep.duration)}ms (reported, not gated) ... `)
+  } finally {
+    rmSync(resultsPath, { force: true })
+  }
 })
 
 const AUTHORED = /\.(md|ts|tsx|html|css|yml|yaml|json|mjs|sh|svg)$/

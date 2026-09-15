@@ -14,7 +14,7 @@ import { vectorLabels } from './labels'
 
 // The budget the brief is designed against (brief v0.7 section 5):
 // "Before first input on a normal turn: 60 words or fewer of reading
-// load", with the interface chrome bounded separately at 24 and the two
+// load", with the interface chrome bounded separately at 32 and the two
 // together at 100. v0.5 said "on screen", which was imprecise: the
 // complaint this pass answers is prose, not a credits readout.
 //
@@ -22,10 +22,13 @@ import { vectorLabels } from './labels'
 // the headline, the threat vector, the technique tag, and the HUD's meter
 // labels, values and status line. What it does not count, and why:
 //
-//   - Interface chrome: the section heading, button labels and the
-//     summary labels of the disclosures. These are navigation, not the
+//   - Interface chrome: the section heading, the transmission label, the
+//     button labels, the summary labels of the disclosures, and the menu
+//     and save controls the screen carries. These are navigation, not the
 //     brief; they are bounded separately by CHROME_WORD_BUDGET so the
-//     exclusion cannot quietly become a loophole.
+//     exclusion cannot quietly become a loophole. The bound was raised
+//     from 24 to 32 in v0.9 along with the four controls it had not been
+//     counting: a bound satisfied by not counting things is not a bound.
 //   - Condition badges: at-a-glance state, read as glyphs rather than
 //     prose, and their count is set by play rather than by copy.
 //
@@ -38,10 +41,10 @@ import { vectorLabels } from './labels'
 // play, and the top-intel line reaches the branch that carries the named
 // lead event, the "plus N more" suffix, the carried vector clause and the
 // technique tag at once: 54 words of the 60. Round 4's two audio toggles
-// are chrome, not reading load, and chrome has five words spare.
+// are chrome, not reading load, and chrome has four words spare.
 export const HEADLINE_WORD_MAX = 8
 export const FIRST_INPUT_WORD_BUDGET = 60
-export const CHROME_WORD_BUDGET = 24
+export const CHROME_WORD_BUDGET = 32
 
 export function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length
@@ -216,9 +219,15 @@ export function firstInputWords(state: GameState, difficultyLabel: string): numb
 }
 
 // The navigation words on screen alongside the brief: the heading, the
-// transmission label, the two disclosure summaries and the one button.
+// transmission label, the two disclosure summaries, the button that leaves
+// the phase, and the menu and save controls the campaign screen carries.
 // Listed here so the words excluded from the reading budget are still
 // counted against a budget of their own.
+//
+// The last four were not counted until v0.9, which is what a bound
+// satisfied by not counting things looks like. The save row renders while
+// the campaign is playing and the menu button whenever the game was
+// entered from the menu, which is every normal turn.
 export function chromeCopy(state: GameState): string[] {
   const turn = Math.min(state.turn, state.scenario.totalTurns)
   return [
@@ -228,6 +237,10 @@ export function chromeCopy(state: GameState): string[] {
     'To procurement',
     'What these numbers mean',
     'Posture detail',
+    'Back to menu',
+    'Save',
+    'Export code',
+    'Autosaved each turn.',
   ]
 }
 

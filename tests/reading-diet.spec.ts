@@ -5,6 +5,9 @@
 // stays one line. Every string is derived from the deck, so a content
 // change that would blow the budget fails here.
 
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
@@ -29,6 +32,7 @@ import {
 import { VERDICT_WORD_MAX, verdictFor } from '../src/ui/verdict'
 import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
 
+const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
 const SEEDS = 12
 const DIFFS: Difficulty[] = ['easy', 'standard', 'expert']
 // Five lines of play, so the copy is measured against the deck as a lazy
@@ -224,6 +228,53 @@ describe('reading diet: the intel brief', () => {
         }
       }
     }
+  })
+
+  it('counts every control the chrome bound claims to cover', () => {
+    // The reading-load side has had an enumeration guard since Round 3.5;
+    // the chrome side had none, so an entry could be deleted and the bound
+    // would simply get easier to meet. That is what a bound satisfied by
+    // not counting things looks like, and it is how four controls went
+    // uncounted until v0.9: the menu button, the two save controls and the
+    // autosave line.
+    //
+    // The authoritative list is what the screen renders. There is no DOM
+    // here, so it is pinned by name; Round 5's rendering environment is
+    // what will derive it instead.
+    const required = [
+      '> INCOMING TRANSMISSION_',
+      'Expand full brief',
+      'To procurement',
+      'What these numbers mean',
+      'Posture detail',
+      'Back to menu',
+      'Save',
+      'Export code',
+      'Autosaved each turn.',
+    ]
+    for (let seed = 1; seed <= SEEDS; seed += 1) {
+      for (const { before } of playTurns(seed, WIN_SCRIPT)) {
+        const chrome = chromeCopy(before)
+        for (const control of required) {
+          expect(chrome, `chrome no longer counts "${control}"`).toContain(control)
+        }
+        // The heading carries the turn, so it is checked by shape.
+        expect(chrome.some((line) => /^1\. Intel brief, turn \d+$/.test(line)), 'the section heading is not counted').toBe(
+          true,
+        )
+      }
+    }
+    // The other direction: a control that leaves the screen but stays in
+    // the list makes the bound look tighter than it is, which is the same
+    // dishonesty in reverse. Pinned against the source that renders them,
+    // since there is no DOM here to ask.
+    const game = readFileSync(join(SRC, 'ui', 'Game.tsx'), 'utf8')
+    for (const control of required.filter((c) => c !== '> INCOMING TRANSMISSION_')) {
+      expect(game.includes(control), `chrome counts "${control}", which the screen no longer renders`).toBe(true)
+    }
+    // The transmission label is rendered as an entity by the teletype bar.
+    const teletype = readFileSync(join(SRC, 'ui', 'cues', 'Teletype.tsx'), 'utf8')
+    expect(teletype.includes('INCOMING TRANSMISSION_'), 'chrome counts a transmission label nothing renders').toBe(true)
   })
 
   it('bounds the interface chrome that the reading budget excludes', () => {
