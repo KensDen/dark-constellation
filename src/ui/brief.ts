@@ -12,10 +12,11 @@ import { coverage, maiScore } from '../engine/scoring'
 import type { GameState, ThreatEvent } from '../engine/types'
 import { vectorLabels } from './labels'
 
-// The budget the brief is designed against (brief v0.5 section 5):
-// "Before first input on a normal turn: 60 words or fewer on screen.
-// Headline, threat vector, credits, meters. Everything else is one tap
-// away."
+// The budget the brief is designed against (brief v0.7 section 5):
+// "Before first input on a normal turn: 60 words or fewer of reading
+// load", with the interface chrome bounded separately at 24 and the two
+// together at 100. v0.5 said "on screen", which was imprecise: the
+// complaint this pass answers is prose, not a credits readout.
 //
 // What the budget counts is therefore the reading load the brief names:
 // the headline, the threat vector, the technique tag, and the HUD's meter
@@ -32,6 +33,12 @@ import { vectorLabels } from './labels'
 // framing, the fleet and countermeasure lists, the in-transit line, the
 // surge detail, the BLACKOUT CHAIN mechanics) sits behind a disclosure,
 // which is what "one tap away" means.
+//
+// The headroom is thinner than it looks. The suite sweeps five lines of
+// play, and the top-intel line reaches the branch that carries the named
+// lead event, the "plus N more" suffix, the carried vector clause and the
+// technique tag at once: 54 words of the 60. Round 4's two audio toggles
+// are chrome, not reading load, and chrome has five words spare.
 export const HEADLINE_WORD_MAX = 8
 export const FIRST_INPUT_WORD_BUDGET = 60
 export const CHROME_WORD_BUDGET = 24

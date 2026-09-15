@@ -120,19 +120,29 @@ export function nextPhases({
   next,
   sameTurn,
   reduced,
+  prevTurn,
 }: {
   prev: ActiveCondition[]
   next: ActiveCondition[]
   sameTurn: boolean
   reduced: boolean
+  // The turn the badges were last showing. A condition that started on it
+  // was applied during the playback just watched, so it is not persisting
+  // into anything yet; omit the turn and every survivor counts as carried.
+  prevTurn?: number
 }): Record<string, BadgePhase> {
   const liveIds = new Set(next.map((c) => c.instanceId))
   const prevIds = new Set(prev.map((c) => c.instanceId))
   const added = next.filter((c) => !prevIds.has(c.instanceId))
   const removed = prev.filter((c) => !liveIds.has(c.instanceId))
   // A condition already live that has crossed into a new turn ticks: the
-  // brief's "condition persists into a new turn" row.
-  const carried = sameTurn ? [] : next.filter((c) => prevIds.has(c.instanceId))
+  // brief's "condition persists into a new turn" row. The turn only flips
+  // when playback hands over to the engine's after-state, so without the
+  // startedTurn test every condition applied during that playback would
+  // tick a second after it attached.
+  const carried = sameTurn
+    ? []
+    : next.filter((c) => prevIds.has(c.instanceId) && (prevTurn === undefined || c.startedTurn < prevTurn))
   const out: Record<string, BadgePhase> = {}
   if (reduced) {
     // No entrance to play, so no phase to settle out of later. Recording
@@ -145,6 +155,18 @@ export function nextPhases({
   for (const c of carried) out[c.instanceId] = 'ticking'
   for (const c of removed) out[c.instanceId] = 'clearing'
   return out
+}
+
+// What a batch of decided phases owes in settles: the id, the phase that
+// batch actually wrote, and how long that phase runs. Pure and exported so
+// the battery can assert that a tick settles on its own length rather than
+// on a shared constant, and that a resting or clearing badge settles
+// nothing. The phase travels with the timer, which is what lets a later
+// batch supersede an earlier one instead of being overwritten by it.
+export function settlesFor(decided: Record<string, BadgePhase>): Array<{ id: string; phase: BadgePhase; ms: number }> {
+  return Object.entries(decided)
+    .filter(([, phase]) => phase === 'applying' || phase === 'ticking')
+    .map(([id, phase]) => ({ id, phase, ms: PHASE_MS[phase] }))
 }
 
 // `session` identifies the campaign being shown. When it changes (a new
@@ -196,30 +218,25 @@ export function useBadgePhases(
     const prev = prevRef.current
     const prevTurn = prevTurnRef.current
     const liveIds = new Set(conditions.map((c) => c.instanceId))
-    const prevIds = new Set(prev.map((c) => c.instanceId))
-    const added = conditions.filter((c) => !prevIds.has(c.instanceId))
-    const removed = prev.filter((c) => !liveIds.has(c.instanceId))
     const sameTurn = turn === undefined || prevTurn === undefined || turn === prevTurn
-    const carried = sameTurn ? [] : conditions.filter((c) => prevIds.has(c.instanceId))
+    const removed = prev.filter((c) => !liveIds.has(c.instanceId))
+    // One classifier, not two: the hook used to recompute added, removed
+    // and carried itself, so the rule the battery tests and the rule the
+    // badges follow could drift apart.
+    const decided = nextPhases({ prev, next: conditions, sameTurn, reduced, prevTurn })
     prevRef.current = conditions
     prevTurnRef.current = turn
-    if (added.length === 0 && removed.length === 0 && carried.length === 0) return
+    if (Object.keys(decided).length === 0 && removed.length === 0) return
 
-    const decided = nextPhases({ prev, next: conditions, sameTurn, reduced })
     setPhases((p) => ({ ...p, ...decided }))
 
-    // Entrance and tick cues are one-shot: settle the badge afterwards so
-    // the class does not stay on the element.
-    const settling = [...added, ...carried].map((c) => c.instanceId)
-    if (settling.length > 0 && !reduced) {
-      // Long enough for the slowest of the two entrance cues to finish.
-      after(Math.max(PHASE_MS.applying, PHASE_MS.ticking), () =>
-        setPhases((p) => {
-          const next = { ...p }
-          for (const id of settling) if (next[id] !== 'clearing') next[id] = 'attached'
-          return next
-        }),
-      )
+    // Entrance and tick cues are one-shot: settle each badge afterwards so
+    // the class does not stay on the element. Each settle knows the phase
+    // its own batch wrote and runs for that phase's own length, so it
+    // cannot cut short a later cue on the same badge, and a batch that has
+    // been superseded settles nothing.
+    for (const { id, phase: was, ms } of settlesFor(decided)) {
+      after(ms, () => setPhases((p) => (p[id] === was ? { ...p, [id]: 'attached' } : p)))
     }
 
     if (removed.length === 0) return

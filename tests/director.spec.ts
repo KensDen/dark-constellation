@@ -13,6 +13,9 @@ import {
   BEAT_DWELL_MS,
   BEAT_KINDS,
   Director,
+  VISUAL_MS,
+  beatCueMs,
+  chosenCreditsOf,
   ID_KEYED_KINDS,
   MODELED_FIELDS,
   applyPatch,
@@ -515,6 +518,154 @@ describe('director playback', () => {
       expect(clock.pending.length).toBe(0)
       d.dispose()
     }
+  })
+
+  it('never advances a beat before its own cue has played', () => {
+    // Speed halves the reading time, not the animation. At 2x the dwell is
+    // 600ms while the BLACKOUT CHAIN and the arrival light declare 900ms,
+    // so the two signature treatments of Round 3 were being replaced a
+    // third of the way from the end. The dwell is a floor now.
+    const longest = Math.max(...Object.values(VISUAL_MS))
+    expect(longest, 'no treatment is long enough to exercise the floor').toBeGreaterThan(BEAT_DWELL_MS / 2)
+    let exercised = 0
+    let checked = 0
+    for (const seed of [LOSS_SEED, WIN_SEED]) {
+      for (const { before, after } of playTurns(seed, scripted(LOSS_SCRIPT))) {
+        const beats = deriveBeats(before, after)
+        const clock = fakeScheduler()
+        const d = new Director(before, after, beats, { speed: '2x', schedule: clock.schedule })
+        while (d.snapshot().status === 'playing') {
+          const beat = d.snapshot().beat
+          if (!beat) break
+          const want = Math.max(BEAT_DWELL_MS / 2, beatCueMs(beat))
+          checked += 1
+          if (beatCueMs(beat) > BEAT_DWELL_MS / 2) exercised += 1
+          expect(clock.pending[0]?.ms, `${beat.kind} ${beat.cueKey}`).toBe(want)
+          clock.fire()
+        }
+        d.dispose()
+      }
+    }
+    expect(checked, 'no beats were timed').toBeGreaterThan(20)
+    // The floor has to actually bind somewhere, or this proves nothing.
+    expect(exercised, 'no beat in the sweep runs a cue longer than the dwell').toBeGreaterThan(0)
+  })
+
+  it('declares the spend the player chose, so a buy never reads as damage', () => {
+    // The procurement recap is silent by decision, so its credits patch
+    // arrives folded into the next visible beat. Without the declaration
+    // the HUD sees one negative delta on a beat titled for something else
+    // and paints the player's own purchase with the hostile damage cue.
+    const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 1)
+    const beats = deriveBeats(before, after)
+    const procurement = beats.find((b) => b.kind === 'procurement')
+    expect(procurement, 'turn 1 of the prepared line buys nothing').toBeDefined()
+    const spend = -(procurement!.patch.credits ?? 0)
+    expect(spend).toBeGreaterThan(0)
+
+    const clock = fakeScheduler()
+    const d = new Director(before, after, beats, { speed: '1x', schedule: clock.schedule })
+    let declared = 0
+    let shown = d.snapshot().presented.credits
+    let worstUnchosen = 0
+    while (d.snapshot().status === 'playing') {
+      const snap = d.snapshot()
+      const delta = snap.presented.credits - shown
+      const unchosen = delta + snap.chosenCredits
+      // No visible beat of this turn carries real credit damage, so every
+      // beat's unchosen change is a gain or nothing. A negative here is
+      // the purchase leaking back into the tone.
+      worstUnchosen = Math.min(worstUnchosen, unchosen)
+      declared += snap.chosenCredits
+      shown = snap.presented.credits
+      d.advance()
+    }
+    declared += d.snapshot().chosenCredits
+    expect(worstUnchosen, 'a visible beat reads as a credit loss the player did not choose').toBe(0)
+    expect(declared, 'the declared spend does not add up to the purchase').toBe(spend)
+    d.dispose()
+  })
+
+  it('declares a spend only where a purchase was folded in, and never for damage', () => {
+    // Two mutants this kills that the aggregate check did not: dropping the
+    // procurement kind test, which declares every credit fall as chosen and
+    // paints real damage neutral; and dropping the per-advance reset, which
+    // leaves a stale declaration on later beats and paints damage friendly.
+    let emits = 0
+    let purchaseFolds = 0
+    let realLosses = 0
+    for (const seed of [WIN_SEED, LOSS_SEED]) {
+      for (const { before, after } of playTurns(seed, scripted(WIN_SCRIPT))) {
+        const beats = deriveBeats(before, after)
+        const clock = fakeScheduler()
+        const d = new Director(before, after, beats, { speed: '1x', schedule: clock.schedule })
+        let shown = before.credits
+        let cursor = -1
+        while (d.snapshot().status === 'playing') {
+          const snap = d.snapshot()
+          // The beats folded into this emit are the ones since the last.
+          const folded = beats.slice(cursor + 1, snap.index + 1)
+          cursor = snap.index
+          const chosen = folded.reduce((n, b) => n + chosenCreditsOf(b), 0)
+          expect(snap.chosenCredits, `turn ${before.turn}: declaration does not match the beats folded in`).toBe(chosen)
+          if (chosen === 0) {
+            expect(snap.chosenCredits, `turn ${before.turn}: a beat with no purchase declared a spend`).toBe(0)
+          } else {
+            purchaseFolds += 1
+          }
+          const unchosen = snap.presented.credits - shown + snap.chosenCredits
+          if (unchosen < 0) realLosses += 1
+          shown = snap.presented.credits
+          emits += 1
+          d.advance()
+        }
+        d.dispose()
+      }
+    }
+    expect(emits, 'no emits were walked').toBeGreaterThan(40)
+    expect(purchaseFolds, 'no emit ever folded a purchase').toBeGreaterThan(0)
+    // The hostile path has to be exercised too, or a change that paints
+    // everything neutral would pass this test.
+    expect(realLosses, 'no emit in the sweep is a real credit loss').toBeGreaterThan(0)
+  })
+
+  it('keys the declaration on the beat kind, not on the sign of the patch', () => {
+    const spend = { kind: 'procurement', patch: { credits: -30 } } as unknown as Beat
+    const damage = { kind: 'threat', patch: { credits: -30 } } as unknown as Beat
+    const income = { kind: 'procurement', patch: { credits: 12 } } as unknown as Beat
+    const nothing = { kind: 'procurement', patch: {} } as unknown as Beat
+    expect(chosenCreditsOf(spend)).toBe(30)
+    expect(chosenCreditsOf(damage), 'damage must never read as a purchase').toBe(0)
+    expect(chosenCreditsOf(income)).toBe(0)
+    expect(chosenCreditsOf(nothing)).toBe(0)
+  })
+
+  it('drops the dwell floor when the caller says motion is off', () => {
+    // The view injects this under reduced motion: with no animation to
+    // protect, a floor would only hold the turn open longer.
+    const { before, after } = turnAt(LOSS_SEED, scripted(LOSS_SCRIPT), 7)
+    const beats = deriveBeats(before, after)
+    const clock = fakeScheduler()
+    const d = new Director(before, after, beats, { speed: '2x', schedule: clock.schedule, cueMs: () => 0 })
+    while (d.snapshot().status === 'playing') {
+      expect(clock.pending[0]?.ms).toBe(BEAT_DWELL_MS / 2)
+      clock.fire()
+    }
+    d.dispose()
+  })
+
+  it('declares the spend on a skip as well, where every patch lands at once', () => {
+    const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 1)
+    const beats = deriveBeats(before, after)
+    const spend = -(beats.find((b) => b.kind === 'procurement')!.patch.credits ?? 0)
+    const clock = fakeScheduler()
+    const d = new Director(before, after, beats, { speed: '1x', schedule: clock.schedule })
+    d.skip()
+    expect(d.snapshot().status).toBe('done')
+    // Skip from the first beat: everything after it lands in one jump, and
+    // all of the purchase is still in that jump.
+    expect(d.snapshot().chosenCredits).toBe(spend)
+    d.dispose()
   })
 
   it('tap-to-advance walks every visible beat and the presented state tracks the ledger', () => {

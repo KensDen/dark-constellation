@@ -16,6 +16,8 @@ export {
 export {
   Director,
   BEAT_DWELL_MS,
+  beatCueMs,
+  chosenCreditsOf,
   PLAYBACK_SPEED_KEY,
   SPEEDS,
   SPEED_LABEL,

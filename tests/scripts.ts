@@ -63,3 +63,23 @@ export const MIXED_SCRIPT: Record<number, TurnActions> = {
   8: a({ buyCounters: ['encryptedBackhaul'], buyIrRetainer: true }),
   10: a({ buyAssets: [{ kind: 'drone', tier: 'B' }] }),
 }
+
+// A line that pays for intel until it is capped, so the copy budget is
+// measured at the fidelity that produces the longest brief: the named lead
+// event, the "plus N more" suffix, the carried vector clause and the
+// technique tag, on a mid-campaign turn rather than only in the opening.
+//
+// Built on the mixed line, with the intel buys replacing those turns'
+// purchases rather than stacking on top of them. The first attempt added
+// them to the prepared line, which costs 28 credits it does not have on
+// expert: the engine refuses a cart it cannot pay for, so that fixture
+// threw on about one expert seed in twenty, and the suite stayed green
+// only because it sweeps twelve seeds and the first bad one is 19. This
+// version is legal on every difficulty: measured clean across 300 seeds,
+// and tests/reading-diet.spec.ts asserts the first 100 of them on every
+// difficulty rather than assuming it.
+export const TOP_INTEL_SCRIPT: Record<number, TurnActions> = {
+  ...MIXED_SCRIPT,
+  2: a({ buyIntelLevel: true }),
+  3: a({ buyIntelLevel: true }),
+}

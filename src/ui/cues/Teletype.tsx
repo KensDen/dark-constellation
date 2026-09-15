@@ -4,7 +4,7 @@
 // bar animation and no timer, which is also what happens when the tab is
 // hidden or rAF is unavailable.
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCueClass, useReducedMotion } from './motion'
 
 export const TELETYPE_MS_PER_CHAR = 22
@@ -38,10 +38,33 @@ export default function Teletype({ text, cueKey, className }: TeletypeProps) {
   }, [text, cueKey, reduced])
 
   const done = shownChars >= text.length
-  const reveal = () => {
+  const reveal = useCallback(() => {
     window.clearTimeout(timerRef.current)
     setShownChars(text.length)
-  }
+  }, [text.length])
+
+  // Skip from the keyboard on the same terms playback uses (Round 2):
+  // Escape from anywhere, Space or Enter when nothing else is focused, and
+  // a held key does not count. Without this the only way past the reveal
+  // was a pointer on the line itself.
+  useEffect(() => {
+    if (done) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        reveal()
+        return
+      }
+      if (e.target !== document.body) return
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault()
+        reveal()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [done, reveal])
 
   return (
     <span className={className} onClick={done ? undefined : reveal}>

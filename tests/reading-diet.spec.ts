@@ -8,10 +8,12 @@
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
-import { DIFFICULTIES, newGame, resolveTurn } from '../src/engine/reducer'
+import { DIFFICULTIES, effectiveIntel, newGame, resolveTurn } from '../src/engine/reducer'
+import { coverage, maiScore } from '../src/engine/scoring'
 import { turnRng } from '../src/engine/rng'
-import type { Difficulty, GameState, TurnActions } from '../src/engine/types'
+import type { Difficulty, GameState, TurnActions, TurnRecord } from '../src/engine/types'
 import {
+  CHAIN_ARMED_LINE,
   CHROME_WORD_BUDGET,
   FIRST_INPUT_WORD_BUDGET,
   HEADLINE_WORD_MAX,
@@ -21,16 +23,22 @@ import {
   countWords,
   firstInputCopy,
   firstInputWords,
+  hudLabels,
+  hudStatusLine,
 } from '../src/ui/brief'
 import { VERDICT_WORD_MAX, verdictFor } from '../src/ui/verdict'
-import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
+import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
 
 const SEEDS = 12
 const DIFFS: Difficulty[] = ['easy', 'standard', 'expert']
-// Four lines of play, so the copy is measured against the deck as a lazy
-// player meets it as well as a prepared one.
+// Five lines of play, so the copy is measured against the deck as a lazy
+// player meets it as well as a prepared one. The top-intel line is the one
+// that matters most to the budget and was missing until Round 3.5: the
+// other four never reach effective intel 3, so the longest brief the game
+// can produce was never measured at all.
 const LINES: [string, Record<number, TurnActions>][] = [
   ['prepared', WIN_SCRIPT],
+  ['top intel', TOP_INTEL_SCRIPT],
   ['mixed', MIXED_SCRIPT],
   ['lazy', LAZY_SCRIPT],
   ['passive', LOSS_SCRIPT],
@@ -112,13 +120,108 @@ describe('reading diet: the intel brief', () => {
     expect(overruns.join('\n')).toBe('')
   })
 
-  it('stays inside the budget at top intel, which produces the longest copy', () => {
+  it('stays inside the budget at every intel level the opening can reach', () => {
+    // Named for what it measures: these are turn-4 states, because the
+    // helper buys intel on consecutive turns from turn 1 and stops. The
+    // mid-campaign top-intel copy is measured by the sweep above, through
+    // the top-intel line of play.
     for (let seed = 1; seed <= SEEDS; seed += 1) {
       for (const state of statesAtEveryIntel(seed)) {
         expect(
           firstInputWords(state, DIFFICULTIES.standard.label),
           `intel ${state.intelLevel}, seed ${seed}`,
         ).toBeLessThanOrEqual(FIRST_INPUT_WORD_BUDGET)
+      }
+    }
+  })
+
+  it('actually measures the fidelity that produces the longest copy', () => {
+    // The budget sweeps are only worth their green if the states they walk
+    // include the expensive ones. Until Round 3.5 the campaign sweep never
+    // reached effective intel 3 (it reached 2 on nine of its 1,551 turns,
+    // through the mixed line's allied intel boost), so the branch carrying
+    // the named lead event, the "plus N more" suffix and the carried
+    // vector clause was measured nowhere. The separate top-intel test
+    // measured only turn-4 states and topped out at 39 words, and the
+    // campaign sweep's own worst was 46: between them they implied far
+    // more headroom than the game actually has, which is six words. This
+    // fails if that coverage goes.
+    const levels = new Set<number>()
+    let worst = 0
+    let worstAt = ''
+    for (const [name, script] of LINES) {
+      for (const difficulty of DIFFS) {
+        for (let seed = 1; seed <= SEEDS; seed += 1) {
+          for (const { before } of playTurns(seed, script, difficulty)) {
+            levels.add(effectiveIntel(before))
+            const words = firstInputWords(before, DIFFICULTIES[difficulty].label)
+            if (words > worst) {
+              worst = words
+              worstAt = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}`
+            }
+          }
+        }
+      }
+    }
+    expect([...levels].sort(), 'the sweep never reaches top intel').toContain(3)
+    // Two-sided on purpose. The ceiling is the budget; the floor is the
+    // reason the coverage matters, because a sweep that stopped producing
+    // long copy would pass the budget while measuring nothing. 54 is the
+    // figure the brief's six words of headroom rest on, so a change that
+    // moves it should have to say so here.
+    expect(worst, `worst brief measured: ${worst} words at ${worstAt}`).toBeLessThanOrEqual(FIRST_INPUT_WORD_BUDGET)
+    // The exact figure, because it is the one src/ui/brief.ts and the
+    // brief's section 5 both quote as the reason headroom is six words and
+    // not twenty. The message prints the new worst, so re-baselining is a
+    // one-line edit that forces those two to be updated with it.
+    expect(worst, `worst brief measured: ${worst} words at ${worstAt}`).toBe(54)
+  })
+
+  it('counts every line the brief is built from, so none can be dropped from the budget', () => {
+    // firstInputCopy is a hand-written enumeration, and the suite is its
+    // only reader: a line the brief renders could be deleted from the
+    // measured set and every budget test would still pass, quieter and
+    // wrong. So the enumeration is checked against the pieces the brief is
+    // actually built from rather than trusted to list them.
+    for (const [name, script] of LINES) {
+      for (let seed = 1; seed <= SEEDS; seed += 1) {
+        for (const { before } of playTurns(seed, script)) {
+          const label = DIFFICULTIES[before.difficulty].label
+          const measured = firstInputCopy(before, label)
+          const copy = briefCopy(before)
+          const labels = hudLabels(before)
+          const where = `${name}, turn ${before.turn}, seed ${seed}`
+          expect(measured, `${where}: headline missing`).toContain(copy.headline)
+          expect(measured, `${where}: vector line missing`).toContain(copy.vector)
+          if (copy.tag) expect(measured, `${where}: technique tag missing`).toContain(`Technique: ${copy.tag}`)
+          if (before.flags.lidarFallback) {
+            expect(measured, `${where}: chain banner missing`).toContain(CHAIN_ARMED_LINE)
+          }
+          for (const hudLabel of Object.values(labels)) {
+            expect(measured, `${where}: HUD label ${hudLabel} missing`).toContain(hudLabel)
+          }
+          // The six numbers are reading load too, and they are exactly the
+          // size of the headroom the budget claims: dropping one from the
+          // enumeration would measure every turn a word light. Counted
+          // rather than merely found, so two meters showing the same value
+          // cannot cover for each other.
+          const values = [
+            String(maiScore(before)),
+            String(before.credits),
+            String(coverage(before.assets)),
+            String(before.meters.linkAvailability),
+            String(before.meters.dataIntegrity),
+            String(before.meters.sensorIntegrity),
+          ]
+          const counts = new Map<string, number>()
+          for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1)
+          for (const [v, n] of counts) {
+            const found = measured.filter((line) => line === v).length
+            expect(found, `${where}: HUD value ${v} appears ${found} times, expected ${n}`).toBe(n)
+          }
+          const turn = Math.min(before.turn, DEFAULT_SCENARIO.totalTurns)
+          expect(measured, `${where}: status line missing`).toContain(hudStatusLine(before, label, turn))
+        }
       }
     }
   })
@@ -160,6 +263,32 @@ describe('reading diet: the intel brief', () => {
   })
 })
 
+describe('reading diet: the fixtures themselves', () => {
+  it('keeps the top-intel line legal well past the seeds the suite sweeps', () => {
+    // The line this round added is checked wider than the sweep, because
+    // its failure mode was latent: legal on the seeds measured, illegal a
+    // few seeds later. Only this line is swept this wide. The other four
+    // are already played end to end by every budget test in this file, so
+    // an illegal cart on the swept seeds would fail those; and the
+    // prepared line has a turn-9 shortfall on expert beyond them that
+    // predates this round and is recorded as a finding rather than fixed
+    // here.
+    for (const difficulty of DIFFS) {
+      for (let seed = 1; seed <= 100; seed += 1) {
+        let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
+        while (state.status === 'playing') {
+          const turn = state.turn
+          expect(
+            () => resolveTurn(state, TOP_INTEL_SCRIPT[turn] ?? NO_OP, turnRng(state.seed, turn)),
+            `top intel, ${difficulty}, seed ${seed}, turn ${turn}`,
+          ).not.toThrow()
+          state = resolveTurn(state, TOP_INTEL_SCRIPT[turn] ?? NO_OP, turnRng(state.seed, turn))
+        }
+      }
+    }
+  })
+})
+
 describe('reading diet: the damage report verdict', () => {
   it('is one line inside its word cap for every turn of every line of play', () => {
     let checked = 0
@@ -186,6 +315,8 @@ describe('reading diet: the damage report verdict', () => {
   it('names the heaviest landed event when anything lands, and says so plainly when nothing does', () => {
     let sawLanded = false
     let sawHeld = false
+    let sawMitigated = false
+    let sawFizzled = false
     for (let seed = 1; seed <= SEEDS; seed += 1) {
       for (const { after } of playTurns(seed, WIN_SCRIPT)) {
         const record = after.history[after.history.length - 1]
@@ -201,11 +332,77 @@ describe('reading diet: the damage report verdict', () => {
           expect(verdict, `turn ${record.turn}`).toContain(worst.name.split(' (')[0])
         } else if (threats.length > 0) {
           sawHeld = true
-          expect(verdict.toLowerCase()).toMatch(/held|nothing landed/)
+          // Two different verdicts, asserted separately. As one alternation
+          // they covered each other: a branch that never fires read as
+          // covered because the other one did.
+          const countered = threats.filter((ev) => ev.mitigation > 0).length
+          if (countered > 0) {
+            sawMitigated = true
+            expect(verdict, `turn ${record.turn}`).toBe('Posture held; every attempt was mitigated below threshold.')
+          } else {
+            sawFizzled = true
+            expect(verdict, `turn ${record.turn}`).toBe('Nothing landed this turn.')
+          }
         }
       }
     }
     expect(sawLanded, 'no seed produced a landed event').toBe(true)
     expect(sawHeld, 'no seed produced a fully held turn').toBe(true)
+    // Recorded, not required: the deck reaches the mitigated branch in
+    // play and does not reach the fizzle branch, which is why the two
+    // branches below are covered directly instead.
+    expect(sawMitigated || sawFizzled).toBe(true)
+  })
+
+  it('reads as English on the branches the shipped deck never produces', () => {
+    // Two branches are unreachable with this deck: a turn whose only event
+    // is an opportunity, and a turn where every threat fizzles with no
+    // countermeasure in play. The scenario schema allows both, so they are
+    // correct totality over the type rather than dead code, and they are
+    // covered here with synthetic records rather than deleted.
+    const base: TurnRecord = {
+      turn: 4,
+      creditsAfter: 100,
+      purchases: [],
+      events: [],
+      meters: { linkAvailability: 100, dataIntegrity: 100, sensorIntegrity: 100 },
+      coverage: 44,
+      maiScore: 83,
+      flags: { lidarFallback: false },
+      conditionsActive: [],
+      commendations: [],
+      surgeTokensAfter: 0,
+      notes: [],
+    }
+    const resolved = (id: string, name: string, over: Partial<TurnRecord['events'][number]> = {}) => ({
+      eventId: id,
+      name,
+      baseSeverity: 2,
+      chainBonus: 0,
+      mitigation: 0,
+      effectiveSeverity: 0,
+      repairCost: 0,
+      notes: [],
+      firedTechniqueRefs: [],
+      ...over,
+    })
+
+    const opportunity = DEFAULT_SCENARIO.events.find((e) => e.kind === 'opportunity')
+    expect(opportunity, 'the deck has no opportunity to build the branch from').toBeDefined()
+    const opportunityOnly = verdictFor(
+      { ...base, events: [resolved(opportunity!.id, opportunity!.name)] },
+      DEFAULT_SCENARIO,
+    )
+    expect(opportunityOnly).toBe('No adversary activity; the turn broke your way.')
+
+    const threat = DEFAULT_SCENARIO.events.find((e) => (e.kind ?? 'threat') === 'threat')
+    const fizzled = verdictFor({ ...base, events: [resolved(threat!.id, threat!.name)] }, DEFAULT_SCENARIO)
+    expect(fizzled).toBe('Nothing landed this turn.')
+
+    for (const line of [opportunityOnly, fizzled]) {
+      expect(countWords(line)).toBeLessThanOrEqual(VERDICT_WORD_MAX)
+      expect(line.endsWith('.')).toBe(true)
+      expect(line).not.toContain('\u{2014}')
+    }
   })
 })

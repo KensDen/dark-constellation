@@ -124,11 +124,16 @@ body {
   color: var(--color-hero-blue);
 }
 
-/* The meter bar eases its width in both modes: it is a value readout, and
-   a 260ms width transition is not motion a reduced-motion user needs
-   protecting from. The count-up that accompanies it is disabled in JS. */
+/* The bar's width is driven frame by frame by the count-up in
+   src/ui/cues/motion.ts, so it must not also transition here: a width
+   transition on top of an eased value made the bar a damped follower that
+   arrived about 400ms after its own digits had settled. What is left is
+   the tone colour, and the guard below drops that under reduce, where the
+   count-up snaps as well; a reduce user gets the right number and the
+   right colour with no movement at all. Keep the two in step: if the JS
+   snap goes, this goes. */
 .dc-meter-fill {
-  transition: width 260ms ease-out, background-color 200ms ease-out;
+  transition: background-color 200ms ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {

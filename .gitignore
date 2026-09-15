@@ -25,3 +25,6 @@ dist-ssr
 
 # OPSEC deny-list, local only, never commit (spec Section 11.5)
 .opsec-terms
+
+# Local agent tooling (dev-server launch config); never part of the candidate
+.claude/

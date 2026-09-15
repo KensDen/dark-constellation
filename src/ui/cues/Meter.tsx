@@ -22,17 +22,36 @@ export const FLASH_CLASS: Record<MeterTone, string> = {
   neutral: '',
 }
 
-const TONE_TEXT: Record<MeterTone, string> = {
+export const TONE_TEXT: Record<MeterTone, string> = {
   good: 'text-hero-blue',
   bad: 'text-hero-magenta',
   neutral: 'text-ink',
+}
+
+// How much of a change the player did not choose. Spending credits is a
+// decision, not damage, so the chosen part carries no valence; what is
+// left still does, which is what keeps a beat that folds a purchase and a
+// repair bill flashing for the repair.
+export function unchosenDelta(delta: number, chosen: boolean, chosenDelta: number): number {
+  if (chosen) return 0
+  return delta + chosenDelta
 }
 
 // Report the direction of the most recent change, with a nonce so a repeat
 // of the same direction still restarts the flash. The tone expires with
 // the cue: a drop flashes and then reads as an ordinary number again,
 // rather than staying coloured until the next gain.
-export function useValueChange(value: number, basis?: string): { tone: MeterTone; nonce: number } {
+//
+// The valence is decided here, where the change is recorded, and never
+// masked further downstream: a masked tone stays latched in this state,
+// and useCueClass treats the class it is given changing from empty to a
+// real one as a trigger, so the cue would simply fire late.
+export function useValueChange(
+  value: number,
+  basis?: string,
+  chosen = false,
+  chosenDelta = 0,
+): { tone: MeterTone; nonce: number } {
   const prev = useRef(value)
   const prevBasis = useRef(basis)
   const [change, setChange] = useState<{ tone: MeterTone; nonce: number }>({ tone: 'neutral', nonce: 0 })
@@ -48,8 +67,8 @@ export function useValueChange(value: number, basis?: string): { tone: MeterTone
     if (prev.current === value) return
     const delta = value - prev.current
     prev.current = value
-    setChange((c) => ({ tone: toneForDelta(delta), nonce: c.nonce + 1 }))
-  }, [value, basis])
+    setChange((c) => ({ tone: toneForDelta(unchosenDelta(delta, chosen, chosenDelta)), nonce: c.nonce + 1 }))
+  }, [value, basis, chosen, chosenDelta])
   useEffect(() => {
     if (change.tone === 'neutral') return
     const id = window.setTimeout(() => setChange((c) => ({ ...c, tone: 'neutral' })), CUE_MS)
@@ -58,7 +77,7 @@ export function useValueChange(value: number, basis?: string): { tone: MeterTone
   return change
 }
 
-const BAR_TONE: Record<MeterTone, string> = {
+export const BAR_TONE: Record<MeterTone, string> = {
   good: 'bg-hero-blue',
   bad: 'bg-hero-magenta',
   neutral: 'bg-phosphor',
@@ -81,12 +100,32 @@ export interface ReadoutProps {
   warnBelow?: number
   strobeOnWarn?: boolean
   suffix?: string
+  // The player drives this number themselves here, so a fall is a decision
+  // rather than damage. The count still runs; only the valence is dropped.
+  chosen?: boolean
+  // How much of the next change the player chose, when only part of it is
+  // theirs: playback folds the turn's purchase into a beat that may also
+  // carry damage, and only the damage should flash.
+  chosenDelta?: number
 }
 
-export default function Readout({ label, value, basis, max, warnBelow, strobeOnWarn, suffix }: ReadoutProps) {
+export default function Readout({
+  label,
+  value,
+  basis,
+  max,
+  warnBelow,
+  strobeOnWarn,
+  suffix,
+  chosen,
+  chosenDelta,
+}: ReadoutProps) {
   const reduced = useReducedMotion()
   const shown = useCountUp(value, reduced)
-  const { tone, nonce } = useValueChange(value, basis)
+  // Spending credits on a countermeasure is the good move in this game, so
+  // the ticker must not paint it with the same cue a hit uses. The tone is
+  // dropped rather than inverted: a buy is neither a gain nor a loss.
+  const { tone, nonce } = useValueChange(value, basis, chosen, chosenDelta)
   // The colour half of the flash is meaning, not motion, so it plays in
   // both modes; the stylesheet drops only the animation under reduce.
   const flash = useCueClass(nonce, FLASH_CLASS[tone], false)

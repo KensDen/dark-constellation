@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { GameState } from '../engine/types'
 import { CARD_SAFE_VISUALS, VISUAL_CLASS, VISUAL_MS, resolveCue, visualFor } from './cues'
-import { Director, type DirectorSnapshot, type Speed } from './director'
+import { Director, beatCueMs, type DirectorSnapshot, type Speed } from './director'
 import { describePatch, type DeltaTone } from './patch'
 import SpeedSelect from './SpeedSelect'
 import type { Beat } from './types'
@@ -36,7 +36,7 @@ export interface DirectorViewProps {
   beats: Beat[]
   speed: Speed
   onSpeedChange: (speed: Speed) => void
-  onPresented: (state: GameState) => void
+  onPresented: (state: GameState, chosenCredits: number) => void
   onDone: () => void
 }
 
@@ -53,8 +53,18 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
   // Layout effects throughout, so the first beat, the HUD's presented state
   // and completion all land in the same paint as the change that caused
   // them: no frame where the card and the HUD disagree.
+  // Read through a ref so a preference change takes effect on the next
+  // beat without rebuilding the director and losing playback position.
+  const reducedRef = useRef(reduced)
+  reducedRef.current = reduced
+
   useLayoutEffect(() => {
-    const d = new Director(before, after, beats, { speed: speedRef.current })
+    const d = new Director(before, after, beats, {
+      speed: speedRef.current,
+      // Under reduced motion there is no animation to protect, so the
+      // dwell floor would only slow the turn down.
+      cueMs: (beat) => (reducedRef.current ? 0 : beatCueMs(beat)),
+    })
     directorRef.current = d
     const publish = () => setSnap(d.snapshot())
     const unsubscribe = d.subscribe(publish)
@@ -71,7 +81,7 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
   }, [speed])
 
   useLayoutEffect(() => {
-    if (snap) onPresented(snap.presented)
+    if (snap) onPresented(snap.presented, snap.chosenCredits)
   }, [snap, onPresented])
 
   const done = snap?.status === 'done'
@@ -185,8 +195,12 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
               {/* The affected layers pulse as the hit lands. */}
               {beat.layers && beat.layers.length > 0 && (
                 <span className="flex shrink-0 gap-1.5">
+                  {/* Keyed by beat as well as layer: two consecutive beats on
+                      the same layer at the same tone render a byte-identical
+                      class on the same node, and a finished animation does
+                      not restart until the element is new. */}
                   {beat.layers.map((layer) => (
-                    <span key={layer} className="flex flex-col items-center">
+                    <span key={`${beat.id}-${layer}`} className="flex flex-col items-center">
                       <img
                         src={layerBadges[layer]}
                         alt=""

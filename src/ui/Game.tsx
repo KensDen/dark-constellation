@@ -194,6 +194,14 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   // while beats play; `state` is always the engine's output.
   const [playback, setPlayback] = useState<PlaybackSession | null>(null)
   const [presented, setPresented] = useState<GameState | null>(null)
+  // How much of the credits change the beat now on screen carries is the
+  // player's own purchase, which playback folds into the next visible beat
+  // because the procurement recap is silent.
+  const [chosenSpend, setChosenSpend] = useState(0)
+  const showPresented = useCallback((s: GameState, chosenCredits: number) => {
+    setPresented(s)
+    setChosenSpend(chosenCredits)
+  }, [])
   const [speed, setSpeedState] = useState<Speed>(() => defaultSpeed(prefersReducedMotionNow(), loadSpeedPreference()))
   const setSpeed = useCallback((s: Speed) => {
     setSpeedState(s)
@@ -203,6 +211,12 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     setPlayback(null)
     setPresented(null)
     setPhase('aftermath')
+    // chosenSpend is deliberately NOT cleared here. Skipping, and choosing
+    // INSTANT mid-turn, end playback in the same commit that jumps the
+    // credits to the engine's after-state, and that jump still carries the
+    // purchase; clearing the declaration here would paint the player's own
+    // buy as damage on the way out. It is cleared when the next turn is
+    // resolved, and whenever a different campaign is loaded.
   }, [])
   // Cue state. These sit with the other top-level hooks because the start
   // screen returns early below, and hook order cannot depend on whether a
@@ -317,6 +331,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     setActions(EMPTY_ACTIONS)
     setPlayback(null)
     setPresented(null)
+    setChosenSpend(0)
     setPhase(nextPhase)
     setNotice('')
   }
@@ -332,6 +347,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     setActions(EMPTY_ACTIONS)
     setPlayback(null)
     setPresented(null)
+    setChosenSpend(0)
     setPhase('brief')
     setSlots(saveStore.list())
     setNotice('')
@@ -534,6 +550,8 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     // a throw inside an event handler never reaches an error boundary.
     try {
       const next = resolveTurn(state, actions, turnRng(state.seed, state.turn))
+      // A new turn declares its own spend; nothing carries over.
+      setChosenSpend(0)
       // The director derives its beats from the two states. It is
       // presentation only: instant speed never runs it (the v1.0 path,
       // unchanged), and if derivation ever fails the turn still stands and
@@ -695,6 +713,8 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
           label={hud.credits}
           value={phase === 'procure' || phase === 'harden' ? available - cost : shown.credits}
           basis={phase === 'procure' || phase === 'harden' ? 'cart' : 'balance'}
+          chosen={phase === 'procure' || phase === 'harden'}
+          chosenDelta={chosenSpend}
         />
         <Readout label={hud.coverage} value={coverage(shown.assets)} max={METER_CAP} />
         <Readout label={hud.link} value={shown.meters.linkAvailability} max={METER_CAP} />
@@ -1167,7 +1187,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
           beats={playback.beats}
           speed={speed}
           onSpeedChange={setSpeed}
-          onPresented={setPresented}
+          onPresented={showPresented}
           onDone={finishPlayback}
         />
       )}

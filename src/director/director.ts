@@ -6,6 +6,7 @@
 // so node tests drive it without timers.
 
 import type { GameState } from '../engine/types'
+import { VISUAL_MS, visualFor } from './cues'
 import { applyPatch } from './patch'
 import type { Beat } from './types'
 
@@ -18,6 +19,26 @@ export const SPEED_LABEL: Record<Speed, string> = { '1x': '1x', '2x': '2x', inst
 // ten visible beats. Tuned in Round 7.
 export const BEAT_DWELL_MS = 1200
 const SPEED_DIVISOR: Record<Speed, number> = { '1x': 1, '2x': 2, instant: 0 }
+
+// The spend a beat carries that the player asked for. Keyed on the beat
+// kind rather than on the sign of the patch, so a future beat that costs
+// credits without being a purchase is not quietly excused.
+export function chosenCreditsOf(beat: Beat): number {
+  if (beat.kind !== 'procurement') return 0
+  const credits = beat.patch.credits ?? 0
+  return credits < 0 ? -credits : 0
+}
+
+// How long the beat's own treatment needs. The dwell is a floor on
+// reading time, not a ceiling on the cue: at 2x the dwell is 600ms while
+// the BLACKOUT CHAIN and the arrival light declare 900ms, so the two
+// signature cues of the round were being replaced a third of the way from
+// the end. Speed changes how fast the turn reads, not how fast an
+// animation plays.
+export function beatCueMs(beat: Beat): number {
+  const visual = visualFor(beat.cueKey, beat.kind)
+  return visual ? VISUAL_MS[visual] ?? 0 : 0
+}
 
 export const PLAYBACK_SPEED_KEY = 'dc-playback-speed'
 
@@ -65,12 +86,19 @@ export interface DirectorSnapshot {
   visiblePosition: number
   visibleTotal: number
   presented: GameState
+  // Credits spent by the player's own purchases in the patches applied
+  // since the previous emit. The procurement beat is silent bookkeeping,
+  // so its spend arrives folded into the next visible beat; without this
+  // the ticker reads the player's own buy as damage.
+  chosenCredits: number
 }
 
 export interface DirectorOptions {
   speed: Speed
   schedule?: Scheduler
   dwellMs?: number
+  // Injected so a test can drive the dwell floor without the registry.
+  cueMs?: (beat: Beat) => number
 }
 
 export class Director {
@@ -78,11 +106,13 @@ export class Director {
   private readonly after: GameState
   private readonly schedule: Scheduler
   private readonly dwellMs: number
+  private readonly cueMs: (beat: Beat) => number
   private speed: Speed
   private index = -1
   private presented: GameState
   private status: 'playing' | 'done' = 'playing'
   private cancelTimer: Cancel | null = null
+  private chosenCredits = 0
   private listeners = new Set<() => void>()
   private readonly visibleTotal: number
 
@@ -91,6 +121,7 @@ export class Director {
     this.after = after
     this.schedule = opts.schedule ?? defaultScheduler
     this.dwellMs = opts.dwellMs ?? BEAT_DWELL_MS
+    this.cueMs = opts.cueMs ?? beatCueMs
     this.speed = opts.speed
     this.presented = before
     this.visibleTotal = beats.filter((b) => b.visible).length
@@ -109,6 +140,7 @@ export class Director {
       visiblePosition,
       visibleTotal: this.visibleTotal,
       presented: this.presented,
+      chosenCredits: this.chosenCredits,
     }
   }
 
@@ -130,6 +162,10 @@ export class Director {
 
   private finish(): void {
     this.clearTimer()
+    // Skipping applies every remaining patch at once, so the spend still
+    // has to be declared or the jump to the after-state reads as damage.
+    this.chosenCredits = 0
+    for (let i = this.index + 1; i < this.beats.length; i += 1) this.chosenCredits += chosenCreditsOf(this.beats[i])
     this.index = this.beats.length
     // The engine's own output, by identity, so nothing presented can drift
     // from what was actually resolved.
@@ -142,10 +178,12 @@ export class Director {
     this.clearTimer()
     if (this.status === 'done' || this.speed === 'instant') return
     const divisor = SPEED_DIVISOR[this.speed]
+    const beat = this.index >= 0 && this.index < this.beats.length ? this.beats[this.index] : null
+    const dwell = Math.max(this.dwellMs / divisor, beat ? this.cueMs(beat) : 0)
     this.cancelTimer = this.schedule(() => {
       this.cancelTimer = null
       this.advance()
-    }, this.dwellMs / divisor)
+    }, dwell)
   }
 
   // Tap-to-advance and the auto-advance timer both land here: apply the
@@ -153,10 +191,12 @@ export class Director {
   advance(): void {
     if (this.status === 'done') return
     this.clearTimer()
+    this.chosenCredits = 0
     while (this.index + 1 < this.beats.length) {
       this.index += 1
       const beat = this.beats[this.index]
       this.presented = applyPatch(this.presented, beat.patch)
+      this.chosenCredits += chosenCreditsOf(beat)
       if (beat.visible) {
         this.emit()
         this.arm()
