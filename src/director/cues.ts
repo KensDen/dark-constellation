@@ -38,6 +38,11 @@ export type VisualCue =
 // visual side: the beat carries a patch and makes no sound. 'placeholder'
 // is kept in the union, and kept failing the battery, so that reverting a
 // slot to it is a mutation someone can actually write.
+// The scenes Round 5 promoted from a baseline class to a structure the
+// player can read. Named here rather than in the component so the section
+// 6 table and the renderer cannot disagree about which rows have one.
+export type SceneName = 'blackout' | 'commendation' | 'victory' | 'defeat'
+
 export type SoundCue =
   | 'placeholder'
   | 'silent'
@@ -309,8 +314,14 @@ export interface Section6Row {
   // other row's beat happened to play it; naming the kinds makes the
   // check about THIS row.
   kinds?: BeatKind[]
+  // The cinematic scene this row plays, for the four rows that have one.
+  // Rendered by ui/cues/Scene.tsx; every other row keeps its baseline
+  // one-shot treatment and renders no scene at all.
+  scene?: SceneName
   // True where Round 5 owns the full cinematic treatment and Round 3
-  // ships the baseline visual.
+  // shipped the baseline visual. Round 5 fills `scene` for each of them,
+  // and the battery holds the two fields together, so the round's closing
+  // condition is checked against the code rather than asserted.
   cinematicInRound5?: boolean
   // What the brief's row asks for that this round does not yet ship, so
   // the battery does not report an unfinished row as done.
@@ -423,6 +434,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
   },
   {
     beat: 'BLACKOUT CHAIN fires',
+    scene: 'blackout',
     kinds: ['chain-armed', 'threat'],
     visual: 'blackout',
     where: 'director/DirectorView.tsx',
@@ -440,6 +452,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
   },
   {
     beat: 'Commendation earned',
+    scene: 'commendation',
     kinds: ['commendation'],
     visual: 'ribbon',
     where: 'director/DirectorView.tsx',
@@ -459,6 +472,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
   },
   {
     beat: 'Campaign won',
+    scene: 'victory',
     kinds: ['outcome'],
     visual: 'outcome-sweep',
     where: 'director/DirectorView.tsx',
@@ -468,6 +482,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
   },
   {
     beat: 'Campaign lost',
+    scene: 'defeat',
     kinds: ['outcome'],
     visual: 'outcome-sweep',
     where: 'director/DirectorView.tsx',

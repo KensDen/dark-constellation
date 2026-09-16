@@ -198,6 +198,18 @@ describe('visual cue vocabulary (Round 3)', () => {
       'dc-hold-fill',
       'dc-manifest-in',
       'dc-phase-dim',
+      // Round 5's four scene entrances and the two treatments inside them.
+      // Applied by ui/cues/Scene.tsx rather than through the registry, so
+      // walked explicitly like the rest of this list: a scene that
+      // animated under the preference would be the Round 4e refusal-cue
+      // defect again, in the round that gives the loudest moments their
+      // treatment.
+      'dc-scene-blackout',
+      'dc-scene-commendation',
+      'dc-scene-victory',
+      'dc-scene-defeat',
+      'dc-scene-die',
+      'dc-scene-wash',
     ]) {
       expect(guarded, `${selector} must be declared inside the reduced-motion guard`).toContain(`.${selector} {`)
     }
@@ -264,6 +276,33 @@ describe('visual cue vocabulary (Round 3)', () => {
     if (!frameOnScreen) {
       expect(row!.deferred, 'the arrival row owes the frame lighting and must say so').toBeTruthy()
       expect(row!.deferred, 'the deferred note must say what is missing').toMatch(/frame/i)
+    }
+  })
+
+  it('gives every cinematic row a scene, and a scene only to those rows', () => {
+    // The round's closing condition, read off the table instead of
+    // asserted in a report: the four rows flagged for Round 5 each name a
+    // scene, and no other row does.
+    const flagged = SECTION_6_ROWS.filter((r) => r.cinematicInRound5)
+    expect(flagged.length, 'the cinematic flags have gone').toBe(4)
+    for (const row of flagged) {
+      expect(row.scene, `${row.beat} is flagged for Round 5 but plays no scene`).toBeTruthy()
+    }
+    for (const row of SECTION_6_ROWS.filter((r) => !r.cinematicInRound5)) {
+      expect(row.scene, `${row.beat} plays a scene but is not a cinematic row`).toBeUndefined()
+    }
+    // Each scene is used once: two rows sharing one would mean the two
+    // outcomes, or a hit and a commendation, look the same.
+    const names = flagged.map((r) => r.scene)
+    expect(new Set(names).size, `two rows share a scene: ${names.join(', ')}`).toBe(flagged.length)
+  })
+
+  it('backs every scene with an entrance that exists in the stylesheet', () => {
+    for (const row of SECTION_6_ROWS.filter((r) => r.scene)) {
+      const className = `dc-scene-${row.scene}`
+      expect(new RegExp(`\\.${className}\\s*[{,]`).test(CSS), `${row.beat} names .${className}, which the stylesheet does not declare`).toBe(
+        true,
+      )
     }
   })
 

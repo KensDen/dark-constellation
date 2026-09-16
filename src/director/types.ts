@@ -119,4 +119,15 @@ export interface Beat {
   // Prose from the engine log that belongs to this beat, verbatim.
   lines: string[]
   patch: Patch
+  // Whether an outcome beat is a LOSS. Present only on the outcome kind.
+  //
+  // Finding 3.10, carried since Round 3. The view derived this by matching
+  // the beat's title against 'MISSION FAILED', and the winning title is
+  // 'MISSION ASSURED': both begin with the same word, so an edit to either
+  // string silently inverts the treatment, and a loss renders friendly
+  // with a victory fanfare. Round 5 is the round that gives the outcomes
+  // their scenes, which is exactly the round that would touch those
+  // strings. The treatment now rides what the beat IS rather than what it
+  // says.
+  lost?: boolean
 }

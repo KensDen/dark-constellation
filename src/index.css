@@ -207,6 +207,43 @@ body {
   /* EXECUTE TURN's hold ring: the fill sweeps the control for as long as
      the press has to be held. Its duration is set inline from the same
      constant the timer uses, so the two cannot drift. */
+  /* Round 5 cinematics. Each scene's ENTRANCE lives here; the scene's
+     content is rendered in both modes by src/ui/cues/Scene.tsx, so the
+     reduced-motion form is the same information arriving at once rather
+     than this animation held at its first frame. */
+  .dc-scene-blackout {
+    animation: dc-scene-darken 900ms ease-out both;
+  }
+
+  .dc-scene-commendation {
+    animation: dc-scene-drop 420ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  }
+
+  .dc-scene-victory {
+    animation: dc-scene-rise 520ms ease-out both;
+  }
+
+  .dc-scene-defeat {
+    animation: dc-scene-darken 700ms ease-out both;
+  }
+
+  /* The drone and sensor glyphs going out, one after another. */
+  .dc-scene-die {
+    animation: dc-scene-flicker 900ms steps(1, end) both;
+  }
+
+  /* The static wash that resolves to LINK LOST. */
+  .dc-scene-wash {
+    animation: dc-scene-static 700ms steps(6, end) both;
+    background: repeating-linear-gradient(
+      0deg,
+      rgb(255 255 255 / 12%) 0px,
+      rgb(255 255 255 / 12%) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+
   .dc-hold-fill {
     animation: dc-hold-fill linear both;
     transform-origin: left center;
@@ -346,4 +383,65 @@ body {
   35% { filter: brightness(0.25) saturate(0.4); }
   70% { filter: brightness(0.5) saturate(0.6); }
   100% { filter: none; }
+}
+
+@keyframes dc-scene-darken {
+  from {
+    opacity: 0;
+    filter: brightness(2.4);
+  }
+  to {
+    opacity: 1;
+    filter: brightness(1);
+  }
+}
+
+@keyframes dc-scene-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-1.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dc-scene-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dc-scene-flicker {
+  0%,
+  40% {
+    opacity: 0.9;
+    filter: none;
+  }
+  50%,
+  70% {
+    opacity: 0.35;
+  }
+  60% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0.25;
+    filter: grayscale(1);
+  }
+}
+
+@keyframes dc-scene-static {
+  from {
+    opacity: 0.9;
+  }
+  to {
+    opacity: 0;
+  }
 }

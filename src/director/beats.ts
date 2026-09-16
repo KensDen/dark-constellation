@@ -141,6 +141,7 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
       severity: b.severity,
       lines: b.lines ?? [],
       patch: b.patch ?? {},
+      lost: b.lost,
     }
     shadow = applyPatch(shadow, beat.patch)
     beats.push(beat)
@@ -531,7 +532,8 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
           : after.lossReason === 'maiCollapse'
             ? 'MISSION FAILED: Mission Assurance Index collapse'
             : 'MISSION FAILED: below the win threshold at end of campaign'
-    push({ kind: 'outcome', title: reason })
+    // The field, not the title, decides the treatment downstream.
+    push({ kind: 'outcome', title: reason, lost: after.status !== 'won' })
   }
 
   return beats

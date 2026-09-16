@@ -48,6 +48,7 @@ export {
   visualFor,
   type Cue,
   type Section6Row,
+  type SceneName,
   type SoundCue,
   type VisualCue,
 } from './cues'

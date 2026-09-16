@@ -16,6 +16,7 @@ import type { Beat } from './types'
 import { useCueClass, useReducedMotion } from '../ui/cues/motion'
 import { onVisibilityChange, pageVisible, playbackPaused } from '../ui/cues/visibility'
 import { layerBadges, vectorIcons } from '../ui/cues/icons'
+import Scene, { sceneFor } from '../ui/cues/Scene'
 import { beatIntensity, useSilenceSound, useSound } from '../audio'
 import { DEFAULT_SCENARIO } from '../content'
 
@@ -178,7 +179,13 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
   const cue = beat ? resolveCue(beat.cueKey) ?? resolveCue(`beat:${beat.kind}`) : undefined
   const deltas = beat && snap ? describePatch(beat.patch, snap.presented, beat.kind) : []
   const def = beat?.subjectId ? DEFAULT_SCENARIO.events.find((e) => e.id === beat.subjectId) : undefined
-  const lost = beat?.kind === 'outcome' && beat.title.startsWith('MISSION FAILED')
+  // Finding 3.10: the beat says whether it is a loss. Derived from the
+  // title until Round 5, which is the round that gives the outcomes their
+  // scenes and would therefore be the round to edit those titles; the win
+  // and the loss both begin with the word MISSION, so an edit inverted the
+  // treatment silently and a lost campaign rendered friendly with a
+  // victory fanfare.
+  const lost = beat?.kind === 'outcome' && beat.lost === true
 
   // The beat's sound, fired once per beat. Keyed on the beat id rather than
   // on the beat object so a re-render that produces the same beat does not
@@ -203,6 +210,7 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
     // dependency list changed nothing at all, which is what said so.
   }, [beat, lost, play])
   const hostile = beat ? HOSTILE_KINDS.has(beat.kind) || lost : false
+  const scene = sceneFor(beat)
   const border = beat
     ? hostile
       ? 'border-hero-magenta/50'
@@ -229,6 +237,11 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
               if ((e.target as HTMLElement).closest('a, button, summary')) return
               advance()
             }}
+            // Marked so a test can name THIS element rather than reaching
+            // for it by class: the scenes carry a border of their own, so
+            // closest('div.border') from inside a scene returns the scene
+            // and a guard on the card's colour silently read the scene's.
+            data-beat-card=""
             className={`mt-2 border ${border} bg-panel p-3 cursor-pointer select-none ${cardCue}`}
           >
             <div className="flex items-start gap-2">
@@ -281,6 +294,29 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
                 </span>
               )}
             </div>
+
+            {/* The cinematic scenes (Round 5). Four beats are promoted from
+                a one-shot class to a structure the player can read; every
+                other beat keeps the baseline treatment and renders
+                nothing here. */}
+            {scene && snap && (
+              // KEYED ON THE BEAT, and this is load-bearing rather than
+              // tidiness. Scene holds the arriving value that makes its
+              // readouts count, so an unkeyed Scene carries that number
+              // across a beat change: two adjacent commendations had the
+              // second counting from the first award, and a win on a turn
+              // that earned one painted the credit bonus under the label
+              // Final MAI. Keying the child readout could not fix it,
+              // because a key cannot reset state it does not own.
+              <Scene
+                key={beat.id}
+                kind={scene}
+                beat={beat}
+                presented={snap.presented}
+                final={after}
+                reduced={reduced}
+              />
+            )}
 
             {beat.techniques && beat.techniques.length > 0 && (
               <p className="mt-2 font-mono text-xs text-ink">

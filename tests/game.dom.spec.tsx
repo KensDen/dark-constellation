@@ -55,13 +55,16 @@ vi.mock('../src/ui/Constellation', () => ({
 import Game from '../src/ui/Game'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
+import { maiScore } from '../src/engine/scoring'
+import { RECAP_MAX, recapTechniques } from '../src/ui/cues/Scene'
 import { turnRng } from '../src/engine/rng'
-import type { GameState } from '../src/engine/types'
-import { PLAYBACK_SPEED_KEY } from '../src/director'
+import type { GameState, TurnActions } from '../src/engine/types'
+import { PLAYBACK_SPEED_KEY, SECTION_6_ROWS, deriveBeats, type Beat } from '../src/director'
+import DirectorView from '../src/director/DirectorView'
 import { SOUND_TOGGLE_LABELS, chromeCopy } from '../src/ui/brief'
 import { getAudioEngine, installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { FakeAudioContext, installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
-import { NO_OP, WIN_SCRIPT } from './scripts'
+import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -771,5 +774,781 @@ describe('reduced motion keeps the sequence (brief v1.2)', () => {
       .filter((b) => /^(1x|2x|instant)$/i.test(b.textContent?.trim() ?? ''))
       .find((b) => b.getAttribute('aria-pressed') === 'true')
     expect(pressed?.textContent?.trim().toLowerCase(), 'a stored choice was overridden').toBe('instant')
+  })
+})
+
+
+// Render a whole turn's playback and advance until the named scene is on
+// screen. Rendering an outcome beat ALONE leaves the presented state at
+// `before`, because the director builds the final state by applying every
+// earlier patch; the scenes read the presented state, so in isolation they
+// legitimately show pre-turn numbers. Both content guards below were
+// written against a lone beat first and failed for exactly that reason,
+// which is a fact about the fixture rather than about the scenes.
+function playUntilScene(before: GameState, after: GameState, beats: Beat[], want: string): Element | null {
+  act(() => {
+    root.render(
+      <DirectorView
+        before={before}
+        after={after}
+        beats={beats}
+        speed="1x"
+        onSpeedChange={() => {}}
+        onPresented={() => {}}
+        onDone={() => {}}
+      />,
+    )
+  })
+  for (let i = 0; i < 80; i += 1) {
+    const el = container.querySelector(`[data-scene="${want}"]`)
+    if (el) return el
+    act(() => {
+      vi.advanceTimersByTime(400)
+    })
+  }
+  return null
+}
+
+describe('the cinematics, from the player-s starting state (Round 5)', () => {
+  // THE ROUND'S CENTRAL CLAIM, asserted here: a campaign played to its end
+  // shows a distinct scene at each of the four loudest moments, and the
+  // loss scene is chosen by what the beat IS rather than by what its title
+  // SAYS.
+  //
+  // Driven from a real campaign rather than from the component this round
+  // touched, per principle 16. Three rounds running, the central fix
+  // shipped behind a guard that could not detect its own reversion; the
+  // mechanism each time was a guard written against the code that changed
+  // instead of against the behaviour the round existed to produce.
+
+  // Play a whole campaign under one script and stop on the turn that ends
+  // it, so the outcome beat is the one a player actually reaches.
+  function finalTurn(script: Record<number, TurnActions>, seeds = [20260712, 7, 1, 2, 3, 4041, 11, 13]) {
+    for (const seed of seeds) {
+      let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+      while (state.status === 'playing') {
+        const after = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+        if (after.status !== 'playing') return { before: state, after }
+        state = after
+      }
+    }
+    throw new Error('no seed in the sweep finished a campaign under this script')
+  }
+
+  // Drive Game from the hardening phase of the deciding turn through to
+  // the outcome beat, and return the scene on screen.
+  function playToOutcome(before: GameState) {
+    render(before, 'harden')
+    act(() => {
+      byText(/Hold to resolve/i)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    expect(container.textContent, 'the deciding turn did not enter playback').toMatch(/beat \d+ of \d+/)
+    // Advance to the OUTCOME scene specifically. A losing campaign passes
+    // through the blackout scene on the way, so breaking on the first
+    // [data-scene] would read the wrong one; the first version of this
+    // helper did exactly that and reported 'blackout' for both endings.
+    const seen: string[] = []
+    for (let i = 0; i < 80; i += 1) {
+      const el = container.querySelector('[data-scene]')
+      const name = el?.getAttribute('data-scene') ?? null
+      if (name && seen[seen.length - 1] !== name) seen.push(name)
+      if (name === 'victory' || name === 'defeat') return { el: el!, seen }
+      act(() => {
+        vi.advanceTimersByTime(400)
+      })
+    }
+    return { el: null, seen }
+  }
+
+  it('plays the defeat scene when a campaign is lost', () => {
+    const { before } = finalTurn(LOSS_SCRIPT)
+    const { el, seen } = playToOutcome(before)
+    expect(el, `a lost campaign reached its end with no outcome scene; saw ${seen.join(', ') || 'nothing'}`).not.toBeNull()
+    expect(el!.getAttribute('data-scene'), 'a lost campaign played the winning scene').toBe('defeat')
+    expect(el!.textContent, 'the defeat scene does not say what was lost').toMatch(/Link lost/i)
+  })
+
+  it('plays the victory scene when a campaign is won', () => {
+    // The positive control for the test above, and vice versa. Either one
+    // alone passes against a renderer that always emits the other, or one
+    // that emits nothing; together they cannot.
+    const { before } = finalTurn(WIN_SCRIPT)
+    const { el, seen } = playToOutcome(before)
+    expect(el, `a won campaign reached its end with no outcome scene; saw ${seen.join(', ') || 'nothing'}`).not.toBeNull()
+    expect(el!.getAttribute('data-scene'), 'a won campaign played the losing scene').toBe('victory')
+    expect(el!.textContent, 'the victory scene does not say the mission held').toMatch(/Mission assured/i)
+  })
+
+  it('chooses the loss scene by the beat-s own field, not by its title', () => {
+    // Finding 3.10. The two titles both begin with the word MISSION, so
+    // the old string match inverted the treatment on any edit to either,
+    // and Round 5 is the round that would edit them. Proven by changing
+    // the title to something the old match could not recognise and
+    // checking the scene is unmoved.
+    const { before, after } = finalTurn(LOSS_SCRIPT)
+    const beats = deriveBeats(before, after)
+    const outcome = beats.find((b) => b.kind === 'outcome')
+    expect(outcome, 'the deciding turn produced no outcome beat').toBeDefined()
+    expect(outcome!.lost, 'the outcome beat does not carry the loss field').toBe(true)
+
+    const renamed = beats.map((b) =>
+      b.kind === 'outcome' ? { ...b, title: 'CAMPAIGN CONCLUDED: assurance not held' } : b,
+    )
+    expect(
+      renamed.find((b) => b.kind === 'outcome')!.title.startsWith('MISSION FAILED'),
+      'the renamed title still matches the old derivation, so this proves nothing',
+    ).toBe(false)
+    // The renamed outcome beat on its own, so the assertion is about that
+    // beat and not about how long playback took to reach it. Instant is
+    // not usable here: it skips to done and shows no beat at all.
+    const renamedOutcome = renamed.find((b) => b.kind === 'outcome')!
+    // The two outcome voices, taken from the engine so the comparison is
+    // an identity rather than a written frequency.
+    installGestureUnlock()
+    document.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    const engine = getAudioEngine()
+    const voiceOf = (cue: 'defeat-sting' | 'victory-fanfare') => {
+      contexts[0].reset()
+      engine.play(cue)
+      return contexts[0].oscillators().map((o) => o.frequency.first())
+    }
+    // The outcome voice must be PRESENT in what sounded, not the whole of
+    // it: the scene's count-up starts at zero and rises, so the readout
+    // correctly reports a gain and ticks alongside the fanfare. Asserting
+    // the exact sequence would make this test fail whenever a scene gained
+    // a number, which is not what it is about.
+    const sounded = (voice: (number | undefined)[], seq: (number | undefined)[]) =>
+      voice.every((hz) => seq.includes(hz))
+    const defeatVoice = voiceOf('defeat-sting')
+    const victoryVoice = voiceOf('victory-fanfare')
+    expect(defeatVoice, 'the two outcome voices are identical, so this proves nothing').not.toEqual(victoryVoice)
+    contexts[0].reset()
+    act(() => {
+      root.render(
+        <DirectorView
+          before={before}
+          after={after}
+          beats={[renamedOutcome]}
+          speed="1x"
+          onSpeedChange={() => {}}
+          onPresented={() => {}}
+          onDone={() => {}}
+        />,
+      )
+    })
+    const sting = contexts[0].oscillators().map((o) => o.frequency.first())
+    const scene = container.querySelector('[data-scene]')
+    expect(scene, 'the renamed outcome beat rendered no scene').not.toBeNull()
+    expect(scene!.getAttribute('data-scene'), 'renaming the outcome inverted the treatment').toBe('defeat')
+    // THE WHOLE TREATMENT, not just the scene I added this round. The
+    // scene reads beat.lost directly, so asserting only the scene left the
+    // view's own derivation free to go back to matching the title, which
+    // drives the card's colour and the sound: a renamed loss would have
+    // rendered friendly with a victory fanfare while the scene below it
+    // said LINK LOST. That is principle 16 exactly, caught by a mutation:
+    // the guard was written against the code this round touched instead of
+    // against the behaviour the finding was about.
+    // The CARD, named by its own marker. Reached with
+    // closest('div.border') at first, which returns the scene's own root:
+    // the scenes carry a border too, so the assertion read the colour the
+    // scene set for itself and the card was free to render friendly.
+    const card = container.querySelector('[data-beat-card]')
+    expect(card, 'the beat card is not on screen').not.toBeNull()
+    expect(card!.className, 'a renamed loss rendered in the friendly colour').toMatch(/hero-magenta/)
+    expect(sounded(defeatVoice, sting), 'a renamed loss did not sound the defeat sting').toBe(true)
+    expect(sounded(victoryVoice, sting), 'a renamed loss sounded the victory fanfare').toBe(false)
+    // And the control: the same beat with the field cleared renders the
+    // other scene, so this is reading the field rather than defaulting.
+    act(() => root.unmount())
+    root = createRoot(container)
+    contexts[0].reset()
+    act(() => {
+      root.render(
+        <DirectorView
+          before={before}
+          after={after}
+          beats={[{ ...renamedOutcome, lost: false }]}
+          speed="1x"
+          onSpeedChange={() => {}}
+          onPresented={() => {}}
+          onDone={() => {}}
+        />,
+      )
+    })
+    expect(
+      container.querySelector('[data-scene]')?.getAttribute('data-scene'),
+      'clearing the loss field did not change the scene, so the field is not what chooses it',
+    ).toBe('victory')
+    // And the WIN side of the same two derivations, which had no control
+    // at all: dropping the field test from DirectorView entirely
+    // (`beat?.kind === 'outcome'`) renders a won campaign hostile with a
+    // defeat sting while the scene inside it still reads Mission assured,
+    // and every assertion above passes because they only ever looked at a
+    // loss.
+    const wonCard = container.querySelector('[data-beat-card]')
+    expect(wonCard!.className, 'a won campaign rendered in the hostile colour').not.toMatch(/hero-magenta/)
+    const wonSting = contexts[0].oscillators().map((o) => o.frequency.first())
+    expect(sounded(victoryVoice, wonSting), 'a won campaign did not sound the victory fanfare').toBe(true)
+    expect(sounded(defeatVoice, wonSting), 'a won campaign sounded the defeat sting').toBe(false)
+  })
+
+  it('renders no scene at all on an ordinary beat', () => {
+    // The control for every presence check above: [data-scene] is not
+    // something the card always carries, so finding it means a scene
+    // really played rather than the attribute being ambient.
+    let fixture: { before: GameState; after: GameState; beat: Beat } | null = null
+    outer: for (const seed of [20260712, 1, 2, 3]) {
+      let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+      while (state.status === 'playing') {
+        const after = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+        for (const b of deriveBeats(state, after)) {
+          if (b.visible && b.kind === 'threat' && b.subjectId !== 'blackout-chain') {
+            fixture = { before: state, after, beat: b }
+            break outer
+          }
+        }
+        state = after
+      }
+    }
+    expect(fixture, 'the sweep produced no ordinary threat beat').not.toBeNull()
+    act(() => {
+      root.render(
+        <DirectorView
+          before={fixture!.before}
+          after={fixture!.after}
+          beats={[fixture!.beat]}
+          speed="1x"
+          onSpeedChange={() => {}}
+          onPresented={() => {}}
+          onDone={() => {}}
+        />,
+      )
+    })
+    expect(container.querySelector('[data-scene]'), 'an ordinary threat beat played a cinematic scene').toBeNull()
+  })
+})
+
+describe('each scene states what it does under reduced motion (Round 5)', () => {
+  // The brief asks for the static form to be DESIGNED rather than derived
+  // by subtraction, and Round 4e is why: the refusal cue there shipped
+  // through a motion-only class and did nothing at all for a
+  // reduced-motion player, in the round that made reduced motion a
+  // first-class path.
+  //
+  // So the test is not "no animation classes". It is that the same
+  // INFORMATION is on screen in both modes, and only its arrival differs.
+
+  function sceneUnder(reduced: boolean, beat: Beat, before: GameState, after: GameState) {
+    setReducedMotion(reduced)
+    act(() => {
+      root.render(
+        <DirectorView
+          before={before}
+          after={after}
+          beats={[beat]}
+          speed="1x"
+          onSpeedChange={() => {}}
+          onPresented={() => {}}
+          onDone={() => {}}
+        />,
+      )
+    })
+    const el = container.querySelector('[data-scene]')
+    const text = el?.textContent ?? ''
+    const animated = [...container.querySelectorAll('[class*="dc-scene"]')].length
+    act(() => root.unmount())
+    root = createRoot(container)
+    return { present: !!el, text, animated }
+  }
+
+  // One beat of each kind that carries a scene, taken from real play.
+  function beatsWithScenes() {
+    const found = new Map<string, { beat: Beat; before: GameState; after: GameState }>()
+    for (const script of [WIN_SCRIPT, LOSS_SCRIPT]) {
+      for (const seed of [20260712, 7, 1, 2, 3, 4041, 11, 13]) {
+        let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+        while (state.status === 'playing') {
+          const after = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+          for (const b of deriveBeats(state, after)) {
+            const scene =
+              b.kind === 'outcome' ? (b.lost ? 'defeat' : 'victory') : b.kind === 'commendation' ? 'commendation' : b.kind === 'chain-armed' ? 'blackout' : null
+            if (scene && !found.has(scene)) found.set(scene, { beat: b, before: state, after })
+          }
+          state = after
+        }
+      }
+    }
+    return found
+  }
+
+  it('shows the same information in both modes, and animates in only one', () => {
+    const fixtures = beatsWithScenes()
+    expect([...fixtures.keys()].sort(), 'the sweep did not produce all four scenes').toEqual([
+      'blackout',
+      'commendation',
+      'defeat',
+      'victory',
+    ])
+    for (const [name, f] of fixtures) {
+      const moving = sceneUnder(false, f.beat, f.before, f.after)
+      const still = sceneUnder(true, f.beat, f.before, f.after)
+      expect(moving.present, `${name} did not render with motion allowed`).toBe(true)
+      expect(still.present, `${name} vanished under reduced motion`).toBe(true)
+      // The words are the information. Trimmed, because a count-up may
+      // render a different digit mid-animation.
+      const words = (t: string) => t.replace(/[\d.]+/g, '#').replace(/\s+/g, ' ').trim()
+      expect(words(still.text), `${name} says something different under reduced motion`).toBe(words(moving.text))
+      // And the positive control, which is what stops this being vacuous:
+      // with motion allowed the scene really does carry an entrance, so
+      // "no entrance under reduce" is a difference rather than an absence
+      // in both modes.
+      expect(moving.animated, `${name} has no entrance at all, so the check below proves nothing`).toBeGreaterThan(0)
+      expect(still.animated, `${name} still animates under reduced motion`).toBe(0)
+    }
+  })
+})
+
+describe('the scenes carry real content, not just their entrance (Round 5)', () => {
+  // Both of these were written after the scenes passed every other guard
+  // in this file while carrying a wrong number and an empty list. That is
+  // principle 16's other form: the guard asserted the scene was THERE and
+  // said nothing about what it contained.
+
+  it('shows the campaign-s MAI on the victory scene, not one of the meters it is built from', () => {
+    // Written as presented.meters.linkAvailability at first, under the
+    // label "Final MAI": a real number under the wrong name, which no
+    // presence check can see. The fixture picks a state where the two
+    // differ, and fails if it cannot find one, so it cannot pass by
+    // standing where they happen to agree.
+    let fixture: { before: GameState; after: GameState; beat: Beat } | null = null
+    for (const seed of [20260712, 7, 1, 2, 3, 4041]) {
+      let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+      while (state.status === 'playing') {
+        const after = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+        const outcome = deriveBeats(state, after).find((b) => b.kind === 'outcome' && !b.lost)
+        if (outcome && Math.round(maiScore(after)) !== Math.round(after.meters.linkAvailability)) {
+          fixture = { before: state, after, beat: outcome }
+          break
+        }
+        state = after
+      }
+      if (fixture) break
+    }
+    expect(
+      fixture,
+      'no won campaign in the sweep has an MAI that differs from link availability, so this cannot discriminate',
+    ).not.toBeNull()
+    const scene = playUntilScene(
+      fixture!.before,
+      fixture!.after,
+      deriveBeats(fixture!.before, fixture!.after),
+      'victory',
+    )
+    expect(scene, 'playback never reached the victory scene').not.toBeNull()
+    const readout = scene!.querySelector('[aria-label^="Final MAI"]')
+    expect(readout, 'the victory scene shows no final MAI').not.toBeNull()
+    const shown = Number(/Final MAI ([\d.]+)/.exec(readout!.getAttribute('aria-label') ?? '')?.[1] ?? NaN)
+    // Compared without rounding: the readout writes the raw value, and
+    // rounding it here would let a scene showing a neighbouring meter pass
+    // whenever the two happened to round together.
+    expect(shown, 'the victory scene shows a number that is not the MAI').toBeCloseTo(maiScore(fixture!.after), 5)
+  })
+
+  it('recaps the techniques that actually landed, on the defeat scene', () => {
+    // The recap read beat.techniques, and the outcome beat carries none,
+    // so the row's named treatment shipped as an empty list that every
+    // other guard was happy with.
+    const { before, after } = (() => {
+      for (const seed of [20260712, 7, 1, 2, 3, 4041, 11, 13]) {
+        let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+        while (state.status === 'playing') {
+          const next = resolveTurn(state, LOSS_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+          if (next.status !== 'playing') return { before: state, after: next }
+          state = next
+        }
+      }
+      throw new Error('no seed lost a campaign')
+    })()
+    // The expectation is built HERE, walking the engine's record directly,
+    // rather than by calling the function that renders the list. Computed
+    // with recapTechniques at first, which made every property of that
+    // function unfalsifiable: reversing its walk so the recap showed the
+    // campaign's FIRST techniques instead of the ones that ended it moved
+    // the expectation identically and the test passed.
+    const independent: string[] = []
+    for (let i = after.history.length - 1; i >= 0 && independent.length < RECAP_MAX; i -= 1) {
+      for (const ev of after.history[i].events) {
+        for (const ref of ev.firedTechniqueRefs) {
+          if (!independent.includes(ref.id) && independent.length < RECAP_MAX) independent.push(ref.id)
+        }
+      }
+    }
+    const expected = recapTechniques(after)
+    expect(expected.map((t) => t.id), 'recapTechniques does not walk the record most recent first').toEqual(independent)
+    expect(independent.length, 'this losing campaign fired no techniques, so the recap has nothing to show').toBeGreaterThan(0)
+    // And the order is genuinely newest first, not the same list either
+    // way round: a campaign whose techniques repeat every turn would make
+    // the check above pass in both directions.
+    const oldestFirst: string[] = []
+    for (const rec of after.history) {
+      for (const ev of rec.events) {
+        for (const ref of ev.firedTechniqueRefs) if (!oldestFirst.includes(ref.id)) oldestFirst.push(ref.id)
+      }
+    }
+    expect(
+      oldestFirst.slice(0, RECAP_MAX),
+      'this campaign fires the same techniques in both directions, so the order is unproven here',
+    ).not.toEqual(independent)
+
+    const scene = playUntilScene(before, after, deriveBeats(before, after), 'defeat')
+    expect(scene, 'playback never reached the defeat scene').not.toBeNull()
+    const cards = [...scene!.querySelectorAll('li')]
+    expect(cards.length, 'the defeat scene recapped nothing').toBe(expected.length)
+    expect(cards.map((c) => c.textContent?.trim())).toEqual(independent)
+    // Bounded, because a twelve turn campaign can fire two dozen and the
+    // reading diet bounds what the player is asked to take in.
+    expect(cards.length).toBeLessThanOrEqual(RECAP_MAX)
+  })
+})
+
+describe('every beat kind reaches the scene the table says it plays (Round 5)', () => {
+  // The gap this closes: nothing joined a beat KIND to the scene actually
+  // rendered. sceneUnder only asked whether a scene was present and never
+  // read its name, and the fixture that found the beats computed the
+  // expected name from its own private copy of the mapping, so the
+  // product's sceneFor was never compared with anything. Repointing
+  // chain-armed at the commendation scene rendered the loudest hostile
+  // moment in the game as a friendly blue box, with the whole suite green.
+  //
+  // Derived from SECTION_6_ROWS, so a row that changes its kinds or its
+  // scene changes what this expects.
+  it('renders the table-s scene for a real beat of each of its kinds', () => {
+    const rows = SECTION_6_ROWS.filter((r) => r.scene)
+    expect(rows.length, 'the table records no scenes').toBe(4)
+
+    // A real beat for every (kind, scene) pair the table claims.
+    const wanted = new Map<string, string>()
+    for (const row of rows) for (const kind of row.kinds ?? []) wanted.set(`${kind}|${row.scene}`, row.beat)
+
+    const found = new Map<string, { beat: Beat; before: GameState; after: GameState }>()
+    for (const script of [WIN_SCRIPT, LOSS_SCRIPT]) {
+      for (const seed of [20260712, 7, 1, 2, 3, 4041, 11, 13, 17, 23]) {
+        let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+        while (state.status === 'playing') {
+          const after = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+          for (const b of deriveBeats(state, after)) {
+            if (!b.visible) continue
+            for (const key of wanted.keys()) {
+              const [kind, scene] = key.split('|')
+              if (b.kind !== kind) continue
+              // The chain row claims two kinds; the threat one only counts
+              // when the subject really is the chain event.
+              if (kind === 'threat' && b.subjectId !== 'blackout-chain') continue
+              if (kind === 'outcome' && (scene === 'defeat') !== (b.lost === true)) continue
+              if (!found.has(key)) found.set(key, { beat: b, before: state, after })
+            }
+          }
+          state = after
+        }
+      }
+    }
+
+    const missing = [...wanted.keys()].filter((k) => !found.has(k))
+    expect(
+      missing.join(', '),
+      'the sweep produced no beat for these (kind, scene) pairs, so they are unproven rather than proven',
+    ).toBe('')
+
+    for (const [key, f] of found) {
+      const [kind, scene] = key.split('|')
+      act(() => {
+        root.render(
+          <DirectorView
+            before={f.before}
+            after={f.after}
+            beats={[f.beat]}
+            speed="1x"
+            onSpeedChange={() => {}}
+            onPresented={() => {}}
+            onDone={() => {}}
+          />,
+        )
+      })
+      const el = container.querySelector('[data-scene]')
+      expect(el, `a ${kind} beat rendered no scene, but the table says it plays ${scene}`).not.toBeNull()
+      expect(
+        el!.getAttribute('data-scene'),
+        `a ${kind} beat (${wanted.get(key)}) rendered the wrong scene`,
+      ).toBe(scene)
+      act(() => root.unmount())
+      root = createRoot(container)
+    }
+  })
+})
+
+describe('the scene numbers count, and the scene reads its own beat (Round 5)', () => {
+  // All three guards below exist because a mutation reverting the product
+  // fix slept. Each fix was made in response to the pass and shipped
+  // without anything able to detect its reversion, which is principle 16's
+  // subject and the reason it was written.
+
+  function renderBeat(f: { before: GameState; after: GameState; beat: Beat }) {
+    act(() => {
+      root.render(
+        <DirectorView
+          before={f.before}
+          after={f.after}
+          beats={[f.beat]}
+          speed="1x"
+          onSpeedChange={() => {}}
+          onPresented={() => {}}
+          onDone={() => {}}
+        />,
+      )
+    })
+  }
+
+  function firstBeat(match: (b: Beat) => boolean, scripts = [WIN_SCRIPT, LOSS_SCRIPT]) {
+    for (const script of scripts) {
+      for (const seed of [20260712, 7, 1, 2, 3, 4041, 11, 13, 17, 23]) {
+        let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+        while (state.status === 'playing') {
+          const after = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+          for (const b of deriveBeats(state, after)) if (b.visible && match(b)) return { before: state, after, beat: b }
+          state = after
+        }
+      }
+    }
+    return null
+  }
+
+  const readoutValue = (root_: Element, label: string) => {
+    const el = root_.querySelector(`[aria-label^="${label}"]`)
+    return el ? Number(new RegExp(`${label} ([\\d.]+)`).exec(el.getAttribute('aria-label') ?? '')?.[1] ?? NaN) : null
+  }
+
+  it('counts the commendation bonus up instead of painting it arrived', () => {
+    // useCountUp only animates an instance that is ALREADY mounted, so a
+    // readout born at its final number never counted: the bonus and the
+    // final MAI were painted complete in their first frame, in both motion
+    // modes, while the brief asks for them to count.
+    //
+    // Asserted through the TICK rather than through an intermediate digit.
+    // act() flushes effects, so the pre-arrival frame is not observable
+    // from outside React; what a player gets from a count that runs is the
+    // readout reporting a gain, and a number painted at its final value
+    // reports nothing at all. That is the same cue the HUD meters use.
+    const f = firstBeat((b) => b.kind === 'commendation' && (b.patch.credits ?? 0) > 0)
+    expect(f, 'the sweep produced no commendation carrying a bonus').not.toBeNull()
+    installGestureUnlock()
+    document.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    const engine = getAudioEngine()
+    contexts[0].reset()
+    engine.play('tick-up')
+    const tickUp = contexts[0].oscillators().map((o) => o.frequency.first())
+    expect(tickUp.length, 'the tick voice scheduled nothing, so this cannot discriminate').toBeGreaterThan(0)
+
+    setReducedMotion(false)
+    contexts[0].reset()
+    renderBeat(f!)
+    const heard = contexts[0].oscillators().map((o) => o.frequency.first())
+    expect(
+      tickUp.every((hz) => heard.includes(hz)),
+      'the bonus was painted at its final value, so nothing counted and the readout reported no gain',
+    ).toBe(true)
+    // And it lands on the right number. Read without advancing timers:
+    // one beat at 1x finishes after its dwell and the card unmounts, so
+    // advancing past it reads an empty screen rather than a settled one.
+    expect(
+      readoutValue(container.querySelector('[data-scene="commendation"]')!, 'Bonus credits'),
+      'the bonus never arrived at its value',
+    ).toBe(f!.beat.patch.credits ?? 0)
+  })
+
+  it('reports no gain under reduced motion, because nothing counted', () => {
+    // The preference short-circuit. Without it the scene still holds zero
+    // for a commit and then adopts the target, so the readout sees a
+    // change and ticks for a count that never ran; the zero frame itself
+    // is not observable through act(), but the tick is, and it is the
+    // thing a player would actually notice.
+    //
+    // This is a deliberate departure from the HUD meters, which do tick on
+    // a snap: there the number really did change during the turn, while
+    // here it arrived with the scene.
+    const f = firstBeat((b) => b.kind === 'commendation' && (b.patch.credits ?? 0) > 0)!
+    installGestureUnlock()
+    document.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    const engine = getAudioEngine()
+    contexts[0].reset()
+    engine.play('tick-up')
+    const tickUp = contexts[0].oscillators().map((o) => o.frequency.first())
+    setReducedMotion(true)
+    contexts[0].reset()
+    renderBeat(f)
+    const heard = contexts[0].oscillators().map((o) => o.frequency.first())
+    expect(
+      tickUp.every((hz) => heard.includes(hz)),
+      'reduced motion reported a gain for a number that never counted',
+    ).toBe(false)
+    // And the number is nonetheless correct and complete.
+    expect(
+      readoutValue(container.querySelector('[data-scene="commendation"]')!, 'Bonus credits'),
+      'reduced motion did not show the award',
+    ).toBe(f.beat.patch.credits ?? 0)
+  })
+
+  it('makes no such report for a scene with no number, which is the control', () => {
+    // The positive control: the defeat scene has no readout, so the tick
+    // above is a consequence of the count rather than something every
+    // scene emits on arrival.
+    const f = firstBeat((b) => b.kind === 'outcome' && b.lost === true, [LOSS_SCRIPT])
+    expect(f, 'no losing campaign in the sweep').not.toBeNull()
+    installGestureUnlock()
+    document.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    const engine = getAudioEngine()
+    contexts[0].reset()
+    engine.play('tick-up')
+    const tickUp = contexts[0].oscillators().map((o) => o.frequency.first())
+    setReducedMotion(false)
+    contexts[0].reset()
+    renderBeat(f!)
+    const heard = contexts[0].oscillators().map((o) => o.frequency.first())
+    expect(
+      tickUp.every((hz) => heard.includes(hz)),
+      'a scene with no number still reported a gain, so the tick proves nothing about counting',
+    ).toBe(false)
+  })
+
+  it('darkens the layers the beat names, not a fixed three', () => {
+    // The scene listed ORBIT, AIR and GROUND whatever happened, three
+    // lines under a card header rendering the beat's own layer badges. The
+    // chain event carries AIR alone.
+    const partial = firstBeat(
+      (b) => (b.kind === 'chain-armed' || (b.kind === 'threat' && b.subjectId === 'blackout-chain')) && !!b.layers && b.layers.length > 0 && b.layers.length < 3,
+    )
+    expect(partial, 'the sweep produced no blackout beat naming a subset of the layers').not.toBeNull()
+    renderBeat(partial!)
+    const listed = [...container.querySelectorAll('[data-scene="blackout"] li')].map((li) => li.textContent?.trim())
+    expect(listed.length, 'the scene listed a different number of layers from the beat').toBe(partial!.beat.layers!.length)
+    for (const layer of partial!.beat.layers!) {
+      expect(listed.some((t) => t?.includes(layer)), `the scene did not darken ${layer}`).toBe(true)
+    }
+    // The verdict line answers to the same fact. It read "Navigation,
+    // timing and downlink lost together. The drones are flying blind."
+    // whatever went dark, which is a claim about the whole constellation
+    // sitting under a list of one layer.
+    const verdict = container.querySelector('[data-scene="blackout"] p:last-of-type')?.textContent ?? ''
+    expect(verdict, 'the verdict line claims the whole constellation went dark').not.toMatch(/lost together/i)
+    for (const layer of partial!.beat.layers!) {
+      expect(verdict, `the verdict line does not name ${layer}`).toContain(layer)
+    }
+    // And the control: a blackout beat naming NO layer darkens all three,
+    // so "listed only the beat's layers" is not satisfied by a scene that
+    // always lists fewer.
+    const whole = firstBeat((b) => b.kind === 'chain-armed' && (!b.layers || b.layers.length === 0))
+    if (whole) {
+      act(() => root.unmount())
+      root = createRoot(container)
+      renderBeat(whole)
+      expect(
+        [...container.querySelectorAll('[data-scene="blackout"] li')].length,
+        'a blackout naming no layer should darken the whole constellation',
+      ).toBe(3)
+      // And its verdict line is the whole-constellation one, which is the
+      // control for the assertion above.
+      expect(
+        container.querySelector('[data-scene="blackout"] p:last-of-type')?.textContent ?? '',
+        'a whole-constellation blackout should say so',
+      ).toMatch(/lost together/i)
+    }
+  })
+
+  it('starts the second of two adjacent commendations from zero, not from the first award', () => {
+    // The guard that replaces one which could not fail for its own reason.
+    // The first version asserted node identity and the settled aria-label;
+    // both hold while the behaviour is broken, because the key really does
+    // make a new node and the aria-label is built from the value PROP
+    // rather than from the digit on screen.
+    //
+    // So this reads the rendered digit, and drives two adjacent beats
+    // through one mounted view, which is the only arrangement in which the
+    // carry-over can happen at all: the stale number lived in Scene, and
+    // Scene is only reused when the view is not remounted between beats.
+    const f = firstBeat((b) => b.kind === 'commendation' && (b.patch.credits ?? 0) > 0)!
+    const first = f.beat.patch.credits ?? 0
+    const second = { ...f.beat, id: `${f.beat.id}-b`, patch: { ...f.beat.patch, credits: first + 9 } }
+    setReducedMotion(false)
+    // Both beats in one beats array, advanced through by the director, so
+    // DirectorView and its card subtree persist across the change.
+    act(() => {
+      root.render(
+        <DirectorView
+          before={f.before}
+          after={f.after}
+          beats={[f.beat, second]}
+          speed="1x"
+          onSpeedChange={() => {}}
+          onPresented={() => {}}
+          onDone={() => {}}
+        />,
+      )
+    })
+    const digit = () =>
+      container.querySelector('[data-scene="commendation"] span.tabular-nums')?.textContent?.trim() ?? ''
+    // The count really runs: the digit opens below its target and settles
+    // on it. rAF does not tick under fake timers, so the readout's own
+    // safety settle is what lands it; that it opens at zero rather than at
+    // the award is the behaviour under test.
+    expect(digit(), 'the first commendation opened already arrived').toBe('0')
+    act(() => {
+      vi.advanceTimersByTime(700)
+    })
+    expect(digit(), 'the first commendation did not settle on its award').toBe(String(first))
+
+    // Advance past the dwell to the second beat and read what the player
+    // sees as it opens.
+    act(() => {
+      vi.advanceTimersByTime(600)
+    })
+    const onArrival = digit()
+    expect(onArrival, 'the second commendation opened on the first award-s number').not.toBe(String(first))
+    expect(onArrival, 'the second commendation did not open from zero').toBe('0')
+    act(() => {
+      vi.advanceTimersByTime(700)
+    })
+    expect(digit(), 'the second commendation did not settle on its own award').toBe(String(first + 9))
+  })
+
+  it('does not carry a commendation-s credits into the victory scene-s MAI', () => {
+    // The same root cause across a change of scene KIND, and the case the
+    // first fix explicitly reasoned itself out of guarding: two outcome
+    // beats cannot be adjacent, but a commendation and an outcome can, and
+    // they are, on any campaign won on a turn that earned one.
+    const won = (() => {
+      for (const seed of [20260712, 7, 1, 2, 3, 4041, 11, 13]) {
+        let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+        while (state.status === 'playing') {
+          const after = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+          if (after.status === 'won') {
+            const bs = deriveBeats(state, after)
+            if (bs.some((b) => b.kind === 'commendation' && (b.patch.credits ?? 0) > 0)) {
+              return { before: state, after, beats: bs }
+            }
+          }
+          state = after
+        }
+      }
+      return null
+    })()
+    expect(won, 'no campaign in the sweep is won on a turn that also earns a commendation').not.toBeNull()
+    const bonus = won!.beats.find((b) => b.kind === 'commendation')!.patch.credits ?? 0
+    setReducedMotion(false)
+    const scene = playUntilScene(won!.before, won!.after, won!.beats, 'victory')
+    expect(scene, 'playback never reached the victory scene').not.toBeNull()
+    const label = scene!.querySelector('[aria-label^="Final MAI"]')?.getAttribute('aria-label') ?? ''
+    expect(label, 'the victory scene shows the commendation-s credits under the label Final MAI').not.toContain(
+      ` ${bonus}`,
+    )
+    expect(Number(/Final MAI ([\d.]+)/.exec(label)?.[1] ?? NaN)).toBeCloseTo(maiScore(won!.after), 5)
   })
 })
