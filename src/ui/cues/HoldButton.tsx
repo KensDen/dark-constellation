@@ -23,6 +23,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useReducedMotion } from './motion'
+import { useSound } from '../../audio'
+import type { SoundCue } from '../../director/cues'
 
 export const HOLD_MS = 600
 
@@ -53,6 +55,21 @@ export type HoldEvent =
   | { type: 'elapsed' }
 
 export type HoldEffect = 'none' | 'start' | 'cancel' | 'confirm'
+
+// The rising sweep is the sound of the ring filling, so it fires when the
+// hold starts rather than when it completes: the player needs to hear that
+// the press registered, and a cancelled hold that made a noise is better
+// than a held one that made none.
+//
+// Keyboard and assistive activation commit with no hold and therefore no
+// ring at all, so for them the sweep fires on the confirm instead. Without
+// this branch the one path with no visual feedback would also be the one
+// path with no audible feedback.
+export function holdSound(effect: HoldEffect, wasHolding: boolean): SoundCue {
+  if (effect === 'start') return 'execute-sweep'
+  if (effect === 'confirm' && !wasHolding) return 'execute-sweep'
+  return 'silent'
+}
 
 // Pure: what each event does to the gesture, and what the component should
 // do about it. Every rule the control exists to enforce is here, so the
@@ -126,11 +143,16 @@ export default function HoldButton({
   // inside a useReducer reducer, which React is free to double-invoke or
   // discard, and the keyboard path silently stopped committing.
   const sendRef = useRef<(event: HoldEvent) => void>(() => {})
+  const play = useSound()
+  const playRef = useRef(play)
+  playRef.current = play
   const send = useCallback(
     (event: HoldEvent) => {
+      const wasHolding = stateRef.current.holding
       const { state, effect } = holdReducer(stateRef.current, event, { disabled })
       stateRef.current = state
       setHolding(state.holding)
+      playRef.current(holdSound(effect, wasHolding))
       if (effect === 'start') {
         window.clearTimeout(timerRef.current)
         timerRef.current = window.setTimeout(() => sendRef.current({ type: 'elapsed' }), HOLD_MS)

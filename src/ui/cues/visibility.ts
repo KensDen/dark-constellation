@@ -28,9 +28,12 @@
 //   - The count-up snaps to the value of the beat being shown rather than
 //     easing toward it, because an animation the player cannot see is not
 //     an animation. This is what the safety settle was doing by accident.
-//   - Sound (Round 4) must not start while hidden and must not queue what
-//     it could not play. The context suspends with the page and resumes on
-//     return; nothing is replayed to catch up.
+//   - Sound does not start while hidden and does not queue what it could
+//     not play: a cue that is not allowed schedules nothing at all rather
+//     than playing into a muted gain. The context suspends with the page
+//     and resumes on return, and nothing is replayed to catch up. Shipped
+//     in Round 4d as src/audio/engine.ts; this bullet described an
+//     intention until then, which principle 12 says to mark as such.
 
 export type VisibilityListener = (visible: boolean) => void
 
@@ -59,5 +62,13 @@ export function countUpMode(visible: boolean, reduced: boolean): 'ease' | 'snap'
 // Whether the director should hold its position. Exported for the same
 // reason: it is the policy, not an implementation detail of the view.
 export function playbackPaused(visible: boolean): boolean {
+  return !visible
+}
+
+// Whether the audio context should be suspended. The third channel, and
+// the reason this module exists rather than three components each reading
+// document.visibilityState: hidden means the same thing to all three, and
+// a policy stated once cannot drift between them.
+export function audioSuspended(visible: boolean): boolean {
   return !visible
 }

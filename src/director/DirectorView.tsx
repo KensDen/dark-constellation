@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { GameState } from '../engine/types'
-import { CARD_SAFE_VISUALS, VISUAL_CLASS, VISUAL_MS, resolveCue, visualFor } from './cues'
+import { CARD_SAFE_VISUALS, VISUAL_CLASS, VISUAL_MS, resolveCue, soundFor, visualFor } from './cues'
 import { Director, beatCueMs, type DirectorSnapshot, type Speed } from './director'
 import { describePatch, type DeltaTone } from './patch'
 import SpeedSelect from './SpeedSelect'
@@ -16,6 +16,7 @@ import type { Beat } from './types'
 import { useCueClass, useReducedMotion } from '../ui/cues/motion'
 import { onVisibilityChange, pageVisible, playbackPaused } from '../ui/cues/visibility'
 import { layerBadges, vectorIcons } from '../ui/cues/icons'
+import { beatIntensity, useSilenceSound, useSound } from '../audio'
 import { DEFAULT_SCENARIO } from '../content'
 
 // 44px minimum hit boxes (brief principle 5: designed for a thumb at 375px).
@@ -45,6 +46,8 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
   const directorRef = useRef<Director | null>(null)
   const [snap, setSnap] = useState<DirectorSnapshot | null>(null)
   const reduced = useReducedMotion()
+  const play = useSound()
+  const silence = useSilenceSound()
   // Always the current speed, readable from the construction effect without
   // making it a dependency; later changes go through setSpeed so playback
   // position is kept.
@@ -58,6 +61,29 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
   // beat without rebuilding the director and losing playback position.
   const reducedRef = useRef(reduced)
   reducedRef.current = reduced
+
+  // Leaving playback stops whatever it was saying. The longest cues in the
+  // game are here (the BLACKOUT CHAIN at 1500ms, the defeat sting at
+  // 1200ms), and a player who skips or backs out to the menu halfway
+  // through one would otherwise hear the rest of it over the next screen.
+  //
+  // But ONLY when the player left. This view also unmounts when playback
+  // simply finishes: the last beat's dwell expires, the director reports
+  // done, and Game swaps to the aftermath. The first version of this
+  // silenced that too, and the dwell floor is the beat's VISUAL duration
+  // (director.ts beatCueMs reads VISUAL_MS, never SOUND_MS), so any
+  // closing cue longer than its own visual got cut. At 2x a lost campaign
+  // held its outcome beat for 600ms and the defeat sting runs 1200ms: the
+  // player heard the sting and none of the hum the brief asks for. A cue
+  // that outlives its beat should finish over the aftermath, which is the
+  // screen it belongs to.
+  const finishedRef = useRef(false)
+  useEffect(
+    () => () => {
+      if (!finishedRef.current) silence()
+    },
+    [silence],
+  )
 
   useLayoutEffect(() => {
     const d = new Director(before, after, beats, {
@@ -93,11 +119,21 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
 
   const done = snap?.status === 'done'
   useLayoutEffect(() => {
-    if (done) onDone()
+    if (!done) return
+    // Recorded before onDone, because onDone is what unmounts this view.
+    finishedRef.current = true
+    onDone()
   }, [done, onDone])
 
   const advance = useCallback(() => directorRef.current?.advance(), [])
-  const skip = useCallback(() => directorRef.current?.skip(), [])
+  const skip = useCallback(() => {
+    // SKIP means now, in all three channels. It silences here rather than
+    // leaving it to the unmount, because skipping drives the director to
+    // done and the unmount path deliberately lets a finished playback's
+    // last cue ring out.
+    silence()
+    directorRef.current?.skip()
+  }, [silence])
 
   // Escape skips from anywhere. Space and Enter advance only when nothing
   // is focused, so buttons, the HUD's disclosure summary and links keep
@@ -143,6 +179,29 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
   const deltas = beat && snap ? describePatch(beat.patch, snap.presented, beat.kind) : []
   const def = beat?.subjectId ? DEFAULT_SCENARIO.events.find((e) => e.id === beat.subjectId) : undefined
   const lost = beat?.kind === 'outcome' && beat.title.startsWith('MISSION FAILED')
+
+  // The beat's sound, fired once per beat. Keyed on the beat id rather than
+  // on the beat object so a re-render that produces the same beat does not
+  // re-trigger it, and so a repeat of the same kind later in the turn does.
+  //
+  // Placed here rather than inside the director because the director runs
+  // in node in the suite and has no business knowing about audio; the view
+  // is where a beat becomes something a player perceives. The engine's
+  // decision about whether a sound is allowed at all lives one layer
+  // further down, in src/audio/engine.ts, so nothing here has to ask.
+  useEffect(() => {
+    if (!beat) return
+    const sound = soundFor(beat.cueKey, beat.kind, lost)
+    if (!sound) return
+    play(sound, { intensity: beatIntensity(beat) })
+    // The beat object itself, which the director hands back unchanged for
+    // as long as that beat is on screen: its identity is what makes "once
+    // per beat" true, and a render that changes nothing else does not
+    // re-fire it. Keyed on the id instead at first, with a lint
+    // suppression to match; the id was redundant, since the object is
+    // exactly as stable, and a mutation adding the object back to the
+    // dependency list changed nothing at all, which is what said so.
+  }, [beat, lost, play])
   const hostile = beat ? HOSTILE_KINDS.has(beat.kind) || lost : false
   const border = beat
     ? hostile

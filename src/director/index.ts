@@ -37,13 +37,18 @@ export {
   EVENT_CUES,
   SECTION_6_ROWS,
   CARD_SAFE_VISUALS,
+  LONG_SOUNDS,
+  SOUND_MS,
   VISUAL_CLASS,
   VISUAL_MS,
   resolveCue,
+  soundFor,
+  soundsAtInstantSpeed,
   visualClass,
   visualFor,
   type Cue,
   type Section6Row,
+  type SoundCue,
   type VisualCue,
 } from './cues'
 export { default as SpeedSelect } from './SpeedSelect'

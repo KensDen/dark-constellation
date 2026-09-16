@@ -18,6 +18,7 @@ import type { Difficulty, GameState, TurnActions, TurnRecord } from '../src/engi
 import {
   CHAIN_ARMED_LINE,
   CHROME_WORD_BUDGET,
+  SOUND_TOGGLE_LABELS,
   FIRST_INPUT_WORD_BUDGET,
   HEADLINE_WORD_MAX,
   briefCopy,
@@ -251,6 +252,8 @@ describe('reading diet: the intel brief', () => {
       'Save',
       'Export code',
       'Autosaved each turn.',
+      SOUND_TOGGLE_LABELS.effects,
+      SOUND_TOGGLE_LABELS.music,
     ]
     for (let seed = 1; seed <= SEEDS; seed += 1) {
       for (const { before } of playTurns(seed, WIN_SCRIPT)) {
@@ -269,12 +272,29 @@ describe('reading diet: the intel brief', () => {
     // dishonesty in reverse. Pinned against the source that renders them,
     // since there is no DOM here to ask.
     const game = readFileSync(join(SRC, 'ui', 'Game.tsx'), 'utf8')
-    for (const control of required.filter((c) => c !== '> INCOMING TRANSMISSION_')) {
+    // Three controls are rendered by components of their own rather than
+    // spelled in Game.tsx, so each is pinned where it actually lives.
+    const elsewhere = new Set<string>([
+      '> INCOMING TRANSMISSION_',
+      SOUND_TOGGLE_LABELS.effects,
+      SOUND_TOGGLE_LABELS.music,
+    ])
+    for (const control of required.filter((c) => !elsewhere.has(c))) {
       expect(game.includes(control), `chrome counts "${control}", which the screen no longer renders`).toBe(true)
     }
     // The transmission label is rendered as an entity by the teletype bar.
     const teletype = readFileSync(join(SRC, 'ui', 'cues', 'Teletype.tsx'), 'utf8')
     expect(teletype.includes('INCOMING TRANSMISSION_'), 'chrome counts a transmission label nothing renders').toBe(true)
+    // The two audio toggles read their names from this same constant
+    // rather than spelling them, so the text pin would be circular. What
+    // has to be true is that Game.tsx mounts the control and that the
+    // control renders those names, and the second half is asserted against
+    // a rendered DOM in tests/sound.dom.spec.tsx rather than by grep.
+    expect(game.includes('<SoundToggles'), 'chrome counts two toggles the campaign screen does not mount').toBe(true)
+    const toggles = readFileSync(join(SRC, 'ui', 'cues', 'SoundToggles.tsx'), 'utf8')
+    expect(toggles.includes('SOUND_TOGGLE_LABELS'), 'the toggles no longer read their names from the counted constant').toBe(
+      true,
+    )
   })
 
   it('bounds the interface chrome that the reading budget excludes', () => {

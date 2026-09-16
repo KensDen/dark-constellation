@@ -23,12 +23,13 @@ import { vectorLabels } from './labels'
 // labels, values and status line. What it does not count, and why:
 //
 //   - Interface chrome: the section heading, the transmission label, the
-//     button labels, the summary labels of the disclosures, and the menu
-//     and save controls the screen carries. These are navigation, not the
-//     brief; they are bounded separately by CHROME_WORD_BUDGET so the
-//     exclusion cannot quietly become a loophole. The bound was raised
-//     from 24 to 32 in v0.9 along with the four controls it had not been
-//     counting: a bound satisfied by not counting things is not a bound.
+//     button labels, the summary labels of the disclosures, the menu and
+//     save controls the screen carries, and the two audio toggles. These
+//     are navigation, not the brief; they are bounded separately by
+//     CHROME_WORD_BUDGET so the exclusion cannot quietly become a
+//     loophole. The bound was raised from 24 to 32 in v0.9 along with the
+//     four controls it had not been counting: a bound satisfied by not
+//     counting things is not a bound.
 //   - Condition badges: at-a-glance state, read as glyphs rather than
 //     prose, and their count is set by play rather than by copy.
 //
@@ -40,11 +41,23 @@ import { vectorLabels } from './labels'
 // The headroom is thinner than it looks. The suite sweeps five lines of
 // play, and the top-intel line reaches the branch that carries the named
 // lead event, the "plus N more" suffix, the carried vector clause and the
-// technique tag at once: 54 words of the 60. Round 4's two audio toggles
-// are chrome, not reading load, and chrome has four words spare.
+// technique tag at once: 54 words of the 60. Round 4d's two audio toggles
+// are chrome, not reading load: they took two of the four words chrome had
+// spare, and two remain.
 export const HEADLINE_WORD_MAX = 8
 export const FIRST_INPUT_WORD_BUDGET = 60
 export const CHROME_WORD_BUDGET = 32
+
+// The two audio toggles (Round 4d). One word each, and that is the design
+// constraint rather than a preference for brevity: chrome had four words
+// spare and these take two of them. The on and off state rides
+// aria-pressed, which costs no words at all.
+//
+// They live here rather than in the component so the chrome count below is
+// the same constant the screen renders, instead of a second copy of it
+// that can drift; tests/sound.dom.spec.tsx asserts the rendered buttons
+// carry exactly these names.
+export const SOUND_TOGGLE_LABELS = { effects: 'Sound', music: 'Music' } as const
 
 export function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length
@@ -228,6 +241,10 @@ export function firstInputWords(state: GameState, difficultyLabel: string): numb
 // satisfied by not counting things looks like. The save row renders while
 // the campaign is playing and the menu button whenever the game was
 // entered from the menu, which is every normal turn.
+//
+// The two audio toggles join the save row in Round 4d and are read from
+// SOUND_TOGGLE_LABELS rather than spelled again, so this list cannot
+// disagree with what the screen renders.
 export function chromeCopy(state: GameState): string[] {
   const turn = Math.min(state.turn, state.scenario.totalTurns)
   return [
@@ -241,6 +258,8 @@ export function chromeCopy(state: GameState): string[] {
     'Save',
     'Export code',
     'Autosaved each turn.',
+    SOUND_TOGGLE_LABELS.effects,
+    SOUND_TOGGLE_LABELS.music,
   ]
 }
 

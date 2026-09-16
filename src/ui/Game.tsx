@@ -23,6 +23,8 @@ import {
 import { reportData, shareText } from './reportCard'
 import DirectorView from '../director/DirectorView'
 import HoldButton from './cues/HoldButton'
+import SoundToggles from './cues/SoundToggles'
+import { useSound, useSoundPrefs } from '../audio'
 import {
   SpeedSelect,
   defaultSpeed,
@@ -223,6 +225,15 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   // screen returns early below, and hook order cannot depend on whether a
   // campaign is in progress.
   const reducedMotion = useReducedMotion()
+  // The procurement phase's own sounds (brief section 6, rows "Buy fleet or
+  // countermeasure" and "Cannot afford"). Playback sounds are the
+  // director's; these three tiles are the only cues the player triggers
+  // themselves, which is why they live with the controls rather than with
+  // the beats.
+  const play = useSound()
+  // The two audio toggles ride the save row, which is the only chrome the
+  // campaign screen carries in every phase.
+  const [soundPrefs, setSoundPrefs] = useSoundPrefs()
   // Cannot-afford cue (brief v0.5 section 6): the tile shakes and the
   // spend line flashes. A nonce restarts the animation on a repeat press.
   const [denied, setDenied] = useState<{ id: string; nonce: number } | null>(null)
@@ -563,6 +574,16 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
       // presentation only: instant speed never runs it (the v1.0 path,
       // unchanged), and if derivation ever fails the turn still stands and
       // the aftermath shows the engine's result directly.
+      //
+      // Round 4d consequence, recorded because it is not obvious: no beats
+      // means no beat sounds. At instant speed the eleven section 6 rows
+      // the director plays are silent, and only the five a component plays
+      // (the two procurement tiles, EXECUTE TURN, the meter tick and the
+      // MAI crossing) still sound. Instant is also what reduced motion
+      // selects by default, so that is the reduced-motion player's normal
+      // experience unless they choose a speed. See soundsAtInstantSpeed in
+      // director/cues.ts for the derivation and the brief conflict it
+      // records.
       let beats: Beat[] | null = null
       if (speed !== 'instant') {
         try {
@@ -595,6 +616,9 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   // inside the same budget so the gate never has to refuse at resolve time.
   const afford = (price: number, tileId: string): boolean => {
     if (cost + price <= available) return true
+    // Every refusal in the phase comes through here, so the buzz does too:
+    // a second copy at a call site is a copy that can be forgotten.
+    play('denied-buzz')
     setDenied((d) => ({ id: tileId, nonce: (d?.nonce ?? 0) + 1 }))
     return false
   }
@@ -602,12 +626,17 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const addAsset = (kind: AssetKind, tier: TrustTier) => {
     const price = assetPrice(scenario, kind, tier)
     if (!afford(price, `${kind}-${tier}`)) return
+    play('buy-click')
     // The new entry is the last one, and the nonce restarts the cue when
     // the same kind is bought twice in a row.
     setArrived({ index: actions.buyAssets.length, nonce: (arrived?.nonce ?? 0) + 1 })
     setActions({ ...actions, buyAssets: [...actions.buyAssets, { kind, tier }] })
   }
   const removeAsset = (index: number) => {
+    // Taking an item back out is the same control as putting it in. The
+    // brief's row names the buy, but a silent removal beside a clicking
+    // buy reads as a control that stopped working.
+    play('buy-click')
     // The cue points at a row by index, so a removal invalidates it.
     setArrived(null)
     setActions({ ...actions, buyAssets: actions.buyAssets.filter((_, i) => i !== index) })
@@ -618,6 +647,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
       const price = scenario.countermeasures.find((c) => c.id === id)?.cost ?? 0
       if (!afford(price, `cm-${id}`)) return
     }
+    play('buy-click')
     setActions({
       ...actions,
       buyCounters: already ? actions.buyCounters.filter((c) => c !== id) : [...actions.buyCounters, id],
@@ -840,17 +870,30 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
         </p>
       </details>
       {activeConditions}
-      {state.status === 'playing' && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 pt-2 border-t border-phosphor/15">
-          <button className={`${btn} text-xs py-0.5`} onClick={saveSlot}>
-            Save
-          </button>
-          <button className={`${btn} text-xs py-0.5`} onClick={exportCode}>
-            Export code
-          </button>
-          <span className="text-xs text-ink-dim">Autosaved each turn.</span>
-        </div>
-      )}
+      {/* Saving and exporting belong to a campaign in progress; muting does
+          not. The toggles rode this row when it was first built and
+          vanished the moment the engine returned won or lost, which is
+          exactly when the longest cues of the whole game play: the
+          deciding turn's playback runs with status already decided, so a
+          player reaching the BLACKOUT CHAIN or the defeat sting had no
+          mute control on screen and no way back to one short of starting
+          a new campaign. Principle 4 calls the effects toggle an
+          accessibility path, and an accessibility path that disappears at
+          the loudest moment is not one. */}
+      <div className="mt-2 flex flex-wrap items-center gap-2 pt-2 border-t border-phosphor/15">
+        {state.status === 'playing' && (
+          <>
+            <button className={`${btn} text-xs py-0.5`} onClick={saveSlot}>
+              Save
+            </button>
+            <button className={`${btn} text-xs py-0.5`} onClick={exportCode}>
+              Export code
+            </button>
+          </>
+        )}
+        <SoundToggles prefs={soundPrefs} onChange={setSoundPrefs} />
+        {state.status === 'playing' && <span className="text-xs text-ink-dim">Autosaved each turn.</span>}
+      </div>
       {notice && <p className="mt-1 font-mono text-xs text-alert-amber">{notice}</p>}
     </section>
   )
@@ -1071,6 +1114,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
                 onChange={(e) => {
                   const intelPrice = state.intelLevel !== 3 ? scenario.prices.intelLevels[state.intelLevel] : 0
                   if (e.target.checked && !afford(intelPrice, 'intel')) return
+                  play('buy-click')
                   setActions({ ...actions, buyIntelLevel: e.target.checked })
                 }}
               />{' '}
@@ -1141,6 +1185,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
                   onChange={(e) => {
                     const price = scenario.countermeasures.find((c) => c.id === 'irRetainer')?.cost ?? 0
                     if (e.target.checked && !afford(price, 'cm-irRetainer')) return
+                    play('buy-click')
                     setActions({ ...actions, buyIrRetainer: e.target.checked })
                   }}
                 />{' '}

@@ -8,7 +8,7 @@
 // public CI never sees the deny-list.
 
 import { execSync, spawnSync } from 'node:child_process'
-import { readFileSync, rmSync } from 'node:fs'
+import { readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -56,6 +56,56 @@ run('bundle budget: gzipped main chunk under threshold (game-feel brief 8)', () 
   const budget = JSON.parse(readFileSync('tests/bundle-budget.json', 'utf8'))
   const { line } = measureBundle({ budget, startedAt: batteryStartedAt })
   process.stdout.write(`${line} ... `)
+})
+
+// The dev-only sound board must not reach players (game-feel brief section
+// 7). App.tsx reaches it through a dynamic import behind import.meta.env
+// .DEV, which folds to false in a production build so Rollup drops the
+// import and emits no chunk. That is a claim about a bundler's behaviour
+// under a specific config, which is exactly the kind of claim that stops
+// being true quietly, so the built output is searched rather than trusted.
+//
+// The same layer holds the test-only dependency on the right side of the
+// line: jsdom exists for the DOM suites and has no business in a bundle.
+const DEV_ONLY_MARKERS = ['DC_DEV_SOUND_BOARD', 'Sound board (dev)']
+
+function filesUnder(dir) {
+  const out = []
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry)
+    if (statSync(full).isDirectory()) out.push(...filesUnder(full))
+    else out.push(full)
+  }
+  return out
+}
+
+run('dev-only sound board is excluded from the production build (brief 7)', () => {
+  const hits = []
+  for (const file of filesUnder('dist')) {
+    if (!/\.(js|css|html|map)$/.test(file)) continue
+    const text = readFileSync(file, 'utf8')
+    for (const marker of DEV_ONLY_MARKERS) {
+      if (text.includes(marker)) hits.push(`${file} carries "${marker}"`)
+    }
+  }
+  if (hits.length) {
+    throw new Error(`the dev sound board reached the production build:\n${hits.join('\n')}`)
+  }
+  // And the other half of the same sentence: the board is excluded, the
+  // audio engine is not. A build that shipped neither would pass the
+  // check above while shipping a silent game.
+  const shipped = filesUnder('dist').filter((f) => f.endsWith('.js'))
+  const anyAudio = shipped.some((f) => readFileSync(f, 'utf8').includes('dc-sound-effects'))
+  if (!anyAudio) {
+    throw new Error('no built chunk carries the audio preference key; the whole audio layer was tree-shaken away')
+  }
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+  if (pkg.dependencies?.jsdom) {
+    throw new Error('jsdom is a runtime dependency; it is the test environment and belongs in devDependencies')
+  }
+  if (!pkg.devDependencies?.jsdom) {
+    throw new Error('jsdom is not in devDependencies; the DOM suites cannot run')
+  }
 })
 
 // The zero-residual ledger sweep is the broadest correctness guard on the

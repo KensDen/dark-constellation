@@ -4,7 +4,7 @@
 // resume: if an autosave exists on load, the app lands straight back in the
 // game at the saved turn and phase. None of this touches the engine.
 
-import { useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import Game from './ui/Game'
 import Glossary from './ui/Glossary'
 import FieldManual from './ui/FieldManual'
@@ -15,8 +15,16 @@ import Scoreboard from './ui/Scoreboard'
 import Credits from './ui/Credits'
 import TerminalChrome from './ui/TerminalChrome'
 import { LocalStorageStore, type RestoredGame } from './persistence'
+import { useGestureUnlock } from './audio'
 
-type Screen = 'intro' | 'menu' | 'game' | 'scoreboard' | 'howto' | 'manual' | 'glossary' | 'credits'
+// The dev-only sound board (brief section 7). import.meta.env.DEV folds to
+// false in a production build, so the ternary collapses to null and Rollup
+// drops the dynamic import with it: no chunk is emitted and none of the
+// board reaches players. The battery checks the built output for the
+// board's marker rather than trusting this comment.
+const SoundBoard = import.meta.env.DEV ? lazy(() => import('./audio/SoundBoard')) : null
+
+type Screen = 'intro' | 'menu' | 'game' | 'scoreboard' | 'howto' | 'manual' | 'glossary' | 'credits' | 'soundboard'
 
 const STATUS: Record<Screen, string> = {
   intro: 'BOOT',
@@ -27,15 +35,25 @@ const STATUS: Record<Screen, string> = {
   manual: 'REFERENCE',
   glossary: 'REFERENCE',
   credits: 'REFERENCE',
+  soundboard: 'DEV',
 }
 
 const store = new LocalStorageStore()
 
 function App() {
+  // The audio context cannot start before a real gesture, so the whole app
+  // arms one listener and the first tap anywhere unlocks it. Mounted here
+  // rather than per screen: the gesture can land on any control, including
+  // one that unmounts in the same moment.
+  useGestureUnlock()
   // An in-progress autosave, read once at startup, seeds refresh-safe
   // resume: the game mounts with it and lands on the saved turn and phase.
   const [gameInitial, setGameInitial] = useState<RestoredGame | null>(() => store.loadAutosave())
   const [screen, setScreen] = useState<Screen>(() => {
+    // The dev board's only entry point, and it costs the shipped game
+    // nothing: SoundBoard is null in a production build, so this branch is
+    // dead there and the menu never grows an item players would see.
+    if (SoundBoard && typeof location !== 'undefined' && location.hash === '#soundboard') return 'soundboard'
     if (store.loadAutosave()) return 'game'
     return hasSeenIntro() ? 'menu' : 'intro'
   })
@@ -73,6 +91,11 @@ function App() {
             {screen === 'manual' && <FieldManual onBack={toMenu} />}
             {screen === 'glossary' && <Glossary onBack={toMenu} />}
             {screen === 'credits' && <Credits onBack={toMenu} />}
+            {screen === 'soundboard' && SoundBoard && (
+              <Suspense fallback={null}>
+                <SoundBoard onBack={toMenu} />
+              </Suspense>
+            )}
           </div>
         </div>
       )}

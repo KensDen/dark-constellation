@@ -6,6 +6,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { COUNT_MS, CUE_MS, useCountUp, useCueClass, useReducedMotion } from './motion'
+import { useSound } from '../../audio'
+import type { SoundCue } from '../../director/cues'
 
 // Re-exported for the DOM suite, which drives the count and has to know
 // how long it runs; the readout itself uses the hook's default.
@@ -87,6 +89,25 @@ export const BAR_TONE: Record<MeterTone, string> = {
   neutral: 'bg-phosphor',
 }
 
+// The sound half of the same tone decision, so the flash and the tick can
+// never disagree about which way a number moved. 'silent' is the honest
+// answer for a change with no valence: a rebase, or a spend the player
+// chose, which unchosenDelta has already zeroed out.
+export const TONE_SOUND: Record<MeterTone, SoundCue> = {
+  good: 'tick-up',
+  bad: 'tick-down',
+  neutral: 'silent',
+}
+
+// The other pair this component owns: the warning tone as MAI falls
+// through the line and the relief chime as it comes back. Written as data
+// for the same reason as everything else in the cue layer, so the coverage
+// test can find them instead of taking the component on trust.
+export const CROSSING_SOUND: Record<'below' | 'recovered', SoundCue> = {
+  below: 'warn-low',
+  recovered: 'relief-chime',
+}
+
 const format = (shown: number, target: number): string => {
   const decimals = Number.isInteger(target) ? 0 : 1
   return shown.toFixed(decimals)
@@ -135,6 +156,34 @@ export default function Readout({
   const flash = useCueClass(nonce, FLASH_CLASS[tone], false)
   const warning = warnBelow !== undefined && value < warnBelow
   const strobe = warning && strobeOnWarn && !reduced ? 'dc-strobe' : ''
+  const play = useSound()
+
+  // The tick rides the same nonce the flash does, so a repeat of the same
+  // direction sounds again rather than being swallowed as "no change".
+  //
+  // No guard on the opening render, because there is nothing to guard
+  // against: useValueChange only ever raises the nonce together with a
+  // tone, so nonce zero means tone neutral, and neutral is silent. A
+  // `nonce === 0` check here was dead the moment it was written, and a
+  // mutation removing it slept through the suite, which is how it was
+  // found. Dead code is removed rather than tested (Round 4b).
+  useEffect(() => {
+    play(TONE_SOUND[tone])
+  }, [nonce, tone, play])
+
+  // The warning tone and the relief chime fire on the CROSSING, not on the
+  // state: a meter that is already low when the screen mounts has nothing
+  // to announce, and one that stays low would otherwise blare on every
+  // render. Gated on strobeOnWarn rather than on the strobe class, because
+  // reduced motion removes the strobe and the brief is explicit that sound
+  // is unaffected by it.
+  const wasWarning = useRef(warning)
+  useEffect(() => {
+    if (!strobeOnWarn) return
+    if (warning === wasWarning.current) return
+    wasWarning.current = warning
+    play(warning ? CROSSING_SOUND.below : CROSSING_SOUND.recovered)
+  }, [warning, strobeOnWarn, play])
   const pct = max ? Math.max(0, Math.min(100, (shown / max) * 100)) : 0
   const barTone: MeterTone = warning ? 'bad' : tone === 'neutral' ? 'neutral' : tone
 
