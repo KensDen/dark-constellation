@@ -1,9 +1,9 @@
 {
-  "what": "Gzipped size of the production main chunk (dist/assets/index-*.js), measured by scripts/battery.mjs with Node zlib gzipSync at its default level.",
+  "what": "Gzipped bytes of everything the build emits, in two groups. INITIAL is the entry script plus the stylesheet, which a visitor downloads before anything is interactive. DEFERRED is every other chunk Rollup splits out, today the lazily loaded constellation frame and the three.js it imports. Measured by scripts/battery.mjs with Node zlib gzipSync at its default level.",
   "v1_0GzipBytes": 110745,
   "v1_0Commit": "a2c575f",
-  "baselineGzipBytes": 128515,
-  "baselineRound": "game-feel Round 5 (the four cinematic scenes and finding 3.10)",
+  "baselineGzipBytes": 135172,
+  "baselineRound": "game-feel Round 6 (the first measurement that counts both shipped chunks)",
   "baselineRecordedAt": "2026-09-16",
   "budgetGzipBytes": 140000,
   "baselineNodeVersion": "v26.3.0",
@@ -17,5 +17,11 @@
   "r4dGzipBytes": 127695,
   "r4eGzipBytes": 127681,
   "round5SubBudgetGzipBytes": 9000,
-  "round5SpentGzipBytes": 834
+  "round5SpentGzipBytes": 834,
+  "jsGzipBytesAtR6": 128515,
+  "cssGzipBytesAtR6": 6657,
+  "correctionNote": "Corrected twice at the opening of Round 6. First: the budget counted the entry SCRIPT alone from Round 2 onward, so the stylesheet shipped unmetered and the headroom everyone reasoned from was 11,485 when the initial figure was 4,828. Round 5 is the clearest case, recording 834 gzipped against a 9,000 sub-budget while index.css grew 1,817 raw bytes nothing counted. Second, and larger: that fix anchored both patterns to the entry chunk name, so the lazily split Constellation chunk stayed invisible. It is 129,274 gzipped, almost the whole of the rest of the game, and no budget had ever seen it. The layer enumerates the directory now and treats anything it cannot classify as deferred rather than as nothing.",
+  "thresholdNote": "140,000 on the INITIAL download is KEPT rather than raised: it still fits at 4,828 of room against a music bed estimated at 1,500 to 2,500, and raising a budget at the moment it begins to bind is how budgets stop working. The DEFERRED budget of 132,000 is new and is set just above what is already there, so the chunk cannot grow in silence; it is not an endorsement of the figure. 129,274 gzipped of three.js for a decorative start-screen frame is a live question for the author, not a settled one, and it is recorded here so the next round argues it rather than inherits it.",
+  "deferredBudgetGzipBytes": 132000,
+  "deferredGzipBytesAtR6": 129274
 }

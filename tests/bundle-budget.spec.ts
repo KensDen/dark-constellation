@@ -1,5 +1,12 @@
 // The bundle budget's arithmetic and the shape of its record.
 //
+// ROUND 6 EXTENDED IT TO THE CSS CHUNK. The budget counted only the main
+// JS chunk from Round 2 onward, so every visual round shipped into an
+// unmetered channel and the headroom everyone reasoned from was 11,485
+// when the honest figure was 4,828. These tests hold the new shape: a
+// visitor downloads both files, so both count, and growing EITHER one has
+// to move the reported number.
+//
 // Round 2 flagged the recorded headroom as a hand-maintained number with
 // nothing computing or checking it. Round 4c is the first time it actually
 // went wrong: the battery printed budget minus the recorded BASELINE, a
@@ -9,7 +16,7 @@
 // measures, so these tests hold that shape rather than the old value.
 
 import { gzipSync } from 'node:zlib'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -36,6 +43,174 @@ describe('bundle budget', () => {
     expect(headroomFor(budget.budgetGzipBytes + 100, budget.budgetGzipBytes)).toBe(-100)
   })
 
+  it('moves when EITHER shipped chunk grows, which is the whole of the correction', () => {
+    // THE ROUND'S CENTRAL CLAIM. The budget names what a visitor
+    // downloads, and a visitor downloads both files. Measured from the
+    // built output rather than from the arithmetic, because the defect was
+    // never in the arithmetic: it was that one of the two shipped assets
+    // was not being read at all.
+    const dir = mkdtempSync(join(tmpdir(), 'dc-both-'))
+    const js = 'x'.repeat(40_000) + Math.random()
+    const css = 'y'.repeat(9_000) + Math.random()
+    writeFileSync(join(dir, 'index-a.js'), js)
+    writeFileSync(join(dir, 'index-a.css'), css)
+    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 }
+    const base = measureBundle({ budget: cap, dir, startedAt: 0 })
+
+    // Grow the STYLESHEET. This is the byte that went uncounted for four
+    // rounds, so it is the one that has to move the number.
+    writeFileSync(join(dir, 'index-a.css'), css + 'z'.repeat(4_000))
+    const fatCss = measureBundle({ budget: cap, dir, startedAt: 0 })
+    expect(fatCss.gz, 'growing the stylesheet did not move the reported figure').toBeGreaterThan(base.gz)
+    expect(fatCss.cssGz).toBeGreaterThan(base.cssGz)
+    expect(fatCss.jsGz, 'growing the stylesheet moved the JS figure').toBe(base.jsGz)
+
+    // And the POSITIVE CONTROL, which is what stops the check above being
+    // satisfied by a number that moves for any reason: growing the SCRIPT
+    // moves it too, and moves the other half of the pair.
+    writeFileSync(join(dir, 'index-a.css'), css)
+    writeFileSync(join(dir, 'index-a.js'), js + 'z'.repeat(4_000))
+    const fatJs = measureBundle({ budget: cap, dir, startedAt: 0 })
+    expect(fatJs.gz, 'growing the script did not move the reported figure').toBeGreaterThan(base.gz)
+    expect(fatJs.jsGz).toBeGreaterThan(base.jsGz)
+    expect(fatJs.cssGz, 'growing the script moved the CSS figure').toBe(base.cssGz)
+
+    // The total is the sum of what ships, not one of its parts.
+    expect(base.gz).toBe(base.jsGz + base.cssGz)
+    expect(base.cssGz, 'the stylesheet measured as nothing, so the sum proves nothing').toBeGreaterThan(0)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('counts the stylesheet against the threshold, not just in the report', () => {
+    // Reporting the combined figure while gating on the JS alone would be
+    // the same defect wearing the correction's clothes.
+    const dir = mkdtempSync(join(tmpdir(), 'dc-gate-'))
+    writeFileSync(join(dir, 'index-b.js'), 'x'.repeat(200))
+    writeFileSync(join(dir, 'index-b.css'), 'y'.repeat(200))
+    const under = measureBundle({ budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000, deferredBudgetGzipBytes: 10_000_000 }, dir, startedAt: 0 })
+    // A threshold set between the JS alone and the combined total: it
+    // passes on one reading and fails on the other, which is exactly the
+    // discrimination this test needs to be standing on.
+    const between = under.jsGz + Math.floor(under.cssGz / 2)
+    expect(between, 'the two chunks are too close for this to discriminate').toBeGreaterThan(under.jsGz)
+    expect(between).toBeLessThan(under.gz)
+    expect(() =>
+      measureBundle({ budget: { baselineGzipBytes: 1, budgetGzipBytes: between, deferredBudgetGzipBytes: 10_000_000 }, dir, startedAt: 0 }),
+    ).toThrow(/over the/)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('refuses a stale stylesheet against a fresh script', () => {
+    // The staleness check walks BOTH chunks. Checking only the JS would
+    // let last round's stylesheet be measured against this round's script,
+    // which is a wrong number reported confidently, and that is the whole
+    // class this layer exists to prevent. A mutation narrowing the loop to
+    // the JS slept through the suite, because the only staleness test made
+    // both files old at once.
+    const dir = mkdtempSync(join(tmpdir(), 'dc-stale-'))
+    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 }
+    // Stamped BEFORE the writes, which is the order the battery uses: it
+    // records the time it started and then builds. Stamping after them
+    // makes the control flake on filesystem mtime granularity.
+    const startedAt = Date.now() - 1_000
+    writeFileSync(join(dir, 'index-c.js'), 'x'.repeat(1_000))
+    writeFileSync(join(dir, 'index-c.css'), 'y'.repeat(1_000))
+    // Both fresh: this passes, which is the control. Without it, the
+    // throw below could be caused by anything.
+    expect(() => measureBundle({ budget: cap, dir, startedAt })).not.toThrow()
+
+    // Backdate ONLY the stylesheet.
+    const old = new Date(startedAt - 60_000)
+    utimesSync(join(dir, 'index-c.css'), old, old)
+    expect(() => measureBundle({ budget: cap, dir, startedAt }), 'a stale stylesheet was measured as fresh').toThrow(
+      /index-c\.css predates this battery run/,
+    )
+
+    // And the mirror, so the check is not simply throwing on every file:
+    // fresh CSS against a stale script names the script.
+    writeFileSync(join(dir, 'index-c.css'), 'y'.repeat(1_000))
+    utimesSync(join(dir, 'index-c.js'), old, old)
+    expect(() => measureBundle({ budget: cap, dir, startedAt })).toThrow(/index-c\.js predates this battery run/)
+
+    // And a stale DEFERRED chunk, which is the same defect one file
+    // further out: the split chunk is 129,274 bytes of the real build, so
+    // measuring last round's copy of it against this round's entry is a
+    // wrong number reported confidently. Narrowing the walk back to the
+    // two named chunks slept through the suite until this was added.
+    writeFileSync(join(dir, 'index-c.js'), 'x'.repeat(1_000))
+    writeFileSync(join(dir, 'Split-Zz9.js'), 'z'.repeat(1_000))
+    expect(() => measureBundle({ budget: cap, dir, startedAt }), 'a fresh build was refused').not.toThrow()
+    utimesSync(join(dir, 'Split-Zz9.js'), old, old)
+    expect(
+      () => measureBundle({ budget: cap, dir, startedAt }),
+      'a stale split chunk was measured as fresh',
+    ).toThrow(/Split-Zz9\.js predates this battery run/)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('counts a split chunk it has never heard of', () => {
+    // THE DEFECT THIS ROUND'S FIRST CORRECTION STILL HAD. Both patterns
+    // were anchored to the entry chunk's name, so Rollup's lazily split
+    // frame, which carries three.js, contributed nothing and did not even
+    // make the chunk count wrong. It is 129,274 bytes gzipped, almost the
+    // whole of the rest of the game, and no budget had ever seen it.
+    //
+    // The layer enumerates the directory and subtracts the two it knows,
+    // so a chunk nobody anticipated is counted rather than ignored. This
+    // test uses a name the layer has no pattern for, which is the point.
+    const dir = mkdtempSync(join(tmpdir(), 'dc-split-'))
+    const startedAt = Date.now() - 1_000
+    writeFileSync(join(dir, 'index-d.js'), 'x'.repeat(20_000))
+    writeFileSync(join(dir, 'index-d.css'), 'y'.repeat(2_000))
+    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 }
+    const alone = measureBundle({ budget: cap, dir, startedAt })
+    expect(alone.deferredGz, 'a build with no split chunk reported deferred bytes').toBe(0)
+    expect(alone.deferred).toEqual([])
+
+    // A chunk under a name nothing matches.
+    writeFileSync(join(dir, 'Constellation-Xy1.js'), 'z'.repeat(30_000))
+    const split = measureBundle({ budget: cap, dir, startedAt })
+    expect(split.deferredGz, 'the split chunk was not counted').toBeGreaterThan(0)
+    expect(split.deferred, 'the split chunk was not named').toEqual(['Constellation-Xy1.js'])
+    // And it did NOT quietly land in the initial figure either, which
+    // would be the opposite error: the initial download is what it was.
+    expect(split.gz, 'the split chunk was folded into the initial figure').toBe(alone.gz)
+    expect(split.line).toContain('deferred ' + split.deferredGz)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('gates the deferred chunks rather than only reporting them', () => {
+    // Reporting a number while gating on nothing is how the stylesheet
+    // went unmetered for four rounds; the same mistake one file out.
+    const dir = mkdtempSync(join(tmpdir(), 'dc-gate2-'))
+    const startedAt = Date.now() - 1_000
+    writeFileSync(join(dir, 'index-e.js'), 'x'.repeat(2_000))
+    writeFileSync(join(dir, 'index-e.css'), 'y'.repeat(200))
+    writeFileSync(join(dir, 'Heavy-Ab2.js'), 'z'.repeat(40_000))
+    const generous = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 }
+    const under = measureBundle({ budget: generous, dir, startedAt })
+    expect(under.deferredGz).toBeGreaterThan(0)
+    // A deferred budget below what is there fails, while the initial
+    // budget stays generous: so the throw is about the deferred chunk and
+    // not about the entry.
+    expect(() =>
+      measureBundle({ budget: { ...generous, deferredBudgetGzipBytes: under.deferredGz - 1 }, dir, startedAt }),
+    ).toThrow(/deferred chunks are/)
+    // The control: one byte more and it passes, so the gate is on the
+    // measured size rather than on the chunk existing at all.
+    expect(() =>
+      measureBundle({ budget: { ...generous, deferredBudgetGzipBytes: under.deferredGz }, dir, startedAt }),
+    ).not.toThrow()
+    // And a missing deferred budget is an error, not an open door.
+    expect(() =>
+      measureBundle({ budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000 }, dir, startedAt }),
+    ).toThrow(/records no deferredBudgetGzipBytes/)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it('records no headroom of its own', () => {
     // Nothing to go stale, which is the whole of the fix: the battery
     // throws if this field comes back.
@@ -48,11 +223,11 @@ describe('bundle budget', () => {
     // Guarding headroomFor alone was the weak form: a call site passing the
     // baseline instead of the measured size went straight through it. This
     // drives the layer the battery actually runs.
-    const budget = { baselineGzipBytes: 124237, budgetGzipBytes: 140000 }
+    const budget = { baselineGzipBytes: 124237, budgetGzipBytes: 140000, deferredBudgetGzipBytes: 1_000_000 }
     const grown = measureBundle({
       budget,
-      chunks: ['index-abc.js'],
-      gzipOf: () => 124237 + 58,
+      allChunks: ['index-abc.js', 'index-abc.css'], jsChunks: ['index-abc.js'], cssChunks: ['index-abc.css'],
+      gzipOf: (c: string) => (c.endsWith('.css') ? 0 : 124237 + 58),
       mtimeOf: () => 1000,
       startedAt: 0,
     })
@@ -62,8 +237,8 @@ describe('bundle budget', () => {
     // A shrinking round reports more room, not less.
     const shrunk = measureBundle({
       budget,
-      chunks: ['index-abc.js'],
-      gzipOf: () => 124237 - 100,
+      allChunks: ['index-abc.js', 'index-abc.css'], jsChunks: ['index-abc.js'], cssChunks: ['index-abc.css'],
+      gzipOf: (c: string) => (c.endsWith('.css') ? 0 : 124237 - 100),
       mtimeOf: () => 1000,
       startedAt: 0,
     })
@@ -72,18 +247,23 @@ describe('bundle budget', () => {
   })
 
   it('refuses the conditions the battery exists to catch', () => {
-    const budget = { baselineGzipBytes: 124237, budgetGzipBytes: 140000 }
+    const budget = { baselineGzipBytes: 124237, budgetGzipBytes: 140000, deferredBudgetGzipBytes: 1_000_000 }
     const call = (over: Record<string, unknown>) =>
-      measureBundle({ budget, chunks: ['index-abc.js'], gzipOf: () => 124237, mtimeOf: () => 1000, startedAt: 0, ...over })
+      measureBundle({ budget, allChunks: ['index-abc.js', 'index-abc.css'], jsChunks: ['index-abc.js'], cssChunks: ['index-abc.css'], gzipOf: (c: string) => (c.endsWith('.css') ? 0 : 124237), mtimeOf: () => 1000, startedAt: 0, ...over })
     // A written headroom, the thing this round removed.
     expect(() => call({ budget: { ...budget, headroomGzipBytes: 15763 } })).toThrow(/records a headroom/)
     // A chunk older than the run measuring it.
     expect(() => call({ startedAt: 5000 })).toThrow(/stale/)
     // No chunk, or more than one.
-    expect(() => call({ chunks: [] })).toThrow(/expected one main chunk/)
-    expect(() => call({ chunks: ['a.js', 'b.js'] })).toThrow(/expected one main chunk/)
+    expect(() => call({ jsChunks: [] })).toThrow(/expected one main JS chunk/)
+    expect(() => call({ jsChunks: ['a.js', 'b.js'] })).toThrow(/expected one main JS chunk/)
+    // The CSS chunk is required too. Treating it as optional would let a
+    // build that stopped emitting it measure smaller and pass, which is
+    // the unmetered channel again with an extra step.
+    expect(() => call({ cssChunks: [] })).toThrow(/expected one main CSS chunk/)
+    expect(() => call({ cssChunks: ['a.css', 'b.css'] })).toThrow(/expected one main CSS chunk/)
     // Over budget.
-    expect(() => call({ gzipOf: () => 140001 })).toThrow(/over the 140000 byte budget/)
+    expect(() => call({ gzipOf: (c: string) => (c.endsWith('.css') ? 0 : 140001) })).toThrow(/over the 140000 byte budget/)
   })
 
   it('reads and gzips the chunk itself, so the battery has no wiring to get wrong', () => {
@@ -94,16 +274,19 @@ describe('bundle budget', () => {
     // this drives the reading the layer does for itself.
     const dir = mkdtempSync(join(tmpdir(), 'dc-bundle-'))
     const body = 'x'.repeat(50_000) + Math.random()
+    const styles = 'y'.repeat(9_000) + Math.random()
     writeFileSync(join(dir, 'index-real.js'), body)
-    const expected = gzipSync(Buffer.from(body)).length
+    writeFileSync(join(dir, 'index-real.css'), styles)
+    const expected = gzipSync(Buffer.from(body)).length + gzipSync(Buffer.from(styles)).length
     const measured = measureBundle({
-      budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000 },
+      budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 },
       dir,
       startedAt: 0,
     })
     expect(measured.gz, 'the layer did not gzip the file it was pointed at').toBe(expected)
     expect(measured.headroom).toBe(10_000_000 - expected)
-    expect(measured.line).toContain('index-real.js')
+    expect(measured.line).toContain('js ' + gzipSync(Buffer.from(body)).length)
+    expect(measured.line).toContain('css ' + gzipSync(Buffer.from(styles)).length)
 
     // And the stale-dist guard on the same real file, through the default
     // mtimeOf rather than an injected one: the previous version of this
@@ -111,7 +294,7 @@ describe('bundle budget', () => {
     // uses was never exercised and could have been removed unnoticed.
     expect(() =>
       measureBundle({
-        budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000 },
+        budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 },
         dir,
         startedAt: Date.now() + 60_000,
       }),
@@ -121,7 +304,7 @@ describe('bundle budget', () => {
     // staleness check off in silence, because a comparison against
     // undefined is false. It refuses now.
     expect(() =>
-      measureBundle({ budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000 }, dir }),
+      measureBundle({ budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 }, dir }),
     ).toThrow(/timestamp the battery started at/)
 
     rmSync(dir, { recursive: true, force: true })

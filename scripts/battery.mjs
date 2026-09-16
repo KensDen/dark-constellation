@@ -44,12 +44,15 @@ run('typecheck + production build', () => {
   sh('npm run build')
 })
 
-// Bundle budget (game-feel brief section 8): the gzipped main chunk must
-// stay under the recorded threshold. Measured with Node's zlib at its
-// default level so the number is reproducible from the battery alone; the
-// baseline and budget live in tests/bundle-budget.json and any library
-// addition records its delta there.
-run('bundle budget: gzipped main chunk under threshold (game-feel brief 8)', () => {
+// Bundle budget (game-feel brief section 8): everything the build emits,
+// gzipped, under two thresholds. The INITIAL download is the entry script
+// plus the stylesheet; DEFERRED is every chunk Rollup splits out, which
+// today is the lazily loaded frame and its three.js. The layer counted the
+// entry script alone from Round 2 until Round 6, so both the stylesheet
+// and a 129,274 byte split chunk shipped into a channel nothing measured. Node's zlib at its default level, so the number is
+// reproducible from the battery alone; the baseline and budget live in
+// tests/bundle-budget.json and any library addition records its delta.
+run('bundle budget: everything that ships, under threshold (game-feel brief 8)', () => {
   // The layer's own logic lives in scripts/bundle-budget.mjs so the suite
   // can call it with fixtures; this is the wiring, and the numbers it
   // prints are the ones measured here.
