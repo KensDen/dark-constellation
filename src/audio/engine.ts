@@ -19,6 +19,7 @@
 import { onVisibilityChange, pageVisible, audioSuspended } from '../ui/cues/visibility'
 import { SOUND_MS, type SoundCue } from '../director/cues'
 import type { AudioContextLike, GainLike } from './graph'
+import { MENU_MUSIC_STATE, MusicBed, shouldPlayMusic, type MusicBedOptions, type MusicState } from './music'
 import { DEFAULT_SOUND_PREFS, loadSoundPrefs, saveSoundPrefs, type SoundPrefs } from './prefs'
 import { VOICES, type VoiceOptions } from './voices'
 
@@ -68,6 +69,9 @@ export interface AudioEngineOptions {
   // Injected for the same reason. Defaults to the shared visibility policy.
   isVisible?: () => boolean
   watchVisibility?: boolean
+  // Handed to the music bed, so a suite can drive its note timer and its
+  // randomness without waiting sixteen seconds for a note.
+  music?: MusicBedOptions
 }
 
 export class AudioEngine {
@@ -83,9 +87,17 @@ export class AudioEngine {
   private live: { gain: GainLike; endsAt: number }[] = []
   private readonly createContext: () => AudioContextLike | null
   private stopWatchingVisibility: (() => void) | null = null
+  // The music bed exists only while it is allowed to play. Not built and
+  // muted: built or not built, the same rule the effects side follows, so
+  // "no music before a gesture" and "a hidden page is silent" are answered
+  // by the absence of oscillators rather than by a gain of zero.
+  private bed: MusicBed | null = null
+  private musicState: MusicState = MENU_MUSIC_STATE
+  private readonly musicOptions: MusicBedOptions
 
   constructor(options: AudioEngineOptions = {}) {
     this.createContext = options.createContext ?? defaultContextFactory
+    this.musicOptions = options.music ?? {}
     this.prefs = options.prefs ?? { ...DEFAULT_SOUND_PREFS }
     this.visible = (options.isVisible ?? pageVisible)()
     if (options.watchVisibility !== false) {
@@ -125,17 +137,88 @@ export class AudioEngine {
     this.effectsBus.gain.value = EFFECTS_LEVEL
     this.effectsBus.connect(ctx.destination)
     this.musicBus = ctx.createGain()
-    this.musicBus.gain.value = MUSIC_LEVEL
+    // At the music level only if music is actually on. Setting it to the
+    // full mix regardless left the bus sitting at level with nothing
+    // playing into it, which is harmless today and is exactly the kind of
+    // disagreement between a graph and a preference that stops being
+    // harmless the moment something else reads it.
+    this.musicBus.gain.value = this.prefs.music ? MUSIC_LEVEL : 0
     this.musicBus.connect(ctx.destination)
-    // Round 6 hangs the procedural bed off musicBus. Nothing plays into it
-    // yet, which is why only the toggle ships this round.
     if (!this.visible) void ctx.suspend()
+    this.syncMusic()
+  }
+
+  // The one place the bed is created or destroyed. Called from everything
+  // that can change the answer: the unlock, the toggle, and visibility.
+  //
+  // The gate is shouldPlayMusic, the same three questions in the same
+  // order that shouldSchedule asks for effects, so the two channels cannot
+  // drift into disagreeing about what "allowed" means.
+  private syncMusic(): void {
+    const allowed = shouldPlayMusic({ unlocked: this.unlocked, music: this.prefs.music, visible: this.visible })
+    if (allowed && !this.bed) {
+      const ctx = this.ctx
+      const bus = this.musicBus
+      if (!ctx || !bus) return
+      this.bed = new MusicBed(ctx, bus, MUSIC_LEVEL, this.musicOptions)
+      this.bed.start(this.musicState)
+      return
+    }
+    if (!allowed && this.bed) {
+      this.bed.stop()
+      this.bed = null
+    }
+  }
+
+  // The game tells the bed where the player is. Called with the state the
+  // player is being SHOWN, which during playback is the director's
+  // presented state rather than the engine's after-state: the bed should
+  // darken on the beat that arms the chain, not one beat before the player
+  // is told about it.
+  setMusicState(state: MusicState): void {
+    this.musicState = state
+    this.bed?.update(state)
+  }
+
+  // Exposed for the suite and the dev sound board, for the same reason
+  // `context` is: the guarantee is about the graph.
+  get music(): MusicBed | null {
+    return this.bed
   }
 
   setPreferences(prefs: SoundPrefs, persist = true): void {
+    const musicChanged = this.prefs.music !== prefs.music
     this.prefs = { ...prefs }
     if (persist) saveSoundPrefs(this.prefs)
-    if (this.musicBus) this.musicBus.gain.value = prefs.music ? MUSIC_LEVEL : 0
+    // Only when the MUSIC preference actually moved. Calling setLevel
+    // unconditionally meant that touching the effects toggle, or a
+    // storage event from another tab, abandoned a duck in flight and
+    // snapped the bus back to full level underneath a cue that was still
+    // playing.
+    if (musicChanged) {
+      // The bus when there is no bed to own it. With a bed, setLevel is
+      // the single writer, so the two cannot fight over the same param.
+      //
+      // CANCEL FIRST, and write an explicit event rather than assigning
+      // `.value`. A stopped bed deliberately leaves its LEVEL_FADE ramp in
+      // flight so the fade can be heard, and assigning `.value` is itself
+      // just another event at `now`: it does not remove that pending ramp.
+      // Double-tapping the music toggle inside LEVEL_FADE_S therefore left
+      // the shared bus still ramping to zero, and the freshly built bed
+      // faded in under a bus that held at silence for the rest of the
+      // session. Cancelling is inaudible here because the new bed's layer
+      // gains start at zero and ramp up from there.
+      if (this.musicBus && !this.bed) {
+        const at = this.ctx?.currentTime ?? 0
+        this.musicBus.gain.cancelScheduledValues(at)
+        this.musicBus.gain.setValueAtTime(prefs.music ? MUSIC_LEVEL : 0, at)
+      }
+      // Turning music back on rebuilds the bed rather than unmuting one
+      // that was left running, which is what makes the toggle answerable
+      // against the graph: with music off there are no music oscillators.
+      this.bed?.setLevel(prefs.music ? MUSIC_LEVEL : 0)
+      this.syncMusic()
+    }
   }
 
   setVisible(visible: boolean): void {
@@ -143,6 +226,13 @@ export class AudioEngine {
     if (!this.ctx) return
     if (audioSuspended(visible)) void this.ctx.suspend()
     else void this.ctx.resume()
+    // Music is the FOURTH channel answering to the visibility policy, and
+    // it answers explicitly here rather than relying on the context
+    // suspending underneath it. A suspended context stops the pad, but a
+    // bed left standing would resume mid-note with its LFO wherever the
+    // phone lock left it, and a bed built while hidden is exactly the
+    // queued-cue-that-could-not-play the policy forbids.
+    this.syncMusic()
   }
 
   // Returns whether the cue was scheduled, so a caller that cares (the dev
@@ -169,6 +259,9 @@ export class AudioEngine {
     cueGain.connect(bus)
     voice(ctx, cueGain, now, opts)
     this.live.push({ gain: cueGain, endsAt: now + SOUND_MS[cue] / 1000 })
+    // The bed steps back under the cues that own the moment. Which cues
+    // those are is DUCKS_MUSIC's business, not this function's.
+    this.bed?.duck(cue)
     return true
   }
 
@@ -198,6 +291,8 @@ export class AudioEngine {
   }
 
   dispose(): void {
+    this.bed?.dispose()
+    this.bed = null
     for (const entry of this.live) entry.gain.disconnect()
     this.live = []
     this.stopWatchingVisibility?.()

@@ -167,6 +167,50 @@ export const LONG_SOUNDS: Record<string, string> = {
   'defeat-sting': 'the brief writes this row as a fail sting followed by a hum',
 }
 
+// Which cues the music bed steps back under (Round 6b, brief section 7:
+// "Ducks under fanfares and the BLACKOUT CHAIN sequence, then returns").
+//
+// A TOTAL map over SoundCue rather than a list of the four that duck.
+// Principle 17: a list is a set someone declared, and it drifts from the
+// union the moment a cue is added, silently and in the direction of doing
+// nothing. A Record over the union cannot: adding a voice fails the
+// typecheck until whoever added it says whether the bed gets out of its
+// way. The music module walks this map and names no cue of its own, and so
+// does its test, so there is no third copy to disagree with either.
+//
+// The rule behind the four trues: a cue ducks if it is the moment itself
+// rather than a report on the moment. The fanfares and the sting are the
+// game's verdict on a whole campaign, and BLACKOUT CHAIN is the one
+// sequence written as a silence with something on either side of it, which
+// a pad playing through would fill in.
+export const DUCKS_MUSIC: Record<SoundCue, boolean> = {
+  placeholder: false,
+  silent: false,
+  'data-burst': false,
+  'buy-click': false,
+  'denied-buzz': false,
+  'execute-sweep': false,
+  'hit-stab': false,
+  'alarm-gnss': false,
+  'alarm-uplink': false,
+  'alarm-spoof': false,
+  'alarm-eavesdrop': false,
+  'alarm-exfil': false,
+  'alarm-ransom': false,
+  'soft-tick': false,
+  'resolve-chime': false,
+  'tick-up': false,
+  'tick-down': false,
+  'warn-low': false,
+  'relief-chime': false,
+  'blackout-chain': true,
+  'surge-burn': false,
+  'commendation-fanfare': true,
+  'arrive-chime': false,
+  'victory-fanfare': true,
+  'defeat-sting': true,
+}
+
 // Treatments that are safe to run on a whole card. The badge and token
 // families were authored for a small element and end hidden or dimmed
 // (badge-clear finishes at opacity 0, token-burn at 0.25), so handing one

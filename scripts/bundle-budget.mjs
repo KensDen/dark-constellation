@@ -25,6 +25,28 @@
 // hand-maintained headroom of Round 4c: a number nobody computes goes
 // wrong, and so does a number computed over a set nobody checks.
 //
+// AND THEN THE SAME DEFECT AGAIN, one level further out, found by Round
+// 6b's pass over this very fix. Round 6a enumerated the directory but
+// declared the EXTENSIONS: it filtered to /\.(js|css)$/ and every image,
+// font and SVG in the build fell through the filter into the same silence
+// the stylesheet had been in. That is 506,664 bytes in dist/assets alone,
+// and another 285,956 in the dist root, against the 264,446 of code the
+// budget could see. A commit message saying it counted everything that
+// ships was wrong by a factor of three, and so was the round report built
+// on it.
+//
+// STATIC is therefore the third group, and it is defined by subtraction
+// rather than by a list of extensions: every file the build emits that is
+// not one of the code chunks above. A format nobody anticipated is counted
+// by default, which is the only shape of this function that has survived
+// two rounds of being wrong.
+//
+// Static is measured RAW, not gzipped, and that is a correction too:
+// webp, jpg and woff2 are already compressed, no server re-compresses
+// them, and gzipping them here reports MORE bytes than the wire carries
+// (defeat-sphere.webp gzips to 58 bytes larger than it is). Code compresses
+// and is measured compressed; media does not and is measured as it ships.
+//
 // Headroom is DERIVED from the bundle that was just measured, never
 // written down. The battery used to print budget minus the recorded
 // BASELINE, which is a fact about last round rather than about this build:
@@ -42,6 +64,20 @@ export function headroomFor(measuredGzipBytes, budgetGzipBytes) {
   return budgetGzipBytes - measuredGzipBytes
 }
 
+// Every file the build emitted, as paths relative to `root`, directories
+// walked rather than listed. A build output is a tree and Round 6a treated
+// it as one flat directory, which is how the dist root's own files stayed
+// invisible alongside the images.
+export function emittedFiles(root, prefix = '') {
+  const out = []
+  for (const entry of readdirSync(join(root, prefix), { withFileTypes: true })) {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+    if (entry.isDirectory()) out.push(...emittedFiles(root, rel))
+    else out.push(rel)
+  }
+  return out
+}
+
 // The whole bundle layer, including the reading, so the battery has no
 // wiring of its own to get wrong. Guarding only the arithmetic was the
 // weak form: a mutation that had the battery hand it the recorded baseline
@@ -55,14 +91,27 @@ export function headroomFor(measuredGzipBytes, budgetGzipBytes) {
 // chunk, or a bundle over budget.
 export function measureBundle({
   budget,
-  dir = join('dist', 'assets'),
-  allChunks = readdirSync(dir).filter((f) => /\.(js|css)$/.test(f)),
-  jsChunks = allChunks.filter((f) => /^index-.*\.js$/.test(f)),
-  cssChunks = allChunks.filter((f) => /^index-.*\.css$/.test(f)),
+  // The whole build output, not one directory inside it.
+  dir = 'dist',
+  emitted: emittedIn,
+  allChunks: allChunksIn,
+  jsChunks: jsChunksIn,
+  cssChunks: cssChunksIn,
   gzipOf = (chunk) => gzipSync(readFileSync(join(dir, chunk))).length,
+  rawOf = (file) => statSync(join(dir, file)).size,
   mtimeOf = (chunk) => statSync(join(dir, chunk)).mtimeMs,
   startedAt,
 }) {
+  // Resolved in the BODY rather than as chained default parameters.
+  // Defaults evaluate left to right whenever their own argument is
+  // undefined, so `emitted = emittedFiles(dir)` ran even for a caller that
+  // supplied allChunks and never wanted the filesystem touched, and it
+  // scanned the real dist while that caller's own chunk list was used for
+  // everything else: a reading assembled from two different builds.
+  const emitted = emittedIn ?? emittedFiles(dir)
+  const allChunks = allChunksIn ?? emitted.filter((f) => /\.(js|css)$/.test(f))
+  const jsChunks = jsChunksIn ?? allChunks.filter((f) => /(^|\/)index-[^/]*\.js$/.test(f))
+  const cssChunks = cssChunksIn ?? allChunks.filter((f) => /(^|\/)index-[^/]*\.css$/.test(f))
   // The one argument the battery still passes, and the one the staleness
   // check depends on: omitted, `mtime < undefined` is false and the guard
   // switches itself off without a word. Three lenses of the Round 4c
@@ -86,6 +135,10 @@ export function measureBundle({
   // means a chunk this layer has never heard of is counted rather than
   // ignored.
   const deferred = allChunks.filter((f) => f !== js && f !== css)
+  // Everything else the build emitted. Defined by subtraction on purpose:
+  // a list of extensions is a set someone declared, and declaring this set
+  // is the exact mistake Round 6a made one level in.
+  const staticFiles = emitted.filter((f) => !allChunks.includes(f))
   // BOTH are checked for staleness. Checking only the JS would let a
   // stale stylesheet be measured against a fresh script, which is the
   // reading this function exists to stop being wrong about.
@@ -93,7 +146,7 @@ export function measureBundle({
   // stylesheet measured against a fresh script was one mutation this
   // round's first version slept through; a stale deferred chunk is the
   // same defect one file further out.
-  for (const chunk of [js, css, ...deferred]) {
+  for (const chunk of [js, css, ...deferred, ...staticFiles]) {
     if (mtimeOf(chunk) < startedAt) {
       throw new Error(`${chunk} predates this battery run; dist is stale, rebuild before measuring`)
     }
@@ -102,14 +155,19 @@ export function measureBundle({
   const cssGz = gzipOf(css)
   const gz = jsGz + cssGz
   const deferredGz = deferred.reduce((sum, chunk) => sum + gzipOf(chunk), 0)
+  // Raw, because these do not compress and no server tries. See the header.
+  const staticBytes = staticFiles.reduce((sum, file) => sum + rawOf(file), 0)
   const delta = gz - budget.baselineGzipBytes
   const headroom = headroomFor(gz, budget.budgetGzipBytes)
   const deferredHeadroom = headroomFor(deferredGz, budget.deferredBudgetGzipBytes)
+  const staticHeadroom = headroomFor(staticBytes, budget.staticBudgetBytes)
   const line =
     `initial ${gz} (js ${jsGz} + css ${cssGz}; baseline ${budget.baselineGzipBytes}, ` +
     `${delta >= 0 ? '+' : ''}${delta}; budget ${budget.budgetGzipBytes}, headroom ${headroom}), ` +
     `deferred ${deferredGz} in ${deferred.length} chunk${deferred.length === 1 ? '' : 's'} ` +
-    `(budget ${budget.deferredBudgetGzipBytes}, headroom ${deferredHeadroom})`
+    `(budget ${budget.deferredBudgetGzipBytes}, headroom ${deferredHeadroom}), ` +
+    `static ${staticBytes} raw in ${staticFiles.length} file${staticFiles.length === 1 ? '' : 's'} ` +
+    `(budget ${budget.staticBudgetBytes}, headroom ${staticHeadroom})`
   if (gz > budget.budgetGzipBytes) {
     throw new Error(`the initial download is ${gz} bytes gzipped (js ${jsGz} + css ${cssGz}), over the ${budget.budgetGzipBytes} byte budget`)
   }
@@ -123,5 +181,29 @@ export function measureBundle({
       `deferred chunks are ${deferredGz} bytes gzipped (${deferred.join(', ')}), over the ${budget.deferredBudgetGzipBytes} byte budget`,
     )
   }
-  return { gz, jsGz, cssGz, deferredGz, deferred, delta, headroom, deferredHeadroom, line }
+  // Same rule as the deferred budget, and for the same reason: a missing
+  // ceiling is an unmetered channel with an extra step, and this group is
+  // the one that spent two rounds proving it.
+  if (!Number.isFinite(budget.staticBudgetBytes)) {
+    throw new Error('bundle-budget.json records no staticBudgetBytes; images and fonts ship too and must be bounded')
+  }
+  if (staticBytes > budget.staticBudgetBytes) {
+    throw new Error(
+      `static files are ${staticBytes} raw bytes (${staticFiles.join(', ')}), over the ${budget.staticBudgetBytes} byte budget`,
+    )
+  }
+  return {
+    gz,
+    jsGz,
+    cssGz,
+    deferredGz,
+    deferred,
+    staticBytes,
+    staticFiles,
+    delta,
+    headroom,
+    deferredHeadroom,
+    staticHeadroom,
+    line,
+  }
 }

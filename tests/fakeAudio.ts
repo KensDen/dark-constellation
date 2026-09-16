@@ -29,7 +29,7 @@ import type {
 } from '../src/audio/graph'
 
 export interface ParamEvent {
-  kind: 'set' | 'linear' | 'exponential'
+  kind: 'set' | 'linear' | 'exponential' | 'cancel'
   value: number
   time: number
 }
@@ -41,8 +41,72 @@ export interface ParamEvent {
 // it back to 0 used to leave every assertion green while the first cue of
 // a real session threw out of a React effect and the game stayed silent.
 export class FakeParam implements AudioParamLike {
-  value = 0
+  // `value` IS AN AUTOMATION EVENT, and modelling it as a plain field is
+  // what let Round 6b ship a bed with no crossfades at all (fix batch).
+  //
+  // The spec is explicit: assigning AudioParam.value is defined as calling
+  // setValueAtTime(value, currentTime). src/audio/music.ts wrote
+  // `gain.gain.value = target` one line after scheduling the crossfade
+  // ramp, which plants an event at the ramp's own start instant, makes the
+  // ramp's V0 the target, and collapses two seconds of fade into one
+  // sample. Five review lenses found it independently and one confirmed it
+  // by rendering the sequence through a real Chromium OfflineAudioContext:
+  // with the assignment the gain reads 0.55 flat from t=0, without it the
+  // ramp runs 0 to 0.55 over two seconds as intended.
+  //
+  // The suite could not see any of that, because this field recorded
+  // nothing. The guard that names the failure, 'never sets one straight to
+  // its target', filtered `events` for a set at the target value and the
+  // production assignment pushed no event, so it was vacuous by
+  // construction: principle 16 wearing principle 15's clothes. The fix is
+  // not a new assertion, it is this double telling the truth about the one
+  // operation it was silently inventing.
+  private stored = 0
   readonly events: ParamEvent[] = []
+  // The context this param belongs to, so `value =` can stamp the event at
+  // the right time the way the browser does. Null only for a param built
+  // outside a context, which in this suite is a programming error rather
+  // than a case.
+  clock: { currentTime: number } | null = null
+
+  get value(): number {
+    return this.stored
+  }
+
+  set value(next: number) {
+    this.stored = next
+    this.check(next, this.clock?.currentTime ?? 0, 'value')
+    this.events.push({ kind: 'set', value: next, time: this.clock?.currentTime ?? 0 })
+  }
+  // The node this param belongs to, so a connection INTO the param can be
+  // followed back out to the thing it modulates (Round 6b).
+  //
+  // Without this the fake would record `lfo.connect(filter.frequency)` and
+  // `lfo.connect(nothing)` identically as far as reaches() is concerned,
+  // because a param would be a dead end in the walk. That is the same
+  // class of defect as Round 4d's bus-connectivity guard, which asked
+  // whether ANY node reached the bus: an LFO wired to nothing would then
+  // pass every assertion in the suite while the pad sat perfectly still,
+  // and a still pad is exactly what this round exists to not ship.
+  //
+  // Modulation IS an audible path: an oscillator moving a filter cutoff is
+  // heard, through the filter, at the speakers. So the walk crosses from a
+  // param to its owner, and a param with no owner is a wiring mistake in
+  // the fake rather than a silent zero.
+  owner: FakeNode | null = null
+  readonly connectedFrom: AudioNodeLike[] = []
+  cancelScheduledValues(time: number) {
+    this.check(0, time, 'cancelScheduledValues')
+    // NaN, not 0. A cancel carries no value, and recording one as 0 made
+    // it indistinguishable from a real ramp to silence: the round's
+    // duck-depth guard took Math.min over every event's value and was
+    // satisfied by this sentinel rather than by the bed getting quieter,
+    // so DUCK_FACTOR could have been anything. NaN makes that misuse fail
+    // loudly instead of passing silently, which is the only honest value
+    // for a field that does not apply.
+    this.events.push({ kind: 'cancel', value: Number.NaN, time })
+    return this
+  }
   private check(value: number, time: number, kind: string) {
     if (!Number.isFinite(value)) throw new RangeError(`${kind}: value must be finite, got ${value}`)
     if (!Number.isFinite(time) || time < 0) throw new RangeError(`${kind}: time must be finite and non-negative, got ${time}`)
@@ -65,6 +129,34 @@ export class FakeParam implements AudioParamLike {
     this.events.push({ kind: 'exponential', value, time })
     return this
   }
+  // What is ACTUALLY still scheduled, with cancellations applied.
+  //
+  // `events` is the full history, which is what most guards here want:
+  // "did it ramp", "was it ever set to its target". But a cancel in that
+  // list is only a record that cancelling happened, and the spec says
+  // cancelScheduledValues(t) REMOVES every event at or after t. So a guard
+  // asking "is a ramp to silence still pending" read the cancelled ramp
+  // and answered yes, and the first version of the toggle-race guard
+  // failed against correct product code for that reason alone.
+  //
+  // Third time this round that this double and the code it stands in for
+  // agreed on something untrue (P15), and the only one of the three where
+  // the double was wrong on its own: `.value` recording nothing, a cancel
+  // recording a sentinel zero, and now a cancel recording no effect.
+  effective(): ParamEvent[] {
+    const live: ParamEvent[] = []
+    for (const event of this.events) {
+      if (event.kind === 'cancel') {
+        for (let i = live.length - 1; i >= 0; i -= 1) {
+          if (live[i].time >= event.time) live.splice(i, 1)
+        }
+        continue
+      }
+      live.push(event)
+    }
+    return live
+  }
+
   // The first value this param was ever told to hold, which for a tone is
   // its pitch and for an envelope is its floor.
   first(): number | undefined {
@@ -74,11 +166,24 @@ export class FakeParam implements AudioParamLike {
 
 export class FakeNode implements AudioNodeLike {
   readonly connections: AudioNodeLike[] = []
+  // Params this node modulates, kept apart from `connections` because they
+  // are a different operation with different audible consequences. Folding
+  // them into one list would let a test that means "routed to the bus"
+  // pass on a node that only modulates something.
+  readonly modulates: FakeParam[] = []
   disconnected = false
   constructor(readonly role: string) {}
-  connect(destination: AudioNodeLike) {
-    this.connections.push(destination)
-    return destination
+  connect(destination: AudioNodeLike): AudioNodeLike
+  connect(destination: AudioParamLike): void
+  connect(destination: AudioNodeLike | AudioParamLike): AudioNodeLike | void {
+    if (destination instanceof FakeParam) {
+      this.modulates.push(destination)
+      destination.connectedFrom.push(this)
+      return
+    }
+    const node = destination as AudioNodeLike
+    this.connections.push(node)
+    return node
   }
   disconnect() {
     this.disconnected = true
@@ -89,6 +194,7 @@ export class FakeGain extends FakeNode implements GainLike {
   gain = new FakeParam()
   constructor() {
     super('gain')
+    this.gain.owner = this
   }
 }
 
@@ -99,6 +205,7 @@ export class FakeOscillator extends FakeNode implements OscillatorLike {
   stopped: number | null = null
   constructor() {
     super('oscillator')
+    this.frequency.owner = this
   }
   start(when: number) {
     this.started = when
@@ -114,6 +221,8 @@ export class FakeBiquad extends FakeNode implements BiquadLike {
   Q = new FakeParam()
   constructor() {
     super('biquad')
+    this.frequency.owner = this
+    this.Q.owner = this
   }
 }
 
@@ -160,6 +269,14 @@ export class FakeAudioContext implements AudioContextLike {
 
   private track<T extends FakeNode>(node: T): T {
     this.created.push(node)
+    // Every param this context hands out is stamped with this context as
+    // its clock, so `param.value = x` records at the same currentTime the
+    // browser would use. Done here rather than in each constructor so a
+    // node type added later cannot forget.
+    for (const key of Object.keys(node) as (keyof T)[]) {
+      const field = node[key]
+      if (field instanceof FakeParam) field.clock = this
+    }
     return node
   }
 
@@ -207,6 +324,42 @@ export class FakeAudioContext implements AudioContextLike {
     while (stack.length) {
       const node = stack.pop()!
       if (node === blocked) continue
+      if (node === target) return true
+      if (seen.has(node)) continue
+      seen.add(node)
+      if (node instanceof FakeNode) {
+        stack.push(...node.connections)
+        // Modulation is a path to the speakers too: an LFO on a filter's
+        // cutoff is heard through that filter. Crossing param to owner is
+        // what makes "this oscillator is doing something" a question the
+        // walk can answer rather than a dead end that looks like silence.
+        // A param with no owner is a hole in this fake, not a quiet
+        // negative, so it says so.
+        for (const param of node.modulates) {
+          if (!param.owner) {
+            throw new Error('fake audio: a param was connected to but has no owner; reaches() cannot follow it')
+          }
+          stack.push(param.owner)
+        }
+      }
+    }
+    return false
+  }
+
+  // Reachable by SIGNAL only, never by modulation.
+  //
+  // reaches() deliberately crosses from a param to the node that owns it,
+  // because modulation is audible: an LFO on a filter cutoff is heard
+  // through that filter. But the two paths are not interchangeable, and a
+  // guard about gain staging needs the difference: an LFO "reaches" a
+  // layer gain while contributing no amplitude to it, so counting it as a
+  // voice put three oscillators in a two-oscillator layer and read the
+  // LFO's depth gain of 160 as a mix level.
+  carriesTo(from: AudioNodeLike, target: AudioNodeLike): boolean {
+    const seen = new Set<AudioNodeLike>()
+    const stack: AudioNodeLike[] = [from]
+    while (stack.length) {
+      const node = stack.pop()!
       if (node === target) return true
       if (seen.has(node)) continue
       seen.add(node)

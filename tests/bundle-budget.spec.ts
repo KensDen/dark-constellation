@@ -15,8 +15,9 @@
 // field is gone now and the number is derived from the chunk the battery
 // measures, so these tests hold that shape rather than the old value.
 
+import { randomBytes } from 'node:crypto'
 import { gzipSync } from 'node:zlib'
-import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -54,7 +55,7 @@ describe('bundle budget', () => {
     const css = 'y'.repeat(9_000) + Math.random()
     writeFileSync(join(dir, 'index-a.js'), js)
     writeFileSync(join(dir, 'index-a.css'), css)
-    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 }
+    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }
     const base = measureBundle({ budget: cap, dir, startedAt: 0 })
 
     // Grow the STYLESHEET. This is the byte that went uncounted for four
@@ -88,7 +89,7 @@ describe('bundle budget', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dc-gate-'))
     writeFileSync(join(dir, 'index-b.js'), 'x'.repeat(200))
     writeFileSync(join(dir, 'index-b.css'), 'y'.repeat(200))
-    const under = measureBundle({ budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000, deferredBudgetGzipBytes: 10_000_000 }, dir, startedAt: 0 })
+    const under = measureBundle({ budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }, dir, startedAt: 0 })
     // A threshold set between the JS alone and the combined total: it
     // passes on one reading and fails on the other, which is exactly the
     // discrimination this test needs to be standing on.
@@ -96,7 +97,7 @@ describe('bundle budget', () => {
     expect(between, 'the two chunks are too close for this to discriminate').toBeGreaterThan(under.jsGz)
     expect(between).toBeLessThan(under.gz)
     expect(() =>
-      measureBundle({ budget: { baselineGzipBytes: 1, budgetGzipBytes: between, deferredBudgetGzipBytes: 10_000_000 }, dir, startedAt: 0 }),
+      measureBundle({ budget: { baselineGzipBytes: 1, budgetGzipBytes: between, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }, dir, startedAt: 0 }),
     ).toThrow(/over the/)
     rmSync(dir, { recursive: true, force: true })
   })
@@ -109,7 +110,7 @@ describe('bundle budget', () => {
     // the JS slept through the suite, because the only staleness test made
     // both files old at once.
     const dir = mkdtempSync(join(tmpdir(), 'dc-stale-'))
-    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 }
+    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }
     // Stamped BEFORE the writes, which is the order the battery uses: it
     // records the time it started and then builds. Stamping after them
     // makes the control flake on filesystem mtime granularity.
@@ -164,7 +165,7 @@ describe('bundle budget', () => {
     const startedAt = Date.now() - 1_000
     writeFileSync(join(dir, 'index-d.js'), 'x'.repeat(20_000))
     writeFileSync(join(dir, 'index-d.css'), 'y'.repeat(2_000))
-    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 }
+    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }
     const alone = measureBundle({ budget: cap, dir, startedAt })
     expect(alone.deferredGz, 'a build with no split chunk reported deferred bytes').toBe(0)
     expect(alone.deferred).toEqual([])
@@ -190,7 +191,7 @@ describe('bundle budget', () => {
     writeFileSync(join(dir, 'index-e.js'), 'x'.repeat(2_000))
     writeFileSync(join(dir, 'index-e.css'), 'y'.repeat(200))
     writeFileSync(join(dir, 'Heavy-Ab2.js'), 'z'.repeat(40_000))
-    const generous = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 }
+    const generous = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }
     const under = measureBundle({ budget: generous, dir, startedAt })
     expect(under.deferredGz).toBeGreaterThan(0)
     // A deferred budget below what is there fails, while the initial
@@ -211,6 +212,141 @@ describe('bundle budget', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  // ROUND 6B, the third correction to this layer and the second one found
+  // in its own predecessor. 6a enumerated the DIRECTORY but declared the
+  // EXTENSIONS, so images, fonts and SVGs fell through a js-or-css filter,
+  // and it read one directory rather than walking the tree, so the dist
+  // root's own files were invisible as well. 813,681 raw bytes in twelve
+  // files against 266,012 gzipped of code.
+  it('counts a file whose extension it has never heard of', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dc-static-'))
+    writeFileSync(join(dir, 'index-c.js'), 'x'.repeat(400))
+    writeFileSync(join(dir, 'index-c.css'), 'y'.repeat(400))
+    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }
+    const before = measureBundle({ budget: cap, dir, startedAt: 0 })
+    expect(before.staticBytes).toBe(0)
+
+    // A format this layer was never told about. Two of them, because the
+    // real build ships webp, jpg, woff2 and svg and the point is that the
+    // list is not the mechanism.
+    writeFileSync(join(dir, 'hero.webp'), Buffer.alloc(5_000, 7))
+    writeFileSync(join(dir, 'display.woff2'), Buffer.alloc(3_000, 9))
+    const after = measureBundle({ budget: cap, dir, startedAt: 0 })
+    expect(after.staticBytes, 'a webp and a woff2 counted as nothing').toBe(8_000)
+    expect(after.staticFiles.sort()).toEqual(['display.woff2', 'hero.webp'])
+    // And they did not leak into the code figures.
+    expect(after.gz).toBe(before.gz)
+    expect(after.deferredGz).toBe(before.deferredGz)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('walks the build tree rather than one directory', () => {
+    // The dist root carries index.html, the legal texts and three images
+    // that Vite copies out of public/. Round 6a read dist/assets only, so
+    // 285,956 bytes sat one directory up from everything it looked at.
+    const dir = mkdtempSync(join(tmpdir(), 'dc-tree-'))
+    mkdirSync(join(dir, 'assets'))
+    writeFileSync(join(dir, 'assets', 'index-d.js'), 'x'.repeat(400))
+    writeFileSync(join(dir, 'assets', 'index-d.css'), 'y'.repeat(400))
+    writeFileSync(join(dir, 'og-image.jpg'), Buffer.alloc(2_000, 3))
+    mkdirSync(join(dir, 'legal'))
+    writeFileSync(join(dir, 'legal', 'OFL.txt'), 'z'.repeat(1_000))
+    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }
+    const result = measureBundle({ budget: cap, dir, startedAt: 0 })
+    expect(result.staticBytes, 'a file outside assets/ counted as nothing').toBe(3_000)
+    expect(result.staticFiles.sort()).toEqual(['legal/OFL.txt', 'og-image.jpg'])
+    // The entry chunks were still found, one directory down.
+    expect(result.jsGz).toBeGreaterThan(0)
+    expect(result.cssGz).toBeGreaterThan(0)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('gates the static files rather than only reporting them', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dc-static-gate-'))
+    writeFileSync(join(dir, 'index-e.js'), 'x'.repeat(400))
+    writeFileSync(join(dir, 'index-e.css'), 'y'.repeat(400))
+    writeFileSync(join(dir, 'backdrop.webp'), Buffer.alloc(6_000, 1))
+    const generous = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }
+    const under = measureBundle({ budget: generous, dir, startedAt: 0 })
+    expect(under.staticBytes).toBe(6_000)
+
+    expect(() => measureBundle({ budget: { ...generous, staticBudgetBytes: under.staticBytes - 1 }, dir, startedAt: 0 })).toThrow(
+      /over the/,
+    )
+    // The positive control for the line above: exactly at the budget is
+    // fine, so the throw is about the threshold and not about the group
+    // existing at all.
+    expect(() => measureBundle({ budget: { ...generous, staticBudgetBytes: under.staticBytes }, dir, startedAt: 0 })).not.toThrow()
+    // And a missing budget is refused rather than defaulted, which is the
+    // unmetered channel with an extra step.
+    const { staticBudgetBytes: _drop, ...noStatic } = generous
+    expect(() => measureBundle({ budget: noStatic, dir, startedAt: 0 })).toThrow(/records no staticBudgetBytes/)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('measures static files raw, because they do not compress', () => {
+    // Already-compressed media gzips to MORE than it is: the real build's
+    // defeat-sphere.webp gzips 58 bytes larger than the file. Reporting a
+    // gzipped figure for it would be a number the wire never carries.
+    const dir = mkdtempSync(join(tmpdir(), 'dc-raw-'))
+    writeFileSync(join(dir, 'index-f.js'), 'x'.repeat(400))
+    writeFileSync(join(dir, 'index-f.css'), 'y'.repeat(400))
+    // Incompressible bytes, which is what an encoded image looks like.
+    // randomBytes rather than an arithmetic pattern: the first version of
+    // this fixture used (i * 2654435761) % 251, which loses precision in a
+    // double and repeats, so it gzipped to 431 bytes from 20,000 and stood
+    // for nothing. The assertion below is what caught it, which is why it
+    // is here rather than in a comment.
+    const noise = randomBytes(20_000)
+    writeFileSync(join(dir, 'noise.webp'), noise)
+    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }
+    const result = measureBundle({ budget: cap, dir, startedAt: 0 })
+    expect(result.staticBytes, 'static was not measured at its real size').toBe(noise.length)
+    expect(gzipSync(noise).length, 'this fixture compresses, so it does not stand for an image').toBeGreaterThanOrEqual(
+      noise.length,
+    )
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('refuses a stale static file against fresh code', () => {
+    // The staleness loop covers all three groups. A stale backdrop
+    // measured against a fresh script is the stale-stylesheet defect two
+    // files further out, and both of the earlier versions of this loop
+    // slept through exactly that mutation.
+    const dir = mkdtempSync(join(tmpdir(), 'dc-static-stale-'))
+    const startedAt = Date.now()
+    writeFileSync(join(dir, 'index-g.js'), 'x'.repeat(400))
+    writeFileSync(join(dir, 'index-g.css'), 'y'.repeat(400))
+    writeFileSync(join(dir, 'old.webp'), Buffer.alloc(1_000, 2))
+    const old = (startedAt - 60_000) / 1000
+    utimesSync(join(dir, 'old.webp'), old, old)
+    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }
+    expect(() => measureBundle({ budget: cap, dir, startedAt })).toThrow(/old\.webp predates this battery run/)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('touches no filesystem when the caller supplies the file list', () => {
+    // The default parameters used to chain: `emitted = emittedFiles(dir)`
+    // ran for every caller that did not pass `emitted`, including one that
+    // passed its own allChunks and never wanted the disk read, so a
+    // reading could be assembled from two different builds. `dir` here
+    // does not exist, which is the only way to prove nothing scanned it.
+    const cap = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }
+    const result = measureBundle({
+      budget: cap,
+      dir: join(tmpdir(), 'dc-does-not-exist-' + Math.random().toString(36).slice(2)),
+      emitted: ['index-x.js', 'index-x.css', 'art/hero.webp'],
+      gzipOf: (f) => (f.endsWith('.js') ? 100 : 20),
+      rawOf: () => 5_000,
+      mtimeOf: () => Date.now() + 1000,
+      startedAt: Date.now(),
+    })
+    expect(result.jsGz).toBe(100)
+    expect(result.cssGz).toBe(20)
+    expect(result.staticBytes).toBe(5_000)
+    expect(result.staticFiles).toEqual(['art/hero.webp'])
+  })
+
   it('records no headroom of its own', () => {
     // Nothing to go stale, which is the whole of the fix: the battery
     // throws if this field comes back.
@@ -223,7 +359,7 @@ describe('bundle budget', () => {
     // Guarding headroomFor alone was the weak form: a call site passing the
     // baseline instead of the measured size went straight through it. This
     // drives the layer the battery actually runs.
-    const budget = { baselineGzipBytes: 124237, budgetGzipBytes: 140000, deferredBudgetGzipBytes: 1_000_000 }
+    const budget = { baselineGzipBytes: 124237, budgetGzipBytes: 140000, deferredBudgetGzipBytes: 1_000_000, staticBudgetBytes: 10_000_000 }
     const grown = measureBundle({
       budget,
       allChunks: ['index-abc.js', 'index-abc.css'], jsChunks: ['index-abc.js'], cssChunks: ['index-abc.css'],
@@ -247,7 +383,7 @@ describe('bundle budget', () => {
   })
 
   it('refuses the conditions the battery exists to catch', () => {
-    const budget = { baselineGzipBytes: 124237, budgetGzipBytes: 140000, deferredBudgetGzipBytes: 1_000_000 }
+    const budget = { baselineGzipBytes: 124237, budgetGzipBytes: 140000, deferredBudgetGzipBytes: 1_000_000, staticBudgetBytes: 10_000_000 }
     const call = (over: Record<string, unknown>) =>
       measureBundle({ budget, allChunks: ['index-abc.js', 'index-abc.css'], jsChunks: ['index-abc.js'], cssChunks: ['index-abc.css'], gzipOf: (c: string) => (c.endsWith('.css') ? 0 : 124237), mtimeOf: () => 1000, startedAt: 0, ...over })
     // A written headroom, the thing this round removed.
@@ -279,7 +415,7 @@ describe('bundle budget', () => {
     writeFileSync(join(dir, 'index-real.css'), styles)
     const expected = gzipSync(Buffer.from(body)).length + gzipSync(Buffer.from(styles)).length
     const measured = measureBundle({
-      budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 },
+      budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 },
       dir,
       startedAt: 0,
     })
@@ -294,7 +430,7 @@ describe('bundle budget', () => {
     // uses was never exercised and could have been removed unnoticed.
     expect(() =>
       measureBundle({
-        budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 },
+        budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 },
         dir,
         startedAt: Date.now() + 60_000,
       }),
@@ -304,7 +440,7 @@ describe('bundle budget', () => {
     // staleness check off in silence, because a comparison against
     // undefined is false. It refuses now.
     expect(() =>
-      measureBundle({ budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000 }, dir }),
+      measureBundle({ budget: { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, deferredBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }, dir }),
     ).toThrow(/timestamp the battery started at/)
 
     rmSync(dir, { recursive: true, force: true })

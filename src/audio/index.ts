@@ -27,8 +27,40 @@ export {
   type SoundPrefs,
 } from './prefs'
 export { VOICES, type Voice, type VoiceOptions } from './voices'
+export {
+  CROSSFADE_S,
+  DUCK_ATTACK_S,
+  DUCK_FACTOR,
+  DUCK_RELEASE_S,
+  LEVEL_FADE_S,
+  MENU_MUSIC_STATE,
+  MUSIC_LAYERS,
+  MusicBed,
+  NOTE_GAP_MAX_MS,
+  NOTE_GAP_MIN_MS,
+  NOTE_LEVEL,
+  NOTE_MS,
+  PENTATONIC_HZ,
+  musicStateFrom,
+  shouldPlayMusic,
+  type MusicBedOptions,
+  type MusicGateState,
+  type MusicLayerDef,
+  type MusicLayerName,
+  type MusicScheduler,
+  type MusicState,
+} from './music'
+export { defaultMusicRng, xorshift32, type MusicRng } from './musicRng'
 export { MAX_EFFECTIVE_SEVERITY, NEUTRAL_INTENSITY, beatIntensity } from './intensity'
-export { useGestureUnlock, useSilenceSound, useSound, useSoundPrefs, type PlayCue, type SoundPrefsUpdate } from './useSound'
+export {
+  useGestureUnlock,
+  useMusicState,
+  useSilenceSound,
+  useSound,
+  useSoundPrefs,
+  type PlayCue,
+  type SoundPrefsUpdate,
+} from './useSound'
 export type {
   AudioContextLike,
   AudioNodeLike,

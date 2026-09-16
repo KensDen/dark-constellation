@@ -8,7 +8,9 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { SoundCue } from '../director/cues'
+import type { GameState } from '../engine/types'
 import { getAudioEngine, installGestureUnlock } from './engine'
+import { MENU_MUSIC_STATE, musicStateFrom } from './music'
 import { loadSoundPrefs, type SoundPrefs } from './prefs'
 import type { VoiceOptions } from './voices'
 
@@ -80,4 +82,39 @@ export function useSoundPrefs(): [SoundPrefs, (next: SoundPrefsUpdate) => void] 
   }, [])
 
   return [prefs, setPrefs]
+}
+
+// Tell the music bed where the player is (Round 6b).
+//
+// Takes the state the player is being SHOWN, not the engine's after-state.
+// During playback that is the director's presented state, so the threat
+// layer rises on the beat that arms the chain rather than at the top of
+// the turn that will eventually arm it: the bed is part of the telling,
+// and getting ahead of the telling is the same defect as a meter that
+// jumps to its final value before the beat that moves it.
+//
+// Null means no campaign, which is the start screen and every menu behind
+// it: base layer only, by MENU_MUSIC_STATE's construction rather than by a
+// branch here.
+export function useMusicState(shown: GameState | null | undefined): void {
+  useEffect(() => {
+    getAudioEngine().setMusicState(shown ? musicStateFrom(shown) : MENU_MUSIC_STATE)
+  }, [shown])
+  // Leaving the campaign returns the bed to the menu.
+  //
+  // A SEPARATE effect with no dependencies, not a cleanup on the one
+  // above. That effect re-runs on every beat, so resetting in its cleanup
+  // would drop the bed to base between every pair of beats and the
+  // crossfades would spend the whole turn chasing themselves. This one
+  // runs its cleanup once, when Game unmounts, which is the only moment
+  // the campaign is actually over. Without it, quitting to the menu left
+  // the bed playing the abandoned campaign's threat layer under the title
+  // screen and every reference screen behind it, until a new campaign
+  // happened to overwrite it.
+  useEffect(
+    () => () => {
+      getAudioEngine().setMusicState(MENU_MUSIC_STATE)
+    },
+    [],
+  )
 }

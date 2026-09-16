@@ -9,10 +9,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { AudioEngine, EFFECTS_LEVEL, MUSIC_LEVEL, SILENCE_FADE_S, shouldSchedule } from '../src/audio/engine'
+import { LEVEL_FADE_S, MUSIC_LAYERS } from '../src/audio/music'
 import { DEFAULT_SOUND_PREFS, parseSoundPref, serializeSoundPref } from '../src/audio/prefs'
 import { VOICES } from '../src/audio/voices'
-import { SOUND_MS, type SoundCue } from '../src/director'
-import { FakeAudioContext, FakeGain, FakeOscillator } from './fakeAudio'
+import { DUCKS_MUSIC, SOUND_MS, type SoundCue } from '../src/director'
+import { FakeAudioContext, FakeGain, FakeOscillator, type FakeNode } from './fakeAudio'
 
 // Every engine in this file gets its context injected and its visibility
 // injected, and none of them watches the document: there is no document in
@@ -24,23 +25,54 @@ import { FakeAudioContext, FakeGain, FakeOscillator } from './fakeAudio'
 // play rather than on the unlock passes every greater-than assertion.
 function footprintOf(cue: SoundCue): number {
   const ctx = new FakeAudioContext()
-  const engine = new AudioEngine({ createContext: () => ctx, isVisible: () => true, watchVisibility: false })
+  const engine = new AudioEngine({
+    createContext: () => ctx,
+    // Explicitly, for the same reason engineWith does it below: without
+    // these this was the one engine in the file taking DEFAULT_SOUND_PREFS
+    // (music on) and the REAL setTimeout scheduler, so it built a bed and
+    // armed a note timer that outlived the test, directly contradicting
+    // the comment on engineWith. The reset below hid the bed's nodes from
+    // the count but not the timer from the process.
+    prefs: { effects: true, music: false },
+    isVisible: () => true,
+    watchVisibility: false,
+    music: { schedule: () => () => {} },
+  })
   engine.unlock()
   ctx.reset()
   engine.play(cue)
-  return ctx.startedCount()
+  const count = ctx.startedCount()
+  engine.dispose()
+  return count
 }
 
+// MUSIC DEFAULTS TO OFF HERE, and only here (Round 6b).
+//
+// This file measures the EFFECTS channel against the graph: "nothing was
+// queued" and "nothing was replayed" are counts of started nodes, and the
+// music bed is nine more started nodes that appear on the unlock and again
+// on every return from a hidden page. Left on, it does not make these
+// assertions stricter, it makes them wrong: two of them failed the moment
+// the bed shipped, for the pad starting rather than for any cue being
+// replayed.
+//
+// So each channel is measured on its own, and the two places that would
+// hide are covered on purpose rather than by hope: the bed's own
+// visibility and gating behaviour is asserted against the graph in
+// tests/music.spec.ts, and the two channels are asserted not to interfere
+// with each other in 'the two channels do not move each other' below,
+// which runs with BOTH on.
 function engineWith(overrides: Partial<{ effects: boolean; music: boolean; visible: boolean }> = {}) {
   const ctx = new FakeAudioContext()
   const engine = new AudioEngine({
     createContext: () => ctx,
     prefs: {
       effects: overrides.effects ?? true,
-      music: overrides.music ?? true,
+      music: overrides.music ?? false,
     },
     isVisible: () => overrides.visible ?? true,
     watchVisibility: false,
+    music: { schedule: () => () => {} },
   })
   return { ctx, engine }
 }
@@ -134,22 +166,40 @@ describe('the toggles reach the graph', () => {
     ctx.reset()
     engine.play('hit-stab')
     expect(ctx.startedCount()).toBe(0)
-    engine.setPreferences({ effects: true, music: true }, false)
+    // MUSIC STAYS OFF ACROSS THIS TRANSITION. It used to be flipped on in
+    // the same call, which since Round 6b builds a bed of nine
+    // oscillators, so the assertion below passed on the BED starting
+    // rather than on the cue being scheduled: the effects toggle could
+    // have done nothing at all. Only one preference moves here, which is
+    // the whole point of a test about one toggle.
+    engine.setPreferences({ effects: true, music: false }, false)
+    expect(engine.music, 'music came on and this test is no longer about effects').toBeNull()
+    const beforeCue = ctx.startedCount()
     engine.play('hit-stab')
-    expect(ctx.startedCount()).toBeGreaterThan(0)
+    expect(ctx.startedCount(), 'the cue scheduled nothing after effects came back').toBeGreaterThan(beforeCue)
   })
 
   it('leaves effects untouched when only music is muted', () => {
     // Two toggles that are secretly one toggle would pass a test that only
     // read the preference back.
-    const { ctx, engine } = engineWith()
+    // Music ON to start with, because muting is the transition under test
+    // and this file's helper otherwise defaults it off.
+    const { ctx, engine } = engineWith({ music: true })
     engine.unlock()
     const musicBus = ctx.created.filter(
       (n): n is FakeGain => n instanceof FakeGain && n.connections.includes(ctx.destination),
     )[1]
     ctx.reset()
     engine.setPreferences({ effects: true, music: false }, false)
-    expect(musicBus.gain.value, 'muting music did not silence the music bus').toBe(0)
+    // Read the AUTOMATION, not `.value`. Since Round 6b the bed RAMPS the
+    // bus down over LEVEL_FADE_S instead of stepping it, because three
+    // sounding pads cut to zero at once is the loudest click the game can
+    // make. `.value` is the last value assigned, which is not where the
+    // param is heading, and asserting on it would fail a correct fade and
+    // pass a hard cut.
+    const heading = musicBus.gain.events[musicBus.gain.events.length - 1]
+    expect(heading.value, 'muting music did not silence the music bus').toBe(0)
+    expect(heading.kind, 'muting music cut the bus rather than fading it').toBe('linear')
     expect(engine.play('resolve-chime')).toBe(true)
     expect(ctx.startedCount(), 'muting music silenced the effects too').toBeGreaterThan(0)
   })
@@ -365,7 +415,11 @@ describe('the voices themselves', () => {
     // Asserted as a sorted multiset at first, which proved only that the
     // two numbers both appeared: swapping the assignments left every
     // effect in the game nine decibels down with the suite green.
-    const { ctx, engine } = engineWith()
+    //
+    // Music ON, because since Round 6b the music bus opens at the mix
+    // level only when music is actually on, and this test is about which
+    // bus carries which level rather than about the preference.
+    const { ctx, engine } = engineWith({ music: true })
     engine.unlock()
     const buses = ctx.created.filter(
       (n): n is FakeGain => n instanceof FakeGain && n.connections.includes(ctx.destination),
@@ -530,5 +584,167 @@ describe('disposal', () => {
     ctx.reset()
     expect(engine.play('hit-stab')).toBe(false)
     expect(ctx.created.length).toBe(0)
+  })
+})
+
+// The coverage the scoping above would otherwise have dropped: the DEFAULT
+// preferences, both channels on, asserting that neither moves the other.
+// Without this, every test in this file runs against a configuration no
+// player has, and the interaction between the bed and the cues would be
+// tested nowhere at all.
+describe('the two channels do not move each other', () => {
+  function bothOn() {
+    const ctx = new FakeAudioContext()
+    const engine = new AudioEngine({
+      createContext: () => ctx,
+      // The real defaults, not an override: this is what a player gets.
+      prefs: { ...DEFAULT_SOUND_PREFS },
+      isVisible: () => true,
+      watchVisibility: false,
+      music: { schedule: () => () => {} },
+    })
+    return { ctx, engine }
+  }
+
+  it('costs a cue exactly the same with the bed playing', () => {
+    const alone = footprintOf('hit-stab')
+    const { ctx, engine } = bothOn()
+    engine.unlock()
+    expect(engine.music, 'the default preferences did not start a bed').not.toBeNull()
+    ctx.reset()
+    engine.play('hit-stab')
+    expect(ctx.startedCount(), 'a cue cost a different number of nodes with music on').toBe(alone)
+    engine.dispose()
+  })
+
+  it('still queues nothing it could not play, with music on', () => {
+    const one = footprintOf('alarm-gnss')
+    const { ctx, engine } = bothOn()
+    for (let i = 0; i < 5; i += 1) engine.play('alarm-gnss')
+    engine.unlock()
+    ctx.reset()
+    engine.play('alarm-gnss')
+    expect(ctx.startedCount(), 'the bed carried a backlog of refused cues in with it').toBe(one)
+    engine.dispose()
+  })
+
+  it('leaves the layers where they were when a cue plays', () => {
+    const { engine } = bothOn()
+    engine.unlock()
+    const bed = engine.music!
+    // COUNT THE AUTOMATION, not `.value`. This read `.value` when the
+    // production code still wrote it, and the moment that write was
+    // removed the comparison became "undefined equals undefined" on both
+    // sides: it went vacuous as a side effect of a fix in a different file
+    // and nobody noticed until the re-review. The question it means to ask
+    // is whether a cue schedules anything on a layer, and scheduling is
+    // what the event list holds.
+    const counts = () =>
+      MUSIC_LAYERS.map((l) => ((bed.layerGain(l.name) as unknown as FakeGain | undefined)?.gain.events ?? []).length)
+    const before = counts()
+    expect(before.some((n) => n > 0), 'no layer has any automation, so equality proves nothing').toBe(true)
+    // Every cue in the game, ducking or not: a duck moves the BUS, never a
+    // layer, because a duck is the mix stepping back and a layer is the
+    // state of the campaign.
+    for (const cue of Object.keys(SOUND_MS) as SoundCue[]) engine.play(cue)
+    expect(counts(), 'playing a cue scheduled something on a music layer').toEqual(before)
+    engine.dispose()
+  })
+
+  // The clipping fix, which shipped in the first fix batch with no guard
+  // and slept through its own mutation.
+  it('shares each layer level across its oscillators rather than doubling it', () => {
+    const { ctx, engine } = bothOn()
+    engine.unlock()
+    const bed = engine.music!
+    // For each layer gain, the gains between it and the oscillators that
+    // feed it must bring the summed voices back to unity. Derived by
+    // walking the graph: count the oscillators that depend on this layer,
+    // and find the gain they share.
+    for (const layer of MUSIC_LAYERS) {
+      const layerGain = bed.layerGain(layer.name) as unknown as FakeNode
+      // carriesTo, not reaches: the layer's LFO reaches this gain through
+      // the filter param it modulates, but contributes no amplitude, and
+      // counting it as a voice read its depth gain of 160 as a mix level.
+      const voices = ctx
+        .oscillators()
+        .filter((o) => o.started !== null && ctx.carriesTo(o, layerGain) && !o.connections.includes(layerGain))
+      if (voices.length < 2) continue
+      // Every one of them goes through a shared gain of 1/n, so n voices
+      // at unity sum to unity rather than to n.
+      for (const osc of voices) {
+        const share = osc.connections[0] as FakeGain
+        expect(share, `${layer.name}: a voice connects to nothing`).toBeDefined()
+        expect(share.gain.value * voices.length, `${layer.name}: ${voices.length} voices sum past full scale`).toBeCloseTo(
+          1,
+          5,
+        )
+      }
+    }
+    engine.dispose()
+  })
+
+  // THE ROUND'S CRITICAL DEFECT IN ITS FINAL FORM, and the one fix that
+  // still had no guard after two batches.
+  //
+  // A stopped bed deliberately leaves its LEVEL_FADE ramp on the shared
+  // bus so the fade can be heard. Assigning `.value` is itself just
+  // another automation event at `now`: it does NOT remove that pending
+  // ramp. So a player double-tapping the music toggle inside LEVEL_FADE_S
+  // turned music back on onto a bus that was still ramping to zero, and it
+  // held there for the rest of the session with a fully built bed fading
+  // in underneath it.
+  it('survives the music toggle being pressed twice inside one fade', () => {
+    const { ctx, engine } = bothOn()
+    engine.unlock()
+    const bus = ctx.created.filter(
+      (n): n is FakeGain => n instanceof FakeGain && n.connections.includes(ctx.destination as unknown as FakeNode),
+    )[1]
+    expect(bus).toBeDefined()
+
+    engine.setPreferences({ effects: true, music: false }, false)
+    expect(engine.music, 'the bed survived being switched off').toBeNull()
+    // Inside the fade the off-press left in flight, which is the whole
+    // point: advancing past it would make the race impossible to hit.
+    ctx.advance(LEVEL_FADE_S / 2)
+    engine.setPreferences({ effects: true, music: true }, false)
+    expect(engine.music, 'the bed was not rebuilt').not.toBeNull()
+
+    // Nothing on the bus is still heading for silence. The stale ramp has
+    // to be CANCELLED, not merely followed by another event: an event
+    // written at `now` sorts before a ramp ending later and does not
+    // remove it.
+    const at = ctx.currentTime
+    // effective(), not events: a cancel REMOVES what it cancels, and the
+    // raw log keeps it. Reading the log here failed against correct code.
+    const pending = bus.gain.effective().filter((e) => e.time >= at)
+    expect(pending.length, 'nothing was scheduled for the music bus at all').toBeGreaterThan(0)
+    expect(pending[pending.length - 1].value, 'the bus is still heading to silence under a live bed').toBeCloseTo(
+      MUSIC_LEVEL,
+    )
+    expect(
+      pending.some((e) => e.value === 0),
+      'a ramp to silence is still pending on the bus after music came back on',
+    ).toBe(false)
+    engine.dispose()
+  })
+
+  // The other fix that slept: setPreferences used to react to every
+  // change, so touching the EFFECTS toggle abandoned a duck in flight and
+  // snapped the music bus back to full level under a playing cue.
+  it('does not touch the music bus when only the effects toggle moves', () => {
+    const { ctx, engine } = bothOn()
+    engine.unlock()
+    const bus = ctx.created.filter(
+      (n): n is FakeGain => n instanceof FakeGain && n.connections.includes(ctx.destination as unknown as FakeNode),
+    )[1]
+    const ducking = (Object.keys(SOUND_MS) as SoundCue[]).find((c) => DUCKS_MUSIC[c])!
+    engine.play(ducking)
+    const mid = bus.gain.events.length
+    expect(mid, 'the cue did not duck, so there is no duck to abandon').toBeGreaterThan(0)
+    engine.setPreferences({ effects: false, music: true }, false)
+    expect(bus.gain.events.length, 'moving the effects toggle rewrote the music bus').toBe(mid)
+    expect(engine.music, 'moving the effects toggle tore down the bed').not.toBeNull()
+    engine.dispose()
   })
 })

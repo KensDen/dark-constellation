@@ -49,7 +49,8 @@ run('typecheck + production build', () => {
 // plus the stylesheet; DEFERRED is every chunk Rollup splits out, which
 // today is the lazily loaded frame and its three.js. The layer counted the
 // entry script alone from Round 2 until Round 6, so both the stylesheet
-// and a 129,274 byte split chunk shipped into a channel nothing measured. Node's zlib at its default level, so the number is
+// and a 129,274 byte split chunk shipped into a channel nothing measured.
+// Measured with Node's zlib at its default level, so the number is
 // reproducible from the battery alone; the baseline and budget live in
 // tests/bundle-budget.json and any library addition records its delta.
 run('bundle budget: everything that ships, under threshold (game-feel brief 8)', () => {
@@ -121,7 +122,7 @@ run('dev-only sound board is excluded from the production build (brief 7)', () =
 // number this line exists to publish.
 const LEDGER_SWEEP_TEST = 'reproduces the after-state of every turn of every line, seed and difficulty with no settle beat'
 
-run('vitest suites: determinism, content, persistence, readme, director, cues, reading diet (spec 11.2, 11.3; brief 8)', () => {
+run('vitest suites: determinism, content, persistence, readme, director, cues, reading diet, sound, music isolation (spec 11.2, 11.3; brief 8)', () => {
   const resultsPath = join(tmpdir(), `dc-battery-vitest-${process.pid}.json`)
   try {
     sh(`npx vitest run --reporter=default --reporter=json --outputFile.json=${JSON.stringify(resultsPath)}`)

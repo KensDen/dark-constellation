@@ -17,10 +17,18 @@ export interface AudioParamLike {
   setValueAtTime(value: number, startTime: number): AudioParamLike
   linearRampToValueAtTime(value: number, endTime: number): AudioParamLike
   exponentialRampToValueAtTime(value: number, endTime: number): AudioParamLike
+  cancelScheduledValues(startTime: number): AudioParamLike
 }
 
+// Two overloads, because the browser has two and Round 6b needs the second
+// one. Connecting to a NODE routes audio; connecting to a PARAM modulates
+// it, which is how the music bed's LFO moves a filter cutoff without being
+// audible itself. They are different operations with different return
+// types in the real API, and collapsing them into one would let the suite's
+// fake accept a param where a node belongs and record the two identically.
 export interface AudioNodeLike {
   connect(destination: AudioNodeLike): AudioNodeLike
+  connect(destination: AudioParamLike): void
   disconnect(): void
 }
 

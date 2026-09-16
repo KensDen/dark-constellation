@@ -26,7 +26,7 @@ import { reportData, shareText } from './reportCard'
 import DirectorView from '../director/DirectorView'
 import HoldButton from './cues/HoldButton'
 import SoundToggles from './cues/SoundToggles'
-import { useSound, useSoundPrefs } from '../audio'
+import { useMusicState, useSound, useSoundPrefs } from '../audio'
 import {
   SpeedSelect,
   defaultSpeed,
@@ -264,6 +264,12 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   // the engine's end state. Computed here because hooks run before the
   // start-screen early return below.
   const shownOrNull = phase === 'playback' && presented ? presented : state
+  // The music bed follows the same state the HUD does, for the same
+  // reason: during playback that is the director's presented state, so the
+  // threat layer rises on the beat that arms the chain rather than at the
+  // top of the turn that will eventually arm it. Null is the start screen,
+  // which gets the base layer only.
+  useMusicState(shownOrNull)
   const { badges, phases } = useBadgePhases(
     shownOrNull?.conditions ?? EMPTY_CONDITIONS,
     reducedMotion,
