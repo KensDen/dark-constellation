@@ -228,9 +228,14 @@ describe('sound cue coverage (Round 4d)', () => {
 
   it('records which rows can sound at instant speed, derived from the table', () => {
     // Instant derives no beats, so every row the director plays is silent
-    // there, and instant is what reduced motion selects by default. The
-    // split is derived rather than listed, so a row that moves between a
-    // component and the director moves here with it.
+    // there. The split is derived rather than listed, so a row that moves
+    // between a component and the director moves here with it.
+    //
+    // Instant is an explicit choice ONLY, since brief v1.2. It used to be
+    // what reduced motion selected, which is how eleven of these rows came
+    // to be silent for a player who had asked for nothing to move rather
+    // than for nothing to be told; that coupling was removed in Round 4e
+    // and defaultSpeed no longer takes a reducedMotion argument.
     // Anchored to real beats, not to the predicate. Comparing the
     // function's output against its own body proved only that it had been
     // copied correctly; what has to be true is that the rows it calls
@@ -261,8 +266,9 @@ describe('sound cue coverage (Round 4d)', () => {
     }
     expect(silent.every((r) => !!r.kinds?.length), 'a silent-at-instant row names no beat kinds').toBe(true)
     // Recorded as a count so the balance cannot shift unnoticed: this is
-    // the reduced-motion player's normal experience, and the brief has two
-    // sentences about it that disagree.
+    // what an explicit INSTANT tap costs the player who taps it. It used
+    // to be recorded as the reduced-motion player's normal experience,
+    // which brief v1.2 and Round 4e ended.
     expect(silent.length).toBe(11)
     expect(sounding.length).toBe(5)
   })

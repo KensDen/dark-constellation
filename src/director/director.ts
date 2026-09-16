@@ -44,11 +44,25 @@ export const PLAYBACK_SPEED_KEY = 'dc-playback-speed'
 
 export const isSpeed = (v: unknown): v is Speed => typeof v === 'string' && (SPEEDS as string[]).includes(v)
 
-// Default speed: a stored preference wins; otherwise reduced motion selects
-// instant (brief section 3), and everyone else gets 1x.
-export function defaultSpeed(reducedMotion: boolean, stored?: unknown): Speed {
+// Default speed: a stored preference wins, and everyone else gets 1x.
+//
+// Reduced motion used to select instant here, and no longer does (brief
+// v1.2 section 3). The two are different requests. Someone who taps
+// INSTANT asked for results only; someone whose OS carries
+// prefers-reduced-motion asked for nothing to MOVE, which is a motion
+// preference and not an information or audio one. Conflating them meant
+// instant derived no beats, so eleven of the sixteen cue rows had nothing
+// to attach to and a reduced-motion player heard no hit stab, no condition
+// alarm, no BLACKOUT CHAIN and no defeat sting for a whole campaign, while
+// section 7 promised sound was unaffected by the preference. Reduced
+// motion now keeps the sequence and takes the static form of every cue,
+// which every cue already implements.
+//
+// The parameter went with the rule rather than being kept and ignored, so
+// that the typechecker had to visit each call site.
+export function defaultSpeed(stored?: unknown): Speed {
   if (isSpeed(stored)) return stored
-  return reducedMotion ? 'instant' : '1x'
+  return '1x'
 }
 
 export function loadSpeedPreference(): unknown {

@@ -364,8 +364,11 @@ describe('the controls that sound themselves', () => {
   })
 
   it('still sounds under reduced motion, which removes motion and not sound', () => {
-    // Brief section 7: "Reduced motion: instant playback, static badges,
-    // no strobe, no shake; sound unaffected unless muted." The crossing is
+    // Brief v1.2 section 7: "Reduced motion: playback runs, cues take
+    // their static form, meters jump rather than ease, no strobe, no
+    // shake; sound unaffected unless muted." The v1.1 wording said
+    // "instant playback" here and was corrected when Round 4e decoupled
+    // the preference from the speed. The crossing is
     // gated on strobeOnWarn, the prop, rather than on the strobe class the
     // preference removes, and this is the difference between the two.
     //

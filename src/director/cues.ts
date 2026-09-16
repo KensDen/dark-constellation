@@ -323,14 +323,14 @@ export interface Section6Row {
 // director plays is silent there, and only the rows played by a component
 // the player is touching still sound.
 //
-// This matters because instant is what reduced motion selects by default
-// (director.ts defaultSpeed), and the brief says in one place that instant
-// reproduces v1.0 behaviour and in another that sound is unaffected by
-// reduced motion unless muted. Those two sentences cannot both hold: a
-// turn with no beats has nothing for eleven of these sixteen rows to
-// attach to. Recorded here rather than papered over, because principle 12
-// says the code states what is true; which sentence wins is a design call
-// for the brief, not one this module gets to make by accident.
+// This used to be the reduced-motion player's normal experience, because
+// reduced motion selected instant, which left eleven of these sixteen rows
+// silent for someone who had asked for nothing to move rather than for
+// nothing to be told. Brief v1.2 separated the two: reduced motion keeps
+// the sequence and takes the static form of every cue, and instant is an
+// explicit choice only. So this function now describes what a player who
+// TAPS instant is choosing, which is a real and reasonable trade, rather
+// than something happening to them on the strength of an OS setting.
 export function soundsAtInstantSpeed(row: Section6Row): boolean {
   return !row.soundWhere.startsWith('director/')
 }

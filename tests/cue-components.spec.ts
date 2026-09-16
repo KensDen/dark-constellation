@@ -157,82 +157,23 @@ describe('meter tone', () => {
     expect(reduced.some((body) => /transition:\s*none/.test(body))).toBe(true)
   })
 
-  it('pins every link of the declaration chain by value, not by spelling', () => {
-    // The chain runs Director -> DirectorView -> Game -> Readout -> the
-    // pure rule, and the opening pass proved four of those links could be
-    // reverted one line at a time with the whole suite, typecheck and lint
-    // green. This suite has no DOM, so the links are read from the source.
-    //
-    // Every assertion below pins the VALUE the link must carry rather than
-    // forbidding one spelling of one bug. The previous version of this
-    // test forbade `chosenDelta={phase === 'playback'` and was defeated by
-    // the same expression in double quotes, by the same condition written
-    // the other way round, and by `chosenDelta={0}`. A positive assertion
-    // fails on all three.
-    //
-    // A rendering test replaces all of this in Round 5, when the DOM
-    // environment lands; until then these are spelling-pinned and will
-    // fail on an innocent refactor, which is the cost of having no DOM.
-    // Comments are stripped first. A file-scoped pin is otherwise satisfied
-    // by a comment: revert the line, leave the old one commented above it,
-    // and every assertion below still finds its text. Block comments and
-    // whole-line comments are removed; a trailing comment after code is
-    // left alone, which is the honest limit of doing this without a parser.
-    const code = (source: string) =>
-      source
-        .replace(/\/\*[\s\S]*?\*\//g, ' ')
-        .split('\n')
-        .filter((line) => !/^\s*\/\//.test(line))
-        .join('\n')
-    const view = code(readFileSync(join(SRC, 'director', 'DirectorView.tsx'), 'utf8'))
-    const game = code(readFileSync(join(SRC, 'ui', 'Game.tsx'), 'utf8'))
-    const meter = code(readFileSync(join(SRC, 'ui', 'cues', 'Meter.tsx'), 'utf8'))
-
-    // Link 0: the view is actually wired to the handler that stores the
-    // declaration. Pinning what the view passes and what the handler does
-    // proves nothing if the two are not connected.
-    expect(game, 'the playback view must be wired to the handler that stores the declaration').toMatch(
-      /<DirectorView[\s\S]*?onPresented=\{\s*showPresented\s*\}/,
-    )
-    expect(game, 'the handler must be the one that sets the declaration').toMatch(
-      /const showPresented = useCallback\(\s*\(\s*s\s*:\s*GameState\s*,\s*chosenCredits\s*:\s*number\s*\)/,
-    )
-
-    // Link 1: the view forwards both halves of the snapshot, not a literal.
-    expect(view, 'DirectorView must forward the declaration the director computed').toMatch(
-      /onPresented\(\s*snap\.presented\s*,\s*snap\.chosenCredits\s*\)/,
-    )
-    // Link 2: the HUD stores it unchanged.
-    expect(game, 'Game must store the declaration unchanged').toMatch(/setChosenSpend\(\s*chosenCredits\s*\)/)
-    // Link 3: the readout receives it unchanged and ungated. Gating it on
-    // the playback phase is the bug, not the fix: skipping ends playback in
-    // the same commit that applies the spend, so the gate is already false
-    // by the render that needs it.
-    const readout = /<Readout\s+label=\{hud\.credits\}[\s\S]*?\/>/.exec(game)
-    expect(readout, 'the credits readout is not where this guard expects it').not.toBeNull()
-    expect(readout![0], 'the declaration must reach the readout ungated').toMatch(
-      /chosenDelta=\{\s*chosenSpend\s*\}/,
-    )
-    // Link 3b: the two props that decide whether a change has a valence at
-    // all. Dropping `chosen` repaints every purchase in the decision
-    // phases hostile, which is the complaint this wiring exists to answer;
-    // dropping `basis` brings back the phantom flash from Round 3.
-    expect(readout![0], 'the readout must know when the player is driving the number').toMatch(
-      /chosen=\{\s*phase === 'procure' \|\| phase === 'harden'\s*\}/,
-    )
-    expect(readout![0], 'the readout must know which quantity it is showing').toMatch(
-      /basis=\{\s*phase === 'procure' \|\| phase === 'harden' \? 'cart' : 'balance'\s*\}/,
-    )
-    // Link 4: the rule is composed with the declaration, not with a zero,
-    // and it is composed at the call site that records the change. Pinning
-    // the expression alone would pass if it sat in a helper nothing calls
-    // while setChange recorded something else, which is how the first
-    // version of this fix failed.
-    expect(meter, 'the recorded tone must be composed from the declaration').toMatch(
-      /setChange\(\s*\(c\)\s*=>\s*\(\{\s*tone:\s*toneForDelta\(\s*unchosenDelta\(\s*delta\s*,\s*chosen\s*,\s*chosenDelta\s*\)\s*\)/,
-    )
-  })
-
+  // RETIRED in Round 4e. This pinned the declaration chain with four
+  // regular expressions over two source files, because there was no DOM to
+  // render into; it was the highest-risk of the eight guards the 4c audit
+  // classified as unverified, since a text pin proves a spelling is
+  // present and not that the program behaves.
+  //
+  // tests/game.dom.spec.tsx now renders the real campaign screen, buys,
+  // resolves the turn and watches the credits readout across every beat of
+  // playback, asserting the tone against the numbers the screen actually
+  // showed. All three links are defeated by behaviour mutations there:
+  // chosenDelta={0} at the readout, setChosenSpend(0) in the handler, and
+  // onPresented(snap.presented, 0) in the view.
+  //
+  // The fixture also searches for a turn whose fold carries the purchase
+  // and nothing else, and fails if it finds none, because on most turns a
+  // repair bill lands in the same beat and the tone reads as damage
+  // whether or not the declaration ever arrived.
   it('drops the valence of a change the player chose, and keeps what is left', () => {
     // Spending credits is a decision, not damage, and the decision is made
     // when the change is recorded: masking the tone at render time leaves

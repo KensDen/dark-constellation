@@ -2,7 +2,8 @@
 // playback view for changes mid-turn, and in the hardening phase so the
 // control is reachable even at instant speed, which never mounts the
 // playback view at all. Without the second copy, choosing instant once
-// (or having reduced motion select it) would leave no way back to 1x.
+// would leave no way back to 1x. Reduced motion no longer selects it
+// (brief v1.2), so this is now purely about a choice the player made.
 
 import { SPEEDS, SPEED_LABEL, type Speed } from './director'
 

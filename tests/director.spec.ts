@@ -1,6 +1,6 @@
 // Director battery (game-feel brief section 8, Round 2). Proves the
 // presentation adapter reproduces the engine exactly (zero-residual ledger
-// over real play), that reduced motion selects instant and instant
+// over real play), that instant
 // completes on the engine's own output, that skip, tap and auto-advance
 // all land on the same end state, and that known fixtures produce the
 // expected beats. Nothing here touches resolveTurn; the engine is the
@@ -452,22 +452,74 @@ describe('director playback', () => {
     vi.useRealTimers()
   })
 
-  it('reduced motion selects instant by default, and a stored preference overrides it', () => {
-    expect(defaultSpeed(true)).toBe('instant')
-    expect(defaultSpeed(false)).toBe('1x')
-    expect(defaultSpeed(true, '2x')).toBe('2x')
-    expect(defaultSpeed(true, 'garbage')).toBe('instant')
-    expect(defaultSpeed(false, null)).toBe('1x')
+  it('defaults to 1x, and a stored preference overrides it', () => {
+    // Reduced motion used to select instant here (brief v0.1 to v1.1) and
+    // no longer does. The two are different requests: tapping INSTANT asks
+    // for results only, while the OS preference asks for nothing to move.
+    // Conflating them left eleven of the sixteen cue rows with no beat to
+    // attach to, so a reduced-motion player heard none of them, while the
+    // brief promised sound was unaffected by the preference.
+    expect(defaultSpeed()).toBe('1x')
+    expect(defaultSpeed('2x')).toBe('2x')
+    expect(defaultSpeed('instant')).toBe('instant')
+    expect(defaultSpeed('garbage')).toBe('1x')
+    expect(defaultSpeed(null)).toBe('1x')
+    expect(defaultSpeed(undefined)).toBe('1x')
   })
 
-  it("reduced-motion completion at the director level: instant (the reduced-motion default) completes every turn of a scripted campaign synchronously on the engine's own output", () => {
+  it("instant completes every turn of a scripted campaign synchronously on the engine's own output", () => {
     for (const { before, after } of playTurns(WIN_SEED, scripted(WIN_SCRIPT))) {
       const beats = deriveBeats(before, after)
-      const d = new Director(before, after, beats, { speed: defaultSpeed(true), schedule: never })
+      const d = new Director(before, after, beats, { speed: 'instant', schedule: never })
       const snap = d.snapshot()
       expect(snap.status).toBe('done')
       expect(snap.presented).toBe(after)
       expect(modeled(snap.presented)).toEqual(modeled(after))
+      d.dispose()
+    }
+  })
+
+  it("reduced-motion completion: playback runs its whole sequence and still lands on the engine's output", () => {
+    // Battery addition, brief section 8. This used to be satisfied for
+    // free, because reduced motion meant instant and instant completes
+    // synchronously without a timer. Now reduced motion keeps the sequence
+    // and only the cues go static, so completion has to be proven by
+    // running the sequence.
+    //
+    // cueMs 0 is what reduced motion produces at the view (DirectorView
+    // passes it because there is no animation left to protect), so this is
+    // the director under exactly the reduced-motion configuration, driven
+    // beat by beat rather than skipped.
+    for (const { before, after } of playTurns(WIN_SEED, scripted(WIN_SCRIPT))) {
+      const beats = deriveBeats(before, after)
+      const pending: (() => void)[] = []
+      const d = new Director(before, after, beats, {
+        speed: '1x',
+        cueMs: () => 0,
+        schedule: (fn) => {
+          pending.push(fn)
+          return () => {
+            const i = pending.indexOf(fn)
+            if (i >= 0) pending.splice(i, 1)
+          }
+        },
+      })
+      // It must NOT be done before the sequence has run, or this proves
+      // nothing beyond what the instant test already proves.
+      const opening = d.snapshot()
+      if (beats.some((b) => b.visible)) {
+        expect(opening.status, 'reduced motion skipped the sequence instead of playing it').toBe('playing')
+      }
+      let guard = 0
+      while (pending.length && guard < 500) {
+        guard += 1
+        pending.shift()!()
+      }
+      const snap = d.snapshot()
+      expect(snap.status, 'playback never finished').toBe('done')
+      expect(modeled(snap.presented), 'reduced-motion playback did not land on the engine output').toEqual(
+        modeled(after),
+      )
       d.dispose()
     }
   })

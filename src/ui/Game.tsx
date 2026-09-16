@@ -4,8 +4,10 @@
 // All game logic is unchanged from R1.5. The game-feel pass (Round 2) adds
 // a playback phase between resolve and aftermath: the director plays the
 // resolved turn beat by beat over a presented state, and instant speed
-// (the reduced-motion default) skips straight to the aftermath exactly as
-// v1.0 did. The engine call is untouched.
+// skips straight to the aftermath exactly as v1.0 did. Instant is an
+// explicit choice only: reduced motion keeps the sequence and takes the
+// static form of every cue (brief v1.2 section 3). The engine call is
+// untouched.
 
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { ADVERSARY } from '../config'
@@ -29,7 +31,6 @@ import {
   SpeedSelect,
   defaultSpeed,
   deriveBeats,
-  isSpeed,
   loadSpeedPreference,
   saveSpeedPreference,
   type Beat,
@@ -38,7 +39,7 @@ import {
 import Readout from './cues/Meter'
 import ConditionBadge, { useBadgePhases } from './cues/ConditionBadge'
 import Teletype, { TransmissionBar } from './cues/Teletype'
-import { CUE_MS, prefersReducedMotionNow, useCueClass, useReducedMotion } from './cues/motion'
+import { CUE_MS, useCueClass, useReducedMotion } from './cues/motion'
 import { layerBadges, vectorIcons } from './cues/icons'
 import { kindLabels } from './labels'
 import { CHAIN_ARMED_LINE, briefCopy, hudLabels, hudStatusLine } from './brief'
@@ -205,7 +206,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     setPresented(s)
     setChosenSpend(chosenCredits)
   }, [])
-  const [speed, setSpeedState] = useState<Speed>(() => defaultSpeed(prefersReducedMotionNow(), loadSpeedPreference()))
+  const [speed, setSpeedState] = useState<Speed>(() => defaultSpeed(loadSpeedPreference()))
   const setSpeed = useCallback((s: Speed) => {
     setSpeedState(s)
     saveSpeedPreference(s)
@@ -271,13 +272,6 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     // game adopts its conditions instead of announcing them as arrivals.
     shownOrNull ? `${shownOrNull.seed}-${shownOrNull.difficulty}` : 'none',
   )
-  // A player who turns reduced motion on mid-session and has never chosen
-  // a speed gets instant from then on, without a reload.
-  useEffect(() => {
-    if (!reducedMotion || isSpeed(loadSpeedPreference())) return
-    setSpeedState((current) => (current === 'instant' ? current : 'instant'))
-  }, [reducedMotion])
-
   const scenario = DEFAULT_SCENARIO
 
   // Autosave every turn/phase change while playing, for refresh-safe
@@ -579,11 +573,10 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
       // means no beat sounds. At instant speed the eleven section 6 rows
       // the director plays are silent, and only the five a component plays
       // (the two procurement tiles, EXECUTE TURN, the meter tick and the
-      // MAI crossing) still sound. Instant is also what reduced motion
-      // selects by default, so that is the reduced-motion player's normal
-      // experience unless they choose a speed. See soundsAtInstantSpeed in
-      // director/cues.ts for the derivation and the brief conflict it
-      // records.
+      // MAI crossing) still sound. That is what an explicit INSTANT choice
+      // costs, and since v1.2 it is only ever an explicit choice: reduced
+      // motion no longer lands here. See soundsAtInstantSpeed in
+      // director/cues.ts.
       let beats: Beat[] | null = null
       if (speed !== 'instant') {
         try {
@@ -1105,7 +1098,24 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
               ))}
             </ul>
           )}
-          <p className="mt-2">
+          {/* The refusal has to be attributable to the control the player
+              touched, which means this tile has to carry it: afford() sets
+              denied.id to 'intel' here, and nothing in the tree matched
+              that id, so a refused intel upgrade buzzed and flashed the
+              spend line while the control itself sat still.
+              TWO channels, not one. The shake is motion and disappears
+              under the preference; the border is colour and does not,
+              which is how every other refusable control in this component
+              already works (the fleet tiles swap to tileBtnDenied, the
+              countermeasure tiles add a magenta border). The first version
+              of this fix carried the shake alone, so it did nothing at all
+              for a reduced-motion player, in the round that made reduced
+              motion a first-class path. */}
+          <p
+            className={`mt-2 dc-tile ${
+              denied?.id === 'intel' ? `${denialShake} border border-hero-magenta/60` : 'border border-transparent'
+            }`}
+          >
             <label>
               <input
                 type="checkbox"
@@ -1176,7 +1186,17 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
                   )}
                 </li>
               ))}
-            <li className="mt-3">
+            {/* Same as the intel tile, including the colour channel that
+                survives reduced motion: afford() sets denied.id to
+                'cm-irRetainer' and the countermeasure list filters this one
+                out, so nothing carried the refusal for it. */}
+            <li
+              className={`mt-3 dc-tile ${
+                denied?.id === 'cm-irRetainer'
+                  ? `${denialShake} border border-hero-magenta/60`
+                  : 'border border-transparent'
+              }`}
+            >
               <label>
                 <input
                   type="checkbox"
