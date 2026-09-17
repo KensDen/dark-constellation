@@ -41,7 +41,8 @@ import ConditionBadge, { useBadgePhases } from './cues/ConditionBadge'
 import Teletype, { TransmissionBar } from './cues/Teletype'
 import { CUE_MS, useCueClass, useReducedMotion } from './cues/motion'
 import { layerBadges, vectorIcons } from './cues/icons'
-import { kindLabels } from './labels'
+import Glossary from './Glossary'
+import { kindLabels, techniqueLabel } from './labels'
 import { CHAIN_ARMED_LINE, briefCopy, hudLabels, hudStatusLine } from './brief'
 import { verdictFor } from './verdict'
 import {
@@ -192,8 +193,43 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const [difficulty, setDifficulty] = useState<Difficulty>('standard')
   const [notice, setNotice] = useState('')
   const [codeInput, setCodeInput] = useState('')
+  // The GLOSSARY entry a technique tag opened, as an OVERLAY rather than a
+  // route. Routing to the glossary screen would unmount Game, and the
+  // autosave carries the turn and phase but not the procurement cart, so
+  // reading one technique mid-buy would silently empty it. An overlay
+  // keeps the player in the game in the literal sense as well as the
+  // navigational one.
+  const [glossaryFocus, setGlossaryFocus] = useState<string | null>(null)
+  const glossaryRef = useRef<HTMLDivElement | null>(null)
+  // Where focus was when the overlay opened, so closing it puts the player
+  // back on the tag they pressed rather than at the top of the document.
+  const focusBeforeGlossary = useRef<HTMLElement | null>(null)
   const [slots, setSlots] = useState<SaveMeta[]>(() => saveStore.list())
-  const recordedRef = useRef(false)
+  // Whether this campaign's score has been posted. TRUE FROM THE START when
+  // the campaign arrived already finished, because it was not played here.
+  //
+  // Round 6e made this reachable. Until the save code was rendered, a
+  // finished-state code was hard to come by: Save and Export code render
+  // only while playing. Now a player can paste a friend's MISSION ASSURED
+  // code, or reload their own to re-read it, and the effect below would
+  // treat "this state is finished" as "a run finished here": it posted a
+  // score the player never earned, cleared their in-progress autosave, and
+  // on a repeat load posted duplicates that evict real runs from a board
+  // that keeps ten.
+  const recordedRef = useRef(initial?.state ? initial.state.status !== 'playing' : false)
+  // One timestamp per FINISHED CAMPAIGN, not per mount.
+  //
+  // Mount-scoped was the first version and it was wrong in two directions.
+  // A player who finishes a campaign, starts another and finishes that
+  // inside one mount would have stamped the second code with the moment
+  // the component mounted, which could be hours earlier. And a remount
+  // restamps a campaign that has not changed, so the same finished game
+  // exports two different codes.
+  //
+  // Held in a ref keyed on the state object rather than a useMemo, because
+  // a memo may be discarded and recomputed at React's discretion and this
+  // value must not move once the player has read it off the screen.
+  const stampRef = useRef<{ for: GameState | null; at: string }>({ for: null, at: '' })
   // Director playback (Round 2). `presented` is the state the HUD shows
   // while beats play; `state` is always the engine's output.
   const [playback, setPlayback] = useState<PlaybackSession | null>(null)
@@ -343,8 +379,40 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     </Suspense>
   )
 
+  // ESCAPE ON A WINDOW LISTENER, and focus moved into the dialog.
+  //
+  // The first version bound onKeyDown to the overlay div, which has no
+  // tabIndex and never receives focus: after the tag is pressed focus is
+  // still on the tag button, a SIBLING of the overlay, so the keydown
+  // bubbled past it and Escape did nothing. DirectorView does the same job
+  // with a window listener, which is the mechanism that works, and four
+  // review lenses said so independently.
+  //
+  // Declaring role="dialog" and aria-modal without moving focus is worse
+  // than not declaring them: it promises a screen reader an inertness
+  // nothing implements. Focus goes in, comes back out, and the game behind
+  // is marked inert while it is open.
+  useEffect(() => {
+    if (!glossaryFocus) return
+    focusBeforeGlossary.current = document.activeElement as HTMLElement | null
+    glossaryRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setGlossaryFocus(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      focusBeforeGlossary.current?.focus?.()
+    }
+  }, [glossaryFocus])
+
   const beginGame = (next: GameState, nextPhase: Phase) => {
-    recordedRef.current = false
+    // A loaded code that is already over was not played here, so it neither
+    // posts a score nor clears the autosave of the campaign it interrupts.
+    recordedRef.current = next.status !== 'playing'
     setState(next)
     setActions(EMPTY_ACTIONS)
     setPlayback(null)
@@ -398,7 +466,54 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const exportCode = async () => {
     if (!state) return
     const code = encodeSaveCode(captureGame(state, persistPhase(phase), new Date().toISOString()))
-    flash((await copyToClipboard(code)) ? 'Save code copied to clipboard.' : 'Copy failed; select and copy manually.')
+    flash(
+      (await copyToClipboard(code))
+        ? 'Save code copied to clipboard.'
+        : // No promise that the code is somewhere to be selected. On the
+          // brief screen it is not: nothing renders it there, and telling
+          // a player to select what is not on screen was the Round 6d
+          // defect. The outcome screen renders its own code and says so.
+          'Copy failed. Your code is also shown on the outcome screen when the campaign ends.',
+    )
+  }
+
+  // The finished campaign's save code, computed ONCE.
+  //
+  // Round 6d found that this string was produced, copied to the clipboard,
+  // and never rendered anywhere, so a player whose browser gates the
+  // clipboard API was told to "select and copy manually" from nothing at
+  // all. That is a lost campaign and an impossible instruction, and it is
+  // the one finding of that audit that was a defect rather than a
+  // divergence.
+  //
+  // Memoised on the finished state rather than recomputed per render,
+  // because captureGame stamps a timestamp: an unmemoised version would
+  // show the player one code and put a different one on their clipboard,
+  // which is a worse bug than the one it fixes. The copy button on this
+  // screen sends exactly the string above it.
+  // Stamped once per finished campaign, and the REF is the only thing
+  // holding the code still.
+  //
+  // This used to also be wrapped in a useMemo keyed on state, which was
+  // belt and braces and made the ref's guard unobservable: a mutation
+  // removing `for !== state` left every test green, because the memo would
+  // not recompute anyway. React may drop a memo whenever it likes, so the
+  // guard was doing real work that nothing could fail for. Removing the
+  // memo costs one base64 encode per render of a screen that renders on
+  // its own, and makes the thing that actually guarantees stability the
+  // thing under test.
+  if (state && state.status !== 'playing' && stampRef.current.for !== state) {
+    stampRef.current = { for: state, at: new Date().toISOString() }
+  }
+  const outcomeCode =
+    state && state.status !== 'playing' ? encodeSaveCode(captureGame(state, 'aftermath', stampRef.current.at)) : ''
+
+  const copyOutcomeCode = async () => {
+    flash(
+      (await copyToClipboard(outcomeCode))
+        ? 'Save code copied to clipboard.'
+        : 'Copy failed. Select the code above and copy it.',
+    )
   }
 
   const copyResult = async () => {
@@ -989,11 +1104,32 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
             kensden.github.io/dark-constellation
           </p>
         </div>
-        <div className="relative z-10 mt-6 flex flex-wrap gap-2">
+        {/* THE SAVE CODE REVEAL (brief section 4, outcome row; Round 6e).
+            Rendered, not merely copyable. A readonly textarea rather than a
+            <code> block because it is the one element a phone will reliably
+            let a player select and copy from, and because the failure path
+            this fixes is exactly the player whose clipboard API is gated.
+            The copy button below sends this string, not a freshly stamped
+            one, so what is on screen is what lands on the clipboard. */}
+        <div className="relative z-10 mt-6 border-t border-phosphor/30 pt-3">
+          <label className="font-mono text-xs text-phosphor" htmlFor="outcome-save-code">
+            Save code
+          </label>
+          <textarea
+            id="outcome-save-code"
+            data-outcome-save-code
+            readOnly
+            value={outcomeCode}
+            onFocus={(e) => e.currentTarget.select()}
+            className="mt-1 w-full border border-phosphor/40 bg-base text-ink px-2 py-1 font-mono text-xs h-16 break-all"
+            aria-label="save code for this campaign"
+          />
+        </div>
+        <div className="relative z-10 mt-3 flex flex-wrap gap-2">
           <button className={btn} onClick={copyResult}>
             Copy result
           </button>
-          <button className={btn} onClick={exportCode}>
+          <button className={btn} onClick={copyOutcomeCode}>
             Export save code
           </button>
           <button className={btn} onClick={newCampaign}>
@@ -1011,7 +1147,14 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   }
 
   return (
-    <main className="min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
+    <>
+      {/* The game, marked inert while the overlay is open. aria-modal is a
+          promise to a screen reader that nothing behind the dialog is
+          reachable; inert is what keeps it. */}
+      <main
+        className="min-h-screen p-4 sm:p-8 max-w-3xl mx-auto"
+        {...(glossaryFocus ? { inert: true, 'aria-hidden': true } : {})}
+      >
       <div className="flex items-center justify-between gap-2">
         <h1>
           <Wordmark size="clamp(0.6rem, 3vw, 1.4rem)" />
@@ -1041,9 +1184,22 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
             {brief.tag && (
               <p className="mt-1 font-mono text-xs text-ink-dim">
                 Technique:{' '}
-                <a className="underline text-ink" href={brief.tagUrl} target="_blank" rel="noreferrer">
+                {/* OPENS THE GLOSSARY ENTRY, not the framework site (brief
+                    section 5, and principle 1: "the GLOSSARY remains the
+                    deep-reading layer"). Until Round 6e this was an external
+                    anchor with target=_blank, which sent the player out of
+                    the game on their first hop; the citation it went to is
+                    still one tap away, on the entry itself.
+                    The tag text IS the glossary key, both built by
+                    techniqueLabel, so this resolves by construction. */}
+                <button
+                  type="button"
+                  className="underline text-ink hover:text-phosphor"
+                  data-technique-tag={brief.tag}
+                  onClick={() => setGlossaryFocus(brief.tag ?? null)}
+                >
                   {brief.tag}
-                </a>
+                </button>
               </p>
             )}
             <details className="mt-3 border border-phosphor/20 bg-panel p-2">
@@ -1379,7 +1535,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
                         <span key={j}>
                           {j > 0 ? '; ' : ''}
                           <a className="underline text-ink" href={ref.url} target="_blank" rel="noreferrer">
-                            {ref.framework} {ref.id}, {ref.name}
+                            {techniqueLabel(ref)}, {ref.name}
                           </a>{' '}
                           <span className="text-ink-dim font-mono text-xs">[{ref.status}]</span>
                         </span>
@@ -1416,5 +1572,30 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
         </section>
       )}
     </main>
+      {/* THE GLOSSARY OVERLAY, a sibling of the game rather than a child of
+          it. Rendered inside this component so nothing unmounts: the
+          campaign, the phase and the procurement cart are all still there
+          when it closes, which is the whole reason this is not a route.
+          Outside <main> because Glossary renders a landmark of its own and
+          a nested <main> is invalid. */}
+      {glossaryFocus && (
+        <div
+          ref={glossaryRef}
+          tabIndex={-1}
+          className="fixed inset-0 z-50 overflow-y-auto bg-base/95 outline-none"
+          role="dialog"
+          aria-modal="true"
+          aria-label="glossary"
+          data-glossary-overlay
+        >
+          <Glossary
+            embedded
+            focus={glossaryFocus}
+            backLabel="Back to the brief"
+            onBack={() => setGlossaryFocus(null)}
+          />
+        </div>
+      )}
+    </>
   )
 }

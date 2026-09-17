@@ -6,6 +6,7 @@
 import { GAME_TITLE } from '../config'
 import { DIFFICULTIES } from '../engine/reducer'
 import type { Difficulty, GameState, Vector } from '../engine/types'
+import { techniqueLabel } from './labels'
 
 export interface ReportData {
   outcome: 'won' | 'lost'
@@ -23,7 +24,7 @@ export function reportData(state: GameState): ReportData {
   const refVector = new Map<string, Vector>()
   for (const evDef of scenario.events) {
     for (const ref of evDef.techniqueRefs) {
-      const key = `${ref.framework} ${ref.id}`
+      const key = techniqueLabel(ref)
       if (!refVector.has(key)) refVector.set(key, evDef.vector)
     }
   }
@@ -32,9 +33,9 @@ export function reportData(state: GameState): ReportData {
   for (const rec of state.history) {
     for (const ev of rec.events) {
       const def = scenario.events.find((e) => e.id === ev.eventId)
-      for (const ref of ev.firedTechniqueRefs) burned.set(`${ref.framework} ${ref.id}`, ref.name)
+      for (const ref of ev.firedTechniqueRefs) burned.set(techniqueLabel(ref), ref.name)
       if (ev.effectiveSeverity === 0) {
-        for (const ref of def?.techniqueRefs ?? []) resisted.set(`${ref.framework} ${ref.id}`, ref.name)
+        for (const ref of def?.techniqueRefs ?? []) resisted.set(techniqueLabel(ref), ref.name)
       }
     }
   }

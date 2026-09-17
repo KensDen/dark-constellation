@@ -10,7 +10,7 @@ import { SQUADRON } from '../config'
 import { effectiveIntel } from '../engine/reducer'
 import { coverage, maiScore } from '../engine/scoring'
 import type { GameState, ThreatEvent } from '../engine/types'
-import { vectorLabels } from './labels'
+import { techniqueLabel, vectorLabels } from './labels'
 
 // The budget the brief is designed against (brief v0.7 section 5):
 // "Before first input on a normal turn: 60 words or fewer of reading
@@ -162,7 +162,11 @@ export function briefCopy(state: GameState): BriefCopy {
   return {
     headline,
     vector: `Assessed on ${lead.layers.join(', ')}; ${vectorLabels[lead.vector]} signature.${rest}`,
-    tag: ref ? `${ref.framework} ${ref.id}` : undefined,
+    // techniqueLabel, not the expression written out again. The tag is
+    // what the player taps to open this technique's GLOSSARY entry, and
+    // the entry is found by exactly this string, so a second copy of the
+    // expression would make that join a coincidence rather than a fact.
+    tag: ref ? techniqueLabel(ref) : undefined,
     tagUrl: ref?.url,
     full,
   }

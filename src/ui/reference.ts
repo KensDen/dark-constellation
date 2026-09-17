@@ -6,8 +6,14 @@
 
 import { DEFAULT_SCENARIO } from '../content'
 import type { TechniqueRef } from '../engine/types'
+import { techniqueLabel } from './labels'
 
 export interface GlossaryEntry {
+  // The stable key a caller can find this entry by. For a technique it is
+  // techniqueLabel(ref), which is the same string the intel brief renders
+  // as its tag, so the tag resolves to the entry by construction rather
+  // than by a substring match on the display term.
+  key: string
   term: string
   category: 'Technique' | 'Countermeasure' | 'Threat event' | 'Opportunity'
   body: string
@@ -16,9 +22,7 @@ export interface GlossaryEntry {
 
 const scenario = DEFAULT_SCENARIO
 
-function techniqueLabel(r: TechniqueRef): string {
-  return `${r.framework} ${r.id}`
-}
+
 
 // Techniques: one entry per distinct framework ref across the deck, with
 // the events that cite it.
@@ -33,6 +37,7 @@ function techniqueEntries(): GlossaryEntry[] {
   }
   return [...byKey.values()]
     .map(({ ref, events }) => ({
+      key: techniqueLabel(ref),
       term: `${techniqueLabel(ref)}: ${ref.name}`,
       category: 'Technique' as const,
       body: `${ref.framework === 'NSA' ? 'NSA cybersecurity advisory' : `${ref.framework} framework technique`}. Appears in: ${[...events].join(', ')}.`,
@@ -44,6 +49,9 @@ function techniqueEntries(): GlossaryEntry[] {
 function countermeasureEntries(): GlossaryEntry[] {
   return scenario.countermeasures
     .map((cm) => ({
+      // A countermeasure is looked up by its own name; nothing addresses
+      // one by another key, so the key is the term.
+      key: cm.name,
       term: cm.name,
       category: 'Countermeasure' as const,
       body:
@@ -59,6 +67,7 @@ function countermeasureEntries(): GlossaryEntry[] {
 function eventEntries(): GlossaryEntry[] {
   return scenario.events
     .map((ev) => ({
+      key: ev.id,
       term: ev.name.split(' (')[0],
       category: (ev.kind === 'opportunity' ? 'Opportunity' : 'Threat event') as GlossaryEntry['category'],
       body: ev.blurb,

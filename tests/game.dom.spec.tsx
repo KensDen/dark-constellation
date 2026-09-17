@@ -58,13 +58,16 @@ import { newGame, resolveTurn } from '../src/engine/reducer'
 import { maiScore } from '../src/engine/scoring'
 import { RECAP_MAX, recapTechniques } from '../src/ui/cues/Scene'
 import { turnRng } from '../src/engine/rng'
+import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
+import { glossaryEntries } from '../src/ui/reference'
+import { briefCopy } from '../src/ui/brief'
 import type { GameState, TurnActions } from '../src/engine/types'
 import { PLAYBACK_SPEED_KEY, SECTION_6_ROWS, deriveBeats, type Beat } from '../src/director'
 import DirectorView from '../src/director/DirectorView'
 import { SOUND_TOGGLE_LABELS, chromeCopy } from '../src/ui/brief'
 import { getAudioEngine, installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { FakeAudioContext, installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
-import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
+import { LOSS_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -1550,5 +1553,611 @@ describe('the scene numbers count, and the scene reads its own beat (Round 5)', 
       ` ${bonus}`,
     )
     expect(Number(/Final MAI ([\d.]+)/.exec(label)?.[1] ?? NaN)).toBeCloseTo(maiScore(won!.after), 5)
+  })
+})
+
+describe('the save code is on the screen, not only on the clipboard', () => {
+  // ROUND 6D'S ONE DEFECT. encodeSaveCode produced the string, the
+  // clipboard took it, and no screen ever rendered it, so a player whose
+  // browser gates the clipboard API was told to "select and copy manually"
+  // from nothing. A lost campaign and an impossible instruction.
+  //
+  // PRINCIPLE 17'S BLIND SIDE, which is why this asserts the way it does.
+  // Deriving the expected code from encodeSaveCode and comparing it to
+  // what encodeSaveCode put on screen would be one structure agreeing with
+  // itself: it would pass on an empty string if the renderer and the
+  // encoder both produced one. So the screen is joined to the DECODER
+  // instead. What the player can read has to round-trip back into the
+  // campaign they just played, through a function that knows nothing about
+  // how it was rendered.
+  // The outcome screen renders when the campaign is over AND the phase has
+  // moved past the aftermath (Game.tsx: status !== 'playing' && phase is
+  // neither 'aftermath' nor 'playback'). Rendering a finished campaign at
+  // phase 'aftermath' shows the damage report, not the outcome, which is
+  // the first thing this fixture got wrong.
+  const OUTCOME_PHASE: Phase = 'brief'
+
+  function finishedCampaign(): GameState {
+    let state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
+    while (state.status === 'playing') {
+      state = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+    }
+    return state
+  }
+
+  const codeBox = () => container.querySelector('[data-outcome-save-code]') as HTMLTextAreaElement | null
+
+  // PRESENCE IS NOT VISIBILITY, and querySelector cannot tell them apart.
+  // Adding `hidden` to the code box left the first version of these guards
+  // green, which is this round's own defect one level up: Round 6d found a
+  // save code that existed as a STRING but not on screen, and the guard
+  // fixing it asserted the box existed as an ELEMENT but not that a player
+  // could see it.
+  //
+  // NAMED LIMIT (principle 15): jsdom computes no layout, so this cannot
+  // see hiding done by a CSS class, by zero size, or by something painted
+  // over the top. It catches the attribute-level and inline-style ways,
+  // which are the ways code in this repo would do it.
+  function visibleToPlayer(el: Element | null): boolean {
+    let node: Element | null = el
+    while (node && node !== document.body) {
+      if (node instanceof HTMLElement) {
+        if (node.hidden) return false
+        if (node.getAttribute('aria-hidden') === 'true') return false
+        if (node.hasAttribute('inert')) return false
+        const style = node.style
+        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false
+      }
+      node = node.parentElement
+    }
+    return el !== null
+  }
+
+  it('renders a code the player can read and select', () => {
+    const final = finishedCampaign()
+    expect(final.status, 'this campaign never ended, so there is no outcome screen').not.toBe('playing')
+    render(final, OUTCOME_PHASE)
+
+    const box = codeBox()
+    expect(box, 'the outcome screen renders no save code at all').not.toBeNull()
+    expect(visibleToPlayer(box), 'the save code is in the document but not in front of the player').toBe(true)
+    expect(box!.value.length, 'the save code box is empty').toBeGreaterThan(0)
+    // Selectable and not editable: the failure path this exists for is a
+    // player selecting it by hand.
+    expect(box!.readOnly, 'the code is editable, so a stray keystroke destroys it').toBe(true)
+    expect(box!.getAttribute('aria-label'), 'the code box is unlabelled').toBeTruthy()
+  })
+
+  it('renders a code that decodes back into the campaign that was played', () => {
+    const final = finishedCampaign()
+    render(final, OUTCOME_PHASE)
+    const shown = codeBox()!.value
+
+    // THE JOIN. decodeSaveCode is a different structure from the renderer
+    // and from the encoder, and it validates every field the engine reads.
+    const restored = decodeSaveCode(shown)
+    expect(restored.state.seed, 'the rendered code is not this campaign').toBe(final.seed)
+    expect(restored.state.turn).toBe(final.turn)
+    expect(restored.state.status).toBe(final.status)
+    expect(restored.state.credits).toBe(final.credits)
+    expect(restored.state.history.length).toBe(final.history.length)
+  })
+
+  it('shows the same string it puts on the clipboard', async () => {
+    // The memoisation is load-bearing, not tidiness: captureGame stamps a
+    // timestamp, so a per-render code would show the player one string and
+    // copy another. That is a worse bug than the one this round fixes.
+    const final = finishedCampaign()
+    render(final, OUTCOME_PHASE)
+    const first = codeBox()!.value
+
+    // MOVE THE CLOCK. captureGame stamps a timestamp, so a code recomputed
+    // per render differs from the one already on screen ONLY if time has
+    // passed. This fixture runs on fake timers, which freeze Date, so two
+    // mutations that recompute the code produced byte-identical strings and
+    // slept: the memoisation this round argued hardest for had no guard
+    // that could fail for it. The timers are load-bearing elsewhere here,
+    // so the fix is to advance the clock rather than to remove them.
+    // A RE-RENDER, not a remount: the fixture's render() uses a fresh key
+    // each call, which tears Game down, and a new mount legitimately
+    // restamps. Clicking a control that flashes a notice re-renders the
+    // same instance, which is what a player does.
+    vi.setSystemTime(new Date(Date.now() + 90_000))
+    const copyResultButton = byText(/copy result/i)
+    expect(copyResultButton, 'no control here re-renders without remounting, so this asserts nothing').toBeDefined()
+    await act(async () => {
+      copyResultButton!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    })
+    expect(codeBox()!.value, 'the code moved under the player when the clock did').toBe(first)
+
+    let copied = ''
+    vi.stubGlobal('navigator', {
+      clipboard: { writeText: async (t: string) => { copied = t } },
+    })
+    const exportButton = byText(/export save code/i)
+    expect(exportButton, 'the outcome screen has no export control').toBeDefined()
+    await act(async () => {
+      exportButton!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    })
+
+    expect(codeBox()!.value, 'the rendered code changed between renders').toBe(first)
+    expect(copied, 'the clipboard got a different string from the one on screen').toBe(first)
+  })
+
+  it('stamps a second finished campaign in the same mount with its own code', () => {
+    // THE CASE THE FIX WAS WRITTEN FOR, which had no guard until a
+    // mutation said so. The stamp used to be taken once per MOUNT, so a
+    // player who finished a campaign, pressed New campaign and finished
+    // another would export the second one carrying the first one's
+    // timestamp. Keying the stamp on the finished state fixes it, and
+    // nothing here exercised two campaigns in one mount, so reverting to
+    // "stamp once and never again" left the suite green.
+    const first = finishedCampaign()
+    render(first, OUTCOME_PHASE)
+    const firstCode = codeBox()!.value
+    expect(firstCode.length).toBeGreaterThan(0)
+
+    // New campaign, WITHOUT remounting: this is the same component
+    // instance, which is the whole point.
+    const newCampaign = byText(/new campaign/i)
+    expect(newCampaign, 'the outcome screen has no way to start again').toBeDefined()
+    click(newCampaign!)
+    expect(codeBox(), 'the code box survived into the start screen').toBeNull()
+
+    // A different finished campaign, loaded through the paste box.
+    const second = (() => {
+      let state = newGame(DEFAULT_SCENARIO, 41, 'standard')
+      while (state.status === 'playing') {
+        state = resolveTurn(state, LOSS_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+      }
+      return state
+    })()
+    expect(second.seed, 'both campaigns share a seed, so their codes could match legitimately').not.toBe(first.seed)
+    vi.setSystemTime(new Date(Date.now() + 120_000))
+    const code = encodeSaveCode(captureGame(second, 'aftermath', new Date().toISOString()))
+    const paste = container.querySelector('textarea[aria-label="save code"]') as HTMLTextAreaElement
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    act(() => {
+      setValue.call(paste, code)
+      paste.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    click(byText(/load from code/i)!)
+
+    // A pasted code carries phase 'aftermath', and the outcome screen is
+    // gated on the phase NOT being that, so the load lands on the damage
+    // report. View final report is the control that moves on, and the
+    // re-review flagged this same gate as the reason an earlier assertion
+    // was matching the wrong screen.
+    const toReport = byText(/view final report/i)
+    expect(toReport, 'no way from the loaded aftermath to the outcome screen').toBeDefined()
+    click(toReport!)
+
+    // The second campaign's own code, stamped when IT finished.
+    //
+    // Asserted on the TIMESTAMP, read off the artifact. Comparing the two
+    // code strings proves nothing here: they differ because the campaigns
+    // differ, whatever the stamp does, and a mutation that stamps once and
+    // never again passed every other assertion in this test. decodeSaveCode
+    // returns only { state, phase } and drops savedAt, so the field is read
+    // from the payload directly.
+    const savedAtOf = (code: string) =>
+      JSON.parse(atob(code.trim().slice('DC1-'.length))).savedAt as string
+
+    const secondShown = codeBox()
+    expect(secondShown, 'the second campaign renders no code').not.toBeNull()
+    expect(decodeSaveCode(secondShown!.value).state.seed, 'the rendered code is not the second campaign').toBe(second.seed)
+    expect(
+      new Date(savedAtOf(secondShown!.value)).getTime(),
+      'the second campaign carries the first one timestamp, so the stamp is per mount rather than per campaign',
+    ).toBeGreaterThan(new Date(savedAtOf(firstCode)).getTime())
+  })
+
+  it('never tells the player to select something that is not rendered', async () => {
+    // The exact wording is not pinned; the promise is. Any message that
+    // tells a player to select or copy from the screen has to be on a
+    // screen that renders the code.
+    const playing = gameAt(3)
+    render(playing, 'brief')
+    expect(codeBox(), 'the brief screen renders a code box').toBeNull()
+    const inPlayExport = byText(/export code/i)
+    expect(inPlayExport, 'the brief screen has no export control').toBeDefined()
+
+    vi.stubGlobal('navigator', {
+      clipboard: { writeText: async () => { throw new Error('blocked') } },
+    })
+    await act(async () => {
+      inPlayExport!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    })
+
+    const notice = container.textContent ?? ''
+    const failed = /copy failed/i.test(notice)
+    expect(failed, 'the copy did not fail, so this asserts nothing about the failure path').toBe(true)
+    expect(
+      /select (the code|and copy)/i.test(notice),
+      'a screen with no code box told the player to select the code',
+    ).toBe(false)
+  })
+})
+
+describe('the technique tag opens the GLOSSARY entry', () => {
+  // Until Round 6e the tag was an external anchor with target=_blank, which
+  // sent the player off-site on their first hop. The brief names GLOSSARY
+  // twice and Glossary.tsx has existed since Round 3.5; the audit called
+  // it brief-stale and was wrong, because no ruling in eighteen versions
+  // reversed it.
+  const tag = () => container.querySelector('[data-technique-tag]') as HTMLElement | null
+  const overlay = () => container.querySelector('[data-glossary-overlay]')
+
+  // A turn whose intel brief actually carries a technique tag, SEARCHED
+  // for rather than assumed. briefCopy returns tag: undefined whenever the
+  // lead event has no technique ref at the current intel level, and turn 3
+  // at the fixture's seed is one of those, so the first version of these
+  // guards asserted against a screen with no tag on it and failed for a
+  // reason that had nothing to do with the code under test. Round 4e
+  // learned this with a hardcoded turn number; this is the same lesson.
+  function turnWithATag(): GameState {
+    // A tag exists only at INTEL LEVEL 3, and only when the turn has a
+    // fixed slot: briefCopy returns no tag at all below that, and returns
+    // none at level 3 either when every slot is a draw, because naming a
+    // maybe as a fact is the thing that code refuses to do. The prepared
+    // line never buys the top tier, so the first version of this search
+    // swept a whole campaign and found nothing, which is the guard working
+    // rather than failing. TOP_INTEL_SCRIPT is the line that funds it.
+    for (const seed of [20260712, 11, 41, 104]) {
+      let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+      for (let i = 0; i < DEFAULT_SCENARIO.totalTurns && state.status === 'playing'; i += 1) {
+        if (briefCopy(state, 'Standard').tag) return state
+        state = resolveTurn(state, TOP_INTEL_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+      }
+    }
+    throw new Error('no turn of any line searched carries a technique tag, so these guards assert nothing')
+  }
+
+  it('opens the glossary in place, without leaving the game', () => {
+    render(turnWithATag(), 'brief')
+    const el = tag()
+    expect(el, 'the intel brief renders no technique tag').not.toBeNull()
+    // A button, not a link out. The old shape is the defect.
+    expect(el!.tagName, 'the tag is still an anchor').toBe('BUTTON')
+    expect(el!.getAttribute('href'), 'the tag still carries an href').toBeNull()
+    expect(overlay(), 'the glossary is open before anything was tapped').toBeNull()
+
+    click(el!)
+    expect(overlay(), 'tapping the tag opened nothing').not.toBeNull()
+  })
+
+  it('lands on the entry for the technique that was tapped', () => {
+    render(turnWithATag(), 'brief')
+    const key = tag()!.getAttribute('data-technique-tag')!
+    click(tag()!)
+    const focused = container.querySelector('[data-glossary-focus]')
+    expect(focused, 'the glossary opened with no entry focused, which is opening the glossary and leaving them to look').not.toBeNull()
+    expect(focused!.getAttribute('data-glossary-focus'), 'the wrong entry was focused').toBe(key)
+  })
+
+  it('keeps the external citation on the entry', () => {
+    // Both halves matter. Keeping the player in the game is worth nothing
+    // if the live-verified framework reference is dropped on the way.
+    render(turnWithATag(), 'brief')
+    const key = tag()!.getAttribute('data-technique-tag')!
+    click(tag()!)
+    const focused = container.querySelector('[data-glossary-focus]')!
+    const links = [...focused.querySelectorAll('a')]
+    expect(links.length, 'the focused entry carries no citation at all').toBeGreaterThan(0)
+    for (const a of links) {
+      expect(a.getAttribute('href'), 'a citation link has no target').toBeTruthy()
+      expect(a.getAttribute('href')!.startsWith('http'), 'a citation is not an external reference').toBe(true)
+      expect(a.getAttribute('rel'), 'an external link has no rel').toContain('noreferrer')
+    }
+    // And it is the citation for THIS technique, joined through the entry
+    // rather than assumed from the order of the list.
+    const entry = glossaryEntries().find((e) => e.key === key)
+    expect(entry, 'the tag resolves to no glossary entry at all').toBeDefined()
+    expect(links.map((a) => a.getAttribute('href')).sort()).toEqual(entry!.refs.map((r) => r.url).sort())
+  })
+
+  it('comes back to the campaign it left, with state no autosave carries', async () => {
+    // THE REASON THIS IS AN OVERLAY RATHER THAN A ROUTE. Sending the player
+    // to the glossary screen would unmount Game, and the autosave carries
+    // the turn and the phase but not the component's own state, so reading
+    // one technique mid-turn would silently discard it.
+    //
+    // The probe is the notice line. It is Game state, nothing persists it,
+    // and it survives only if the component was never torn down. The
+    // procurement cart is the same class of thing and was the first
+    // choice, but a top-intel turn cannot always afford a purchase, and
+    // the save-code paste box is on the start screen rather than this one,
+    // so both would have failed for reasons unrelated to what is asserted.
+    render(turnWithATag(), 'brief')
+    const exportButton = byText(/export code/i)
+    expect(exportButton, 'the brief screen has no export control, so this asserts nothing').toBeDefined()
+    await act(async () => {
+      exportButton!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    })
+    const noticeBefore = (container.textContent ?? '').match(/Save code copied[^|]*|Copy failed[^|]*/)
+    expect(noticeBefore, 'no notice appeared, so its survival proves nothing').not.toBeNull()
+
+    click(tag()!)
+    expect(overlay()).not.toBeNull()
+    const back = [...container.querySelectorAll('button')].find((b) => /back to the brief/i.test(b.textContent ?? ''))
+    expect(back, 'the overlay has no way back').toBeDefined()
+    click(back!)
+    expect(overlay(), 'the overlay would not close').toBeNull()
+
+    expect(
+      container.textContent,
+      'opening a glossary entry threw away state the component was holding',
+    ).toContain(noticeBefore![0].trim())
+    expect(container.textContent, 'coming back landed somewhere other than the brief').toMatch(/intel brief/i)
+  })
+})
+
+describe('the glossary overlay is a dialog a keyboard can use', () => {
+  // Four review lenses found the same thing independently: the first
+  // version declared role="dialog" and aria-modal="true" and implemented
+  // none of it. Escape was a React onKeyDown on a div with no tabIndex, so
+  // it only fired for events inside its own subtree, and after pressing
+  // the tag focus sits on the tag button, which is a SIBLING. The keydown
+  // never crossed the overlay. Declaring aria-modal without keeping it is
+  // worse than not declaring it: it promises a screen reader an inertness
+  // nothing enforces.
+  const tag = () => container.querySelector('[data-technique-tag]') as HTMLElement | null
+  const overlay = () => container.querySelector('[data-glossary-overlay]') as HTMLElement | null
+
+  function turnWithATag(): GameState {
+    for (const seed of [20260712, 11, 41, 104]) {
+      let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+      for (let i = 0; i < DEFAULT_SCENARIO.totalTurns && state.status === 'playing'; i += 1) {
+        if (briefCopy(state, 'Standard').tag) return state
+        state = resolveTurn(state, TOP_INTEL_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+      }
+    }
+    throw new Error('no turn of any line searched carries a technique tag')
+  }
+
+  it('closes on Escape pressed where the player actually is', () => {
+    render(turnWithATag(), 'brief')
+    const el = tag()!
+    click(el)
+    expect(overlay(), 'the overlay did not open').not.toBeNull()
+
+    // Dispatched from the element that really holds focus, which is the
+    // tag button outside the overlay. A handler bound to the overlay's own
+    // subtree cannot see this, which is the whole defect.
+    act(() => {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(overlay(), 'Escape did not close the overlay').toBeNull()
+  })
+
+  it('moves focus into the dialog and gives it back', () => {
+    render(turnWithATag(), 'brief')
+    const el = tag()!
+    act(() => el.focus())
+    expect(document.activeElement, 'the tag never took focus, so this asserts nothing').toBe(el)
+
+    click(el)
+    expect(overlay()!.contains(document.activeElement), 'focus stayed outside the dialog').toBe(true)
+
+    const back = [...container.querySelectorAll('button')].find((b) => /back to the brief/i.test(b.textContent ?? ''))
+    click(back!)
+    expect(document.activeElement, 'closing the dialog dropped focus to the document').toBe(el)
+  })
+
+  it('makes the game behind it inert rather than only covering it', () => {
+    render(turnWithATag(), 'brief')
+    const main = container.querySelector('main')!
+    expect(main.hasAttribute('inert'), 'the game is inert before anything opened').toBe(false)
+    click(tag()!)
+    expect(main.hasAttribute('inert'), 'aria-modal was declared over a page that is still reachable').toBe(true)
+    expect(main.getAttribute('aria-hidden')).toBe('true')
+    const back = [...container.querySelectorAll('button')].find((b) => /back to the brief/i.test(b.textContent ?? ''))
+    click(back!)
+    expect(main.hasAttribute('inert'), 'the game stayed inert after the dialog closed').toBe(false)
+  })
+
+  it('does not nest a second main or a second h1 in the document', () => {
+    render(turnWithATag(), 'brief')
+    click(tag()!)
+    const mains = container.querySelectorAll('main')
+    expect(mains.length, 'the overlay put a second main landmark on the page').toBe(1)
+    expect(mains[0].querySelector('[data-glossary-overlay]'), 'the overlay is nested inside the game main').toBeNull()
+    expect(container.querySelectorAll('h1').length, 'the overlay added a second h1').toBe(1)
+  })
+})
+
+describe('a loaded campaign is not a campaign that was played here', () => {
+  // CONFIRMED BY THE PASS, and Round 6e is what made it reachable: until
+  // the save code was rendered, a finished-state code was hard to come by,
+  // because Save and Export code render only while playing. Now a player
+  // can paste a friend's MISSION ASSURED code, or reload their own to
+  // re-read it, and the effect that posts a score treated "this state is
+  // finished" as "a run finished here".
+  const SCORE_KEY = 'dc-scores'
+  const scores = () => {
+    try {
+      return JSON.parse(localStorage.getItem(SCORE_KEY) ?? '[]') as unknown[]
+    } catch {
+      return []
+    }
+  }
+
+  function finished(): GameState {
+    let state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
+    while (state.status === 'playing') {
+      state = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+    }
+    return state
+  }
+
+  it('posts no score for a campaign that arrived already over', () => {
+    expect(scores(), 'the board is not empty at the start, so this asserts nothing').toHaveLength(0)
+    const over = finished()
+    expect(over.status).not.toBe('playing')
+    render(over, 'brief')
+    expect(scores(), 'loading a finished code posted a score the player never earned').toHaveLength(0)
+  })
+
+  it('still posts a score for a campaign that finishes here', () => {
+    // THE POSITIVE CONTROL, and it has to be real: nothing in this repo
+    // guarded score recording before this round, so a fix that suppressed
+    // the post on arrival could have suppressed every post and no existing
+    // test would have noticed.
+    //
+    // So this plays the last turn through the controls. The keyboard path
+    // on the hold control commits at once, which is its documented
+    // behaviour and what the fixture already uses elsewhere.
+    let state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
+    while (state.status === 'playing' && state.turn < DEFAULT_SCENARIO.totalTurns) {
+      state = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+    }
+    expect(state.status, 'this line ended early, so the last turn is not the one being played').toBe('playing')
+    expect(state.turn, 'not at the final turn').toBe(DEFAULT_SCENARIO.totalTurns)
+    expect(scores(), 'the board is not empty at the start').toHaveLength(0)
+
+    render(state, 'brief')
+    const toProcure = byText(/To procurement/i)
+    expect(toProcure, 'no way into procurement').toBeDefined()
+    click(toProcure!)
+    const toHarden = byText(/To hardening/i)
+    expect(toHarden, 'no way into hardening').toBeDefined()
+    click(toHarden!)
+    const execute = byText(/Hold to resolve/i)
+    expect(execute, 'no commit control on the final turn').toBeDefined()
+    act(() => {
+      execute!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    // Run the playback out so the campaign reaches its end state.
+    act(() => {
+      vi.advanceTimersByTime(60_000)
+    })
+
+    expect(scores().length, 'a campaign played to its end here posted no score').toBeGreaterThan(0)
+  })
+
+  it('posts no score when a finished code is PASTED, which is the path a player takes', () => {
+    // THE PATH THE DEFECT IS ON. The guard above mounts Game with a
+    // finished campaign as `initial`, which covers the constructor half.
+    // The half a player actually reaches is loadCode -> beginGame, and a
+    // mutation reverting exactly that line slept because nothing drove it:
+    // principle 16, guarding the mechanism that was easy to reach instead
+    // of the path the player takes.
+    const code = encodeSaveCode(captureGame(finished(), 'aftermath', new Date().toISOString()))
+    expect(scores(), 'the board is not empty at the start').toHaveLength(0)
+
+    // The start screen, with no campaign: that is where the paste box is.
+    mounts += 1
+    act(() => {
+      root.render(<Game key={`m${mounts}`} initial={null} onExit={() => {}} />)
+    })
+    const paste = container.querySelector('textarea[aria-label="save code"]') as HTMLTextAreaElement | null
+    expect(paste, 'the start screen has no paste box, so this asserts nothing').not.toBeNull()
+
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    act(() => {
+      setValue.call(paste!, code)
+      paste!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const load = byText(/load from code/i)
+    expect(load, 'no load control').toBeDefined()
+    expect(load!.hasAttribute('disabled'), 'the load control is disabled, so the paste did not register').toBe(false)
+    click(load!)
+
+    // THE LOAD ACTUALLY HAPPENED, asserted on something only true AFTER
+    // it. The first version matched /assured|link lost|mission/i, which the
+    // START SCREEN satisfies: its job framing reads "with the Mission
+    // Assurance Index (MAI) at...". So deleting the beginGame call left
+    // this green, because a failed load renders the very screen the regex
+    // matched. A vacuous assertion inside the guard written to close a
+    // vacuous guard, found by the re-review.
+    expect(byText(/start campaign/i), 'still on the start screen, so the code never loaded').toBeUndefined()
+    expect(container.querySelector('[aria-label="game seed"]'), 'the start screen is still mounted').toBeNull()
+    expect(container.querySelector('[aria-label^="Credits"]'), 'no campaign HUD, so nothing loaded').not.toBeNull()
+
+    expect(scores(), 'pasting a finished code posted a score the player never earned').toHaveLength(0)
+  })
+
+  it('posts a score for a campaign STARTED the normal way and played to its end', () => {
+    // THE OTHER DIRECTION, on the other path. The control above drives the
+    // MOUNT path, which seeds Game from `initial` and exercises the useRef
+    // initialiser. The line fix 1 adds to beginGame had no control at all
+    // in the fail-to-post direction: setting it wrongly there would mean
+    // no campaign a player starts ever posts a score, and nothing would
+    // have failed. Found as a split vote.
+    //
+    // So this presses Start campaign and plays twelve turns through the
+    // controls, which is the path every real campaign takes.
+    expect(scores(), 'the board is not empty at the start').toHaveLength(0)
+    mounts += 1
+    act(() => {
+      root.render(<Game key={`m${mounts}`} initial={null} onExit={() => {}} />)
+    })
+    const startButton = byText(/start campaign/i)
+    expect(startButton, 'no way to start a campaign').toBeDefined()
+    click(startButton!)
+    expect(container.querySelector('[aria-label^="Credits"]'), 'the campaign did not start').not.toBeNull()
+
+    for (let turn = 0; turn < DEFAULT_SCENARIO.totalTurns + 2; turn += 1) {
+      const toProcure = byText(/To procurement/i)
+      if (!toProcure) break
+      click(toProcure)
+      const toHarden = byText(/To hardening/i)
+      if (!toHarden) break
+      click(toHarden)
+      const execute = byText(/Hold to resolve/i)
+      if (!execute) break
+      act(() => {
+        execute.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      })
+      act(() => {
+        vi.advanceTimersByTime(60_000)
+      })
+      const next = byText(/To turn \d+ intel brief|View final report/i)
+      if (!next) break
+      click(next)
+    }
+
+    expect(scores().length, 'a campaign started and played to its end here posted no score').toBeGreaterThan(0)
+  })
+
+  it('clears the autosave when a campaign finishes here', () => {
+    // The other half of the effect fix 1 rewrote, which was guarded in
+    // NEITHER direction: the only autosave assertion checked it was not
+    // null. A finished run must not be offered for resume.
+    const nearEnd = (() => {
+      let state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
+      while (state.status === 'playing' && state.turn < DEFAULT_SCENARIO.totalTurns) {
+        state = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+      }
+      return state
+    })()
+    render(nearEnd, 'brief')
+    expect(localStorage.getItem('dc-autosave'), 'nothing autosaved while playing').not.toBeNull()
+
+    click(byText(/To procurement/i)!)
+    click(byText(/To hardening/i)!)
+    act(() => {
+      byText(/Hold to resolve/i)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    act(() => {
+      vi.advanceTimersByTime(60_000)
+    })
+    expect(
+      localStorage.getItem('dc-autosave'),
+      'a finished campaign is still offered for resume',
+    ).toBeNull()
+  })
+
+  it('does not clear an in-progress autosave when a finished code is loaded', () => {
+    const playing = gameAt(4)
+    render(playing, 'brief')
+    const saved = localStorage.getItem('dc-autosave')
+    expect(saved, 'nothing was autosaved, so this asserts nothing').not.toBeNull()
+
+    render(finished(), 'brief')
+    expect(
+      localStorage.getItem('dc-autosave'),
+      'loading a finished code threw away the campaign the player had in progress',
+    ).not.toBeNull()
   })
 })
