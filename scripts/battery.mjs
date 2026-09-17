@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { measureBundle } from './bundle-budget.mjs'
+import { runLinkCheck } from './link-check.mjs'
 
 const failures = []
 // Stamped before anything builds, so the bundle layer can tell a chunk
@@ -247,13 +248,12 @@ async function checkUrl(url) {
 
 // A live third-party host can return a transient 429 or 5xx (rate limiting,
 // a brief outage). Those are not broken links, so retry once before calling
-// it: genuine 404s and persistent failures still fail the battery.
-const RETRY_DELAY_MS = 4000
-const isTransient = (r) => !r.network && (r.status === 429 || r.status >= 500)
-
+// it: genuine 404s and persistent failures still fail the battery. The
+// classification and the transport-level second pass live in
+// scripts/link-check.mjs so the suite can drive them without a network.
 async function checkUrlWithRetry(url) {
   const first = await checkUrl(url)
-  if (!isTransient(first)) return first
+  if (!isTransientStatus(first)) return first
   await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
   return checkUrl(url)
 }
@@ -273,37 +273,31 @@ function isKnownSpaStatusArtifact(url, status) {
 
 async function linkCheck() {
   const urls = contentUrls()
-  if (urls.length === 0) return `FAIL: no URLs found in src/content; the deck should carry sources`
-  if (urls.some((u) => u.startsWith('https://atlas.mitre.org/'))) {
-    const origin = await checkUrlWithRetry('https://atlas.mitre.org/')
-    if (!origin.network && (origin.status < 200 || origin.status >= 400)) {
-      return `FAIL: atlas.mitre.org origin returned HTTP ${origin.status}; ATLAS links cannot be presumed alive`
-    }
+  // The pipeline lives in scripts/link-check.mjs so the suite can drive it
+  // with fake requests. This function is now the wiring and the wording,
+  // which is all a battery layer should be.
+  const outcome = await runLinkCheck({
+    urls,
+    check: checkUrl,
+    concurrency: LINK_CONCURRENCY,
+    isKnownSpaStatusArtifact,
+    originPrefix: 'https://atlas.mitre.org/',
+    originUrl: 'https://atlas.mitre.org/',
+  })
+  if (outcome.reason === 'no-urls') return 'FAIL: no URLs found in src/content; the deck should carry sources'
+  if (outcome.reason === 'origin') {
+    return `FAIL: atlas.mitre.org origin returned HTTP ${outcome.origin.status}; ATLAS links cannot be presumed alive`
   }
-  const results = []
-  let cursor = 0
-  await Promise.all(
-    Array.from({ length: LINK_CONCURRENCY }, async () => {
-      while (cursor < urls.length) {
-        const url = urls[cursor]
-        cursor += 1
-        results.push(await checkUrlWithRetry(url))
-      }
-    }),
-  )
-  const broken = results.filter(
-    (r) => !r.network && (r.status < 200 || r.status >= 400) && !isKnownSpaStatusArtifact(r.url, r.status),
-  )
-  const unreachable = results.filter((r) => r.network)
-  if (unreachable.length === results.length) return 'SKIP (offline: no URL reachable at the network layer)'
-  if (broken.length || unreachable.length) {
+  if (outcome.outcome === 'skip') return 'SKIP (offline: no URL reachable at the network layer)'
+  if (outcome.outcome === 'fail') {
     const lines = [
-      ...broken.map((r) => `  HTTP ${r.status}  ${r.url}`),
-      ...unreachable.map((r) => `  unreachable  ${r.url}`),
+      ...outcome.broken.map((r) => `  HTTP ${r.status}  ${r.url}`),
+      ...outcome.unreachable.map((r) => `  unreachable  ${r.url}`),
     ]
-    return `FAIL: ${broken.length + unreachable.length} of ${results.length} content link(s) did not resolve:\n${lines.join('\n')}`
+    const count = outcome.broken.length + outcome.unreachable.length
+    return `FAIL: ${count} of ${outcome.results.length} content link(s) did not resolve:\n${lines.join('\n')}`
   }
-  return `OK (${results.length} links)`
+  return `OK (${outcome.results.length} links)`
 }
 
 process.stdout.write('[battery] content link check (spec 11.4) ... ')

@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { SoundCue } from '../director/cues'
 import type { GameState } from '../engine/types'
+import { getHaptics } from '../haptics/haptics'
 import { getAudioEngine, installGestureUnlock } from './engine'
 import { MENU_MUSIC_STATE, musicStateFrom } from './music'
 import { loadSoundPrefs, type SoundPrefs } from './prefs'
@@ -16,12 +17,30 @@ import type { VoiceOptions } from './voices'
 
 export type PlayCue = (cue: SoundCue, opts?: VoiceOptions) => void
 
+// FIRE A CUE ON EVERY CHANNEL THAT OWNS ONE.
+//
+// This is the funnel. Every section 6 row the player can reach goes
+// through useSound below, and useSound returns this function rather than a
+// copy of it, so a test driving this drives exactly what a component
+// drives. That is what makes haptic coverage derive: there is no second
+// place a cue can be played from, so there is no set of "rows that also
+// vibrate" for anyone to declare and get wrong (principle 17). The only
+// other caller of engine.play is the dev sound board, which is excluded
+// from the production build.
+//
+// Haptics fires FIRST and on its own gate, not behind the effects one.
+// Muting sound is not the same as refusing touch feedback: a player in a
+// library has asked for quiet, not for a dead phone. They stay separate
+// for the same reason the music and effects toggles are separate.
+export function fireCue(cue: SoundCue, opts?: VoiceOptions): void {
+  getHaptics().fire(cue)
+  getAudioEngine().play(cue, opts)
+}
+
 // Stable across renders, so a component can hand it straight to an effect
 // dependency list without re-running the effect every render.
 export function useSound(): PlayCue {
-  return useCallback((cue: SoundCue, opts?: VoiceOptions) => {
-    getAudioEngine().play(cue, opts)
-  }, [])
+  return useCallback(fireCue, [])
 }
 
 // Arms the first-gesture unlock for the life of the app. Mounted once, at
@@ -29,8 +48,22 @@ export function useSound(): PlayCue {
 // it is deliberately not a per-screen concern.
 // Stop every cue in flight. Handed to the playback view, which is the one
 // place a player can walk out from under a sound that is still playing.
+// Stop every channel that can be left running. The non-React half, for
+// the reason fireCue is one: useSilenceSound returns THIS function rather
+// than a copy, so a test driving it drives what a component drives. The
+// first version built the pair inside the hook, where nothing could reach
+// it, and dropping the haptic half left the suite green.
+export function silenceCues(): void {
+  // Both channels, because both can be left running by a player walking
+  // out from under them. A pattern outliving the screen that started it is
+  // the same defect as the BLACKOUT CHAIN's static burst arriving 570ms
+  // after SKIP, one sense over.
+  getHaptics().silence()
+  getAudioEngine().silenceAll()
+}
+
 export function useSilenceSound(): () => void {
-  return useCallback(() => getAudioEngine().silenceAll(), [])
+  return useCallback(silenceCues, [])
 }
 
 export function useGestureUnlock(): void {

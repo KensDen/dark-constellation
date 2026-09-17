@@ -53,6 +53,8 @@ export {
 export { defaultMusicRng, xorshift32, type MusicRng } from './musicRng'
 export { MAX_EFFECTIVE_SEVERITY, NEUTRAL_INTENSITY, beatIntensity } from './intensity'
 export {
+  fireCue,
+  silenceCues,
   useGestureUnlock,
   useMusicState,
   useSilenceSound,

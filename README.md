@@ -1,6 +1,6 @@
 # DARK CONSTELLATION
 
-![Split-sphere key art banner](public/readme-banner.webp)
+![Split-sphere key art banner](docs/readme-banner.webp)
 
 **A turn-based space and drone cybersecurity strategy sim.** You are the mission assurance
 architect for a smallsat constellation and a drone squadron. Design, procure, and harden the

@@ -211,6 +211,111 @@ export const DUCKS_MUSIC: Record<SoundCue, boolean> = {
   'defeat-sting': true,
 }
 
+// The haptic each cue fires (Round 6c, brief section 6).
+//
+// THE STRENGTH IS THE BRIEF'S WORD, NOT A NUMBER I CHOSE. The section 6
+// table has carried a Haptic column since v0.4, spelling each row as none,
+// light, short, double, medium or long. The first version of this map did
+// not use it: it went straight to milliseconds out of my own judgement and
+// contradicted the table on four rows, giving conditions and the MAI
+// crossing no haptic at all and giving a won campaign a five step
+// celebration the brief deliberately leaves silent. That is principle 17
+// in its purest form, and no mutation could catch it, because every
+// coverage test derives its expectations from THIS map: change the map and
+// the expectations move with it. Deriving a set protects against drift
+// between two structures and does nothing when there is only one.
+//
+// So there are two structures now and they must agree. Each Section6Row
+// declares the brief's word, exactly as it declares its visual and its
+// sound; this map says which word each cue carries; and the battery joins
+// them. Drift in either direction fails.
+export type HapticStrength = 'none' | 'light' | 'short' | 'double' | 'medium' | 'long'
+
+export type HapticPattern = number | readonly number[]
+
+// The vocabulary, in milliseconds. A number is one buzz; an array
+// alternates buzz and pause. This is the only place a duration is chosen,
+// so retuning the whole game's feel in Round 7 is six numbers rather than
+// twenty five.
+// 'none' is the only word that may resolve to nothing, and the type says
+// so. Typed as Record<HapticStrength, HapticPattern | null>, every word was
+// allowed to be null: setting `light: null` typechecked, and because every
+// coverage test filters on "has a pattern", three rows would silently leave
+// the set while its own emptiness control still passed. The round's closing
+// condition would have been false for three of sixteen rows with the whole
+// suite green. Found by the re-review; the fix is the type, not a test,
+// because a test can be filtered around and a type cannot.
+export const HAPTIC_STRENGTH: { none: null } & Record<Exclude<HapticStrength, 'none'>, HapticPattern> = {
+  // A real decision, exactly as 'silent' is on the other two channels, and
+  // the right answer for most rows: a haptic on everything is a phone
+  // buzzing continuously through a twelve turn campaign.
+  none: null,
+  light: 12,
+  short: 18,
+  // The one the brief writes as two, for the one moment the game says no.
+  double: [18, 40, 18],
+  medium: 28,
+  long: [40, 60, 40, 60, 90],
+}
+
+// A TOTAL map over SoundCue, for the reason DUCKS_MUSIC is one: a list is
+// a set someone declared and it drifts from the union the moment a cue is
+// added. Adding a voice fails the typecheck until whoever added it says
+// what the hand should feel.
+export const HAPTIC_PATTERNS: Record<SoundCue, HapticStrength> = {
+  placeholder: 'none',
+  silent: 'none',
+  'data-burst': 'none',
+  'buy-click': 'light',
+  'denied-buzz': 'double',
+  'execute-sweep': 'medium',
+  'hit-stab': 'medium',
+  // The condition family. The table has ONE row for "condition applied"
+  // and the registry carries one alarm per condition, so every member of
+  // the family takes the row's word.
+  'alarm-gnss': 'short',
+  'alarm-uplink': 'short',
+  'alarm-spoof': 'short',
+  'alarm-eavesdrop': 'short',
+  'alarm-exfil': 'short',
+  'alarm-ransom': 'short',
+  'soft-tick': 'none',
+  'resolve-chime': 'light',
+  'tick-up': 'none',
+  'tick-down': 'none',
+  // One row, two sounds: the crossing buzzes and the recovery does not,
+  // because the row's haptic is for the warning.
+  'warn-low': 'long',
+  'relief-chime': 'none',
+  'blackout-chain': 'long',
+  'surge-burn': 'medium',
+  'commendation-fanfare': 'light',
+  'arrive-chime': 'none',
+  // The brief gives a won campaign no haptic and a lost one a long buzz.
+  // That asymmetry is deliberate and the first version of this map undid
+  // it: a win is a thing you read, a loss is a thing that happens to you.
+  'victory-fanfare': 'none',
+  'defeat-sting': 'long',
+}
+
+export function hapticPatternFor(cue: SoundCue): HapticPattern | null {
+  return HAPTIC_STRENGTH[HAPTIC_PATTERNS[cue]]
+}
+
+// The longest a single cue may keep the motor running, summed across a
+// pattern's buzzes. The brief holds effects to 400ms and names its two
+// exceptions; this is the same discipline one channel over, and the
+// battery checks it rather than taking the vocabulary on trust.
+export const HAPTIC_MS_CEILING = 400
+
+export function hapticMs(pattern: HapticPattern): number {
+  if (typeof pattern === 'number') return pattern
+  // Even indices buzz, odd indices pause. Only the buzzes cost the motor,
+  // so a long gap between two short taps is cheap and a ceiling counting
+  // it would push authors toward patterns that feel worse.
+  return pattern.reduce((sum, ms, i) => (i % 2 === 0 ? sum + ms : sum), 0)
+}
+
 // Treatments that are safe to run on a whole card. The badge and token
 // families were authored for a small element and end hidden or dimmed
 // (badge-clear finishes at opacity 0, token-burn at 0.25), so handing one
@@ -367,6 +472,17 @@ export interface Section6Row {
   // and the battery holds the two fields together, so the round's closing
   // condition is checked against the code rather than asserted.
   cinematicInRound5?: boolean
+  // The brief's Haptic column, transcribed. Required, not optional, so a
+  // row added later cannot quietly carry no answer; 'none' is the answer
+  // for nine of the sixteen and is a decision rather than an absence.
+  haptic: HapticStrength
+  // The OTHER sounds this row owns. Several brief rows describe two
+  // voices: "Tick-down or tick-up", "Low tone; relief chime on recovery".
+  // The row names one in `sound` and the other here, so every cue in the
+  // union belongs to some row and none is accounted for by nothing. Four
+  // were unjoined before this and three of them are fired by the running
+  // game, which the re-review found by counting rather than by reading.
+  soundPartners?: SoundCue[]
   // What the brief's row asks for that this round does not yet ship, so
   // the battery does not report an unfinished row as done.
   deferred?: string
@@ -397,6 +513,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'transmission',
     where: 'ui/cues/Teletype.tsx',
     sound: 'data-burst',
+    haptic: 'none',
     soundWhere: 'director/DirectorView.tsx',
   },
   {
@@ -408,6 +525,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     // manifest entrance the countermeasure half never had.
     where: 'ui/Game.tsx procurement tiles (fleet buys slide into the manifest; countermeasure tiles hold their state in place)',
     sound: 'buy-click',
+    haptic: 'light',
     soundWhere: 'ui/Game.tsx',
   },
   {
@@ -415,6 +533,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'shake-flash',
     where: 'ui/Game.tsx procurement tiles',
     sound: 'denied-buzz',
+    haptic: 'double',
     soundWhere: 'ui/Game.tsx',
   },
   {
@@ -422,6 +541,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'tile-press',
     where: 'ui/Game.tsx resolve control',
     sound: 'execute-sweep',
+    haptic: 'medium',
     soundWhere: 'ui/cues/HoldButton.tsx',
   },
   {
@@ -430,6 +550,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'card-hostile',
     where: 'director/DirectorView.tsx',
     sound: 'hit-stab',
+    haptic: 'medium',
     soundWhere: 'director/DirectorView.tsx',
   },
   {
@@ -441,6 +562,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     // beat actually plays; the registry carries one per condition and the
     // battery holds them distinct.
     sound: 'alarm-gnss',
+    haptic: 'short',
     soundWhere: 'director/DirectorView.tsx',
     soundPerSubject: 'condition',
   },
@@ -450,6 +572,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'badge-tick',
     where: 'ui/cues/ConditionBadge.tsx',
     sound: 'soft-tick',
+    haptic: 'none',
     soundWhere: 'director/DirectorView.tsx',
   },
   {
@@ -458,6 +581,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'badge-clear',
     where: 'ui/cues/ConditionBadge.tsx',
     sound: 'resolve-chime',
+    haptic: 'light',
     soundWhere: 'director/DirectorView.tsx',
   },
   {
@@ -467,6 +591,8 @@ export const SECTION_6_ROWS: Section6Row[] = [
     // The valence is decided at record time by the meter itself, so the
     // meter is also what picks between the two tick voices.
     sound: 'tick-down',
+    haptic: 'none',
+    soundPartners: ['tick-up'],
     soundWhere: 'ui/cues/Meter.tsx',
   },
   {
@@ -474,6 +600,11 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'strobe',
     where: 'ui/cues/Meter.tsx',
     sound: 'warn-low',
+    haptic: 'long',
+    // The recovery half of the same row. It carries 'none' rather than
+    // 'long': the row's haptic is for the warning, and buzzing on relief
+    // would make recovery feel like another hit.
+    soundPartners: ['relief-chime'],
     soundWhere: 'ui/cues/Meter.tsx',
   },
   {
@@ -483,6 +614,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'blackout',
     where: 'director/DirectorView.tsx',
     sound: 'blackout-chain',
+    haptic: 'long',
     soundWhere: 'director/DirectorView.tsx',
     cinematicInRound5: true,
   },
@@ -492,6 +624,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'token-burn',
     where: 'director/DirectorView.tsx',
     sound: 'surge-burn',
+    haptic: 'medium',
     soundWhere: 'director/DirectorView.tsx',
   },
   {
@@ -501,6 +634,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'ribbon',
     where: 'director/DirectorView.tsx',
     sound: 'commendation-fanfare',
+    haptic: 'light',
     soundWhere: 'director/DirectorView.tsx',
     cinematicInRound5: true,
   },
@@ -510,6 +644,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'asset-light',
     where: 'director/DirectorView.tsx',
     sound: 'arrive-chime',
+    haptic: 'none',
     soundWhere: 'director/DirectorView.tsx',
     deferred:
       'lighting the matching satellite on the constellation frame, which needs the frame to be on screen during playback; it renders only on the start screen today',
@@ -521,6 +656,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'outcome-sweep',
     where: 'director/DirectorView.tsx',
     sound: 'victory-fanfare',
+    haptic: 'none',
     soundWhere: 'director/DirectorView.tsx',
     cinematicInRound5: true,
   },
@@ -531,6 +667,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'outcome-sweep',
     where: 'director/DirectorView.tsx',
     sound: 'defeat-sting',
+    haptic: 'long',
     soundWhere: 'director/DirectorView.tsx',
     cinematicInRound5: true,
   },
