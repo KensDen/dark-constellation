@@ -12,7 +12,7 @@
 // reduced motion a first-class path. A scene whose static form is "the
 // animation, minus the animation" is that bug again.
 
-import type { GameState, Layer, TechniqueRef } from '../../engine/types'
+import { LAYERS, type GameState, type TechniqueRef } from '../../engine/types'
 import { maiScore } from '../../engine/scoring'
 import type { Beat } from '../../director/types'
 import type { SceneName } from '../../director/cues'
@@ -38,7 +38,8 @@ export function sceneFor(beat: Beat | null): SceneKind | null {
   return null
 }
 
-const LAYERS: Layer[] = ['ORBIT', 'AIR', 'GROUND']
+// Round 7b: LAYERS now lives in the engine's type module (imported above),
+// so the quiet beat's title and this scene count the same three layers.
 
 // How many recap cards the loss screen shows. The reading diet bounds what
 // the player is asked to take in, and a twelve turn campaign can fire two

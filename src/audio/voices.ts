@@ -158,6 +158,15 @@ export const VOICES: Record<SoundCue, Voice> = {
   'alarm-exfil': alarm(1180, 590, SOUND_MS['alarm-exfil']),
   'alarm-ransom': alarm(300, 240, SOUND_MS['alarm-ransom']),
 
+  // Round 7b. The turn resolved and nothing hit you. Two soft notes rising
+  // a fourth, well under the alarm register, so it reads as the absence of
+  // a hit rather than as a faint one.
+  'all-clear': (ctx, out, at) => {
+    const ms = SOUND_MS['all-clear']
+    tone(ctx, out, at, { type: 'sine', from: 523, ms: ms * 0.5, peak: 0.1 })
+    tone(ctx, out, at, { type: 'sine', from: 698, ms: ms * 0.62, peak: 0.09, delayMs: ms * 0.38 })
+  },
+
   'soft-tick': (ctx, out, at) => {
     tone(ctx, out, at, { type: 'triangle', from: 1480, ms: SOUND_MS['soft-tick'], peak: 0.1 })
   },

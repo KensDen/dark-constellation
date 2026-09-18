@@ -43,7 +43,7 @@ import { CUE_MS, useCueClass, useReducedMotion } from './cues/motion'
 import { layerBadges, vectorIcons } from './cues/icons'
 import Glossary from './Glossary'
 import { kindLabels, techniqueLabel } from './labels'
-import { CHAIN_ARMED_LINE, briefCopy, hudLabels, hudStatusLine } from './brief'
+import { CHAIN_ARMED_LINE, briefCopy, hudLabels, hudStatusLine, jobFramingLines } from './brief'
 import { verdictFor } from './verdict'
 import {
   COUNTERMEASURE_COUNT,
@@ -350,24 +350,18 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
 
   // Item 1: the three-line job framing, shown on the start screen and again
   // in the turn 1 brief so a skimming player can state the objective.
+  // Round 7b: the lines come from ui/brief.ts, which is the module the
+  // reading-diet budgets read. They used to be spelled here as JSX, and
+  // the brief screen rendered them INSIDE the same disclosure as the
+  // posture panel where no budget could see them.
   const jobFraming = (
     <div className={`${panel} mt-4`}>
       <p className={h2cls}>Your job</p>
-      <p className="mt-1">
-        1. Finish turn {scenario.totalTurns} with the Mission Assurance Index (MAI) at {scenario.winThreshold} or
-        higher.
-      </p>
-      <p className="mt-1">
-        2. You start above the win line. {ADVERSARY} spends {scenario.totalTurns} turns eroding it.
-      </p>
-      <p className="mt-1">
-        3. Spend credits each turn on fleet and defenses to slow the erosion. MAI below {scenario.collapseThreshold}{' '}
-        or a budget forced below zero ends the campaign early.
-      </p>
-      <p className="mt-1 text-ink-dim">
-        Some attacks become active conditions that press every turn until they lift. Deployments take turns to
-        arrive. Spend surge authority to clear a condition, and hold the win line under pressure for commendations.
-      </p>
+      {jobFramingLines(scenario).map((line, i) => (
+        <p key={i} className={i === jobFramingLines(scenario).length - 1 ? 'mt-1 text-ink-dim' : 'mt-1'}>
+          {i < 3 ? `${i + 1}. ${line}` : line}
+        </p>
+      ))}
     </div>
   )
 
@@ -1204,12 +1198,18 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
             )}
             <details className="mt-3 border border-phosphor/20 bg-panel p-2">
               <summary className="cursor-pointer font-mono text-xs text-phosphor">Expand full brief</summary>
+              {/* Round 7b: `brief.full`, not `state.forecast.lines`. The
+                  field existed on six branches of briefCopy and was read by
+                  nobody while this reached past it to the engine's own
+                  prose, which below top intel was a re-wording of the
+                  summary above it. It also matters that state.forecast
+                  rides inside save codes: an engine-side prose fix would
+                  never reach a campaign restored from an older code. */}
               <ul className="list-disc ml-6 mt-2 font-mono text-sm">
-                {state.forecast.lines.map((line, i) => (
+                {brief.full.map((line, i) => (
                   <li key={i}>{line}</li>
                 ))}
               </ul>
-              {state.turn === 1 && state.history.length === 0 && jobFraming}
             </details>
           </div>
           <button className={`${btn} mt-4`} onClick={() => setPhase('procure')}>

@@ -41,10 +41,10 @@ import {
   incomeFor,
 } from '../engine/reducer'
 import { METER_CAP, assetPrice, coverage, maiScore } from '../engine/scoring'
-import type { ActiveCondition, Asset, GameState, Scenario, ThreatEvent } from '../engine/types'
+import { LAYERS, type ActiveCondition, type Asset, type GameState, type Scenario, type ThreatEvent } from '../engine/types'
 import { applyPatch, cloneModeled, residualPatch } from './patch'
 import { kindLabels } from '../ui/labels'
-import { type Beat, type BeatKind, type MeterKey, type Patch } from './types'
+import { METER_KEYS, type Beat, type BeatKind, type MeterKey, type Patch } from './types'
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T
 
@@ -166,10 +166,61 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
     const pendingEta: Patch['pendingCountersEta'] = {}
     for (const p of shadow.pendingCounters) if (p.etaTurns > 1) pendingEta[p.id] = p.etaTurns - 1
     if (Object.keys(pendingEta).length) patch.pendingCountersEta = pendingEta
+    // Round 7b. The title used to interpolate `recovery` unconditionally,
+    // so turn 1 read "income +20, recovery +2" while every meter sat at the
+    // cap and the patch carried `meters: {}`. That is a title asserting a
+    // change with no cue behind it, on the first card a new player ever
+    // sees: principle 16's product form inside the beat this round is
+    // about. The healed total is read off the patch that was actually
+    // built rather than off the constant that was offered.
+    // The AMOUNT HEALED, not the amount offered. The first version of this
+    // fix interpolated `recovery`, the scenario constant, so a turn that
+    // healed 4 against a 6-point retainer printed "recovery +6" while the
+    // readouts ticked 4. Fixing the zero case and leaving the partial case
+    // is the same defect at a smaller amplitude, and three lenses found it.
+    // `heal` clamps at the meter cap, so the patch holds what actually
+    // moved and the card reads it off the patch.
+    const healed = Object.values(patch.meters ?? {}).reduce((n, d) => n + d, 0)
+    const deltas = METER_KEYS.map((k) => patch.meters?.[k] ?? 0).filter((d) => d > 0)
+    // Three meters can heal by three different amounts, because `heal`
+    // clamps each one at the cap independently. One number cannot stand
+    // for all three, so the card says the per-meter figure only when they
+    // agree and reports the total otherwise. A single `recovery` constant
+    // interpolated here is what printed "+6" on a turn that moved 4.
+    const uniform = deltas.length > 0 && deltas.every((d) => d === deltas[0])
+    // NOT "meters at full", which was read against a HUD whose Posture
+    // grid shows Coverage and MAI in the same six cells as Link, Data and
+    // Sensor: nothing on screen told a new player that "meters" meant only
+    // the three integrity readouts, so the card contradicted the grid
+    // above it. Naming the three was the first fix and cost six words in a
+    // channel measured at 13 of 14. The second attempt, ", no damage to
+    // recover", was SHORTER AND FALSE: `healed === 0` means the three
+    // integrity meters are at the cap, which says nothing about asset
+    // integrity, and fleet damage persists for the rest of the campaign.
+    // On a turn with wreckage in the fleet the card would have asserted
+    // the absence of damage while the panel one tap away enumerated it.
+    // The answer to an ambiguous noun is to name the nouns, not to widen
+    // the claim until it covers state the beat never looked at.
+    const recoveryPart =
+      healed === 0
+        ? ', Link, Data and Sensor at cap'
+        : uniform
+          ? `, recovery +${deltas[0]}`
+          : `, recovery +${healed} across ${deltas.length} meters`
+    // The SLA is interpolated into the title only when it was earned, so a
+    // player below the coverage minimum was never told the lever existed:
+    // a new player starts at 44 against a minimum of 60 and loses the
+    // bonus every turn until they notice. The miss goes in `lines`, the
+    // channel this beat already uses for the SLA note, rather than in the
+    // title: brief v2.3 section 5 records beat titles as a channel no
+    // budget measures, and this round is not spending one on the way past.
+    const cov = coverage(shadow.assets)
+    const slaMiss =
+      sla === 0 ? [`Coverage ${cov} misses the ${scenario.slaBonus.coverageMin} the SLA pays ${scenario.slaBonus.credits} at.`] : []
     push({
       kind: 'turn-start',
-      title: `Turn ${turn}: income +${income}${sla ? `, coverage SLA +${sla}` : ''}, recovery +${recovery}`,
-      lines: noteStarting('Coverage SLA met'),
+      title: `Turn ${turn}: income +${income}${sla ? `, coverage SLA +${sla}` : ''}${recoveryPart}`,
+      lines: [...noteStarting('Coverage SLA met'), ...slaMiss],
       patch,
     })
   }
@@ -338,7 +389,29 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
 
   // 8. The adversary plays the deck, then the opportunity roll.
   if (record.events.length === 0) {
-    push({ kind: 'quiet', title: 'No adversary activity this turn.' })
+    // Round 7b. This beat used to carry the bare sentence and the turn
+    // start's own cue, so turn 1's whole adversary phase was the blip the
+    // turn had opened with. It now has a treatment of its own (see
+    // cues.ts) and the live fleet's layers, so DirectorView pulses the
+    // layer badges the player will watch a hit land on next turn.
+    //
+    // CORRECTED after a lens read the renderer: this comment used to say
+    // the badges take a "neutral pulse". There is no neutral arm.
+    // DirectorView's class is a binary, hostile or friendly, so everything
+    // that is not hostile pulses friendly. That is the right tone here, a
+    // turn where the fleet held, but the comment described behaviour the
+    // code does not have, which is the same drift the round is about.
+    // The patch stays empty, so the ledger sweep cannot move.
+    const held = LAYERS.filter((l) => shadow.assets.some((a) => a.layer === l && a.integrity > 0))
+    push({
+      kind: 'quiet',
+      // The denominator is derived from the layer list, not the literal 3
+      // it was first written as: a count in player-facing prose that
+      // nothing joins to the fleet it describes is principle 7, and the
+      // only varying half never varied in any campaign the suite reaches.
+      title: `Nothing reached you. ${held.length} of ${LAYERS.length} layers holding.`,
+      layers: held,
+    })
   }
   for (const ev of record.events) {
     const def = eventById(scenario, ev.eventId)

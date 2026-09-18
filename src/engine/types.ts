@@ -8,6 +8,17 @@
 export type Difficulty = 'easy' | 'standard' | 'expert'
 
 export type Layer = 'ORBIT' | 'AIR' | 'GROUND'
+// The three layers, as a value. Promoted out of ui/cues/Scene.tsx in Round
+// 7b, where it was one component's private list: the quiet beat's title
+// had hardcoded the denominator as a literal 3, which is a count in
+// player-facing prose that nothing joins to the fleet it describes.
+export const LAYERS = ['ORBIT', 'AIR', 'GROUND'] as const satisfies readonly Layer[]
+// The join, made deliberate rather than incidental: a member added to the
+// Layer union but missing from LAYERS fails to compile here, instead of
+// being caught by luck through an unrelated Record<Layer, string> map.
+type _EveryLayerListed = Exclude<Layer, (typeof LAYERS)[number]> extends never ? true : never
+const _layersAreComplete: _EveryLayerListed = true
+void _layersAreComplete
 export type TrustTier = 'A' | 'B'
 export type Vector = 'rf' | 'optical' | 'cyber' | 'supplyChain' | 'human' | 'environmental'
 export type AssetKind = 'sat' | 'rpoSat' | 'drone' | 'groundStation'

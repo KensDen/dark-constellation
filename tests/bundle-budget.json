@@ -38,5 +38,11 @@
   "round6cSubBudgetGzipBytes": 800,
   "round6cSpentGzipBytes": 566,
   "staticBytesAtR6c": 728509,
-  "staticFileCountAtR6c": 10
+  "staticFileCountAtR6c": 10,
+  "r6eGzipBytes": 138527,
+  "r7bGzipBytes": 139286,
+  "jsGzipBytesAtR7b": 132549,
+  "cssGzipBytesAtR7b": 6737,
+  "round7bSpentGzipBytes": 759,
+  "round7bNote": "Round 7b (the opening) spent 759 gzipped, 731 of it script and 28 stylesheet, leaving 714 of headroom against a 140,000 threshold kept for a fourth round. 589 of that was the round as first built and 170 was its own two verification passes, which is the usual shape. What it bought: a cue treatment and a synthesized voice of its own for the quiet beat, which had been borrowing the transmission bar so that turn 1 played the same cue twice; the posture panel that replaced a disclosure expanding into a longer copy of its own summary on all four intel levels; the turn-1 job framing moved out of JSX and into the module the budgets read; and three corrections to the turn-start card. Two channels this budget has never measured are bounded for the first time, in words rather than bytes: the disclosure body, measured at a worst of 109 against a ceiling of 120, and the beat title, measured at 13 against 14. Brief v2.3 section 5 records both as channels no budget measured and says the formal numbers land there once measured rather than invented; these are the measurements. HEADROOM IS NOW THIN at 714, against a round that has averaged more, so Round 7's tuning either fits inside it or the threshold is re-argued on the record rather than breached quietly."
 }

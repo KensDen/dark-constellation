@@ -269,7 +269,10 @@ describe('sound cue coverage (Round 4d)', () => {
     // what an explicit INSTANT tap costs the player who taps it. It used
     // to be recorded as the reduced-motion player's normal experience,
     // which brief v1.2 and Round 4e ended.
-    expect(silent.length).toBe(11)
+    // 11 until Round 7b, which added two director rows: the quiet turn
+    // taking a treatment of its own, and the opportunity row that existed
+    // as a cue with no row at all.
+    expect(silent.length).toBe(13)
     expect(sounding.length).toBe(5)
   })
 

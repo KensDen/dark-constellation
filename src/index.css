@@ -192,6 +192,12 @@ body {
     animation: dc-transmission-in 320ms ease-out both;
   }
 
+  /* Round 7b: a turn where nothing attacked. A slow settle rather than an
+     entrance, so it reads as the opposite of a hit landing. */
+  .dc-all-clear {
+    animation: dc-all-clear 520ms ease-out both;
+  }
+
   .dc-strobe {
     animation: dc-strobe 1.6s ease-in-out infinite;
   }
@@ -354,6 +360,12 @@ body {
 @keyframes dc-transmission-in {
   0% { opacity: 0; transform: translateX(-12px); }
   100% { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes dc-all-clear {
+  0% { opacity: 0; transform: scale(0.98); }
+  60% { opacity: 1; transform: scale(1.01); }
+  100% { opacity: 1; transform: scale(1); }
 }
 
 @keyframes dc-strobe {

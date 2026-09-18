@@ -18,6 +18,7 @@ export type VisualCue =
   | 'placeholder'
   | 'silent'
   | 'transmission'
+  | 'all-clear'
   | 'card-hostile'
   | 'card-friendly'
   | 'badge-attach'
@@ -47,6 +48,7 @@ export type SoundCue =
   | 'placeholder'
   | 'silent'
   | 'data-burst'
+  | 'all-clear'
   | 'buy-click'
   | 'denied-buzz'
   | 'execute-sweep'
@@ -85,6 +87,7 @@ export const VISUAL_CLASS: Record<VisualCue, string> = {
   placeholder: '',
   silent: '',
   transmission: 'dc-transmission-in',
+  'all-clear': 'dc-all-clear',
   'card-hostile': 'dc-card-in',
   'card-friendly': 'dc-card-in',
   'badge-attach': 'dc-badge-attach',
@@ -109,6 +112,7 @@ export const VISUAL_MS: Record<VisualCue, number> = {
   placeholder: 0,
   silent: 0,
   transmission: 320,
+  'all-clear': 520,
   'card-hostile': 260,
   'card-friendly': 260,
   'badge-attach': 420,
@@ -134,6 +138,7 @@ export const SOUND_MS: Record<SoundCue, number> = {
   placeholder: 0,
   silent: 0,
   'data-burst': 260,
+  'all-clear': 300,
   'buy-click': 220,
   'denied-buzz': 240,
   'execute-sweep': 400,
@@ -187,6 +192,7 @@ export const DUCKS_MUSIC: Record<SoundCue, boolean> = {
   placeholder: false,
   silent: false,
   'data-burst': false,
+  'all-clear': false,
   'buy-click': false,
   'denied-buzz': false,
   'execute-sweep': false,
@@ -266,6 +272,10 @@ export const HAPTIC_PATTERNS: Record<SoundCue, HapticStrength> = {
   placeholder: 'none',
   silent: 'none',
   'data-burst': 'none',
+  // A turn where nothing attacked. The hand stays still, for the same
+  // reason the turn start does: this is the absence of an event, and a
+  // buzz would make the quietest moment in the game feel like a hit.
+  'all-clear': 'none',
   'buy-click': 'light',
   'denied-buzz': 'double',
   'execute-sweep': 'medium',
@@ -323,6 +333,14 @@ export function hapticMs(pattern: HapticPattern): number {
 // inside the card instead, and the card keeps its own entrance.
 export const CARD_SAFE_VISUALS = new Set<VisualCue>([
   'transmission',
+  // Round 7b. Added after the DOM drive caught that it was missing: the
+  // treatment was in the union, in VISUAL_CLASS, in VISUAL_MS, in the
+  // stylesheet and on a section 6 row, it passed every cue-coverage test,
+  // and the card still fell back to `dc-card-in` because this set is
+  // hand-declared and nothing joins it to the registry. The new cue was
+  // real everywhere except on the screen. `dc-all-clear` ends at full
+  // opacity and scale 1, so it is safe to run on the whole card.
+  'all-clear',
   'card-hostile',
   'card-friendly',
   'blackout',
@@ -338,7 +356,13 @@ export const BEAT_CUES: Record<BeatKind, Cue> = {
   'surge-spent': cue('Surge authority spent', 'token-burn', 'surge-burn'),
   'condition-pressure': cue('Condition persists', 'badge-tick', 'soft-tick'),
   'chain-armed': cue('BLACKOUT CHAIN armed', 'blackout', 'blackout-chain'),
-  quiet: cue('No adversary activity', 'transmission', 'data-burst'),
+  // Round 7b. This borrowed the transmission bar until the opening was
+  // measured: `turn-start` and `quiet` both resolved to
+  // transmission/data-burst, so the whole adversary phase of turn 1 was
+  // the identical blip the turn had opened with 1,200ms earlier, in 120 of
+  // 120 runs. A turn where nothing attacked is its own event and now says
+  // so in both channels.
+  quiet: cue('No adversary activity', 'all-clear', 'all-clear'),
   threat: cue('Adversary event', 'card-hostile', 'hit-stab'),
   opportunity: cue('Opportunity', 'card-friendly', 'resolve-chime'),
   // These two carry the deck's alarm for the condition in question, never
@@ -509,11 +533,45 @@ export function soundsAtInstantSpeed(row: Section6Row): boolean {
 export const SECTION_6_ROWS: Section6Row[] = [
   {
     beat: 'Turn start, intel incoming',
-    kinds: ['turn-start', 'quiet'],
+    // `quiet` left this row in Round 7b. It was never a turn start: it is
+    // the adversary phase resolving to nothing, and filing it here is what
+    // made it borrow this row's treatment. A vocabulary item hidden inside
+    // a row that describes something else is the same defect as the
+    // `opportunity` beat that belonged to no row at all, and the opening
+    // measurement found one of them by finding the other.
+    kinds: ['turn-start'],
     visual: 'transmission',
     where: 'ui/cues/Teletype.tsx',
     sound: 'data-burst',
     haptic: 'none',
+    soundWhere: 'director/DirectorView.tsx',
+  },
+  {
+    // Brief v2.3 does not carry this row yet; it is owed, in the form the
+    // opportunity row was owed until v2.3 added it. Recorded here rather
+    // than left implicit so the next conformance audit finds a claim to
+    // check rather than a silence.
+    beat: 'Nothing attacked this turn',
+    kinds: ['quiet'],
+    visual: 'all-clear',
+    where: 'director/DirectorView.tsx',
+    sound: 'all-clear',
+    haptic: 'none',
+    soundWhere: 'director/DirectorView.tsx',
+  },
+  {
+    // Added in brief v2.3. A visible beat kind that belonged to no row at
+    // all, resolving to card-friendly and resolve-chime and firing in 18
+    // of 120 passive runs of the opening, which is to say inside the exact
+    // window Round 7b is about. tests/cues.spec.ts could not catch it: it
+    // asserts every declared visual is used by at least ONE cue, which a
+    // treatment owned by no row still satisfies.
+    beat: 'Opportunity lands',
+    kinds: ['opportunity'],
+    visual: 'card-friendly',
+    where: 'director/DirectorView.tsx',
+    sound: 'resolve-chime',
+    haptic: 'light',
     soundWhere: 'director/DirectorView.tsx',
   },
   {

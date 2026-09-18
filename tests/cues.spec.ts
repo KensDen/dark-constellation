@@ -316,6 +316,45 @@ describe('visual cue vocabulary (Round 3)', () => {
     expect(SECTION_6_ROWS.filter((r) => r.deferred || r.cinematicInRound5).length).toBeGreaterThan(0)
   })
 
+  it('pins CARD_SAFE_VISUALS, because nothing can derive it and dropping a member is invisible', () => {
+    // THIS IS A PIN AND NOT A DERIVATION, and saying so is the point.
+    //
+    // DirectorView decides what runs on the card by asking this set, so
+    // the set IS the decision and there is no second structure to join it
+    // to. Two candidates were tried and both are wrong: "ends visible in
+    // the stylesheet" admits badge-attach and strobe, which end at full
+    // opacity and belong to components; "the row's where names the
+    // director" admits token-burn, which the director runs on a marker
+    // inside the card rather than on the card.
+    //
+    // What makes the pin worth having is the failure it catches. A
+    // treatment missing from this set does not error: the card silently
+    // falls back to dc-card-in, so the cue is present in the union, in
+    // VISUAL_CLASS, in VISUAL_MS, in the stylesheet and on a section 6
+    // row, passes every other test in this file, and never reaches the
+    // screen. Round 7b shipped exactly that and only a DOM drive found it.
+    // Dropping 'ribbon' from the set survived the entire battery.
+    //
+    // The sibling test below derives the NEGATIVE half from the stylesheet
+    // (a treatment ending hidden must never be card-safe), so this pin
+    // carries only the half nothing else can see.
+    expect([...CARD_SAFE_VISUALS].sort()).toEqual([
+      'all-clear',
+      'asset-light',
+      'blackout',
+      'card-friendly',
+      'card-hostile',
+      'outcome-sweep',
+      'ribbon',
+      'transmission',
+    ])
+    // Every member must actually have a class to paint, or it is card-safe
+    // in name only.
+    for (const v of CARD_SAFE_VISUALS) {
+      expect(VISUAL_CLASS[v], `${v} is card-safe but paints no class`).toBeTruthy()
+    }
+  })
+
   it('uses every declared visual treatment at least once', () => {
     const used = new Set<string>(SECTION_6_ROWS.map((r) => r.visual))
     for (const [, map] of ALL_CUES) for (const entry of Object.values(map)) used.add(entry.visual)
@@ -355,7 +394,10 @@ describe('visual cue vocabulary (Round 3)', () => {
     // would actually play.
     const expected: Partial<Record<string, VisualCue>> = {
       'turn-start': 'transmission',
-      quiet: 'transmission',
+      // Round 7b: `quiet` had this row's treatment, which is why turn 1
+      // played the same cue twice.
+      quiet: 'all-clear',
+      opportunity: 'card-friendly',
       'deploy-arrived': 'asset-light',
       'surge-spent': 'token-burn',
       'condition-pressure': 'badge-tick',

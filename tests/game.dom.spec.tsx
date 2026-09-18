@@ -60,9 +60,9 @@ import { RECAP_MAX, recapTechniques } from '../src/ui/cues/Scene'
 import { turnRng } from '../src/engine/rng'
 import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
 import { glossaryEntries } from '../src/ui/reference'
-import { briefCopy } from '../src/ui/brief'
+import { DISCLOSURE_WORD_BUDGET, briefCopy, countWords } from '../src/ui/brief'
 import type { GameState, TurnActions } from '../src/engine/types'
-import { PLAYBACK_SPEED_KEY, SECTION_6_ROWS, deriveBeats, type Beat } from '../src/director'
+import { PLAYBACK_SPEED_KEY, SECTION_6_ROWS, VISUAL_CLASS, deriveBeats, type Beat } from '../src/director'
 import DirectorView from '../src/director/DirectorView'
 import { SOUND_TOGGLE_LABELS, chromeCopy } from '../src/ui/brief'
 import { getAudioEngine, installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
@@ -2159,5 +2159,336 @@ describe('a loaded campaign is not a campaign that was played here', () => {
       localStorage.getItem('dc-autosave'),
       'loading a finished code threw away the campaign the player had in progress',
     ).not.toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------
+// THE OPENING (Round 7b). The guard of record for the round's claim.
+//
+// tests/opening.spec.ts sweeps derived beats across seeds and is breadth;
+// this drives three real turns through the real component and is the only
+// thing that can say the player MET the vocabulary rather than that the
+// engine produced the material for it.
+//
+// THE JOIN IS (visual, sound), OBSERVED. The visual is read off the beat
+// card's own class at the moment the beat is showing, and the sound off a
+// spy on the audio engine, so the pair is what the screen painted next to
+// what the speaker played. It is never `beat.kind`: `Section6Row.kinds`
+// means OR on one row and AND on another (brief v2.3 Appendix E), so a
+// membership join scores BLACKOUT CHAIN as met by the first ordinary
+// threat of a first campaign.
+//
+// WHY IT IS RED BEFORE THE ROUND'S FIX: turn 1's two visible beats,
+// `turn-start` and `quiet`, both resolved to transmission / data-burst, so
+// the whole adversary phase of a new player's first turn was the blip the
+// turn had opened with. Assertion one below fails on that tree and cannot
+// be satisfied by padding a later turn.
+describe('the opening shows the vocabulary (Round 7b)', () => {
+  // Every class the registry can paint, derived rather than matched by
+  // prefix, so a stray dc- class from the stylesheet cannot be mistaken
+  // for a cue.
+  const CUE_CLASSES = new Set(Object.values(VISUAL_CLASS).filter(Boolean))
+
+  // Drive one turn from the intel brief to the aftermath, recording what
+  // was painted and what was played, beat by beat.
+  function driveTurn(): {
+    pairs: Set<string>
+    sounds: Set<string>
+    visuals: Set<string>
+    // Classes observed on the CARD ELEMENT itself, as opposed to on a
+    // marker inside it. A card-safe treatment must appear here or it is
+    // not reaching the surface the registry says it runs on.
+    onCard: Set<string>
+    // Split out because the first version of this collector did not: it
+    // fed every sound from the moment the turn started into one set, so
+    // `buy-click`, `denied-buzz` and `execute-sweep` were in it before the
+    // adversary phase produced anything. The assertion that turn 1 plays a
+    // cue it did not open with was therefore true on every run whatever
+    // the director did, INCLUDING on the tree this round exists to fix.
+    // The player's own button is not the game answering back.
+    playback: Set<string>
+  } {
+    const engine = getAudioEngine()
+    const played: string[] = []
+    const spy = vi.spyOn(engine, 'play').mockImplementation((cue) => {
+      played.push(cue)
+      return true
+    })
+    const pairs = new Set<string>()
+    const sounds = new Set<string>()
+    const visuals = new Set<string>()
+    const playback = new Set<string>()
+    const onCard = new Set<string>()
+
+    const toProcure = byText(/To procurement/i)
+    if (toProcure) click(toProcure)
+    // Buy the cheapest thing on offer, because a new player buys
+    // something, and the procurement cues are five of the seventeen rows.
+    const priced = () =>
+      buttons().filter((b) => /\(\d+\)/.test(b.textContent ?? '') && !/hold/i.test(b.textContent ?? ''))
+    const buy = priced()[0]
+    if (buy) click(buy)
+    // Then try to buy more than the turn can take. A new player taps past
+    // their balance, and that refusal is a section 6 row of its own:
+    // driving it is the difference between the row being MET and the row
+    // being excused because the fixture was too careful to trip it.
+    const dearest = priced().sort(
+      (a, b) => Number(/\((\d+)\)/.exec(b.textContent ?? '')?.[1] ?? 0) - Number(/\((\d+)\)/.exec(a.textContent ?? '')?.[1] ?? 0),
+    )[0]
+    if (dearest) for (let i = 0; i < 12; i += 1) click(dearest)
+    const toHarden = byText(/To hardening/i)
+    if (toHarden) click(toHarden)
+    const execute = byText(/Hold to resolve/i)
+    expect(execute, 'the commit control is not on screen').toBeDefined()
+    act(() => {
+      execute!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+
+    // Step the playback and sample the card between steps. The card class
+    // is the visual the registry resolved; whatever the spy caught since
+    // the last sample is the sound that went with it.
+    //
+    // `mark` is drained HERE, after the commit, so nothing the player's own
+    // buttons played can enter the playback set or the pairing. The first
+    // version started the window at zero and paired the first card class
+    // with the entire procurement phase.
+    let mark = played.length
+    for (let i = 0; i < 60; i += 1) {
+      // TWO CHANNELS, kept distinct, because WHERE a class lands is the
+      // observable that matters.
+      //
+      // DirectorView runs a card-safe treatment on the card itself and a
+      // non-card-safe one on a marker inside the card, falling back to
+      // dc-card-in for the card. A collector that unions the whole
+      // container sees the class either way, so dropping a member from
+      // CARD_SAFE_VISUALS becomes invisible: the treatment moves from the
+      // card to the marker and the set still contains it. That is the
+      // exact defect this round's own new cue shipped with, and widening
+      // the collector to fix a different blindness re-created it.
+      const cardEl = container.querySelector('[data-beat-card]')
+      const cardClasses = (cardEl?.className ?? '')
+        .toString()
+        .split(/\s+/)
+        .filter((c) => CUE_CLASSES.has(c))
+      const markerClasses = [...container.querySelectorAll('[class*="dc-"]')]
+        .filter((el) => el !== cardEl)
+        .flatMap((el) => (el.className ?? '').toString().split(/\s+/))
+        .filter((c) => CUE_CLASSES.has(c))
+      for (const c of cardClasses) onCard.add(c)
+      const classes = [...cardClasses, ...markerClasses]
+      const fresh = played.slice(mark)
+      mark = played.length
+      for (const s of fresh) {
+        sounds.add(s)
+        playback.add(s)
+      }
+      for (const c of classes) visuals.add(c)
+      for (const c of classes) for (const s of fresh) pairs.add(`${c}|${s}`)
+      act(() => {
+        vi.advanceTimersByTime(300)
+      })
+      if (byText(/intel brief|final report/i)) break
+    }
+    for (const s of played.slice(mark)) {
+      sounds.add(s)
+      playback.add(s)
+    }
+    // The procurement sounds are still recorded, in `sounds`, because the
+    // cannot-afford and buy rows are real section 6 rows that only fire
+    // there. They are simply not evidence about the adversary phase.
+    for (const s of played) sounds.add(s)
+    spy.mockRestore()
+    return { pairs, sounds, visuals, playback, onCard }
+  }
+
+  function driveOpening(turns = 3) {
+    const perTurn: ReturnType<typeof driveTurn>[] = []
+    render(newGame(DEFAULT_SCENARIO, 20260712, 'standard'), 'brief')
+    for (let t = 0; t < turns; t += 1) {
+      perTurn.push(driveTurn())
+      const onward = byText(/intel brief/i)
+      if (!onward) break
+      click(onward)
+    }
+    return perTurn
+  }
+
+  it('gives a new player-s first turn a cue it did not open with', () => {
+    // THE ROUND'S HEADLINE ASSERTION, from the player's seat. The
+    // transmission bar opens every turn; the question is whether anything
+    // else ever arrives. On the pre-round tree turn 1 played data-burst
+    // twice and painted dc-transmission-in twice, and this fails.
+    const [turnOne] = driveOpening(1)
+    const beyond = [...turnOne.playback].filter((s) => s !== 'data-burst' && s !== 'silent')
+    expect(
+      beyond.length,
+      `turn 1's adversary phase played only the transmission blip: ${
+        [...turnOne.playback].join(', ') || 'nothing at all'
+      }`,
+    ).toBeGreaterThan(0)
+    const painted = [...turnOne.visuals].filter((c) => c !== 'dc-transmission-in')
+    expect(
+      painted.length,
+      `turn 1 painted only the transmission bar: ${[...turnOne.visuals].join(', ') || 'nothing at all'}`,
+    ).toBeGreaterThan(0)
+  })
+
+  it('meets the rows the opening is not excused from, by the end of the third turn', () => {
+    const turns = driveOpening(3)
+    const heard = new Set<string>()
+    for (const t of turns) for (const s of t.sounds) heard.add(s)
+
+    // Derived from SECTION_6_ROWS, minus the rows the engine cannot
+    // produce in three turns (proved against the engine in
+    // tests/opening.spec.ts) and the rows still deferred. A row added
+    // later is required by default.
+    const excused = new Set([
+      'BLACKOUT CHAIN fires',
+      'MAI crosses below the win line',
+      'Campaign won',
+      'Campaign lost',
+      // Seed-dependent inside three turns rather than structurally out of
+      // reach. This file drives ONE campaign on one seed, which is what
+      // makes it the guard of record for what a player met; breadth across
+      // seeds is tests/opening.spec.ts, which requires every one of these
+      // and fails if the opening stops producing them anywhere.
+      // Trimmed after the bidirectional check above was added and
+      // immediately rejected two of them: the drive DOES earn the
+      // persisting-condition row and the commendation row on this seed,
+      // and excusing a row you produce makes the required set quietly
+      // smaller. What is left is genuinely out of reach on this one
+      // campaign; breadth across seeds is tests/opening.spec.ts, which
+      // requires all of them.
+      'Condition cleared',
+      'Surge token spent',
+    ])
+    // THE EXCUSE LIST IS CHECKED IN BOTH DIRECTIONS, the way the sibling
+    // breadth file checks its own. A hand-written set that subtracts from
+    // a required set is granted for free otherwise: adding this round's
+    // own central row to it left all 54 tests in this file green.
+    const seen = new Set<string>()
+    for (const t of turns) for (const p of t.pairs) seen.add(p)
+    // A sound two rows share cannot credit either on its own. Derived from
+    // the table rather than listed: resolve-chime is the live case today
+    // and the next one should not need this comment edited.
+    const owners = new Map<string, number>()
+    for (const r of SECTION_6_ROWS) owners.set(r.sound, (owners.get(r.sound) ?? 0) + 1)
+    const met = (row: (typeof SECTION_6_ROWS)[number]) => {
+      if (row.soundPerSubject === 'condition') return [...heard].some((s) => s.startsWith('alarm-'))
+      const sounds = [row.sound, ...(row.soundPartners ?? [])]
+      const cls = VISUAL_CLASS[row.visual]
+      if ((owners.get(row.sound) ?? 0) > 1) {
+        // Shared: require the class this row's visual paints alongside it.
+        return !!cls && sounds.some((snd) => seen.has(`${cls}|${snd}`))
+      }
+      return sounds.some((snd) => heard.has(snd))
+    }
+    const names = new Set(SECTION_6_ROWS.map((r) => r.beat))
+    for (const name of excused) {
+      expect(names.has(name), `the drive excuses "${name}", which is not a section 6 row`).toBe(true)
+      const row = SECTION_6_ROWS.find((r) => r.beat === name)!
+      expect(met(row), `the drive excuses "${name}" and then produces it anyway`).toBe(false)
+    }
+    // `met` is the credit for EVERY row now. It was written for the pair
+    // join and then called only in the excuse loop, while the credit that
+    // decides whether the vocabulary claim passes stayed sound-only for
+    // twelve of thirteen required rows: the pair join was advertised and
+    // not used.
+    const required = SECTION_6_ROWS.filter((r) => !r.deferred && !excused.has(r.beat))
+    const missed = required.filter((row) => !met(row))
+    expect(
+      missed.map((r) => `${r.beat} (${r.sound})`).join('\n'),
+      `heard across three turns: ${[...heard].sort().join(', ')}`,
+    ).toBe('')
+  })
+
+  it('pairs what was painted with what was played, so a silent animation cannot pass', () => {
+    // The pair is the point. A visual with no voice and a voice with no
+    // visual both satisfy the two assertions above taken separately.
+    const turns = driveOpening(2)
+    const pairs = new Set<string>()
+    for (const t of turns) for (const p of t.pairs) pairs.add(p)
+    expect(pairs.size, 'no beat was ever observed painting and sounding together').toBeGreaterThan(1)
+    // The quiet turn's own pair, which is the change the round exists to
+    // make: before it, turn 1's second beat carried dc-transmission-in and
+    // data-burst, the same pair as the first.
+    expect([...pairs].join(' '), `pairs observed: ${[...pairs].join(', ')}`).toContain('dc-all-clear|all-clear')
+    // ON THE CARD, not merely somewhere on screen. Without this, removing
+    // 'all-clear' from CARD_SAFE_VISUALS moves the class to the marker and
+    // every assertion above still passes.
+    const card = new Set<string>()
+    for (const t of turns) for (const c of t.onCard) card.add(c)
+    expect(
+      [...card],
+      `classes observed on the card itself: ${[...card].join(', ') || 'none'}`,
+    ).toContain('dc-all-clear')
+    // The control: a treatment the registry keeps OFF the card must not
+    // appear there, or the assertion above is satisfied by a card that
+    // carries everything.
+    expect([...card], 'a badge treatment ran on the whole card').not.toContain('dc-badge-attach')
+  })
+
+  it('puts a disclosure on the brief screen that adds to what is above it', () => {
+    // Item 2, from the player's seat rather than from briefCopy. The panel
+    // used to expand into a longer copy of its own summary; on three of
+    // four intel levels it expanded into a SHORTER one.
+    render(newGame(DEFAULT_SCENARIO, 20260712, 'standard'), 'brief')
+    const summary = [...container.querySelectorAll('summary')].find((s) =>
+      /Expand full brief/i.test(s.textContent ?? ''),
+    )
+    expect(summary, 'the brief screen offers no expand control').toBeDefined()
+    // The panel, found through the control the player taps rather than by
+    // querySelector over the page: three <details> render on this screen
+    // and the first one is not this one.
+    const panel = summary!.parentElement as HTMLElement
+    // Read the panel BLOCK BY BLOCK, not as one textContent string.
+    // textContent concatenates sibling elements with no separator, so
+    // "<li>...at full integrity.</li><li>Nothing in transit.</li>" comes
+    // back as "...integrity.Nothing in transit." and two words become one.
+    // Over ten list items that lost nine words, and the first version of
+    // the join below reported a 100-word panel against a 109-word array.
+    // A lossy reader is a measurement that disagrees with the screen in
+    // the direction that makes the bound look satisfied.
+    const body = [...panel.querySelectorAll('li, p')]
+      .map((el) => el.textContent ?? '')
+      .filter(Boolean)
+      .join(' ')
+    const words = (t: string) => new Set(t.toLowerCase().match(/[a-z0-9]+/g) ?? [])
+    // The summary is the headline and the vector THE PLAYER IS LOOKING AT,
+    // taken from briefCopy for the same state rather than scraped off a
+    // parent element. The first version of this walked up from an <h2> and
+    // subtracted the body from it, which is the nearest observable rather
+    // than the one the claim is about: it passed with the panel reverted
+    // to the engine's forecast, which is the exact defect item 2 exists to
+    // remove. The mutation that reverted Game.tsx slept through it.
+    const copy = briefCopy(newGame(DEFAULT_SCENARIO, 20260712, 'standard'))
+    const summaryWords = words([copy.headline, copy.vector, copy.tag ?? ''].join(' '))
+    const novel = [...words(body)].filter((w) => !summaryWords.has(w))
+    expect(
+      novel.length,
+      `the disclosure added ${novel.length} words the summary did not already carry: "${body.trim().slice(0, 200)}"`,
+    ).toBeGreaterThan(5)
+    // THE CEILING, MEASURED ON THE RENDERED PANEL. tests/reading-diet.spec.ts
+    // bounds briefCopy().full, which is a module's return value: nothing
+    // joins that string to the element the player opens, so JSX rendered
+    // inside this <details> is invisible to it. That is exactly how the
+    // turn-1 job framing sat unmeasured while the bound read 90 of 100,
+    // and moving the framing into brief.ts fixed the instance without
+    // fixing the mechanism. This measures the subtree.
+    expect(
+      countWords(body),
+      `the expand panel renders ${countWords(body)} words: "${body.trim().slice(0, 200)}"`,
+    ).toBeLessThanOrEqual(DISCLOSURE_WORD_BUDGET)
+    // And the two figures must agree, which is the join: if they diverge,
+    // something renders in the panel that briefCopy does not know about.
+    expect(
+      countWords(body),
+      'the rendered panel and the measured array disagree, so something renders that the budget cannot see',
+    ).toBe(countWords(copy.full.join(' ')))
+    // And it is THIS panel, not some other <details> on the screen: the
+    // body must carry what briefCopy built, so rendering the engine's
+    // forecast here fails rather than reading as a different-but-fine
+    // disclosure.
+    expect(body, 'the expand panel is not rendering the brief the screen built').toContain(copy.full[0])
   })
 })

@@ -10,7 +10,7 @@ const s = DEFAULT_SCENARIO
 const STEPS: { label: string; body: string }[] = [
   {
     label: '1. Intel brief',
-    body: `Read the forecast for the coming turn. At intel level 0 it is blank; each level of intel investment sharpens it, from a segment hint up to named likely events. Raise intel in the procure phase.`,
+    body: `Read the forecast for the coming turn. At intel level 0 it reports your own posture rather than the adversary's; each level of intel investment sharpens the forecast, from a segment hint up to named likely events. Raise intel in the procure phase.`,
   },
   {
     label: '2. Procure and deploy',

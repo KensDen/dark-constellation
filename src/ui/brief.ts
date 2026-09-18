@@ -6,11 +6,12 @@
 // from the deck, and the word budget is enforced by a battery test rather
 // than trusted.
 
-import { SQUADRON } from '../config'
+import { ADVERSARY, SQUADRON } from '../config'
 import { effectiveIntel } from '../engine/reducer'
 import { coverage, maiScore } from '../engine/scoring'
 import type { GameState, ThreatEvent } from '../engine/types'
-import { techniqueLabel, vectorLabels } from './labels'
+import { kindLabels, techniqueLabel, vectorLabels } from './labels'
+import { LAYERS } from '../engine/types'
 
 // The budget the brief is designed against (brief v0.7 section 5):
 // "Before first input on a normal turn: 60 words or fewer of reading
@@ -47,6 +48,28 @@ import { techniqueLabel, vectorLabels } from './labels'
 export const HEADLINE_WORD_MAX = 8
 export const FIRST_INPUT_WORD_BUDGET = 60
 export const CHROME_WORD_BUDGET = 32
+
+// The disclosure body, bounded from Round 7b (brief v2.3 section 5).
+//
+// This channel was measured by NOTHING. `firstInputCopy` below does not
+// count it, by design, because it sits behind a tap and the budget is
+// about what a player reads before their first input. But "not counted"
+// and "unbounded" are different things, and Round 7b is the round that
+// fills it: the same shape as an empty screen scoring perfectly against
+// sixty words, one screen over. A ceiling that is measured is the point;
+// the number itself is set from what the panel actually produces plus
+// working room, and the brief records it once measured rather than
+// inventing one first. Inventing a bound before measuring is how chrome
+// sat at "about 28" for six versions while the code enforced 24 and the
+// truth was 30.
+//
+// IT WAS 100 FOR AN HOUR AND THAT WAS THE SAME MISTAKE. The first version
+// of this bound was measured against briefCopy().full while Game.tsx also
+// rendered the turn-1 job framing inside the same <details>, so the number
+// bounded a part of the panel and the real body was 132 words. The framing
+// now lives in this module and is part of `full`, the measured worst is
+// 109 on turn 1, and 120 is that figure plus room.
+export const DISCLOSURE_WORD_BUDGET = 120
 
 // The two audio toggles (Round 4d). One word each, and that is the design
 // constraint rather than a preference for brevity: chrome had four words
@@ -91,15 +114,147 @@ function capWords(text: string, max: number): string {
   return words.slice(0, max).join(' ')
 }
 
+// What the next intel level buys, in the game's own terms. The fidelity
+// ladder is implemented in forecastFor and mirrored in briefCopy below, so
+// this describes what those branches actually do rather than a promise.
+const INTEL_BUYS: Record<number, string> = {
+  0: 'names the segment under threat',
+  1: 'adds the signature class',
+  2: 'names the event itself',
+}
+
+// The expansion below top intel (Round 7b).
+//
+// THE DISCLOSURE WAS A DEAD CONTROL. Measured at every level: the
+// expansion carried 0 tokens the summary did not already have at intel 0
+// turn 1 and at intel 2, and at intel 1 the single novel token was the
+// word "the". At intel 1 and 2 it was also SHORTER than the summary, so
+// the player tapped "Expand full brief" and received less than was already
+// on screen. Only intel 3 earned its tap.
+//
+// So below intel 3 the expansion stops trying to restate a forecast the
+// player has not bought and reports what they already own instead: their
+// own posture, their own pipeline, their own conditions, and the published
+// price of the next level. NOTHING HERE IS DERIVED FROM THIS TURN'S
+// CAMPAIGN SLOTS, which is what keeps the intel purchase worth making;
+// tests/reading-diet.spec.ts holds that by comparing two states that
+// differ only in their slots.
+function postureLines(state: GameState): string[] {
+  const { scenario } = state
+  const lines: string[] = []
+
+  const cov = coverage(state.assets)
+  const min = scenario.slaBonus.coverageMin
+  lines.push(
+    cov >= min
+      ? `Coverage ${cov}, clear of the ${min} the SLA pays at.`
+      : `Coverage ${cov}. The SLA pays ${scenario.slaBonus.credits} a turn from ${min}.`,
+  )
+
+  // THREE POPULATIONS, not one. The first version computed only the
+  // DEGRADED assets (0 < integrity < 100), so a fleet with wreckage in it
+  // and no merely-damaged survivors was told "Every asset at full
+  // integrity", which is false about the player's own state and is
+  // contradicted twice on the same screen. With every asset destroyed it
+  // also rendered an empty layer list beside that claim.
+  const alive = state.assets.filter((a) => a.integrity > 0)
+  const lost = state.assets.length - alive.length
+  const degraded = alive.filter((a) => a.integrity < 100).length
+  const layers = LAYERS.filter((l) => alive.some((a) => a.layer === l))
+  const holding = layers.length > 0 ? `Holding ${layers.join(', ')}.` : 'No layer is holding.'
+  const condition =
+    lost > 0 && degraded > 0
+      ? `${lost} lost, ${degraded} below full integrity.`
+      : lost > 0
+        ? `${lost} asset${lost > 1 ? 's' : ''} lost.`
+        : degraded > 0
+          ? `${degraded} asset${degraded > 1 ? 's' : ''} below full integrity.`
+          : alive.length > 0
+            ? 'Every asset at full integrity.'
+            : 'Nothing left flying.'
+  lines.push(`${holding} ${condition}`)
+
+  lines.push(
+    state.pipeline.length > 0
+      ? `In transit: ${state.pipeline
+          .map((p) => `${kindLabels[p.kind]} in ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'}`)
+          .join(', ')}.`
+      : 'Nothing in transit.',
+  )
+
+  lines.push(
+    state.conditions.length > 0
+      ? `Running against you: ${state.conditions.map((c) => `${c.name} since turn ${c.startedTurn}`).join(', ')}.`
+      : 'No conditions running against you.',
+  )
+
+  lines.push(
+    state.surgeTokens > 0
+      ? `${state.surgeTokens} surge authority in hand.`
+      : 'No surge authority in hand.',
+  )
+
+  // The price is read from the deck, never spelled, so it cannot drift
+  // from what procurement charges. Keyed on the PURCHASED level rather
+  // than the effective one, because an allied data share lifts what the
+  // brief says without changing what the next level costs.
+  // `!== 3` rather than `< 3`: a comparison does not narrow a union of
+  // numeric literals, and the tuple index is what catches that at compile
+  // time rather than at level 3 in someone's campaign.
+  const purchased = state.intelLevel
+  if (purchased !== 3) {
+    lines.push(`Intel level ${purchased + 1} costs ${scenario.prices.intelLevels[purchased]} and ${INTEL_BUYS[purchased]}.`)
+  }
+
+  return lines
+}
+
+// The turn-1 "Your job" framing, as text rather than as JSX.
+//
+// IT RENDERS INSIDE THE SAME DISCLOSURE as the posture panel, on the first
+// screen of the game, and Round 7b's first disclosure ceiling did not see
+// it: the ceiling measured briefCopy().full and worsted at 90 against a
+// budget of 100, while the body a new player actually reads on turn 1 was
+// 132 words. That is principle 16's newest level reproduced inside the
+// guard written to close it, on the exact screen the round is about.
+//
+// So it lives here, the module the budget functions read, and Game.tsx
+// renders it from this list on both screens that carry it. Every number
+// is interpolated from the scenario, per the standing rule that prose
+// cannot drift from mechanics.
+export function jobFramingLines(scenario: GameState['scenario']): string[] {
+  return [
+    `Finish turn ${scenario.totalTurns} with the Mission Assurance Index at ${scenario.winThreshold} or higher.`,
+    `You start above the win line. ${ADVERSARY} spends ${scenario.totalTurns} turns eroding it.`,
+    `Spend credits on fleet and defenses to slow it. MAI below ${scenario.collapseThreshold}, or a budget below zero, ends the campaign early.`,
+    'Some attacks become conditions that press every turn until they lift. Deployments take turns to arrive. Surge authority clears a condition.',
+  ]
+}
+
+// True exactly where Game.tsx renders the framing inside the brief's
+// disclosure: the opening screen of a campaign that has not resolved a
+// turn yet.
+export function showsJobFraming(state: GameState): boolean {
+  return state.turn === 1 && state.history.length === 0
+}
+
 export function briefCopy(state: GameState): BriefCopy {
   const turn = state.turn
+  // Prepended to whatever the level-specific branch builds, so `full` IS
+  // the disclosure body and the ceiling that measures it measures the
+  // screen rather than a part of it.
+  const framing = showsJobFraming(state) ? jobFramingLines(state.scenario) : []
   const intel = effectiveIntel(state)
   const slots = plannedEvents(state, turn)
   const events = slots.flat()
   const full = state.forecast.lines
 
   if (events.length === 0) {
-    return { headline: 'No adversary activity forecast', vector: 'Quiet is not the same as safe.', full }
+    return {
+      headline: 'No adversary activity forecast',
+      vector: 'Quiet is not the same as safe.',
+      full: [...framing, ...postureLines(state)],
+    }
   }
 
   const layers = [...new Set(events.flatMap((e) => e.layers))]
@@ -110,7 +265,7 @@ export function briefCopy(state: GameState): BriefCopy {
     return {
       headline: 'Forecast dark at intel level zero',
       vector: 'Raise intel investment to see what is coming.',
-      full,
+      full: [...framing, ...postureLines(state)],
     }
   }
 
@@ -118,7 +273,7 @@ export function briefCopy(state: GameState): BriefCopy {
     return {
       headline: capWords(`Indicators point at ${layerList}`, HEADLINE_WORD_MAX),
       vector: `Segment under watch: ${layerList}.`,
-      full,
+      full: [...framing, ...postureLines(state)],
     }
   }
 
@@ -126,7 +281,7 @@ export function briefCopy(state: GameState): BriefCopy {
     return {
       headline: capWords(`Signature class ${vectors.join(', ')}`, HEADLINE_WORD_MAX),
       vector: `Likely target: ${layerList}. Signature: ${vectors.join(', ')}.`,
-      full,
+      full: [...framing, ...postureLines(state)],
     }
   }
 
@@ -148,7 +303,7 @@ export function briefCopy(state: GameState): BriefCopy {
     return {
       headline,
       vector: `${candidates} candidates on ${layerList}; ${vectors.join(', ')} signature.`,
-      full,
+      full: [...framing, ...full, ...postureLines(state)],
     }
   }
   // Cap the name before the count is appended, so the trim can never bite
@@ -168,7 +323,12 @@ export function briefCopy(state: GameState): BriefCopy {
     // expression would make that join a coincidence rather than a fact.
     tag: ref ? techniqueLabel(ref) : undefined,
     tagUrl: ref?.url,
-    full,
+    // Top intel carries the engine's named forecast AND the posture. The
+    // forecast alone was not enough: on a turn with exactly one fixed
+    // event the headline already names it, so the expansion added three
+    // tokens, two of which were "Tier B". The dead control was at all four
+    // levels, not three; only the turns with a draw disguised it.
+    full: [...framing, ...full, ...postureLines(state)],
   }
 }
 
