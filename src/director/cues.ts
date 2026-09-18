@@ -498,7 +498,8 @@ export interface Section6Row {
   cinematicInRound5?: boolean
   // The brief's Haptic column, transcribed. Required, not optional, so a
   // row added later cannot quietly carry no answer; 'none' is the answer
-  // for nine of the sixteen and is a decision rather than an absence.
+  // for more rows than any other word and is a decision rather than an
+  // absence.
   haptic: HapticStrength
   // The OTHER sounds this row owns. Several brief rows describe two
   // voices: "Tick-down or tick-up", "Low tone; relief chime on recovery".

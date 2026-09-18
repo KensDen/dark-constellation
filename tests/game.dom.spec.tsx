@@ -60,7 +60,7 @@ import { RECAP_MAX, recapTechniques } from '../src/ui/cues/Scene'
 import { turnRng } from '../src/engine/rng'
 import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
 import { glossaryEntries } from '../src/ui/reference'
-import { DISCLOSURE_WORD_BUDGET, briefCopy, countWords } from '../src/ui/brief'
+import { CHAIN_ARMED_LINE, DISCLOSURE_WORD_BUDGETS, JOB_FRAMING_HEADING, briefCopy, countWords, disclosureBlocks, jobFramingBlocks, postureDetailLines } from '../src/ui/brief'
 import type { GameState, TurnActions } from '../src/engine/types'
 import { PLAYBACK_SPEED_KEY, SECTION_6_ROWS, VISUAL_CLASS, deriveBeats, type Beat } from '../src/director'
 import DirectorView from '../src/director/DirectorView'
@@ -138,6 +138,29 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
+
+
+// Every text node inside a disclosure except its summary and any nested
+// disclosure (Round 7). The first readers took li and p only, so text in a
+// span, a div or a bare node was invisible to the budget and the join. The
+// first replacement split at EVERY text node, which is lossy the other way:
+// React renders "+{credits}" as two nodes, "+" and "10", and a space between
+// them counts one word as two. So nodes inside the same block concatenate
+// exactly as the browser shows them, and a space separates blocks.
+const BLOCK = 'p,li,div,ul,ol,h1,h2,h3,h4,dt,dd,section,summary,details'
+function bodyText(details: Element): string {
+  let out = ''
+  let lastBlock: Element | null = null
+  const walker = document.createTreeWalker(details, NodeFilter.SHOW_TEXT)
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const el = n.parentElement
+    if (!el || el.closest('summary') || el.closest('details') !== details) continue
+    const block = el.closest(BLOCK)
+    out += (block !== lastBlock ? ' ' : '') + (n.textContent ?? '')
+    lastBlock = block
+  }
+  return out.replace(/\s+/g, ' ').trim()
+}
 
 const ctx = () => contexts[0]
 
@@ -2191,7 +2214,8 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
 
   // Drive one turn from the intel brief to the aftermath, recording what
   // was painted and what was played, beat by beat.
-  function driveTurn(): {
+  type DriveOpts = { surge?: boolean; seed?: number; buy?: 'first' | 'drone'; overbuy?: boolean }
+  function driveTurn(opts: DriveOpts = {}): {
     pairs: Set<string>
     sounds: Set<string>
     visuals: Set<string>
@@ -2226,7 +2250,14 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     // something, and the procurement cues are five of the seventeen rows.
     const priced = () =>
       buttons().filter((b) => /\(\d+\)/.test(b.textContent ?? '') && !/hold/i.test(b.textContent ?? ''))
-    const buy = priced()[0]
+    // 'drone' buys exactly one Tier B drone, which the engine can replay
+    // exactly, so a seed chosen by engine search lands where it was chosen.
+    const buy =
+      opts.buy === 'drone'
+        ? [...container.querySelectorAll('li')]
+            .find((li) => (li.textContent ?? '').trimStart().startsWith('Drone'))
+            ?.querySelector('button')
+        : priced()[0]
     if (buy) click(buy)
     // Then try to buy more than the turn can take. A new player taps past
     // their balance, and that refusal is a section 6 row of its own:
@@ -2235,9 +2266,20 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     const dearest = priced().sort(
       (a, b) => Number(/\((\d+)\)/.exec(b.textContent ?? '')?.[1] ?? 0) - Number(/\((\d+)\)/.exec(a.textContent ?? '')?.[1] ?? 0),
     )[0]
-    if (dearest) for (let i = 0; i < 12; i += 1) click(dearest)
+    if (dearest && opts.overbuy !== false) for (let i = 0; i < 12; i += 1) click(dearest)
     const toHarden = byText(/To hardening/i)
     if (toHarden) click(toHarden)
+    // Spend surge authority when the game offers it (Round 7). The control
+    // is a normal decision-phase action like the buy and the over-buy
+    // above, and it renders on this seed from turn 3. The drive used to
+    // walk past it, so "Surge token spent" and "Condition cleared" were
+    // EXCUSED as out of reach when they were only unreached: a split
+    // finding in 7b's re-review, and correct.
+    const surge = opts.surge ? buttons().find((b) => (b.textContent ?? '').trim().toLowerCase() === 'surge') : undefined
+    if (surge) {
+      click(surge)
+      surged += 1
+    }
     const execute = byText(/Hold to resolve/i)
     expect(execute, 'the commit control is not on screen').toBeDefined()
     act(() => {
@@ -2301,11 +2343,13 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     return { pairs, sounds, visuals, playback, onCard }
   }
 
-  function driveOpening(turns = 3) {
+  let surged = 0
+  function driveOpening(turns = 3, opts: DriveOpts = {}) {
+    surged = 0
     const perTurn: ReturnType<typeof driveTurn>[] = []
-    render(newGame(DEFAULT_SCENARIO, 20260712, 'standard'), 'brief')
+    render(newGame(DEFAULT_SCENARIO, opts.seed ?? 20260712, 'standard'), 'brief')
     for (let t = 0; t < turns; t += 1) {
-      perTurn.push(driveTurn())
+      perTurn.push(driveTurn(opts))
       const onward = byText(/intel brief/i)
       if (!onward) break
       click(onward)
@@ -2334,7 +2378,38 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
   })
 
   it('meets the rows the opening is not excused from, by the end of the third turn', () => {
-    const turns = driveOpening(3)
+    // TWO PLAYERS, not one. With a single condition in the opening,
+    // letting it persist and spending surge to clear it are ALTERNATIVES:
+    // surging on turn 3 removes the condition before its pressure beat
+    // plays. So one drive waits and one surges, and every row the engine
+    // can produce in three turns is required of at least one of them. The
+    // alternative, excusing whichever row a single drive misses, is the
+    // "unreached, not unreachable" error 7b's re-review found twice.
+    //
+    // And the waiting player's seed is DERIVED, not chosen. "Condition
+    // cleared" is a natural expiry, not something surge produces (the
+    // surge beat removes the condition itself and plays token-burn), so it
+    // needs a seed on which a condition runs out inside three turns. 82 of
+    // the first 400 standard seeds do that for a player who buys one Tier B
+    // drone a turn; the engine finds the first, and the drive replays the
+    // same purchase so it lands where the search said it would.
+    const waitSeed = (() => {
+      for (let seed = 1; seed <= 400; seed += 1) {
+        let st = newGame(DEFAULT_SCENARIO, seed, 'standard')
+        const kinds = new Set<string>()
+        for (let t = 0; t < 3 && st.status === 'playing'; t += 1) {
+          const next = resolveTurn(st, { ...NO_OP, buyAssets: [{ kind: 'drone', tier: 'B' }] }, turnRng(st.seed, st.turn))
+          for (const b of deriveBeats(st, next)) if (b.visible) kinds.add(b.kind)
+          st = next
+        }
+        if (kinds.has('condition-cleared') && kinds.has('condition-pressure')) return seed
+      }
+      throw new Error('no seed in 400 lets a waiting player see a condition both persist and clear')
+    })()
+    const waits = driveOpening(3, { seed: waitSeed, buy: 'drone', overbuy: false })
+    const surges = driveOpening(3, { surge: true })
+    expect(surged, 'the surging drive never found a surge control to press').toBeGreaterThan(0)
+    const turns = [...waits, ...surges]
     const heard = new Set<string>()
     for (const t of turns) for (const s of t.sounds) heard.add(s)
 
@@ -2352,15 +2427,12 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
       // makes it the guard of record for what a player met; breadth across
       // seeds is tests/opening.spec.ts, which requires every one of these
       // and fails if the opening stops producing them anywhere.
-      // Trimmed after the bidirectional check above was added and
-      // immediately rejected two of them: the drive DOES earn the
-      // persisting-condition row and the commendation row on this seed,
-      // and excusing a row you produce makes the required set quietly
-      // smaller. What is left is genuinely out of reach on this one
-      // campaign; breadth across seeds is tests/opening.spec.ts, which
-      // requires all of them.
-      'Condition cleared',
-      'Surge token spent',
+      // Empty of reachable rows since Round 7. Round 7b's re-review trimmed
+      // two false excuses; the last two ("Condition cleared", "Surge token
+      // spent") were unreached rather than unreachable, and the drive now
+      // presses the surge control that was on screen all along. What is
+      // left is only what the engine cannot produce in three turns, which
+      // tests/opening.spec.ts proves against the engine.
     ])
     // THE EXCUSE LIST IS CHECKED IN BOTH DIRECTIONS, the way the sibling
     // breadth file checks its own. A hand-written set that subtracts from
@@ -2428,6 +2500,130 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     expect([...card], 'a badge treatment ran on the whole card').not.toContain('dc-badge-attach')
   })
 
+  it('renders the same job, heading first and numbered, on the start screen', () => {
+    // The other screen that carries the framing, which nothing checked: the
+    // brief-screen guards all read the disclosure or jobFramingBlocks.
+    act(() => {
+      root.render(<Game key={`start${(mounts += 1)}`} onExit={() => {}} />)
+    })
+    const heading = [...container.querySelectorAll('p')].find((p) => (p.textContent ?? '').trim() === JOB_FRAMING_HEADING)
+    expect(heading, 'the start screen has no job heading').toBeDefined()
+    const blocks: string[] = []
+    for (let el = heading!.nextElementSibling; el && el.tagName === 'P'; el = el.nextElementSibling) {
+      blocks.push((el.textContent ?? '').trim())
+    }
+    expect(blocks, 'the start screen renders a different job from the brief').toEqual(jobFramingBlocks(DEFAULT_SCENARIO))
+    expect(blocks[0], 'the start screen lost the numbering').toMatch(/^1\. /)
+  })
+
+  it('bounds every disclosure the brief screen renders, not only the one the round touched', () => {
+    // Round 7b bounded the "Expand full brief" panel and named the constant
+    // as though it covered every disclosure. Three more sat unmeasured on
+    // the same screen, the largest at 263 words. The set is derived from
+    // the rendered DOM: every <details> the brief screen carries must have
+    // a budget, so a disclosure added later fails here until someone says
+    // how long it may be.
+    const states: [string, GameState][] = []
+    const push = (label: string, script: Record<number, TurnActions>, turn: number, seed = 20260712) => {
+      let st = newGame(DEFAULT_SCENARIO, seed, 'standard')
+      while (st.status === 'playing' && st.turn < turn) {
+        st = resolveTurn(st, script[st.turn] ?? NO_OP, turnRng(st.seed, st.turn))
+      }
+      if (st.status === 'playing') states.push([label, st])
+    }
+    push('turn 1', {}, 1)
+    push('prepared, turn 7', WIN_SCRIPT, 7)
+    push('prepared, turn 12', WIN_SCRIPT, 12)
+    // Where Posture detail worsts, measured over 64 states: seed 1's prepared
+    // fleet at turn 12. Without it the pin records whatever this smaller set
+    // happens to reach, which is a lower number than the game produces.
+    push('prepared, turn 12, seed 1', WIN_SCRIPT, 12, 1)
+    push('top intel, turn 9', TOP_INTEL_SCRIPT, 9)
+    push('passive, turn 8', LOSS_SCRIPT, 8)
+    // The chain disclosure renders only while the chain is armed, so find a
+    // state that arms it rather than hoping one of the above does.
+    for (let seed = 1; seed <= 40 && !states.some(([, st]) => st.flags.lidarFallback); seed += 1) {
+      let st = newGame(DEFAULT_SCENARIO, seed, 'standard')
+      while (st.status === 'playing' && !st.flags.lidarFallback) {
+        st = resolveTurn(st, WIN_SCRIPT[st.turn] ?? NO_OP, turnRng(st.seed, st.turn))
+      }
+      if (st.status === 'playing' && st.flags.lidarFallback) states.push([`chain armed, seed ${seed}`, st])
+    }
+    expect(states.some(([, st]) => st.flags.lidarFallback), 'no state armed the chain, so its disclosure was never measured').toBe(true)
+
+    const keyOf = (summary: string) => (summary.startsWith('BLACKOUT CHAIN ARMED') ? CHAIN_ARMED_LINE : summary)
+    const worst = new Map<string, number>()
+    const unbudgeted = new Set<string>()
+    for (const [label, st] of states) {
+      render(st, 'brief')
+      for (const d of container.querySelectorAll('details')) {
+        const summary = d.querySelector('summary')?.textContent?.trim() ?? ''
+        const key = keyOf(summary)
+        // Block by block, and only this disclosure's own blocks: textContent
+        // merges sibling items and a nested <details> would be counted twice.
+        const body = bodyText(d)
+        const words = countWords(body)
+        const budget = DISCLOSURE_WORD_BUDGETS[key]
+        if (budget === undefined) {
+          unbudgeted.add(`"${summary}" (${words} words, ${label})`)
+          continue
+        }
+        expect(words, `${label}: "${key}" renders ${words} words against ${budget}`).toBeLessThanOrEqual(budget)
+        worst.set(key, Math.max(worst.get(key) ?? 0, words))
+      }
+    }
+    expect([...unbudgeted].join('\n'), 'a disclosure on the brief screen has no budget').toBe('')
+    // Every budget must correspond to something the screen renders, or the
+    // map is bounding a disclosure that no longer exists.
+    for (const key of Object.keys(DISCLOSURE_WORD_BUDGETS)) {
+      expect(worst.has(key), `"${key}" has a budget but never rendered on the brief screen`).toBe(true)
+    }
+    // Pinned HERE only where the text does not depend on the state, so a
+    // handful of rendered states is the whole population. The two that vary
+    // are swept over every line of play in tests/reading-diet.spec.ts, and
+    // pinning them from seven named states is what produced a "worst" of 93
+    // for a panel that reached 139 in legal play.
+    expect(worst.get('What these numbers mean')).toBe(263)
+    expect(worst.get(CHAIN_ARMED_LINE)).toBe(26)
+    // The varying panels are JOINED instead: what renders must be exactly
+    // what the swept function builds, so the sweep measures the screen.
+    for (const [label, st] of states) {
+      render(st, 'brief')
+      const panel = [...container.querySelectorAll('details')].find(
+        (d) => d.querySelector('summary')?.textContent?.trim() === 'Posture detail',
+      )!
+      // EXACT text, in order, with its tone. The first version compared word
+      // COUNTS, so reordered lines, a lost colour and the reverted "any
+      // phase" wording all passed a guard named for what renders.
+      const rendered = [...panel.querySelectorAll('[data-posture-tone]')].map((el) => ({
+        text: (el.textContent ?? '').trim(),
+        tone: el.getAttribute('data-posture-tone'),
+      }))
+      expect(rendered, `${label}: Posture detail renders something postureDetailLines did not build`).toEqual(
+        postureDetailLines(st).map((l) => ({ text: l.text, tone: l.tone })),
+      )
+      // The COLOUR, by meaning, stated here as a second structure: the
+      // attribute above is what the code says the tone is, and a mutation
+      // that repainted the class while leaving the attribute alone slept.
+      const meaning: [RegExp, string][] = [
+        [/^Countermeasures:/, 'text-hero-blue'],
+        [/^Allied intel boost/, 'text-hero-blue'],
+        [/^Surge authority:/, 'text-alert-amber'],
+        [/^(Fleet|In transit)/, 'text-ink-dim'],
+      ]
+      for (const el of panel.querySelectorAll('[data-posture-tone]')) {
+        const text = (el.textContent ?? '').trim()
+        const want = meaning.find(([re]) => re.test(text))?.[1]
+        expect(want, `${label}: no stated colour for "${text}"`).toBeDefined()
+        expect(el.className, `${label}: "${text}" is not painted ${want}`).toContain(want!)
+      }
+      // And nothing else is in the panel beside those lines and the summary.
+      expect(bodyText(panel), `${label}: Posture detail carries text outside its lines`).toBe(
+        postureDetailLines(st).map((l) => l.text).join(' '),
+      )
+    }
+  })
+
   it('puts a disclosure on the brief screen that adds to what is above it', () => {
     // Item 2, from the player's seat rather than from briefCopy. The panel
     // used to expand into a longer copy of its own summary; on three of
@@ -2478,13 +2674,38 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     expect(
       countWords(body),
       `the expand panel renders ${countWords(body)} words: "${body.trim().slice(0, 200)}"`,
-    ).toBeLessThanOrEqual(DISCLOSURE_WORD_BUDGET)
+    ).toBeLessThanOrEqual(DISCLOSURE_WORD_BUDGETS['Expand full brief'])
     // And the two figures must agree, which is the join: if they diverge,
     // something renders in the panel that briefCopy does not know about.
     expect(
       countWords(body),
       'the rendered panel and the measured array disagree, so something renders that the budget cannot see',
-    ).toBe(countWords(copy.full.join(' ')))
+    ).toBe(countWords(disclosureBlocks(copy).join(' ')))
+    // THE JOB AND THE POSTURE ARE TWO SECTIONS, not one list. Round 7b
+    // folded the turn-1 job into the posture bullets, and at 375px the
+    // player's instructions ran straight into their fleet status with no
+    // heading and no numbering. Asserted as structure the player sees: a
+    // heading, the numbered job as paragraphs, and the posture as a list.
+    const heading = [...panel.querySelectorAll('p')].find((p) => (p.textContent ?? '').trim() === 'Your job')
+    expect(heading, 'the turn-1 disclosure has no "Your job" heading').toBeDefined()
+    const jobParas = [...panel.querySelectorAll('p')].map((p) => (p.textContent ?? '').trim())
+    expect(jobParas.some((p) => p.startsWith('1. ')), 'the job lines lost their numbering').toBe(true)
+    const listItems = [...panel.querySelectorAll('li')].map((li) => (li.textContent ?? '').trim())
+    expect(listItems.some((li) => /^\d\. /.test(li)), 'a numbered job line was rendered inside the posture list').toBe(false)
+    expect(listItems.length, 'the posture list is empty').toBeGreaterThan(0)
+    // ORDER, which the checks above cannot see: the job comes first and the
+    // posture list after it, and the job's blocks are exactly the shared
+    // framing, heading first. Moving the framing below the list passed every
+    // assertion above until this line existed.
+    const list = panel.querySelector('ul')!
+    expect(
+      heading!.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'the job heading does not come before the posture list',
+    ).toBeTruthy()
+    const jobBlocks = [...panel.querySelectorAll('p')]
+      .filter((el) => el.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .map((el) => (el.textContent ?? '').trim())
+    expect(jobBlocks).toEqual([JOB_FRAMING_HEADING, ...jobFramingBlocks(DEFAULT_SCENARIO)])
     // And it is THIS panel, not some other <details> on the screen: the
     // body must carry what briefCopy built, so rendering the engine's
     // forecast here fails rather than reading as a different-but-fine

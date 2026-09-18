@@ -23,7 +23,16 @@ import { MENU_MUSIC_STATE, MusicBed, shouldPlayMusic, type MusicBedOptions, type
 import { DEFAULT_SOUND_PREFS, loadSoundPrefs, saveSoundPrefs, type SoundPrefs } from './prefs'
 import { VOICES, type VoiceOptions } from './voices'
 
-// Starting mix from the brief; Round 7 tunes it against a real playtest.
+// The mix: the brief's starting point, effects at full and music at 35 percent.
+//
+// UNTUNED, AND ROUND 7 SAYS WHY RATHER THAN PRETENDING OTHERWISE. The round
+// rendered the mix (scripts/measure-mix.js, recorded in
+// tests/mix-measurement.json) and the verdict depends on the loudness model:
+// against the median effect the full pad is about 14 dB over unweighted, 4 dB
+// under A-weighted and 10 dB over K-weighted. The round retuned to 0.068 on
+// the first and reverted on the second, and each time the model chosen was
+// the one that agreed with the conclusion in hand. Neither is a listener. This
+// value stands until an ear at a real listening level decides.
 export const EFFECTS_LEVEL = 1
 export const MUSIC_LEVEL = 0.35
 

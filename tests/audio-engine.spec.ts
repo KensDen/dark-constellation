@@ -434,6 +434,9 @@ describe('the voices themselves', () => {
     expect(carrying[0].gain.value, 'effects are not at the effects level').toBe(EFFECTS_LEVEL)
     const other = buses.find((b) => b !== carrying[0])!
     expect(other.gain.value, 'music is not at the music level').toBe(MUSIC_LEVEL)
+    // Bus gains only, which is not loudness. The loudness relationship is
+    // joined to an A-weighted render in tests/music.spec.ts; this line only
+    // says the effects bus is the higher of the two gains.
     expect(EFFECTS_LEVEL).toBeGreaterThan(MUSIC_LEVEL)
   })
 

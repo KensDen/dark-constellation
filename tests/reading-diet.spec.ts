@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
-import { deriveBeats } from '../src/director'
+import { BEAT_KINDS, deriveBeats } from '../src/director'
 import { DIFFICULTIES, effectiveIntel, newGame, resolveTurn } from '../src/engine/reducer'
 import { coverage, maiScore } from '../src/engine/scoring'
 import { turnRng } from '../src/engine/rng'
@@ -20,10 +20,13 @@ import {
   CHAIN_ARMED_LINE,
   CHROME_WORD_BUDGET,
   SOUND_TOGGLE_LABELS,
-  DISCLOSURE_WORD_BUDGET,
+  DISCLOSURE_WORD_BUDGETS,
   FIRST_INPUT_WORD_BUDGET,
   HEADLINE_WORD_MAX,
   briefCopy,
+  disclosureBlocks,
+  jobFramingBlocks,
+  postureDetailLines,
   chromeCopy,
   chromeWords,
   countWords,
@@ -58,7 +61,7 @@ const tokensOf = (text: string) => new Set(text.toLowerCase().match(/[a-z0-9]+/g
 // BriefCopy the screen renders, not from a second copy of the strings.
 function novelTokens(copy: ReturnType<typeof briefCopy>): string[] {
   const summary = tokensOf([copy.headline, copy.vector, copy.tag ?? ''].join(' '))
-  return [...tokensOf(copy.full.join(' '))].filter((w) => !summary.has(w))
+  return [...tokensOf(disclosureBlocks(copy).join(' '))].filter((w) => !summary.has(w))
 }
 const SEEDS = 12
 const DIFFS: Difficulty[] = ['easy', 'standard', 'expert']
@@ -565,7 +568,7 @@ describe('reading diet: the intel brief', () => {
       for (const difficulty of DIFFS) {
         for (let seed = 1; seed <= SEEDS; seed += 1) {
           for (const { before } of playTurns(seed, script, difficulty)) {
-            const words = countWords(briefCopy(before).full.join(' '))
+            const words = countWords(disclosureBlocks(briefCopy(before)).join(' '))
             if (words > worst) {
               worst = words
               worstAt = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, intel ${effectiveIntel(before)}`
@@ -575,41 +578,55 @@ describe('reading diet: the intel brief', () => {
       }
     }
     expect(worst, `worst disclosure measured: ${worst} words at ${worstAt}`).toBeLessThanOrEqual(
-      DISCLOSURE_WORD_BUDGET,
+      DISCLOSURE_WORD_BUDGETS['Expand full brief'],
     )
     // The exact figure, for the reason the 54 pin above carries one: it is
     // the number the budget's headroom rests on, and re-baselining should
     // be a deliberate edit rather than a drift. Measured at top intel,
     // turn 11, where three named slots sit above the posture.
     // 90 until the ceiling was pointed at the whole panel rather than at
-    // briefCopy's return value. The worst is turn 1, where the job framing
-    // renders with the posture below it, which is the screen the round is
-    // about and the one the first version of this bound could not see.
-    expect(worst, `worst disclosure measured: ${worst} words at ${worstAt}`).toBe(109)
+    // briefCopy's return value; 109 once it was; 115 in Round 7, when the
+    // job framing got its heading and numbering back and line 1 regained
+    // the "(MAI)" that introduces the abbreviation the HUD uses everywhere.
+    // Measured through disclosureBlocks, the function the panel renders.
+    expect(worst, `worst disclosure measured: ${worst} words at ${worstAt}`).toBe(115)
   })
 
   it('bounds the beat title, the other channel no budget measured', () => {
-    // Round 7b rewrote the turn-start title and the quiet title. Titles
-    // render on the playback card, which no budget function has ever
-    // counted, so the round bounds what it touched rather than leaving the
-    // next round to discover it.
-    // OVER EVERY LINE OF PLAY. The first version swept NO_OP only, which
-    // is the one line that never buys anything, so two whole beat kinds
-    // (procurement and deploy-arrived) had no title measured at all and a
-    // 37-word title on any other line shipped green. That is Round 3.5's
-    // error inside the round written to name it: reach for the worst case,
-    // not the convenient one.
+    // Titles render on the playback card, which no budget function counted
+    // until Round 7b.
+    //
+    // THREE CORRECTIONS, each a narrower sweep than the claim. Round 7b's
+    // first version swept NO_OP only, so a 37-word title on any other line
+    // shipped green. Its fix swept every line but still measured INVISIBLE
+    // beats, whose titles never reach the card, and still missed two kinds
+    // that are visible. And its self-check named three kinds by hand, which
+    // is principle 17 inside the guard written under it. Round 7 measures
+    // what the player reads (visible beats only), adds a line that spends
+    // surge authority so `surge-spent` is reached at all, and derives the
+    // required set from BEAT_KINDS.
     let worst = 0
     let worstAt = ''
-    const kinds = new Set<string>()
-    for (const [name, script] of LINES) {
+    const visibleKinds = new Set<string>()
+    const surgeLine = (state: GameState): TurnActions => {
+      const base = WIN_SCRIPT[state.turn] ?? NO_OP
+      return state.surgeTokens > 0 && state.conditions.length > 0
+        ? { ...base, spendSurgeOn: state.conditions[0].instanceId }
+        : base
+    }
+    const lines: [string, (s: GameState) => TurnActions][] = [
+      ...LINES.map(([name, script]) => [name, (st: GameState) => script[st.turn] ?? NO_OP] as [string, (s: GameState) => TurnActions]),
+      ['spends surge', surgeLine],
+    ]
+    for (const [name, pick] of lines) {
       for (const difficulty of DIFFS) {
         for (let seed = 1; seed <= SEEDS; seed += 1) {
           let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
           while (state.status === 'playing') {
-            const after = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+            const after = resolveTurn(state, pick(state), turnRng(state.seed, state.turn))
             for (const beat of deriveBeats(state, after)) {
-              kinds.add(beat.kind)
+              if (!beat.visible) continue
+              visibleKinds.add(beat.kind)
               const words = countWords(beat.title)
               if (words > worst) {
                 worst = words
@@ -621,20 +638,138 @@ describe('reading diet: the intel brief', () => {
         }
       }
     }
-    // The sweep must actually reach the kinds the NO_OP version could not,
-    // or it has been widened in name only.
-    for (const kind of ['procurement', 'deploy-arrived', 'commendation']) {
-      expect(kinds.has(kind), `the title sweep never produced a ${kind} beat`).toBe(true)
+    // THE REQUIRED SET IS DERIVED, and the exceptions are checked both
+    // ways. Every beat kind must be seen on the card somewhere in the sweep
+    // unless it is one the director always pushes invisible, and a kind on
+    // that list must never be seen on the card, or the list is lying.
+    const NEVER_ON_CARD = new Set(['procurement', 'end-of-turn-tick', 'settle'])
+    const unreached = BEAT_KINDS.filter((k) => !NEVER_ON_CARD.has(k) && !visibleKinds.has(k))
+    expect(unreached.join(', '), 'visible beat kinds whose titles the sweep never measured').toBe('')
+    for (const k of NEVER_ON_CARD) {
+      expect(BEAT_KINDS, `"${k}" is excused but is not a beat kind`).toContain(k)
+      expect(visibleKinds.has(k), `"${k}" is excused as never visible and reached the card anyway`).toBe(false)
     }
     expect(worst, `worst beat title measured: ${worst} words at ${worstAt}`).toBeLessThanOrEqual(BEAT_TITLE_WORD_BUDGET)
-    // 11 when this swept NO_OP only. Widened to every line of play it is
-    // 12, on the turn-start card of a prepared campaign whose three meters
-    // healed by different amounts.
-    // 11 when this swept NO_OP only; 12 once widened; 13 once the
-    // zero-recovery clause stopped saying ", no damage to recover", which
-    // was four words and false, and went back to naming the three meters
-    // it actually knows about. One word of the ceiling left.
+    // 11 swept NO_OP only; 12 widened to every line; 13 once the
+    // zero-recovery clause went back to naming the three meters. Re-pinned
+    // in Round 7 against visible beats only and a surge-spending line.
     expect(worst, `worst beat title measured: ${worst} words at ${worstAt}`).toBe(13)
+  })
+
+  it('introduces the MAI abbreviation before the job framing uses it', () => {
+    // Round 7b's move of the framing into this module dropped "(MAI)" from
+    // line 1, so the abbreviation first appeared unintroduced in line 3,
+    // "MAI below 35", while the HUD uses it on every screen. The claim is
+    // about reading order, so it is asserted as reading order: the first
+    // line to say MAI must be the one that says what it stands for.
+    const lines = jobFramingBlocks(DEFAULT_SCENARIO)
+    const first = lines.findIndex((l) => /\bMAI\b/.test(l))
+    expect(first, 'the job framing never uses the abbreviation, so this proves nothing').toBeGreaterThanOrEqual(0)
+    expect(lines[first], `the first mention of MAI is "${lines[first]}"`).toContain('Mission Assurance Index (MAI)')
+  })
+
+  it('bounds Posture detail at the deck\'s structural maximum, not at a line of play', () => {
+    // Round 7 set this bound twice from lines of play and both were beaten:
+    // seven hand-named states gave 93 when legal play reached 139, then a
+    // "buy everything" line that only ever bought Tier B drones gave 96 when
+    // a mixed buyer reached 132. A line of play is a declared set. The deck's
+    // structure is not: every countermeasure owned, every kind and tier
+    // deployed and in transit, the one retrofit pending, surge full and the
+    // allied boost running. With the fleet and transit grouped by kind and
+    // tier, no legal state can say more than this one.
+    const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
+    const pairs = [['sat', 'A'], ['sat', 'B'], ['rpoSat', 'A'], ['rpoSat', 'B'], ['drone', 'A'], ['drone', 'B'], ['groundStation', 'B']] as const
+    const layerOf = (k: string) => (k === 'drone' ? 'AIR' : k === 'groundStation' ? 'GROUND' : 'ORBIT')
+    const worst: GameState = {
+      ...base,
+      counters: DEFAULT_SCENARIO.countermeasures.map((c) => c.id).filter((id) => id !== 'intelInvestment'),
+      assets: pairs.map(([kind, tier], i) => ({ id: `max-${i}`, kind, tier, layer: layerOf(kind), integrity: 100 })) as GameState['assets'],
+      pipeline: pairs.map(([kind, tier], i) => ({ id: `pipe-${i}`, kind, tier, etaTurns: 3 })) as GameState['pipeline'],
+      pendingCounters: [{ id: 'sensorFusion', etaTurns: 1 }],
+      surgeTokens: 3,
+      intelBoostTurns: 2,
+    }
+    const words = countWords(postureDetailLines(worst).map((l) => l.text).join(' '))
+    expect(words, `structural maximum: ${words} words`).toBeLessThanOrEqual(DISCLOSURE_WORD_BUDGETS['Posture detail'])
+    // Pinned: the bound is this figure, derived from the deck. Most of it is
+    // the countermeasure list, eleven names at most. Re-argued on the record
+    // in Round 7 (the budget rose from 110 to 170) rather than trimmed,
+    // because cutting that list to a count removes information a player
+    // might want and is copy the author has not seen.
+    expect(words, `structural maximum: ${words} words`).toBe(164)
+  })
+
+  it('groups the fleet by kind and tier, and says surge is spent in a decision phase', () => {
+    const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
+    const st: GameState = {
+      ...base,
+      assets: [
+        { id: 'a', kind: 'drone', tier: 'B', layer: 'AIR', integrity: 100 },
+        { id: 'b', kind: 'drone', tier: 'B', layer: 'AIR', integrity: 60 },
+        { id: 'c', kind: 'drone', tier: 'A', layer: 'AIR', integrity: 100 },
+        { id: 'd', kind: 'sat', tier: 'B', layer: 'ORBIT', integrity: 0 },
+      ],
+    }
+    const text = postureDetailLines(st).map((l) => l.text)
+    // Two Tier B drones grouped, the Tier A one apart, the destroyed sat not
+    // counted as operational.
+    expect(text[0]).toBe('Fleet: 3 operational: 2 Drone B, 1 Drone A.')
+    const surge = text.find((l) => l.startsWith('Surge authority'))!
+    expect(surge).toContain('a decision phase')
+    expect(surge).not.toMatch(/any phase/)
+  })
+
+  it('bounds Posture detail over every state, including a player who buys everything', () => {
+    // Round 7's first version of this bound came from seven states a DOM
+    // test happened to name, and three lenses broke it in legal play at up
+    // to 139 words against 110. The set is swept here instead: every line
+    // of play, every difficulty, and a line that buys as much as each turn
+    // allows, which is the state the named seven never reached.
+    const buyAll = (st: GameState): TurnActions => {
+      const avail = st.credits + st.scenario.incomePerTurn
+      const counters: TurnActions['buyCounters'] = []
+      let spend = 0
+      for (const cm of [...st.scenario.countermeasures].sort((a, b) => a.cost - b.cost)) {
+        if (cm.id === 'intelInvestment' || cm.id === 'irRetainer' || st.counters.includes(cm.id)) continue
+        if (st.pendingCounters.some((p) => p.id === cm.id) || spend + cm.cost > avail) continue
+        counters.push(cm.id)
+        spend += cm.cost
+      }
+      const drones = Math.max(0, Math.floor((avail - spend) / st.scenario.prices.drone))
+      return { ...NO_OP, buyCounters: counters, buyAssets: Array.from({ length: drones }, () => ({ kind: 'drone' as const, tier: 'B' as const })) }
+    }
+    const pickers: [string, (st: GameState) => TurnActions][] = [
+      ...LINES.map(([n, sc]) => [n, (st: GameState) => sc[st.turn] ?? NO_OP] as [string, (st: GameState) => TurnActions]),
+      ['buys everything', buyAll],
+    ]
+    let worst = 0
+    let worstAt = ''
+    for (const [name, pick] of pickers) {
+      for (const difficulty of DIFFS) {
+        for (let seed = 1; seed <= SEEDS; seed += 1) {
+          let st = newGame(DEFAULT_SCENARIO, seed, difficulty)
+          while (st.status === 'playing') {
+            const words = countWords(postureDetailLines(st).map((l) => l.text).join(' '))
+            if (words > worst) {
+              worst = words
+              worstAt = `${name}, turn ${st.turn}, ${difficulty}, seed ${seed}`
+            }
+            let next: GameState
+            try {
+              next = resolveTurn(st, pick(st), turnRng(st.seed, st.turn))
+            } catch {
+              next = resolveTurn(st, NO_OP, turnRng(st.seed, st.turn))
+            }
+            st = next
+          }
+        }
+      }
+    }
+    expect(worst, `worst Posture detail: ${worst} words at ${worstAt}`).toBeLessThanOrEqual(DISCLOSURE_WORD_BUDGETS['Posture detail'])
+    // Breadth only, and not pinned. A line of play is a declared set, and
+    // pinning its worst is how this panel twice carried a "worst" it was not
+    // (93 from seven named states, then 96 from a line that only bought Tier
+    // B drones). The bound is the structural maximum in the test above.
   })
 
   it('never emits an em dash in generated copy', () => {

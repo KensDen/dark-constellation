@@ -8,7 +8,7 @@ architecture under budget while an adversary campaign escalates across 12 turns.
 
 Play it: https://kensden.github.io/dark-constellation/
 
-Status: v1.0. Feature complete for v1.
+Status: v1.0 released. v1.1, the sound and feel pass described below, is in progress and not yet tagged.
 
 ## How to play
 
@@ -51,6 +51,26 @@ All organizations, vendors, constellations, and threat actors in the fiction are
 the scenario is inspired by real incidents, it cites institutional analysis rather than naming
 individuals or companies. Only public sources are used.
 
+## Sound and feel
+
+Every state change in a turn is played back beat by beat rather than reported as a block of
+results: a threat card lands, a condition attaches to its layer, the meters ease to their new
+values, and each beat carries its own visual cue and its own sound.
+
+- **Synthesized, not recorded.** Every effect is generated in the browser with Web Audio.
+  No audio files ship with the game.
+- **A procedural music bed** with layers that follow the campaign: a base pad, a tension layer
+  when the index falls below the win line or a condition is active, and a threat layer while a
+  BLACKOUT CHAIN is armed or a lost campaign is resolving. It loops by construction, so there is
+  no seam.
+- **Two toggles, effects and music**, both remembered between visits. Nothing plays until your
+  first tap or click.
+- **Playback speed** of 1x, 2x, or instant, where instant shows results only. Reduced motion is
+  honoured as a motion preference: the sequence still plays, every cue takes its static form,
+  and the sound is unchanged.
+- **Haptics** on Chrome-family Android browsers that support vibration. Nothing fires on iPhone,
+  by design.
+
 ## Tech notes
 
 - React, TypeScript, Tailwind, Vite. Static build on GitHub Pages.
@@ -73,7 +93,6 @@ individuals or companies. Only public sources are used.
 
 Deliberately out of scope, recorded here as future work:
 
-- Sound design and a sound toggle
 - A remote, shared leaderboard
 - A daily seeded challenge with shareable results
 - A red-teaming crossover scenario, attacking the AI-enabled ground segment
@@ -112,9 +131,11 @@ npm run dev
 node scripts/battery.mjs
 ```
 
-Runs typecheck, production build, a bundle budget on the gzipped main chunk, the determinism,
-content, persistence, director, and cue-coverage test suites, a copy-style scan, and the online
-content link check. Must be green before a round closes.
+Runs typecheck, production build, a bundle budget on everything the build emits (the initial and
+deferred code gzipped, static assets raw), the whole test suite (determinism, content,
+persistence, director, cues, reading diet, sound, music, haptics and the DOM suites), a check that
+the dev sound board stays out of the build, a copy-style scan, a local OPSEC tripwire, and the
+online content link check. Must be green before a round closes.
 
 The determinism test replays fixed-seed full games on Standard difficulty and compares a hash of
 the event log against the committed snapshot in `tests/determinism.snap.json`. After a deliberate

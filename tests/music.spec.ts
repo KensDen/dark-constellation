@@ -22,12 +22,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { mulberry32, turnRng } from '../src/engine/rng'
 import { SOUND_MS, DUCKS_MUSIC, type SoundCue } from '../src/director'
-import { AudioEngine, MUSIC_LEVEL } from '../src/audio/engine'
+import { AudioEngine, EFFECTS_LEVEL, MUSIC_LEVEL } from '../src/audio/engine'
+import { VOICES } from '../src/audio/voices'
 import {
   CROSSFADE_S,
   DUCK_ATTACK_S,
@@ -1015,5 +1017,46 @@ describe('music: a real campaign moves the bed', () => {
     for (const layer of MUSIC_LAYERS) {
       expect(seen.has(layer.name), `no turn of a losing campaign ever activates the ${layer.name} layer`).toBe(true)
     }
+  })
+})
+
+describe('the mix record describes what ships and does not pick a verdict (Round 7)', () => {
+  // NOT A LOUDNESS TEST. Loudness can only be measured by rendering, and this
+  // battery runs in node. scripts/measure-mix.js renders in a browser and
+  // tests/mix-measurement.json is what it printed.
+  //
+  // It asserts no verdict on the mix, because the measurement does not reach
+  // one: the full pad is about 14 dB over the median voice unweighted, 4 dB
+  // under it A-weighted and 10 dB over it K-weighted. Round 7 retuned on the
+  // first figure and reverted on the second, and each time the chosen model
+  // was the one that agreed with the conclusion already held. What is guarded
+  // is the structure that stops that from happening quietly.
+  const record = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'mix-measurement.json'), 'utf8'))
+
+  it('measured every voice that ships, and nothing that does not', () => {
+    const shipped = (Object.keys(VOICES) as string[]).filter((c) => c !== 'placeholder' && c !== 'silent').sort()
+    expect(Object.keys(record.voices).sort(), 'the voice set changed since the mix was measured').toEqual(shipped)
+  })
+
+  it('was measured at the levels that ship, so its figures describe the game', () => {
+    // Change either level and the record stops describing the mix a player
+    // hears; re-measure with scripts/measure-mix.js and update it.
+    expect(record.measuredAtLevels).toEqual({ MUSIC_LEVEL, EFFECTS_LEVEL })
+  })
+
+  it('carries every weighting for every figure, so the one that passes cannot be kept alone', () => {
+    // The failure this guards is the round's own: keeping only the model that
+    // agrees with the conclusion. A record with one weighting cannot show that
+    // the others disagree.
+    // Both halves must be present, or the loop below walks an empty set: a
+    // mutation renaming the pad block passed this test until this line.
+    expect(Object.keys(record.pad ?? {}).sort(), 'the record lost its pad figures').toEqual(['base', 'full'])
+    expect(Object.keys(record.voices ?? {}).length, 'the record lost its voice figures').toBeGreaterThan(0)
+    for (const [name, levels] of Object.entries({ ...record.voices, ...record.pad } as Record<string, Record<string, number>>)) {
+      for (const w of ['u', 'a', 'k']) {
+        expect(Number.isFinite(levels[w]), `${name} has no ${w} figure`).toBe(true)
+      }
+    }
+    expect(record.verdict, 'the record no longer states that the verdict is unsettled').toMatch(/^UNSETTLED/)
   })
 })

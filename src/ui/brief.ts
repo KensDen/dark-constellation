@@ -7,7 +7,7 @@
 // than trusted.
 
 import { ADVERSARY, SQUADRON } from '../config'
-import { effectiveIntel } from '../engine/reducer'
+import { SURGE_TOKEN_CAP, effectiveIntel } from '../engine/reducer'
 import { coverage, maiScore } from '../engine/scoring'
 import type { GameState, ThreatEvent } from '../engine/types'
 import { kindLabels, techniqueLabel, vectorLabels } from './labels'
@@ -49,28 +49,6 @@ export const HEADLINE_WORD_MAX = 8
 export const FIRST_INPUT_WORD_BUDGET = 60
 export const CHROME_WORD_BUDGET = 32
 
-// The disclosure body, bounded from Round 7b (brief v2.3 section 5).
-//
-// This channel was measured by NOTHING. `firstInputCopy` below does not
-// count it, by design, because it sits behind a tap and the budget is
-// about what a player reads before their first input. But "not counted"
-// and "unbounded" are different things, and Round 7b is the round that
-// fills it: the same shape as an empty screen scoring perfectly against
-// sixty words, one screen over. A ceiling that is measured is the point;
-// the number itself is set from what the panel actually produces plus
-// working room, and the brief records it once measured rather than
-// inventing one first. Inventing a bound before measuring is how chrome
-// sat at "about 28" for six versions while the code enforced 24 and the
-// truth was 30.
-//
-// IT WAS 100 FOR AN HOUR AND THAT WAS THE SAME MISTAKE. The first version
-// of this bound was measured against briefCopy().full while Game.tsx also
-// rendered the turn-1 job framing inside the same <details>, so the number
-// bounded a part of the panel and the real body was 132 words. The framing
-// now lives in this module and is part of `full`, the measured worst is
-// 109 on turn 1, and 120 is that figure plus room.
-export const DISCLOSURE_WORD_BUDGET = 120
-
 // The two audio toggles (Round 4d). One word each, and that is the design
 // constraint rather than a preference for brevity: chrome had four words
 // spare and these take two of them. The on and off state rides
@@ -93,6 +71,11 @@ export interface BriefCopy {
   tagUrl?: string
   // The full forecast, shown only behind EXPAND.
   full: string[]
+  // The turn-1 job, shown above `full` in the same disclosure under its
+  // own heading. Kept apart from `full` after Round 7 found that folding it
+  // in had merged the player's instructions and their fleet status into one
+  // undifferentiated bullet list at 375px.
+  framing: string[]
 }
 
 const shortName = (ev: ThreatEvent) => ev.name.split(' (')[0]
@@ -224,12 +207,22 @@ function postureLines(state: GameState): string[] {
 // cannot drift from mechanics.
 export function jobFramingLines(scenario: GameState['scenario']): string[] {
   return [
-    `Finish turn ${scenario.totalTurns} with the Mission Assurance Index at ${scenario.winThreshold} or higher.`,
+    `Finish turn ${scenario.totalTurns} with the Mission Assurance Index (MAI) at ${scenario.winThreshold} or higher.`,
     `You start above the win line. ${ADVERSARY} spends ${scenario.totalTurns} turns eroding it.`,
     `Spend credits on fleet and defenses to slow it. MAI below ${scenario.collapseThreshold}, or a budget below zero, ends the campaign early.`,
     'Some attacks become conditions that press every turn until they lift. Deployments take turns to arrive. Surge authority clears a condition.',
   ]
 }
+
+// The framing as the screen shows it: the first three lines are the
+// numbered job, the fourth is context. Built here so the start screen and
+// the brief's disclosure render the same strings, and so the budget below
+// measures the numbers the player reads.
+export function jobFramingBlocks(scenario: GameState['scenario']): string[] {
+  return jobFramingLines(scenario).map((line, i) => (i < 3 ? `${i + 1}. ${line}` : line))
+}
+
+export const JOB_FRAMING_HEADING = 'Your job'
 
 // True exactly where Game.tsx renders the framing inside the brief's
 // disclosure: the opening screen of a campaign that has not resolved a
@@ -238,12 +231,69 @@ export function showsJobFraming(state: GameState): boolean {
   return state.turn === 1 && state.history.length === 0
 }
 
+// The "Posture detail" disclosure's lines (Round 7), built here so the
+// budget can sweep every state rather than seven a test happened to name.
+// The fleet line used to list every asset one by one, so a large fleet grew
+// the panel without limit: three lenses found it at 115 to 139 words in
+// legal play against a budget of 110 and a pinned "worst" of 93. Grouped by
+// kind and tier it is bounded by the deck's seven pairs, not the fleet size.
+export type PostureTone = 'dim' | 'blue' | 'amber'
+export interface PostureLine {
+  text: string
+  // The colour carries meaning (defences blue, the surge rule amber), so it
+  // travels with the line instead of being chosen by position on the screen:
+  // Round 7's first version coloured by index and painted the allied intel
+  // boost, a good thing, in the warning colour.
+  tone: PostureTone
+}
+
+export function postureDetailLines(state: GameState): PostureLine[] {
+  const { scenario } = state
+  const alive = state.assets.filter((a) => a.integrity > 0)
+  const counterName = (id: string) => scenario.countermeasures.find((c) => c.id === id)?.name ?? id
+  const grouped = (labels: string[]) => {
+    const counts = new Map<string, number>()
+    for (const l of labels) counts.set(l, (counts.get(l) ?? 0) + 1)
+    return [...counts].map(([l, n]) => `${n} ${l}`).join(', ')
+  }
+  const lines: PostureLine[] = [
+    { text: `Fleet: ${alive.length} operational${alive.length ? `: ${grouped(alive.map((a) => `${kindLabels[a.kind]} ${a.tier}`))}` : ''}.`, tone: 'dim' },
+    { text: `Countermeasures: ${state.counters.length ? state.counters.map(counterName).join('; ') : 'none'}.`, tone: 'blue' },
+  ]
+  if (state.pipeline.length || state.pendingCounters.length) {
+    // Grouped by kind and tier with the SOONEST arrival, so the line is
+    // bounded by the deck's kinds and tiers. Grouping by ETA as well split
+    // one kind into several groups and left the line unbounded.
+    const soonest = new Map<string, { n: number; eta: number }>()
+    for (const p of state.pipeline) {
+      const key = `${kindLabels[p.kind]} ${p.tier}`
+      const cur = soonest.get(key)
+      soonest.set(key, { n: (cur?.n ?? 0) + 1, eta: Math.min(cur?.eta ?? Infinity, p.etaTurns) })
+    }
+    const parts = [...soonest].map(([k, { n, eta }]) => `${n} ${k}, next in ${eta}`)
+    for (const c of state.pendingCounters) parts.push(`${counterName(c.id)} retrofit in ${c.etaTurns}`)
+    lines.push({ text: `In transit (turns to arrive): ${parts.join('; ')}.`, tone: 'dim' })
+  }
+  // "In any phase" was false: surge is spent in the decision phases only.
+  lines.push({ text: `Surge authority: ${state.surgeTokens} of ${SURGE_TOKEN_CAP}, spent in a decision phase to clear an active condition.`, tone: 'amber' })
+  if (state.intelBoostTurns > 0) {
+    lines.push({ text: `Allied intel boost active for ${state.intelBoostTurns} more turn${state.intelBoostTurns === 1 ? '' : 's'}.`, tone: 'blue' })
+  }
+  return lines
+}
+
+// Every text block the "Expand full brief" disclosure renders, in order.
+// The budget measures this and tests/game.dom.spec.tsx asserts the rendered
+// panel carries exactly these words, so the two cannot drift apart again.
+export function disclosureBlocks(copy: BriefCopy): string[] {
+  return copy.framing.length > 0 ? [JOB_FRAMING_HEADING, ...copy.framing, ...copy.full] : copy.full
+}
+
 export function briefCopy(state: GameState): BriefCopy {
   const turn = state.turn
-  // Prepended to whatever the level-specific branch builds, so `full` IS
-  // the disclosure body and the ceiling that measures it measures the
-  // screen rather than a part of it.
-  const framing = showsJobFraming(state) ? jobFramingLines(state.scenario) : []
+  // Carried beside `full` rather than inside it (Round 7): disclosureBlocks
+  // joins the two in render order, and the budget measures that join.
+  const framing = showsJobFraming(state) ? jobFramingBlocks(state.scenario) : []
   const intel = effectiveIntel(state)
   const slots = plannedEvents(state, turn)
   const events = slots.flat()
@@ -253,7 +303,8 @@ export function briefCopy(state: GameState): BriefCopy {
     return {
       headline: 'No adversary activity forecast',
       vector: 'Quiet is not the same as safe.',
-      full: [...framing, ...postureLines(state)],
+      full: postureLines(state),
+      framing,
     }
   }
 
@@ -265,7 +316,8 @@ export function briefCopy(state: GameState): BriefCopy {
     return {
       headline: 'Forecast dark at intel level zero',
       vector: 'Raise intel investment to see what is coming.',
-      full: [...framing, ...postureLines(state)],
+      full: postureLines(state),
+      framing,
     }
   }
 
@@ -273,7 +325,8 @@ export function briefCopy(state: GameState): BriefCopy {
     return {
       headline: capWords(`Indicators point at ${layerList}`, HEADLINE_WORD_MAX),
       vector: `Segment under watch: ${layerList}.`,
-      full: [...framing, ...postureLines(state)],
+      full: postureLines(state),
+      framing,
     }
   }
 
@@ -281,7 +334,8 @@ export function briefCopy(state: GameState): BriefCopy {
     return {
       headline: capWords(`Signature class ${vectors.join(', ')}`, HEADLINE_WORD_MAX),
       vector: `Likely target: ${layerList}. Signature: ${vectors.join(', ')}.`,
-      full: [...framing, ...postureLines(state)],
+      full: postureLines(state),
+      framing,
     }
   }
 
@@ -303,7 +357,8 @@ export function briefCopy(state: GameState): BriefCopy {
     return {
       headline,
       vector: `${candidates} candidates on ${layerList}; ${vectors.join(', ')} signature.`,
-      full: [...framing, ...full, ...postureLines(state)],
+      full: [...full, ...postureLines(state)],
+      framing,
     }
   }
   // Cap the name before the count is appended, so the trim can never bite
@@ -328,7 +383,8 @@ export function briefCopy(state: GameState): BriefCopy {
     // event the headline already names it, so the expansion added three
     // tokens, two of which were "Tier B". The dead control was at all four
     // levels, not three; only the turns with a draw disguised it.
-    full: [...framing, ...full, ...postureLines(state)],
+    full: [...full, ...postureLines(state)],
+      framing,
   }
 }
 
@@ -364,6 +420,42 @@ export function hudStatusLine(state: GameState, difficultyLabel: string, display
 // Built from the fiction constant, so a rename stays a one-constant change
 // and the battery never measures copy the screen no longer renders.
 export const CHAIN_ARMED_LINE = `BLACKOUT CHAIN ARMED: ${SQUADRON} is on LiDAR alone.`
+
+// Every disclosure the brief screen renders, bounded (Round 7, brief v2.4
+// section 5).
+//
+// Keyed by the summary the player taps, so the set is the screen's own:
+// tests/game.dom.spec.tsx walks every <details> the rendered brief screen
+// carries and fails on one with no entry here, which means a disclosure
+// added later is bounded by default rather than silently unmeasured.
+//
+// Round 7b bounded ONE of these and named the constant as though it
+// covered them all. The other three sat unmeasured, the largest at 263
+// words, which is the shape of the defect 7b's own first ceiling had: a
+// bound that covers part of what is behind a tap. Every figure below is a
+// MEASURED worst plus room, and the test pins the measured worst exactly
+// so re-baselining is a deliberate edit:
+//
+//   Expand full brief          115 on turn 1, where the job framing sits
+//                              under its heading above the posture panel
+//   What these numbers mean    263, the HUD's own reference: eleven lines,
+//                              each a real mechanic, each interpolated from
+//                              the deck. Bounded, not trimmed; it is the
+//                              deep-reading layer the brief puts one tap away
+//   Posture detail             164, the DECK'S structural maximum: every
+//                              countermeasure owned, every kind and tier
+//                              deployed and in transit. Set from that rather
+//                              than from lines of play, which twice produced a
+//                              "worst" legal play beat (93, then 96, against
+//                              139 and 132). Raised from 110 on the record in
+//                              Round 7; most of it is the countermeasure list
+//   BLACKOUT CHAIN ARMED       26, rendered only while the chain is armed
+export const DISCLOSURE_WORD_BUDGETS: Record<string, number> = {
+  'Expand full brief': 120,
+  'What these numbers mean': 280,
+  'Posture detail': 170,
+  [CHAIN_ARMED_LINE]: 40,
+}
 
 export function firstInputCopy(state: GameState, difficultyLabel: string): string[] {
   const copy = briefCopy(state)

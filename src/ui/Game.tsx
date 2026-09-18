@@ -43,7 +43,7 @@ import { CUE_MS, useCueClass, useReducedMotion } from './cues/motion'
 import { layerBadges, vectorIcons } from './cues/icons'
 import Glossary from './Glossary'
 import { kindLabels, techniqueLabel } from './labels'
-import { CHAIN_ARMED_LINE, briefCopy, hudLabels, hudStatusLine, jobFramingLines } from './brief'
+import { CHAIN_ARMED_LINE, JOB_FRAMING_HEADING, briefCopy, hudLabels, hudStatusLine, jobFramingBlocks, postureDetailLines, type PostureTone } from './brief'
 import { verdictFor } from './verdict'
 import {
   COUNTERMEASURE_COUNT,
@@ -133,6 +133,8 @@ const btn =
   'font-mono border border-phosphor/60 text-phosphor px-3 py-1 hover:bg-phosphor/10 disabled:opacity-40 disabled:cursor-not-allowed'
 // Tiles take a press: the scale is motion-only, the border and background
 // carry the press for reduced motion (brief v0.5 section 6).
+// Posture detail's tones, by meaning rather than by position.
+const POSTURE_TONE: Record<PostureTone, string> = { dim: 'text-ink-dim', blue: 'text-hero-blue', amber: 'font-mono text-alert-amber' }
 const tileBtn = `dc-tile ${btn} active:bg-phosphor/20 active:border-phosphor`
 // A refused tile swaps its colour utilities rather than appending others:
 // Tailwind resolves a conflict by stylesheet order, not by class order.
@@ -348,20 +350,22 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     ? `${Math.min(...durations)} to ${Math.max(...durations)} turns`
     : 'a few turns'
 
-  // Item 1: the three-line job framing, shown on the start screen and again
+  // Item 1: the job framing (three numbered lines and a line of context), shown on the start screen and again
   // in the turn 1 brief so a skimming player can state the objective.
   // Round 7b: the lines come from ui/brief.ts, which is the module the
   // reading-diet budgets read. They used to be spelled here as JSX, and
   // the brief screen rendered them INSIDE the same disclosure as the
   // posture panel where no budget could see them.
+  const framingBlocks = jobFramingBlocks(scenario)
+  const framingBody = framingBlocks.map((line, i) => (
+    <p key={i} className={i === framingBlocks.length - 1 ? 'mt-1 text-ink-dim' : 'mt-1'}>
+      {line}
+    </p>
+  ))
   const jobFraming = (
     <div className={`${panel} mt-4`}>
-      <p className={h2cls}>Your job</p>
-      {jobFramingLines(scenario).map((line, i) => (
-        <p key={i} className={i === jobFramingLines(scenario).length - 1 ? 'mt-1 text-ink-dim' : 'mt-1'}>
-          {i < 3 ? `${i + 1}. ${line}` : line}
-        </p>
-      ))}
+      <p className={h2cls}>{JOB_FRAMING_HEADING}</p>
+      {framingBody}
     </div>
   )
 
@@ -938,44 +942,15 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
           before the first input. */}
       <details className="mt-2">
         <summary className="cursor-pointer font-mono text-xs text-phosphor">Posture detail</summary>
-        <p className="mt-2 text-xs text-ink-dim">
-          Fleet: {shown.assets.filter((a) => a.integrity > 0).length} operational assets (
-          {shown.assets
-            .filter((a) => a.integrity > 0)
-            .map((a) => `${kindLabels[a.kind]} ${a.tier}`)
-            .join(', ') || 'none'}
-          )
-        </p>
-        <p className="mt-1 text-xs text-hero-blue">
-          Countermeasures: {shown.counters.length > 0
-            ? shown.counters
-                .map((id) => scenario.countermeasures.find((c) => c.id === id)?.name ?? id)
-                .join('; ')
-            : 'none'}
-        </p>
-        {(shown.pipeline.length > 0 || shown.pendingCounters.length > 0) && (
-          <p className="mt-1 text-xs text-ink-dim">
-            In transit:{' '}
-            {[
-              ...shown.pipeline.map(
-                (p) => `${kindLabels[p.kind]} ${p.tier} (ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'})`,
-              ),
-              ...shown.pendingCounters.map(
-                (p) =>
-                  `${scenario.countermeasures.find((c) => c.id === p.id)?.name ?? p.id} retrofit (ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'})`,
-              ),
-            ].join('; ')}
+        {/* Round 7: the lines come from postureDetailLines in ui/brief.ts,
+            so the word budget sweeps every state instead of a handful, and
+            the fleet is grouped by kind and tier rather than listed asset
+            by asset, which had no upper bound. */}
+        {postureDetailLines(shown).map((line, i) => (
+          <p key={i} data-posture-tone={line.tone} className={`${i === 0 ? 'mt-2' : 'mt-1'} text-xs ${POSTURE_TONE[line.tone]}`}>
+            {line.text}
           </p>
-        )}
-        <p className="mt-2 text-xs font-mono">
-          <span className="text-alert-amber">
-            Surge authority: {shown.surgeTokens} of {SURGE_TOKEN_CAP}
-          </span>
-          <span className="text-ink-dim"> (spend one in any phase to clear an active condition)</span>
-          {shown.intelBoostTurns > 0 && (
-            <span className="text-hero-blue"> | allied intel boost active ({shown.intelBoostTurns} more turn{shown.intelBoostTurns === 1 ? '' : 's'})</span>
-          )}
-        </p>
+        ))}
       </details>
       {activeConditions}
       {/* Saving and exporting belong to a campaign in progress; muting does
@@ -1205,6 +1180,20 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
                   summary above it. It also matters that state.forecast
                   rides inside save codes: an engine-side prose fix would
                   never reach a campaign restored from an older code. */}
+              {/* Round 7: the turn-1 job renders under its own heading,
+                  numbered, ABOVE the posture list rather than merged into
+                  it. Folding it into one bullet list ran the player's
+                  instructions straight into their fleet status at 375px. */}
+              {brief.framing.length > 0 && (
+                <div className="mt-2">
+                  <p className={h2cls}>{JOB_FRAMING_HEADING}</p>
+                  {brief.framing.map((line, i) => (
+                    <p key={i} className={i === brief.framing.length - 1 ? 'mt-1 text-ink-dim' : 'mt-1'}>
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              )}
               <ul className="list-disc ml-6 mt-2 font-mono text-sm">
                 {brief.full.map((line, i) => (
                   <li key={i}>{line}</li>
