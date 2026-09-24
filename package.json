@@ -32,7 +32,7 @@
     "vitest": "^4.1.10"
   },
   "license": "SEE LICENSE IN LICENSE",
-  "author": "Kendall Connell",
+  "author": "Ken Connell",
   "description": "A turn-based space and drone cybersecurity strategy sim. Every threat maps to a live-verified SPARTA, MITRE ATT&CK, or MITRE ATLAS technique.",
   "homepage": "https://kensden.github.io/dark-constellation/",
   "repository": {

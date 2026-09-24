@@ -99,7 +99,7 @@ Deliberately out of scope, recorded here as future work:
 
 ## Credits
 
-Design, code, writing, and direction by Kendall Connell.
+Design, code, writing, and direction by Ken Connell.
 
 **Artwork: AI-generated, human-directed.** The key art, intro, and outcome backdrops were
 generated with AI tools under the author's direction and selection. The interface art (wordmark,

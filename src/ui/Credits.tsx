@@ -15,7 +15,7 @@ export default function Credits({ onBack }: { onBack: () => void }) {
 
       <section className="mt-5 space-y-2 text-sm">
         <p>
-          {GAME_TITLE} is a personal portfolio project by Kendall Connell. Design, code, writing, and direction by
+          {GAME_TITLE} is a personal portfolio project by Ken Connell. Design, code, writing, and direction by
           the author.
         </p>
         <p className="font-mono text-phosphor">Artwork: AI-generated, human-directed.</p>
