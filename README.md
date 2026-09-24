@@ -109,7 +109,7 @@ project.
 ## Licensing
 
 - **Code: MIT.** Source, build configuration, tests, and tooling. See [LICENSE](LICENSE).
-- **Artwork and written content: copyright 2026 Kendall Connell, all rights reserved.** Not
+- **Artwork and written content: copyright 2026 Ken Connell, all rights reserved.** Not
   covered by the MIT license.
 - **Display typeface:** a subset of Press Start 2P by CodeMan38, used under the SIL Open Font
   License 1.1. The license travels with the font at

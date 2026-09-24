@@ -32,10 +32,10 @@ export default function Credits({ onBack }: { onBack: () => void }) {
         </h2>
         <ul className="mt-2 space-y-2 text-sm list-disc ml-5">
           <li>
-            Code: MIT License, copyright 2026 Kendall Connell. See LICENSE in the repository.
+            Code: MIT License, copyright 2026 Ken Connell. See LICENSE in the repository.
           </li>
           <li>
-            Artwork and written content: copyright 2026 Kendall Connell, all rights reserved. Not covered by the MIT
+            Artwork and written content: copyright 2026 Ken Connell, all rights reserved. Not covered by the MIT
             license.
           </li>
           <li>
