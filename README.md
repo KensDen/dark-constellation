@@ -8,7 +8,7 @@ architecture under budget while an adversary campaign escalates across 12 turns.
 
 Play it: https://kensden.github.io/dark-constellation/
 
-Status: v1.0 released. v1.1, the sound and feel pass described below, is in progress and not yet tagged.
+Status: v1.1.0 released. The sound and feel pass described below shipped in it.
 
 ## How to play
 
