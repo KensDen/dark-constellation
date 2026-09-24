@@ -314,7 +314,12 @@ describe('bundle budget', () => {
     // files further out, and both of the earlier versions of this loop
     // slept through exactly that mutation.
     const dir = mkdtempSync(join(tmpdir(), 'dc-static-stale-'))
-    const startedAt = Date.now()
+    // One second of margin, like every other staleness fixture in this
+    // file. Linux stamps files from a coarser clock than Date.now() reads,
+    // so a file written right after the reading can carry an mtime a few
+    // milliseconds before it; without the margin this test refused its own
+    // fresh index-g.js on the CI runner while passing on APFS.
+    const startedAt = Date.now() - 1_000
     writeFileSync(join(dir, 'index-g.js'), 'x'.repeat(400))
     writeFileSync(join(dir, 'index-g.css'), 'y'.repeat(400))
     writeFileSync(join(dir, 'old.webp'), Buffer.alloc(1_000, 2))
