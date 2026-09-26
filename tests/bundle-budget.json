@@ -2,9 +2,9 @@
   "what": "Everything the build emits, in three groups. INITIAL is the entry script plus the stylesheet, gzipped, which a visitor downloads before anything is interactive. DEFERRED is every other code chunk Rollup splits out, gzipped, today the lazily loaded constellation frame and the three.js it imports. STATIC is every other file in dist, measured RAW rather than gzipped because webp, jpg and woff2 are already compressed and gzipping them reports more bytes than the wire carries. Measured by scripts/battery.mjs with Node zlib gzipSync at its default level for the two code groups.",
   "v1_0GzipBytes": 110745,
   "v1_0Commit": "a2c575f",
-  "baselineGzipBytes": 137756,
-  "baselineRound": "game-feel Round 6c (the Android haptic tier)",
-  "baselineRecordedAt": "2026-09-16",
+  "baselineGzipBytes": 136406,
+  "baselineRound": "v1.2 Round 0 (the lazy split)",
+  "baselineRecordedAt": "2026-09-26",
   "budgetGzipBytes": 140000,
   "baselineNodeVersion": "v26.3.0",
   "budgetNote": "Threshold set from the Round 2 baseline with headroom for the Web Audio effects module (Round 4d), the outcome cinematics (Round 5) and the procedural music bed (Round 6). Round 3 spent 5072 bytes, Round 3.5 spent 384, Round 4a nothing, Round 4b spent 1122, Round 4c spent 39 net, and Round 4d spent 3477: twenty four synthesized voices, the engine that owns the context and the gesture unlock, the two persisted toggles and the severity mapping. No audio assets, so nothing here is a fetch or a license. The dev sound board is excluded from the build and the battery checks the built output for its marker. jsdom is a dev dependency and adds nothing here. Any library addition records its delta here in its own commit. Round 4e spent -14: the reduced-motion speed coupling and its mid-session effect came out, and nothing was added to the shipped bundle; the fixture is a test. Round 5 was given a sub-budget of 9,000 gzipped in brief v1.3 and spent 718 of it: four scenes rendered from one component with no new assets and no new dependency. The scene ANIMATIONS live in the stylesheet, which this budget does not measure (it measures the main JS chunk); src/index.css grew 1,817 bytes raw, and the built CSS chunk is 6,657 gzipped in total (this sentence said 6,676 until Round 6b; the measured field cssGzipBytesAtR6 is authoritative and prose beside a measured number is exactly where drift hides).",
@@ -49,5 +49,12 @@
   "jsGzipBytesAtR7": 132821,
   "cssGzipBytesAtR7": 6737,
   "round7SpentGzipBytes": 272,
-  "round7Note": "Round 7 (tuning) spent 272 gzipped of the 714 it opened with, leaving 442, and kept the 140,000 threshold a fifth round. 96 were the turn-1 job framing regaining its heading and numbering; the rest is the posture detail builder, which groups the fleet and the transit list by kind and tier and carries each line's colour by meaning. The music level ended where the brief set it, 0.35, untuned: the round measured it three ways and the verdict depended on the weighting, so it waits for an ear. Nothing needed the threshold re-argued. The Posture detail WORD budget was re-argued, from 110 to 170, against a structural maximum of 164; that is words, not bytes."
+  "round7Note": "Round 7 (tuning) spent 272 gzipped of the 714 it opened with, leaving 442, and kept the 140,000 threshold a fifth round. 96 were the turn-1 job framing regaining its heading and numbering; the rest is the posture detail builder, which groups the fleet and the transit list by kind and tier and carries each line's colour by meaning. The music level ended where the brief set it, 0.35, untuned: the round measured it three ways and the verdict depended on the weighting, so it waits for an ear. Nothing needed the threshold re-argued. The Posture detail WORD budget was re-argued, from 110 to 170, against a structural maximum of 164; that is words, not bytes.",
+  "v12r0InitialBeforeGzipBytes": 139556,
+  "v12r0InitialAfterGzipBytes": 136406,
+  "v12r0JsGzipBytesAfter": 129545,
+  "v12r0CssGzipBytesAfter": 6861,
+  "v12r0DeferredGzipBytes": 136214,
+  "v12r0DeferredChunkCount": 7,
+  "v12r0Note": "v1.2 Round 0 split FieldManual, HowToPlay, Credits, Scoreboard and IntroSequence out of the initial chunk, joining the dev SoundBoard. Initial fell from 139,556 to 136,406 gzipped: 3,273 from the split and 124 back for the section 3 colour tokens, a net 3,150, and headroom rose from 444 to 3,594 against a budget left at 140,000. Glossary is NOT split: Game imports it for the in-place overlay Round 6e built, so it rides in the initial chunk whatever App declares, and splitting it means splitting it mid-turn inside Game. THE DEFERRED GROUP IS NOW OVER ITS BUDGET: 136,214 against 132,000, by 4,214. That is the round's own doing, since bytes leaving the initial chunk arrive here, and the split costs more than it saves in total (+6,940 deferred for -3,273 initial) because five small chunks gzip worse than one large one. Brief section 8 says the deferred budget stands, so it is left alone and the overflow goes to Ken as a ruling rather than being raised here. Worth saying plainly when he rules: the group is no longer one thing a visitor downloads. It was set when deferred meant the three.js constellation frame alone (129,274); it now sums independent chunks no single session fetches together, so the total measures something nobody experiences."
 }
