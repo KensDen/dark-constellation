@@ -30,7 +30,7 @@ const budget = JSON.parse(readFileSync(join(ROOT, 'tests', 'bundle-budget.json')
 
 describe('bundle budget', () => {
   it('derives headroom from the chunk that was measured, not from the baseline', () => {
-    expect(headroomFor(124237, 140000)).toBe(15763)
+    expect(headroomFor(124237, 150000)).toBe(25763)
     // The distinction that matters: once a round grows the bundle past its
     // recorded baseline, the two answers differ, and the one a reader acts
     // on is the one about the build in front of them.
@@ -370,7 +370,7 @@ describe('bundle budget', () => {
     // Guarding headroomFor alone was the weak form: a call site passing the
     // baseline instead of the measured size went straight through it. This
     // drives the layer the battery actually runs.
-    const budget = { baselineGzipBytes: 124237, budgetGzipBytes: 140000, frameBudgetGzipBytes: 1_000_000, deferredChunkBudgetGzipBytes: 1_000_000, staticBudgetBytes: 10_000_000 }
+    const budget = { baselineGzipBytes: 124237, budgetGzipBytes: 150000, frameBudgetGzipBytes: 1_000_000, deferredChunkBudgetGzipBytes: 1_000_000, staticBudgetBytes: 10_000_000 }
     const grown = measureBundle({
       budget,
       allChunks: ['index-abc.js', 'index-abc.css'], jsChunks: ['index-abc.js'], cssChunks: ['index-abc.css'],
@@ -378,8 +378,8 @@ describe('bundle budget', () => {
       mtimeOf: () => 1000,
       startedAt: 0,
     })
-    expect(grown.headroom, 'headroom followed the baseline rather than the chunk').toBe(140000 - (124237 + 58))
-    expect(grown.line).toContain('headroom ' + (140000 - (124237 + 58)))
+    expect(grown.headroom, 'headroom followed the baseline rather than the chunk').toBe(150000 - (124237 + 58))
+    expect(grown.line).toContain('headroom ' + (150000 - (124237 + 58)))
     expect(grown.line).toContain('+58')
     // A shrinking round reports more room, not less.
     const shrunk = measureBundle({
@@ -389,16 +389,16 @@ describe('bundle budget', () => {
       mtimeOf: () => 1000,
       startedAt: 0,
     })
-    expect(shrunk.headroom).toBe(140000 - (124237 - 100))
+    expect(shrunk.headroom).toBe(150000 - (124237 - 100))
     expect(shrunk.line).toContain('-100')
   })
 
   it('refuses the conditions the battery exists to catch', () => {
-    const budget = { baselineGzipBytes: 124237, budgetGzipBytes: 140000, frameBudgetGzipBytes: 1_000_000, deferredChunkBudgetGzipBytes: 1_000_000, staticBudgetBytes: 10_000_000 }
+    const budget = { baselineGzipBytes: 124237, budgetGzipBytes: 150000, frameBudgetGzipBytes: 1_000_000, deferredChunkBudgetGzipBytes: 1_000_000, staticBudgetBytes: 10_000_000 }
     const call = (over: Record<string, unknown>) =>
       measureBundle({ budget, allChunks: ['index-abc.js', 'index-abc.css'], jsChunks: ['index-abc.js'], cssChunks: ['index-abc.css'], gzipOf: (c: string) => (c.endsWith('.css') ? 0 : 124237), mtimeOf: () => 1000, startedAt: 0, ...over })
     // A written headroom, the thing this round removed.
-    expect(() => call({ budget: { ...budget, headroomGzipBytes: 15763 } })).toThrow(/records a headroom/)
+    expect(() => call({ budget: { ...budget, headroomGzipBytes: 25763 } })).toThrow(/records a headroom/)
     // A chunk older than the run measuring it.
     expect(() => call({ startedAt: 5000 })).toThrow(/stale/)
     // No chunk, or more than one.
@@ -410,7 +410,7 @@ describe('bundle budget', () => {
     expect(() => call({ cssChunks: [] })).toThrow(/expected one main CSS chunk/)
     expect(() => call({ cssChunks: ['a.css', 'b.css'] })).toThrow(/expected one main CSS chunk/)
     // Over budget.
-    expect(() => call({ gzipOf: (c: string) => (c.endsWith('.css') ? 0 : 140001) })).toThrow(/over the 140000 byte budget/)
+    expect(() => call({ gzipOf: (c: string) => (c.endsWith('.css') ? 0 : 150001) })).toThrow(/over the 150000 byte budget/)
   })
 
   it('reads and gzips the chunk itself, so the battery has no wiring to get wrong', () => {
