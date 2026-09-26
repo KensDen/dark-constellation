@@ -1,5 +1,8 @@
 // Intro sequence (R3.5): full-bleed slides with a SKIP control and a
 // localStorage seen-flag so returning players land straight on the menu.
+// The flag lives in ./introSeen: App reads it on startup and must not
+// import this module to do so, or the cold open rejoins the initial chunk
+// (v1.2 R0).
 // Ships with one slide (intro-vortex). Text is original; no wording from
 // any existing game.
 
@@ -7,16 +10,8 @@ import { useEffect, useState } from 'react'
 import { ADVERSARY, CONSTELLATION, PLAYER_ORG, SQUADRON } from '../config'
 import Wordmark from './Wordmark'
 import introVortex from './assets/intro-vortex.webp'
+import { markIntroSeen } from './introSeen'
 
-export const INTRO_SEEN_KEY = 'dc-intro-seen'
-
-export function hasSeenIntro(): boolean {
-  try {
-    return localStorage.getItem(INTRO_SEEN_KEY) === '1'
-  } catch {
-    return false
-  }
-}
 
 interface Slide {
   image: string
@@ -38,11 +33,7 @@ export default function IntroSequence({ onDone }: { onDone: () => void }) {
   const [index, setIndex] = useState(0)
 
   const finish = () => {
-    try {
-      localStorage.setItem(INTRO_SEEN_KEY, '1')
-    } catch {
-      // Private-mode or storage-disabled: the intro simply shows again next time.
-    }
+    markIntroSeen()
     onDone()
   }
 

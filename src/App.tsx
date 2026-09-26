@@ -1,4 +1,4 @@
-// Top-level shell (R3.5, extended R4). The experience layer around the
+// Top-level shell (R3.5, extended R4, split in v1.2 R0). The experience layer around the
 // game: intro, menu, reference screens, scoreboard, and the game itself,
 // under the diegetic terminal chrome and CRT overlay. R4 adds refresh-safe
 // resume: if an autosave exists on load, the app lands straight back in the
@@ -6,16 +6,35 @@
 
 import { Suspense, lazy, useState } from 'react'
 import Game from './ui/Game'
-import Glossary from './ui/Glossary'
-import FieldManual from './ui/FieldManual'
-import HowToPlay from './ui/HowToPlay'
-import IntroSequence, { hasSeenIntro } from './ui/IntroSequence'
 import MainMenu, { type MenuTarget } from './ui/MainMenu'
-import Scoreboard from './ui/Scoreboard'
-import Credits from './ui/Credits'
 import TerminalChrome from './ui/TerminalChrome'
+import Glossary from './ui/Glossary'
+import { hasSeenIntro } from './ui/introSeen'
 import { LocalStorageStore, type RestoredGame } from './persistence'
 import { useGestureUnlock } from './audio'
+
+// SPLIT OUT OF THE INITIAL CHUNK (v1.2 R0, brief section 8). A player who
+// opens the game and plays a turn downloads the menu and the board; every
+// screen below is a detour most sessions never take, and the cold open is
+// a detour every session takes at most once. Menu and Game stay static on
+// purpose: they are the first thing anyone sees.
+//
+// The list is not written down anywhere else. tests/lazy-screens.spec.ts
+// reads these declarations and proves that nothing reachable from main.tsx
+// imports the same modules statically, which is what would quietly put
+// them back in the initial chunk (principle 17).
+// GLOSSARY IS NOT IN THE SPLIT, and the guard is what proved it. Round 6e
+// made the glossary an overlay inside Game rather than a route, because
+// routing unmounts Game and the autosave does not carry the procurement
+// cart. Game therefore imports it statically, so the module rides in the
+// initial chunk whatever App does, and a lazy declaration here would have
+// claimed a saving that does not exist. Splitting it means splitting it
+// inside Game, mid-turn, which is a play-screen change and not R0's.
+const FieldManual = lazy(() => import('./ui/FieldManual'))
+const HowToPlay = lazy(() => import('./ui/HowToPlay'))
+const Credits = lazy(() => import('./ui/Credits'))
+const Scoreboard = lazy(() => import('./ui/Scoreboard'))
+const IntroSequence = lazy(() => import('./ui/IntroSequence'))
 
 // The dev-only sound board (brief section 7). import.meta.env.DEV folds to
 // false in a production build, so the ternary collapses to null and Rollup
@@ -36,6 +55,19 @@ const STATUS: Record<Screen, string> = {
   glossary: 'REFERENCE',
   credits: 'REFERENCE',
   soundboard: 'DEV',
+}
+
+// The chrome the app already speaks in, held for the moment a screen's
+// chunk is in flight. Deliberately plain: a spinner would be the only
+// animation in the game that says nothing about the mission, and on a warm
+// cache this is on screen for a frame or two.
+function ScreenLoading() {
+  return (
+    <main className="max-w-3xl mx-auto px-4 py-10 font-mono text-sm">
+      <p className="text-phosphor">&gt; LOADING MODULE_</p>
+      <p className="mt-2 text-ink-dim">Standby.</p>
+    </main>
+  )
 }
 
 const store = new LocalStorageStore()
@@ -79,23 +111,26 @@ function App() {
     <>
       <div className="crt-overlay" aria-hidden="true" />
       {screen === 'intro' ? (
-        <IntroSequence onDone={() => setScreen(hasSeenIntro() ? 'menu' : 'menu')} />
+        <Suspense fallback={<ScreenLoading />}>
+          <IntroSequence onDone={() => setScreen('menu')} />
+        </Suspense>
       ) : (
         <div className="min-h-screen flex flex-col">
           <TerminalChrome status={STATUS[screen]} />
           <div className="flex-1">
-            {screen === 'menu' && <MainMenu onSelect={onSelect} resumeAvailable={!!store.loadAutosave()} />}
-            {screen === 'game' && <Game key={gameInitial ? 'resume' : 'new'} initial={gameInitial} onExit={toMenu} />}
-            {screen === 'scoreboard' && <Scoreboard onBack={toMenu} />}
-            {screen === 'howto' && <HowToPlay onBack={toMenu} />}
-            {screen === 'manual' && <FieldManual onBack={toMenu} />}
-            {screen === 'glossary' && <Glossary onBack={toMenu} />}
-            {screen === 'credits' && <Credits onBack={toMenu} />}
-            {screen === 'soundboard' && SoundBoard && (
-              <Suspense fallback={null}>
-                <SoundBoard onBack={toMenu} />
-              </Suspense>
-            )}
+            {/* One boundary around every screen that arrives as a chunk, so
+                a detour shows the same thing whichever one it is. Menu and
+                Game render inside it and never suspend. */}
+            <Suspense fallback={<ScreenLoading />}>
+              {screen === 'menu' && <MainMenu onSelect={onSelect} resumeAvailable={!!store.loadAutosave()} />}
+              {screen === 'game' && <Game key={gameInitial ? 'resume' : 'new'} initial={gameInitial} onExit={toMenu} />}
+              {screen === 'scoreboard' && <Scoreboard onBack={toMenu} />}
+              {screen === 'howto' && <HowToPlay onBack={toMenu} />}
+              {screen === 'manual' && <FieldManual onBack={toMenu} />}
+              {screen === 'glossary' && <Glossary onBack={toMenu} />}
+              {screen === 'credits' && <Credits onBack={toMenu} />}
+              {screen === 'soundboard' && SoundBoard && <SoundBoard onBack={toMenu} />}
+            </Suspense>
           </div>
         </div>
       )}
