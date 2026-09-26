@@ -12,7 +12,7 @@ import { coverage, maiScore } from '../engine/scoring'
 import type { GameState, ThreatEvent } from '../engine/types'
 import { kindLabels, techniqueLabel, vectorLabels } from './labels'
 import { LAYERS } from '../engine/types'
-import { SPEEDS, SPEED_LABEL } from '../director/director'
+import { ACTIONS, HOLD_CAPTION } from './board/actions'
 
 // The budget the brief is designed against (brief v0.7 section 5):
 // "Before first input on a normal turn: 60 words or fewer of reading
@@ -504,27 +504,28 @@ export function firstInputWords(state: GameState, difficultyLabel: string): numb
 // disagree with what the screen renders.
 //
 // v1.2 Round 1 replaced the numbered sections with the board: the section
-// heading and the phase button are gone, the five action-bar labels and
-// the playback speed control are on the first screen instead. The five
-// labels are the buttons' visible text; RESOLVE also carries "Hold to
-// resolve turn n" for assistive technology, which is not reading load on
-// the screen and is not counted here.
-export const ACTION_BAR_LABELS = ['PROCURE', 'HARDEN', 'INTEL', 'SURGE', 'RESOLVE'] as const
+// heading and the phase button are gone, the five action-bar labels are
+// on the first screen instead. The labels are the buttons' visible text,
+// read from the one action array; RESOLVE also carries "Hold to resolve
+// turn n" for assistive technology, which is not reading load on the
+// screen and is not counted here. R1b put the step numbers and the HOLD
+// caption on the bar and moved Save, Export code, Back to menu, the two
+// toggles and the playback speed off the board into the SYSTEM sheet
+// behind the gear, whose one word is what the first screen shows of them
+// (src/ui/board/SystemSheet.tsx lists the six by name).
+export const ACTION_BAR_LABELS: readonly string[] = ACTIONS.map((a) => a.label)
+export const SYSTEM_GEAR_LABEL = 'System'
 
 export function chromeCopy(_state: GameState): string[] {
   return [
     '> INCOMING TRANSMISSION_',
     'Expand full brief',
+    ...ACTIONS.map((a) => String(a.number)),
     ...ACTION_BAR_LABELS,
+    HOLD_CAPTION,
     'What these numbers mean',
     'Posture detail',
-    'Save',
-    'Export code',
-    'Back to menu',
-    SOUND_TOGGLE_LABELS.effects,
-    SOUND_TOGGLE_LABELS.music,
-    'Playback:',
-    ...SPEEDS.map((s) => SPEED_LABEL[s]),
+    SYSTEM_GEAR_LABEL,
   ]
 }
 

@@ -21,7 +21,7 @@
 // click, which is why driving the page from script did not show it. The
 // reducer makes that ordering testable without a DOM.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useReducedMotion } from './motion'
 import { useSound } from '../../audio'
 import type { SoundCue } from '../../director/cues'
@@ -122,15 +122,24 @@ export interface HoldButtonProps {
   label: ReactNode
   holdingLabel: ReactNode
   onConfirm: () => void
+  // A press released before the hold completed (v1.2 R1b): the board
+  // answers with the "Hold to resolve" hint, since a tap that does
+  // nothing is how a player learns the control needs a hold.
+  onShortTap?: () => void
   disabled?: boolean
   className?: string
+  // React 19 passes ref as a prop: the board's digit hotkey moves focus
+  // here rather than committing, because a keypress cannot hold.
+  ref?: Ref<HTMLButtonElement>
 }
 
 export default function HoldButton({
   label,
   holdingLabel,
   onConfirm,
+  onShortTap,
   disabled,
+  ref,
   className,
 }: HoldButtonProps) {
   const reduced = useReducedMotion()
@@ -138,6 +147,8 @@ export default function HoldButton({
   const stateRef = useRef<HoldState>(HOLD_IDLE)
   const confirmRef = useRef(onConfirm)
   confirmRef.current = onConfirm
+  const shortTapRef = useRef(onShortTap)
+  shortTapRef.current = onShortTap
   // Only the part of the state the button renders needs to be state; the
   // rest lives in a ref so an event never races a render.
   const [holding, setHolding] = useState(false)
@@ -161,6 +172,7 @@ export default function HoldButton({
         timerRef.current = window.setTimeout(() => sendRef.current({ type: 'elapsed' }), HOLD_MS)
       } else if (effect === 'cancel') {
         window.clearTimeout(timerRef.current)
+        shortTapRef.current?.()
       } else if (effect === 'confirm') {
         window.clearTimeout(timerRef.current)
         confirmRef.current()
@@ -174,6 +186,7 @@ export default function HoldButton({
 
   return (
     <button
+      ref={ref}
       type="button"
       disabled={disabled}
       // The hold is 600ms, which is long enough that iOS would otherwise
@@ -213,13 +226,15 @@ export default function HoldButton({
       }}
       onClick={(e) => send({ type: 'click', detail: e.detail })}
     >
-      {/* The ring: a fill that sweeps the control while the press is held.
-          Under reduced motion it is not rendered and the label carries the
-          state. */}
+      {/* The fill: a bar across the foot of the control that sweeps left
+          to right for the hold's duration, in the go colour so it reads at
+          action-bar size (v1.2 R1b; it was a faint wash over the whole
+          control before). Under reduced motion it is not rendered and the
+          label carries the state. */}
       {holding && !reduced && (
         <span
           aria-hidden="true"
-          className="dc-hold-fill absolute inset-0 bg-phosphor/25"
+          className="dc-hold-fill absolute inset-x-0 bottom-0 h-1.5 bg-dc-go"
           style={{ animationDuration: `${HOLD_MS}ms` }}
         />
       )}

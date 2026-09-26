@@ -449,8 +449,14 @@ describe('the declaration survives leaving playback early', () => {
 describe('the mute control, asserted by execution', () => {
   // The product fix from Round 4d, whose only guard was a substring that
   // survives its own reversion.
+  // Since R1b the toggles live in the SYSTEM sheet behind the HUD's gear,
+  // so the sheet is opened first; the claim, that the toggles are there
+  // whatever the campaign's status, is the same.
+  const openSystem = () => click(container.querySelector('button[aria-label="System"]')!)
+
   it('is on screen while the campaign is playing', () => {
     render(gameAt(3))
+    openSystem()
     expect(byText(new RegExp(`^${SOUND_TOGGLE_LABELS.effects}$`)), 'no effects toggle').toBeDefined()
     expect(byText(new RegExp(`^${SOUND_TOGGLE_LABELS.music}$`)), 'no music toggle').toBeDefined()
   })
@@ -467,6 +473,7 @@ describe('the mute control, asserted by execution', () => {
     }
     expect(state.status, 'the sweep never finished a campaign').not.toBe('playing')
     render(state, 'aftermath')
+    openSystem()
     expect(
       byText(new RegExp(`^${SOUND_TOGGLE_LABELS.effects}$`)),
       'the mute control vanished when the campaign was decided',
@@ -756,7 +763,10 @@ describe('the chrome the reading budget counts, asserted by execution', () => {
     // Eighteen since v1.2 R1: the five action-bar labels and the playback
     // speed control joined the first screen, the heading and the phase
     // button left it.
-    expect(chromeCopy(state).length, 'the chrome list changed size without this guard noticing').toBe(18)
+    // Sixteen since R1b: the five step numbers and the HOLD caption joined
+    // the bar, and the six system controls left the first screen for the
+    // sheet behind the gear, whose one word stands for them here.
+    expect(chromeCopy(state).length, 'the chrome list changed size without this guard noticing').toBe(16)
   })
 })
 
@@ -836,6 +846,8 @@ describe('reduced motion keeps the sequence (brief v1.2)', () => {
     setReducedMotion(true)
     const state = gameAt(2)
     render(state, 'harden')
+    // The speed control is in the SYSTEM sheet since R1b.
+    click(container.querySelector('button[aria-label="System"]')!)
     const speedControls = buttons().filter((b) => /^(1x|2x|instant)$/i.test(b.textContent?.trim() ?? ''))
     expect(speedControls.length, 'the speed control is not on screen').toBeGreaterThan(0)
     const pressed = speedControls.find((b) => b.getAttribute('aria-pressed') === 'true')
@@ -850,6 +862,7 @@ describe('reduced motion keeps the sequence (brief v1.2)', () => {
     localStorage.setItem(PLAYBACK_SPEED_KEY, 'instant')
     setReducedMotion(true)
     render(gameAt(2), 'harden')
+    click(container.querySelector('button[aria-label="System"]')!)
     const pressed = buttons()
       .filter((b) => /^(1x|2x|instant)$/i.test(b.textContent?.trim() ?? ''))
       .find((b) => b.getAttribute('aria-pressed') === 'true')
@@ -1836,6 +1849,8 @@ describe('the save code is on the screen, not only on the clipboard', () => {
     const playing = gameAt(3)
     render(playing, 'brief')
     expect(codeBox(), 'the brief screen renders a code box').toBeNull()
+    // Export code lives in the SYSTEM sheet since R1b.
+    click(container.querySelector('button[aria-label="System"]')!)
     const inPlayExport = byText(/export code/i)
     expect(inPlayExport, 'the brief screen has no export control').toBeDefined()
 
@@ -1953,6 +1968,9 @@ describe('the technique tag opens the GLOSSARY entry', () => {
     // the save-code paste box is on the start screen rather than this one,
     // so both would have failed for reasons unrelated to what is asserted.
     render(turnWithATag(), 'brief')
+    // Export code lives in the SYSTEM sheet since R1b; the sheet stays
+    // open across the glossary round trip, like the cart does.
+    click(container.querySelector('button[aria-label="System"]')!)
     const exportButton = byText(/export code/i)
     expect(exportButton, 'the brief screen has no export control, so this asserts nothing').toBeDefined()
     await act(async () => {

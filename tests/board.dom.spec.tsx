@@ -19,6 +19,7 @@ import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import { LAYERS, type GameState } from '../src/engine/types'
 import { callSigns } from '../src/ui/board/board'
+import { ACTIONS } from '../src/ui/board/actions'
 import { PROCURE_STEPS } from '../src/ui/board/ProcureSheet'
 import { HARDEN_STEPS } from '../src/ui/board/HardenSheet'
 import { INTEL_STEPS } from '../src/ui/board/IntelSheet'
@@ -229,16 +230,9 @@ describe('the board (v1.2 R1)', () => {
   it('keeps the RESOLVE control a hold control with its accessible name, and the bar five wide', () => {
     render(gameAt(2), 'brief')
     const bar = container.querySelector('nav[aria-label="Actions"]')!
-    const labels = [...bar.querySelectorAll('button')].map((b) => b.textContent ?? '')
-    expect(labels.length).toBe(5)
-    expect(labels.map((l) => l.replace(/\d+ queued|queued|no tokens|no conditions|\d+ tokens?/g, '').trim().split(/(?=Hold)/)[0])).toEqual([
-      'PROCURE',
-      'HARDEN',
-      'INTEL',
-      'SURGE',
-      'RESOLVE',
-    ])
-    const resolve = bar.querySelectorAll('button')[4]
+    const labels = [...bar.querySelectorAll('button [data-label]')].map((b) => (b.textContent ?? '').trim())
+    expect(labels).toEqual(ACTIONS.map((a) => a.label))
+    const resolve = bar.querySelectorAll('button')[ACTIONS.findIndex((a) => a.sheet === null)]
     expect(resolve.className).toMatch(/dc-hold/)
     expect(resolve.textContent).toMatch(/Hold to resolve turn \d+/)
   })

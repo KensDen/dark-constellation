@@ -41,20 +41,41 @@ export interface HudProps {
   shown: GameState
   displayTurn: number
   credits: { value: number; basis: string; chosen: boolean; chosenDelta: number }
+  // The gear (v1.2 R1b): opens the SYSTEM sheet.
+  onSystem: () => void
+  systemOpen: boolean
 }
 
-export default function Hud({ shown, displayTurn, credits }: HudProps) {
+export default function Hud({ shown, displayTurn, credits, onSystem, systemOpen }: HudProps) {
   const hud = hudLabels(shown)
   const scenario = shown.scenario
   return (
-    <header className="flex-none bg-dc-chrome border-b-2 border-dc-line pt-safe px-safe">
-      <div className="px-2 pt-2 flex items-baseline justify-between gap-2 whitespace-nowrap">
-        <h1 className="font-display text-[10px] text-dc-go leading-none">OP {scenario.name}</h1>
-        <p className="font-mono text-[10px] uppercase text-dc-muted leading-none">
-          {hudStatusLine(shown, DIFFICULTIES[shown.difficulty].label, displayTurn)}
-        </p>
+    <header className="relative flex-none bg-dc-chrome border-b-2 border-dc-line pt-safe px-safe">
+      <div className="px-2 pt-1.5 flex items-center justify-between gap-2 whitespace-nowrap">
+        <div className="min-w-0">
+          <h1 className="font-display text-[10px] text-dc-go leading-none">OP {scenario.name}</h1>
+          <p className="mt-1 font-mono text-[10px] uppercase text-dc-muted leading-none">
+            {hudStatusLine(shown, DIFFICULTIES[shown.difficulty].label, displayTurn)}
+          </p>
+        </div>
+        {/* The gear, top right (brief R1b). The sr-only word is what the
+            chrome mirror counts; the aria-label is the name. */}
+        <button
+          type="button"
+          aria-label="System"
+          aria-expanded={systemOpen}
+          onClick={onSystem}
+          className={`dc-tile flex-none flex items-center justify-center min-h-11 min-w-11 border-2 border-dc-line bg-dc-panel text-dc-ink shadow-press active:shadow-none ${
+            systemOpen ? 'border-dc-friendly text-dc-friendly' : ''
+          }`}
+        >
+          <span aria-hidden="true" className="font-sans text-lg leading-none">
+            &#9881;
+          </span>
+          <span className="sr-only">System</span>
+        </button>
       </div>
-      <div className="px-2 mt-1 flex items-end justify-between gap-3">
+      <div className="px-2 mt-0.5 flex items-end justify-between gap-3">
         <div className="flex items-end gap-2">
           <Readout
             label={hud.mai}

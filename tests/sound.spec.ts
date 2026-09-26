@@ -30,7 +30,8 @@ import { VOICES } from '../src/audio/voices'
 import { beatIntensity, MAX_EFFECTIVE_SEVERITY, NEUTRAL_INTENSITY } from '../src/audio/intensity'
 import { holdSound } from '../src/ui/cues/HoldButton'
 import { CROSSING_SOUND, TONE_SOUND } from '../src/ui/cues/Meter'
-import { CHROME_WORD_BUDGET, SOUND_TOGGLE_LABELS, chromeCopy, chromeWords, countWords } from '../src/ui/brief'
+import { CHROME_WORD_BUDGET, SOUND_TOGGLE_LABELS, chromeCopy, chromeWords, countWords, SYSTEM_GEAR_LABEL } from '../src/ui/brief'
+import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -425,10 +426,16 @@ describe('the audio toggles are chrome and are counted as chrome (Round 4d)', ()
   })
 
   it('counts both toggles in the chrome the budget bounds', () => {
+    // Since v1.2 R1b the toggles sit in the SYSTEM sheet behind the gear,
+    // so the first screen's chrome counts the gear's one word and the
+    // sheet's own list names the toggles; tests/action-bar.dom.spec.tsx
+    // renders that list. The two names still come from the one constant.
     const state = newGame(DEFAULT_SCENARIO, 5)
     const chrome = chromeCopy(state)
-    expect(chrome).toContain(SOUND_TOGGLE_LABELS.effects)
-    expect(chrome).toContain(SOUND_TOGGLE_LABELS.music)
+    expect(chrome).toContain(SYSTEM_GEAR_LABEL)
+    const listed = SYSTEM_CONTROLS.map((c) => c.name)
+    expect(listed).toContain(SOUND_TOGGLE_LABELS.effects)
+    expect(listed).toContain(SOUND_TOGGLE_LABELS.music)
     expect(chromeWords(state)).toBeLessThanOrEqual(CHROME_WORD_BUDGET)
   })
 

@@ -2,20 +2,22 @@
 // the dimmed board with a STEP n OF m header, the way the reference
 // game's purchases are short step-by-step pop-ups. The action bar stays
 // live beneath it, so PROCURE, HARDEN and RESOLVE are one tap away from
-// inside any sheet.
+// inside any sheet. A sheet with no steps (SYSTEM, R1b) shows its title
+// alone.
 //
 // Rendered inside the play screen's <main>, not portalled, so the
 // glossary's inert covers it and the suite's container queries see it.
 
 import type { ReactNode } from 'react'
+import type { SheetId } from './actions'
 
-export type SheetId = 'procure' | 'harden' | 'intel' | 'surge'
+export type { SheetId }
 
 export interface SheetProps {
   id: SheetId
   title: string
-  step: number
-  steps: number
+  step?: number
+  steps?: number
   onClose: () => void
   onBack?: () => void
   children: ReactNode
@@ -26,9 +28,10 @@ export const SHEET_BUTTON =
 export const SHEET_PRIMARY = `${SHEET_BUTTON} border-dc-go text-dc-go`
 
 export default function Sheet({ id, title, step, steps, onClose, onBack, children }: SheetProps) {
+  const stepped = step !== undefined && steps !== undefined
   return (
     <section
-      aria-label={`${title}, step ${step} of ${steps}`}
+      aria-label={stepped ? `${title}, step ${step} of ${steps}` : title}
       data-sheet={id}
       className="dc-sheet-in absolute inset-x-0 bottom-0 z-30 max-h-4/5 overflow-y-auto border-t-2 border-dc-line bg-dc-panel text-dc-ink px-safe"
     >
@@ -39,9 +42,11 @@ export default function Sheet({ id, title, step, steps, onClose, onBack, childre
           </button>
         )}
         <div className="min-w-0 flex-1">
-          <p className="font-mono text-[10px] tracking-widest text-dc-muted">
-            STEP {step} OF {steps}
-          </p>
+          {stepped && (
+            <p className="font-mono text-[10px] tracking-widest text-dc-muted">
+              STEP {step} OF {steps}
+            </p>
+          )}
           <h2 className="font-display text-[10px] text-dc-ink leading-tight">{title}</h2>
         </div>
         <button type="button" className={`${SHEET_BUTTON} px-2`} onClick={onClose} aria-label={`Close ${title}`}>

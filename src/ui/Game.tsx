@@ -13,6 +13,7 @@
 // cue (brief v1.2 section 3).
 
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { getHaptics } from '../haptics'
 import { ADVERSARY } from '../config'
 import {
   LocalScoreSink,
@@ -28,10 +29,9 @@ import {
 import { reportData, shareText } from './reportCard'
 import DirectorView from '../director/DirectorView'
 import HoldButton from './cues/HoldButton'
-import SoundToggles from './cues/SoundToggles'
 import { useMusicState, useSound, useSoundPrefs } from '../audio'
+import { hasSeenHoldHint, markHoldHintSeen } from './holdHint'
 import {
-  SpeedSelect,
   defaultSpeed,
   deriveBeats,
   loadSpeedPreference,
@@ -52,7 +52,10 @@ import ProcureSheet, { type ProcurePick } from './board/ProcureSheet'
 import HardenSheet, { HARDEN_STEPS } from './board/HardenSheet'
 import IntelSheet, { INTEL_STEPS } from './board/IntelSheet'
 import SurgeSheet from './board/SurgeSheet'
-import type { SheetId } from './board/Sheet'
+import type { SheetId, StepSheet } from './board/actions'
+import { ACTIONS, HOLD_CAPTION } from './board/actions'
+import ActionBar, { BAR_PRIMARY } from './board/ActionBar'
+import SystemSheet from './board/SystemSheet'
 import { conditionsOn, defensesOn, tilesByLayer } from './board/board'
 import {
   COUNTERMEASURE_COUNT,
@@ -140,11 +143,12 @@ const h2cls = 'font-mono font-bold text-phosphor uppercase tracking-widest text-
 // otherwise identical, so a refusal never changes the control's size.
 const buyBtn = 'dc-tile font-display uppercase text-[10px] border-2 border-dc-go bg-dc-go/10 text-dc-go px-3 shadow-press active:shadow-none active:bg-dc-go/20'
 const buyBtnDenied = 'dc-tile font-display uppercase text-[10px] border-2 border-hero-magenta bg-hero-magenta/10 text-hero-magenta px-3'
-// The action bar's four sheet buttons and the two shapes of the fifth.
-const barBtn =
-  'dc-tile flex flex-col items-center justify-center gap-0.5 min-h-16 font-display text-[10px] border-2 border-dc-line bg-dc-panel text-dc-ink shadow-press active:shadow-none disabled:opacity-40 disabled:cursor-not-allowed'
-const barBtnOpen = `${barBtn} border-dc-friendly text-dc-friendly bg-dc-friendly/10`
-const barPrimary = `${barBtn} border-dc-go bg-dc-go/10 text-dc-go`
+// The four step sheets, as the action array names them.
+const isStep = (id: Sheet | null): id is StepSheet => id !== null && id !== 'system'
+// How long the "Hold to resolve" hint stays after a short tap (R1b), and
+// the box the hint and the first-turn bubble share above RESOLVE.
+const HOLD_HINT_MS = 2000
+const HOLD_NOTE = 'absolute -top-9 right-0 z-10 whitespace-nowrap border-2 bg-dc-chrome px-2 py-1 font-mono text-[10px]'
 
 // Which sheet is open. The sheet is presentation state, not a phase: the
 // v1.1 phases 'procure' and 'harden' still arrive from older autosaves and
@@ -205,6 +209,16 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const [step, setStep] = useState(1)
   const [pick, setPick] = useState<ProcurePick>({})
   const [surgePick, setSurgePick] = useState<string | undefined>(undefined)
+  // The steps whose sheet was opened this turn (R1b): each shows a check
+  // in place of its number on the bar, as the turn's record, until the
+  // next turn begins.
+  const [stepsDone, setStepsDone] = useState<Set<string>>(() => new Set())
+  // A short tap on RESOLVE answers with a hint for a moment (R1b).
+  const [holdHint, setHoldHint] = useState<number | null>(null)
+  // The first turn ever on this device gets a bubble saying how RESOLVE
+  // is pressed; a completed hold or a tap on it dismisses it for good.
+  const [holdBubble, setHoldBubble] = useState(() => !hasSeenHoldHint())
+  const holdRef = useRef<HTMLButtonElement | null>(null)
   // The tile whose full name and exact integrity the panel prints.
   const [selectedTile, setSelectedTile] = useState<string | null>(null)
   const [actions, setActions] = useState<TurnActions>(EMPTY_ACTIONS)
@@ -431,22 +445,46 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     setStep(1)
     setPick({})
     setSurgePick(undefined)
+    if (isStep(next)) setStepsDone((done) => (done.has(next) ? done : new Set(done).add(next)))
   }
   const toggleSheet = (next: Sheet) => openSheet(sheet === next ? null : next)
 
-  // Escape closes the sheet, on a window listener like the glossary's,
-  // and not while the glossary is open: its own listener answers then.
+  // The board's keys, on the one window listener the play screen has for
+  // them, and not while the glossary is open: its own listener answers
+  // then. Escape closes the sheet. The digits are the action bar's
+  // hotkeys (R1b), resolved through the one action array: a step's digit
+  // opens or closes its sheet, and RESOLVE's moves focus to the hold
+  // control rather than committing, because a keypress cannot hold and a
+  // turn should not end on a stray digit.
+  const decidingNow = state !== null && phase !== 'playback' && phase !== 'aftermath'
   useEffect(() => {
-    if (!sheet || glossaryFocus) return
+    if (!state || glossaryFocus) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (!sheet) return
         e.preventDefault()
         openSheet(null)
+        return
       }
+      if (!decidingNow || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
+      const action = ACTIONS.find((a) => a.hotkey === e.key)
+      if (!action) return
+      e.preventDefault()
+      if (action.sheet) toggleSheet(action.sheet)
+      else holdRef.current?.focus()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [sheet, glossaryFocus])
+  })
+
+  // The hint lifts on its own.
+  useEffect(() => {
+    if (holdHint === null) return
+    const id = window.setTimeout(() => setHoldHint(null), HOLD_HINT_MS)
+    return () => window.clearTimeout(id)
+  }, [holdHint])
 
   const beginGame = (next: GameState, nextPhase: Phase) => {
     // A loaded code that is already over was not played here, so it neither
@@ -460,6 +498,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     setChosenSpend(0)
     setPhase(arrival.phase)
     openSheet(arrival.sheet)
+    setStepsDone(new Set(arrival.sheet ? [arrival.sheet] : []))
     setSelectedTile(null)
     setNotice('')
   }
@@ -478,6 +517,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     setChosenSpend(0)
     setPhase('brief')
     openSheet(null)
+    setStepsDone(new Set())
     setSelectedTile(null)
     setSlots(saveStore.list())
     setNotice('')
@@ -721,7 +761,22 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   // Narrowed from the nullable value computed with the hooks above.
   const shown = shownOrNull ?? state
 
+  // A completed hold is the lesson learned: the bubble goes for good.
+  const dismissHoldBubble = () => {
+    if (!holdBubble) return
+    setHoldBubble(false)
+    markHoldHintSeen()
+  }
+  // A press released early: the hint, and the light tick the buy uses,
+  // without its sound (R1b).
+  const shortTap = () => {
+    getHaptics().fire('buy-click')
+    setHoldHint((n) => (n ?? 0) + 1)
+  }
+
   const resolve = () => {
+    dismissHoldBubble()
+    setHoldHint(null)
     // The engine is the authority on affordability. If the UI gate and the
     // engine ever disagree, surface the reason instead of dying silently:
     // a throw inside an event handler never reaches an error boundary.
@@ -770,7 +825,12 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     }
   }
 
-  const nextTurn = () => setPhase('brief')
+  // A new turn starts with every step numbered again; the aftermath kept
+  // the resolved turn's checks as its record.
+  const nextTurn = () => {
+    setStepsDone(new Set())
+    setPhase('brief')
+  }
 
   // The engine is the authority on affordability; this keeps the cart
   // inside the same budget so the gate never has to refuse at resolve time.
@@ -1015,6 +1075,14 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   }
 
   const displayRecord = phase === 'aftermath' && lastRecord ? lastRecord : null
+  // What each step says under its label: what is queued for the turn.
+  const queued = (n: number) => (n > 0 ? `${n} queued` : '')
+  const captions: Record<string, string> = {
+    procure: queued(actions.buyAssets.length),
+    harden: queued(actions.buyCounters.length),
+    intel: actions.buyIntelLevel || actions.buyIrRetainer ? 'queued' : '',
+    surge: actions.spendSurgeOn ? 'queued' : surgeReason || `${state.surgeTokens} token${state.surgeTokens === 1 ? '' : 's'}`,
+  }
   const sheetOpen = sheet !== null
 
   return (
@@ -1030,6 +1098,8 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
       <Hud
         shown={shown}
         displayTurn={displayTurn}
+        onSystem={() => toggleSheet('system')}
+        systemOpen={sheet === 'system'}
         credits={{
           // During the decision the ticker shows what the cart leaves, so
           // a buy ticks the number down as the brief asks; at every other
@@ -1079,37 +1149,11 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
             />
           ))}
           <BoardReference shown={shown} conditionDurationRange={conditionDurationRange} />
-          {/* Saving and exporting belong to a campaign in progress; muting
-              does not. The toggles vanished with the old save row the
-              moment the engine returned won or lost, which is exactly when
-              the longest cues of the whole game play: principle 4 calls
-              the effects toggle an accessibility path, and one that
-              disappears at the loudest moment is not one. */}
-          <div className="flex flex-wrap items-center gap-2 border-t-2 border-dc-line pt-2 pb-2">
-            {state.status === 'playing' && (
-              <>
-                <button className={`${btn} text-xs min-h-11`} onClick={saveSlot}>
-                  Save
-                </button>
-                <button className={`${btn} text-xs min-h-11`} onClick={exportCode}>
-                  Export code
-                </button>
-              </>
-            )}
-            {onExit && (
-              <button className={`${btn} text-xs min-h-11`} onClick={onExit}>
-                Back to menu
-              </button>
-            )}
-            <SoundToggles prefs={soundPrefs} onChange={setSoundPrefs} />
-            {/* The adversary phase plays back beat by beat unless the speed
-                is instant, which resolves straight to the aftermath as v1.0
-                did. The control lives here as well as in the playback view,
-                because instant never mounts that view and would otherwise
-                be a choice with no way back. */}
-            <SpeedSelect speed={speed} onChange={setSpeed} />
-          </div>
-          {notice && <p className="font-mono text-xs text-alert-amber">{notice}</p>}
+          {/* The flash notice, when the SYSTEM sheet that carries it is not
+              open. Save, Export code, Back to menu, the toggles and the
+              playback speed live in that sheet since R1b, so the board
+              ends at the action bar. */}
+          {notice && sheet !== 'system' && <p className="font-mono text-xs text-alert-amber">{notice}</p>}
         </div>
         {/* THE SHEETS (brief 4.4), over the dimmed board and under the
             action bar, which stays live so the next action is one tap
@@ -1195,62 +1239,90 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
             onClose={() => openSheet(null)}
           />
         )}
+        {sheet === 'system' && (
+          <SystemSheet
+            playing={state.status === 'playing'}
+            onSave={saveSlot}
+            onExport={exportCode}
+            onExit={onExit}
+            soundPrefs={soundPrefs}
+            onSoundPrefs={setSoundPrefs}
+            speed={speed}
+            onSpeed={setSpeed}
+            notice={notice}
+            onClose={() => openSheet(null)}
+          />
+        )}
       </div>
-      {/* THE ACTION BAR (brief 4.1), pinned, five buttons of 60px or more.
-          The fifth is the one irreversible action in the game, so it asks
-          for a deliberate gesture rather than a tap that can land by
-          accident on a phone; a keyboard or assistive activation fires at
-          once. After playback it becomes the way to the next turn. */}
-      <nav aria-label="Actions" className="flex-none border-t-2 border-dc-line bg-dc-chrome px-safe pb-safe">
-        <div className="grid grid-cols-5 gap-1 p-1">
-          <button type="button" className={sheet === 'procure' ? barBtnOpen : barBtn} aria-expanded={sheet === 'procure'} disabled={!deciding} onClick={() => toggleSheet('procure')}>
-            PROCURE
-            {actions.buyAssets.length > 0 && <span className="font-mono text-[10px] text-dc-friendly">{actions.buyAssets.length} queued</span>}
-          </button>
-          <button type="button" className={sheet === 'harden' ? barBtnOpen : barBtn} aria-expanded={sheet === 'harden'} disabled={!deciding} onClick={() => toggleSheet('harden')}>
-            HARDEN
-            {actions.buyCounters.length > 0 && <span className="font-mono text-[10px] text-dc-friendly">{actions.buyCounters.length} queued</span>}
-          </button>
-          <button type="button" className={sheet === 'intel' ? barBtnOpen : barBtn} aria-expanded={sheet === 'intel'} disabled={!deciding} onClick={() => toggleSheet('intel')}>
-            INTEL
-            {(actions.buyIntelLevel || actions.buyIrRetainer) && <span className="font-mono text-[10px] text-dc-friendly">queued</span>}
-          </button>
-          <button
-            type="button"
-            className={sheet === 'surge' ? barBtnOpen : barBtn}
-            aria-expanded={sheet === 'surge'}
-            disabled={!canSurge && !actions.spendSurgeOn}
-            onClick={() => toggleSheet('surge')}
-          >
-            SURGE
-            <span className="font-mono text-[10px] text-dc-muted">{actions.spendSurgeOn ? 'queued' : surgeReason || `${state.surgeTokens} token${state.surgeTokens === 1 ? '' : 's'}`}</span>
-          </button>
-          {deciding ? (
+      {/* THE ACTION BAR (brief 4.1, R1b), pinned, five buttons of 60px or
+          more that read as steps. The fifth is the one irreversible action
+          in the game, so it asks for a deliberate gesture rather than a
+          tap that can land by accident on a phone; a keyboard or assistive
+          activation fires at once. The HOLD caption says so, a short tap
+          answers with the hint, and the first turn ever on this device
+          gets the bubble. After playback the slot becomes the way to the
+          next turn. */}
+      <ActionBar
+        actions={ACTIONS}
+        phase={deciding ? 'deciding' : phase === 'playback' ? 'playback' : 'aftermath'}
+        openSheet={isStep(sheet) ? sheet : null}
+        done={stepsDone}
+        resolvedTurn={lastRecord?.turn}
+        onToggle={toggleSheet}
+        disabledFor={(action) => (action.id === 'surge' ? !canSurge && !actions.spendSurgeOn : !deciding)}
+        captionFor={(action) => captions[action.id] ?? ''}
+        resolve={
+          <>
+            {/* The first-turn bubble and the short-tap hint: plain text in
+                a live region above the control, never a dialog, never in
+                the way of the press. The bubble wins while it is up. */}
+            {holdBubble && (
+              <p role="status" aria-live="polite" data-hold-bubble onClick={dismissHoldBubble} className={`${HOLD_NOTE} cursor-pointer border-dc-go text-dc-go shadow-hard`}>
+                Hold to resolve the turn
+              </p>
+            )}
+            {holdHint !== null && !holdBubble && (
+              <p role="status" aria-live="polite" data-hold-hint className={`${HOLD_NOTE} border-dc-warn text-dc-warn`}>
+                Hold to resolve
+              </p>
+            )}
             <HoldButton
-              className={barPrimary}
+              ref={holdRef}
+              className={`${BAR_PRIMARY} w-full`}
               disabled={!affordable}
               onConfirm={resolve}
+              onShortTap={shortTap}
               label={
                 <>
-                  <span aria-hidden="true">RESOLVE</span>
+                  <span aria-hidden="true" className="block" data-label>
+                    RESOLVE
+                  </span>
+                  <span aria-hidden="true" className="block font-mono text-[10px] text-dc-muted">
+                    {HOLD_CAPTION}
+                  </span>
                   <span className="sr-only">Hold to resolve turn {state.turn}</span>
                 </>
               }
               holdingLabel={
                 <>
-                  <span aria-hidden="true">RESOLVING</span>
+                  <span aria-hidden="true" className="block">
+                    RESOLVING
+                  </span>
                   <span className="sr-only">Hold... resolving turn {state.turn}</span>
                 </>
               }
             />
-          ) : (
-            <button type="button" className={barPrimary} disabled={phase === 'playback'} onClick={nextTurn}>
-              {phase === 'playback' ? 'PLAYBACK' : state.status === 'playing' ? 'NEXT TURN' : 'FINAL REPORT'}
-            </button>
-          )}
-        </div>
-        {!affordable && deciding && <p className="px-2 pb-1 font-mono text-[10px] text-alert-amber">Planned spend exceeds credits. Trim the cart.</p>}
-      </nav>
+          </>
+        }
+        nextLabel={phase === 'playback' ? 'PLAYBACK' : state.status === 'playing' ? 'NEXT TURN' : 'FINAL REPORT'}
+        onNext={nextTurn}
+        pulseNext={phase === 'aftermath' && !reducedMotion}
+        note={
+          !affordable && deciding ? (
+            <p className="px-2 pb-1 font-mono text-[10px] text-alert-amber">Planned spend exceeds credits. Trim the cart.</p>
+          ) : undefined
+        }
+      />
     </main>
       {/* THE GLOSSARY OVERLAY, a sibling of the game rather than a child of
           it. Rendered inside this component so nothing unmounts: the

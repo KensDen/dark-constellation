@@ -35,7 +35,9 @@ import {
   hudLabels,
   hudStatusLine,
   ACTION_BAR_LABELS,
+  SYSTEM_GEAR_LABEL,
 } from '../src/ui/brief'
+import { ACTIONS, HOLD_CAPTION } from '../src/ui/board/actions'
 import { VERDICT_WORD_MAX, verdictFor } from '../src/ui/verdict'
 import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
 
@@ -273,20 +275,20 @@ describe('reading diet: the intel brief', () => {
     // here, so it is pinned by name; Round 5's rendering environment is
     // what will derive it instead.
     // Since v1.2 R1 the chrome is the board's: the five action-bar labels
-    // and the playback speed control are on the first screen, and the
-    // numbered section heading and the phase button are gone.
+    // are on the first screen, and the numbered section heading and the
+    // phase button are gone. Since R1b the bar carries the step numbers
+    // and the HOLD caption, and Save, Export code, Back to menu, the two
+    // toggles and the playback speed sit in the SYSTEM sheet behind the
+    // gear, so the first screen shows one word for the six of them.
     const required = [
       '> INCOMING TRANSMISSION_',
       'Expand full brief',
+      ...ACTIONS.map((a) => String(a.number)),
       ...ACTION_BAR_LABELS,
+      HOLD_CAPTION,
       'What these numbers mean',
       'Posture detail',
-      'Back to menu',
-      'Save',
-      'Export code',
-      'Playback:',
-      SOUND_TOGGLE_LABELS.effects,
-      SOUND_TOGGLE_LABELS.music,
+      SYSTEM_GEAR_LABEL,
     ]
     for (let seed = 1; seed <= SEEDS; seed += 1) {
       for (const { before } of playTurns(seed, WIN_SCRIPT)) {
@@ -309,14 +311,22 @@ describe('reading diet: the intel brief', () => {
       'Expand full brief': source('ui', 'board', 'ThreatBanner.tsx'),
       'What these numbers mean': source('ui', 'board', 'BoardReference.tsx'),
       'Posture detail': source('ui', 'board', 'BoardReference.tsx'),
-      'Back to menu': source('ui', 'Game.tsx'),
-      Save: source('ui', 'Game.tsx'),
-      'Export code': source('ui', 'Game.tsx'),
-      'Playback:': source('director', 'SpeedSelect.tsx'),
+      [SYSTEM_GEAR_LABEL]: source('ui', 'board', 'Hud.tsx'),
     }
-    for (const label of ACTION_BAR_LABELS) renderedIn[label] = source('ui', 'Game.tsx')
+    // The labels, numbers and the caption are read from the one action
+    // array by the bar and by chromeCopy alike, so what has to be true is
+    // that the bar renders from that array.
+    const actionBar = source('ui', 'board', 'ActionBar.tsx')
+    expect(actionBar.includes('action.label') && actionBar.includes('action.number'), 'the bar no longer renders the array').toBe(true)
+    expect(source('ui', 'Game.tsx').includes('{HOLD_CAPTION}'), 'the bar no longer renders the HOLD caption').toBe(true)
     for (const [control, file] of Object.entries(renderedIn)) {
       expect(file.includes(control), `chrome counts "${control}", which the screen no longer renders`).toBe(true)
+    }
+    // The six system controls left the first screen for the sheet, which
+    // lists them by name; tests/action-bar.dom.spec.tsx renders that list.
+    const systemSheet = source('ui', 'board', 'SystemSheet.tsx')
+    for (const name of ['Save', 'Export code', 'Back to menu', 'Playback:']) {
+      expect(systemSheet.includes(name), `the SYSTEM sheet no longer lists "${name}"`).toBe(true)
     }
     // The transmission label is rendered as an entity by the teletype bar,
     // which the banner mounts.
@@ -328,8 +338,7 @@ describe('reading diet: the intel brief', () => {
     // has to be true is that Game.tsx mounts the control and that the
     // control renders those names, and the second half is asserted against
     // a rendered DOM in tests/sound.dom.spec.tsx rather than by grep.
-    const game = source('ui', 'Game.tsx')
-    expect(game.includes('<SoundToggles'), 'chrome counts two toggles the campaign screen does not mount').toBe(true)
+    expect(systemSheet.includes('<SoundToggles'), 'the SYSTEM sheet does not mount the two toggles').toBe(true)
     const toggles = source('ui', 'cues', 'SoundToggles.tsx')
     expect(toggles.includes('SOUND_TOGGLE_LABELS'), 'the toggles no longer read their names from the counted constant').toBe(
       true,
@@ -337,7 +346,7 @@ describe('reading diet: the intel brief', () => {
     // The speed labels the same way: SpeedSelect reads SPEED_LABEL, and
     // chromeCopy reads the same table, so the count cannot disagree with
     // the buttons.
-    expect(game.includes('<SpeedSelect'), 'chrome counts a speed control the campaign screen does not mount').toBe(true)
+    expect(systemSheet.includes('<SpeedSelect'), 'the SYSTEM sheet does not mount the speed control').toBe(true)
     expect(source('director', 'SpeedSelect.tsx').includes('SPEED_LABEL'), 'the speed control no longer reads the counted labels').toBe(true)
   })
 
