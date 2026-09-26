@@ -46,11 +46,13 @@ run('typecheck + production build', () => {
 })
 
 // Bundle budget (game-feel brief section 8): everything the build emits,
-// gzipped, under two thresholds. The INITIAL download is the entry script
-// plus the stylesheet; DEFERRED is every chunk Rollup splits out, which
-// today is the lazily loaded frame and its three.js. The layer counted the
-// entry script alone from Round 2 until Round 6, so both the stylesheet
-// and a 129,274 byte split chunk shipped into a channel nothing measured.
+// gzipped, under its thresholds. The INITIAL download is the entry script
+// plus the stylesheet; DEFERRED is every chunk Rollup splits out, gated one
+// chunk at a time since Ken's ruling of 2026-09-26 (brief v0.3 section 8),
+// with the frame and its three.js under a ceiling of their own. The layer
+// counted the entry script alone from Round 2 until Round 6, so both the
+// stylesheet and a 129,274 byte split chunk shipped into a channel nothing
+// measured.
 // Measured with Node's zlib at its default level, so the number is
 // reproducible from the battery alone; the baseline and budget live in
 // tests/bundle-budget.json and any library addition records its delta.

@@ -47,6 +47,29 @@
 // (defeat-sphere.webp gzips to 58 bytes larger than it is). Code compresses
 // and is measured compressed; media does not and is measured as it ships.
 //
+// DEFERRED IS BUDGETED PER CHUNK, ruled by Ken on 2026-09-26 after v1.2
+// Round 0 (brief v0.3 section 8). The group had one ceiling, 132,000 on
+// the sum, set when deferred meant the constellation frame alone at
+// 129,274. Round 0 split five screens out of the initial chunk, and the
+// sum became 136,214 across seven chunks that no session downloads
+// together: a number no player ever waits on. So the frame chunk keeps its
+// own 132,000, every other deferred chunk is capped at 10,000 each, and the
+// total is still printed but only as a record.
+//
+// The frame is RECOGNISED BY WHAT IT CARRIES, never by its file name, its
+// hash or its size rank: it is the one deferred chunk holding both
+// three.js (the `__THREE__` instance marker three's core sets on window)
+// and src/ui/Constellation.tsx (any of the distinctive string literals that
+// file contains, parsed out of the source at measure time rather than
+// copied here). ANY, not every: the ruling's own review found builds that
+// drop literals the source still has, a dev-only warning or an entity the
+// JSX compiler decodes, and requiring all of them turned a valid build red
+// as a "split" frame. Picking it by name would follow a rename, and picking
+// the largest chunk would wave a heavy screen through at 132,000 the day
+// it outgrew the frame. A misidentification cannot pass quietly either:
+// the frame is many times the per-chunk cap, so mistaking it for a screen
+// fails.
+//
 // Headroom is DERIVED from the bundle that was just measured, never
 // written down. The battery used to print budget minus the recorded
 // BASELINE, which is a fact about last round rather than about this build:
@@ -57,11 +80,61 @@
 // field is gone rather than guarded.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 
 export function headroomFor(measuredGzipBytes, budgetGzipBytes) {
   return budgetGzipBytes - measuredGzipBytes
+}
+
+// three.js's own mark: its core sets window.__THREE__ to the revision so it
+// can warn about a second copy. A property name, so no minifier renames it.
+export const THREE_MARKER = '__THREE__'
+
+// The module the frame chunk is built from, resolved from this file rather
+// than from the working directory.
+export const FRAME_SOURCE = fileURLToPath(new URL('../src/ui/Constellation.tsx', import.meta.url))
+
+// Long enough that the literal names this file and not a common word.
+const DISTINCTIVE_LITERAL_CHARS = 20
+
+// The string literals in the frame's source that a build can carry
+// verbatim. Parsed with the TypeScript compiler rather than matched with a
+// pattern, so an apostrophe in a comment or a word of JSX text cannot pass
+// itself off as a literal. Left out: module specifiers, which the bundler
+// rewrites; literals inside types, which are erased; and anything with a
+// quote, a backslash, an ampersand or a non-ASCII character, which a
+// minifier may re-escape or the JSX compiler may decode. A literal can
+// still be dropped (a dev-only branch), which is why a chunk needs only one.
+export function frameSourceMarkers(source) {
+  const ts = createRequire(import.meta.url)('typescript')
+  const file = ts.createSourceFile('Constellation.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const out = []
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node) || ts.isTypeNode(node)) return
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) return
+    if (
+      (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+      node.text.length >= DISTINCTIVE_LITERAL_CHARS &&
+      /^[\x20-\x7e]+$/.test(node.text) &&
+      !/['"`\\&]/.test(node.text)
+    ) {
+      out.push(node.text)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+  // Nothing to recognise the frame by is an error, said as what it is,
+  // rather than a match that can never succeed and surfaces later as a
+  // frame that seems to have gone missing.
+  if (out.length === 0) {
+    throw new Error(
+      `${FRAME_SOURCE} has no string literal of ${DISTINCTIVE_LITERAL_CHARS} or more plain characters, so its chunk cannot be recognised by content`,
+    )
+  }
+  return out
 }
 
 // Every file the build emitted, as paths relative to `root`, directories
@@ -100,6 +173,8 @@ export function measureBundle({
   gzipOf = (chunk) => gzipSync(readFileSync(join(dir, chunk))).length,
   rawOf = (file) => statSync(join(dir, file)).size,
   mtimeOf = (chunk) => statSync(join(dir, chunk)).mtimeMs,
+  contentOf = (chunk) => readFileSync(join(dir, chunk), 'utf8'),
+  frameMarkers: frameMarkersIn,
   startedAt,
 }) {
   // Resolved in the BODY rather than as chained default parameters.
@@ -121,6 +196,15 @@ export function measureBundle({
   }
   if ('headroomGzipBytes' in budget) {
     throw new Error('bundle-budget.json records a headroom; it is derived from the measured chunk, not written')
+  }
+  // The retired sum budget is refused rather than ignored. Left in place it
+  // would read as a ceiling the battery enforces, and a number that is
+  // reported but not gated is the unmetered channel this file keeps finding.
+  if ('deferredBudgetGzipBytes' in budget) {
+    throw new Error(
+      'bundle-budget.json records deferredBudgetGzipBytes, the deferred SUM budget retired by Ken\'s ruling of 2026-09-26; ' +
+        'deferred chunks are budgeted one by one (frameBudgetGzipBytes, deferredChunkBudgetGzipBytes)',
+    )
   }
   if (jsChunks.length !== 1) throw new Error(`expected one main JS chunk, found ${jsChunks.length}`)
   // The CSS chunk is required, not optional. Treating it as optional would
@@ -154,31 +238,93 @@ export function measureBundle({
   const jsGz = gzipOf(js)
   const cssGz = gzipOf(css)
   const gz = jsGz + cssGz
-  const deferredGz = deferred.reduce((sum, chunk) => sum + gzipOf(chunk), 0)
+  // Which deferred chunk is the frame, by content. The markers are derived
+  // only when there is a deferred chunk to look in, so a caller with none
+  // never touches the frame's source.
+  const frameMarkers = deferred.length === 0 ? [] : (frameMarkersIn ?? frameSourceMarkers(readFileSync(FRAME_SOURCE, 'utf8')))
+  const deferredChunks = deferred.map((chunk) => {
+    const text = contentOf(chunk)
+    const three = text.includes(THREE_MARKER)
+    const source = frameMarkers.some((marker) => text.includes(marker))
+    return { chunk, gz: gzipOf(chunk), three, source, frame: three && source }
+  })
+  const frames = deferredChunks.filter((c) => c.frame)
+  if (frames.length > 1) {
+    throw new Error(
+      `${frames.map((c) => c.chunk).join(' and ')} all carry three.js and src/ui/Constellation.tsx; the frame budget is for one chunk, so which one it bounds is ambiguous`,
+    )
+  }
+  // Half a frame is refused by name. If a build ever split three.js from
+  // the component that uses it, the vendor chunk would fail the 10,000 cap
+  // with a message about a screen; this says what actually happened, and
+  // does not call it a split when the likelier story is that none of the
+  // component's literals reached the build.
+  if (frames.length === 0 && deferredChunks.some((c) => c.three || c.source)) {
+    const where = (key) => deferredChunks.filter((c) => c[key]).map((c) => c.chunk).join(', ')
+    const threeAt = where('three')
+    const sourceAt = where('source')
+    if (threeAt && sourceAt) {
+      throw new Error(
+        `the constellation frame is split: three.js is in ${threeAt}, src/ui/Constellation.tsx is in ${sourceAt}; ` +
+          'the frame budget was ruled for one chunk built from both, so this build needs the ruling revisited, not a cap',
+      )
+    }
+    throw new Error(
+      threeAt
+        ? `no deferred chunk is recognisably the constellation frame: three.js is in ${threeAt}, but none of the literals ` +
+            `derived from src/ui/Constellation.tsx (${frameMarkers.map((m) => JSON.stringify(m)).join(', ')}) is in any deferred chunk, ` +
+            'so either the component left that chunk or none of those literals survives the build'
+        : `no deferred chunk is recognisably the constellation frame: src/ui/Constellation.tsx is in ${sourceAt}, ` +
+            `but no deferred chunk carries three.js's ${THREE_MARKER} marker`,
+    )
+  }
+  const frame = frames[0] ?? null
+  const others = deferredChunks.filter((c) => !c.frame)
+  const largestOther = others.reduce((big, c) => (big && big.gz >= c.gz ? big : c), null)
+  // A record, not a gate. See the header for why the sum stopped meaning
+  // anything a player feels.
+  const deferredGz = deferredChunks.reduce((sum, c) => sum + c.gz, 0)
   // Raw, because these do not compress and no server tries. See the header.
   const staticBytes = staticFiles.reduce((sum, file) => sum + rawOf(file), 0)
   const delta = gz - budget.baselineGzipBytes
   const headroom = headroomFor(gz, budget.budgetGzipBytes)
-  const deferredHeadroom = headroomFor(deferredGz, budget.deferredBudgetGzipBytes)
+  const frameHeadroom = frame ? headroomFor(frame.gz, budget.frameBudgetGzipBytes) : null
+  const otherHeadroom = largestOther ? headroomFor(largestOther.gz, budget.deferredChunkBudgetGzipBytes) : null
   const staticHeadroom = headroomFor(staticBytes, budget.staticBudgetBytes)
   const line =
     `initial ${gz} (js ${jsGz} + css ${cssGz}; baseline ${budget.baselineGzipBytes}, ` +
     `${delta >= 0 ? '+' : ''}${delta}; budget ${budget.budgetGzipBytes}, headroom ${headroom}), ` +
-    `deferred ${deferredGz} in ${deferred.length} chunk${deferred.length === 1 ? '' : 's'} ` +
-    `(budget ${budget.deferredBudgetGzipBytes}, headroom ${deferredHeadroom}), ` +
+    `deferred frame ${frame ? `${frame.chunk} ${frame.gz} (budget ${budget.frameBudgetGzipBytes}, headroom ${frameHeadroom})` : 'none'}, ` +
+    `${others.length} other deferred chunk${others.length === 1 ? '' : 's'}` +
+    (largestOther
+      ? `, largest ${largestOther.chunk} ${largestOther.gz} (cap ${budget.deferredChunkBudgetGzipBytes} each, headroom ${otherHeadroom})`
+      : '') +
+    `, deferred total ${deferredGz} in ${deferred.length} chunk${deferred.length === 1 ? '' : 's'} (recorded, not gated), ` +
     `static ${staticBytes} raw in ${staticFiles.length} file${staticFiles.length === 1 ? '' : 's'} ` +
     `(budget ${budget.staticBudgetBytes}, headroom ${staticHeadroom})`
   if (gz > budget.budgetGzipBytes) {
     throw new Error(`the initial download is ${gz} bytes gzipped (js ${jsGz} + css ${cssGz}), over the ${budget.budgetGzipBytes} byte budget`)
   }
-  // The deferred budget must exist. Defaulting it to Infinity would
+  // Both deferred ceilings must exist. Defaulting either to Infinity would
   // recreate the unmetered channel the moment a new split chunk appeared.
-  if (!Number.isFinite(budget.deferredBudgetGzipBytes)) {
-    throw new Error('bundle-budget.json records no deferredBudgetGzipBytes; split chunks ship too and must be bounded')
+  if (!Number.isFinite(budget.frameBudgetGzipBytes)) {
+    throw new Error('bundle-budget.json records no frameBudgetGzipBytes; the constellation frame ships too and must be bounded')
   }
-  if (deferredGz > budget.deferredBudgetGzipBytes) {
+  if (!Number.isFinite(budget.deferredChunkBudgetGzipBytes)) {
+    throw new Error('bundle-budget.json records no deferredChunkBudgetGzipBytes; split chunks ship too and must be bounded')
+  }
+  if (frame && frame.gz > budget.frameBudgetGzipBytes) {
     throw new Error(
-      `deferred chunks are ${deferredGz} bytes gzipped (${deferred.join(', ')}), over the ${budget.deferredBudgetGzipBytes} byte budget`,
+      `the constellation frame chunk ${frame.chunk} is ${frame.gz} bytes gzipped, over its ${budget.frameBudgetGzipBytes} byte budget`,
+    )
+  }
+  // Every chunk that is not the frame, each on its own, whatever its size
+  // or name. Listing all of them at once so a fix is not found one by one.
+  const over = others.filter((c) => c.gz > budget.deferredChunkBudgetGzipBytes)
+  if (over.length > 0) {
+    throw new Error(
+      `${over.map((c) => `${c.chunk} is ${c.gz} bytes gzipped`).join('; ')}, over the ${budget.deferredChunkBudgetGzipBytes} byte cap ` +
+        `every deferred chunk but the frame is held to (frame: ${frame ? frame.chunk : 'none'})`,
     )
   }
   // Same rule as the deferred budget, and for the same reason: a missing
@@ -198,11 +344,16 @@ export function measureBundle({
     cssGz,
     deferredGz,
     deferred,
+    deferredChunks,
+    frame: frame ? frame.chunk : null,
+    frameGz: frame ? frame.gz : null,
+    largestOther: largestOther ? largestOther.chunk : null,
     staticBytes,
     staticFiles,
     delta,
     headroom,
-    deferredHeadroom,
+    frameHeadroom,
+    otherHeadroom,
     staticHeadroom,
     line,
   }
