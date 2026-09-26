@@ -29,6 +29,69 @@
   --font-display: 'DC Display', 'JetBrains Mono', ui-monospace, monospace;
 }
 
+/* v1.2 board pass, section 3: "8-bit bones, Playbook finish". The tokens
+   land first and nothing adopts them yet; R1 onward repaints against these
+   names rather than against hex literals. They are declared on :root as
+   plain custom properties so non-Tailwind CSS in this file can read them,
+   and mirrored into @theme below so Tailwind emits utilities (bg-dc-panel,
+   text-dc-muted, border-dc-line and so on).
+
+   No colour above changes in this round. None of the v1.1 values is equal
+   to a v1.2 token, so there is nothing to replace one for one: the old
+   palette keeps painting the screen until a round repaints it. */
+:root {
+  --dc-ground: #0B0F14;
+  --dc-chrome: #0E141C;
+  --dc-panel: #121821;
+  --dc-line: #243041;
+  --dc-ink: #E6EDF3;
+  --dc-muted: #8B98A8;
+  --dc-go: #7CFF9B;
+  --dc-friendly: #5AA9FF;
+  --dc-hostile: #FF4FA3;
+  --dc-warn: #FFB547;
+  --dc-shadow: #05080C;
+}
+
+@theme {
+  --color-dc-ground: var(--dc-ground);
+  --color-dc-chrome: var(--dc-chrome);
+  --color-dc-panel: var(--dc-panel);
+  --color-dc-line: var(--dc-line);
+  --color-dc-ink: var(--dc-ink);
+  --color-dc-muted: var(--dc-muted);
+  --color-dc-go: var(--dc-go);
+  --color-dc-friendly: var(--dc-friendly);
+  --color-dc-hostile: var(--dc-hostile);
+  --color-dc-warn: var(--dc-warn);
+  --color-dc-shadow: var(--dc-shadow);
+}
+
+/* Safe-area padding for the notch and the home indicator, ready for the
+   board rounds. index.html carries viewport-fit=cover, without which every
+   env(safe-area-inset-*) resolves to zero and these are silently no-ops.
+   Utilities rather than bare classes so they take variants: sm:pb-safe. */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+@utility px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+@utility py-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 html {
   background-color: var(--color-base);
 }
