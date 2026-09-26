@@ -42,6 +42,16 @@ function lazySpecifiers(source: string): string[] {
 // `import('y')`, which is the whole point of the split. Type-only imports
 // are dropped by the compiler and cost the bundle nothing, so they do not
 // count as reaching a module.
+//
+// RE-EXPORTS TOO: `export { x } from 'y'`, `export * from 'y'` and
+// `export * as ns from 'y'` pull 'y' into whatever imports the file, which
+// is how a barrel carries a screen into the initial chunk. The header
+// always claimed this case and the walk never followed it: a barrel line
+// re-exporting Scoreboard, imported by MainMenu, stayed green. `export
+// type ... from` is skipped for the same reason `import type` is. The
+// pattern names the three re-export shapes rather than matching any
+// `export ... from`, because `export` also opens every declaration in the
+// tree and a loose match would run on into the next statement.
 function staticImports(source: string): string[] {
   const out: string[] = []
   for (const m of source.matchAll(/(^|\n)\s*import\s+([^'"]*?)from\s*['"]([^'"]+)['"]/g)) {
@@ -49,6 +59,10 @@ function staticImports(source: string): string[] {
     out.push(m[3])
   }
   for (const m of source.matchAll(/(^|\n)\s*import\s*['"]([^'"]+)['"]/g)) out.push(m[2])
+  for (const m of source.matchAll(/(^|\n)\s*export\s+(type\s+)?(\*(\s+as\s+[\w$]+)?|\{[^}]*\})\s*from\s*['"]([^'"]+)['"]/g)) {
+    if (m[2]) continue
+    out.push(m[5])
+  }
   return out
 }
 
