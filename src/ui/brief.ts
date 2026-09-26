@@ -12,6 +12,7 @@ import { coverage, maiScore } from '../engine/scoring'
 import type { GameState, ThreatEvent } from '../engine/types'
 import { kindLabels, techniqueLabel, vectorLabels } from './labels'
 import { LAYERS } from '../engine/types'
+import { SPEEDS, SPEED_LABEL } from '../director/director'
 
 // The budget the brief is designed against (brief v0.7 section 5):
 // "Before first input on a normal turn: 60 words or fewer of reading
@@ -501,21 +502,29 @@ export function firstInputWords(state: GameState, difficultyLabel: string): numb
 // The two audio toggles join the save row in Round 4d and are read from
 // SOUND_TOGGLE_LABELS rather than spelled again, so this list cannot
 // disagree with what the screen renders.
-export function chromeCopy(state: GameState): string[] {
-  const turn = Math.min(state.turn, state.scenario.totalTurns)
+//
+// v1.2 Round 1 replaced the numbered sections with the board: the section
+// heading and the phase button are gone, the five action-bar labels and
+// the playback speed control are on the first screen instead. The five
+// labels are the buttons' visible text; RESOLVE also carries "Hold to
+// resolve turn n" for assistive technology, which is not reading load on
+// the screen and is not counted here.
+export const ACTION_BAR_LABELS = ['PROCURE', 'HARDEN', 'INTEL', 'SURGE', 'RESOLVE'] as const
+
+export function chromeCopy(_state: GameState): string[] {
   return [
-    `1. Intel brief, turn ${turn}`,
     '> INCOMING TRANSMISSION_',
     'Expand full brief',
-    'To procurement',
+    ...ACTION_BAR_LABELS,
     'What these numbers mean',
     'Posture detail',
-    'Back to menu',
     'Save',
     'Export code',
-    'Autosaved each turn.',
+    'Back to menu',
     SOUND_TOGGLE_LABELS.effects,
     SOUND_TOGGLE_LABELS.music,
+    'Playback:',
+    ...SPEEDS.map((s) => SPEED_LABEL[s]),
   ]
 }
 

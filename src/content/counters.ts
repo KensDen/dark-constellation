@@ -53,7 +53,7 @@ export const COUNTERMEASURES: Countermeasure[] = [
       { id: 'CM0042', name: 'Robust Fault Management', url: 'https://sparta.aerospace.org/countermeasures/CM0042', tier: 'Tier I' },
     ],
     blurb:
-      'LiDAR, radar, and vision voting. The answer to the BLACKOUT CHAIN: an injected point cloud loses the vote two to one.',
+      'LiDAR, radar, and vision voting. An injected point cloud loses the vote two to one, even with GNSS gone.',
   },
   {
     id: 'tierAAttestation',

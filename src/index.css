@@ -67,6 +67,15 @@
   --color-dc-shadow: var(--dc-shadow);
 }
 
+/* The hard offset shadows of brief v1.2 section 3: 4px on cards and
+   tiles, 3px under buttons, collapsing on press (active:shadow-none). */
+@utility shadow-hard {
+  box-shadow: 4px 4px 0 var(--dc-shadow);
+}
+@utility shadow-press {
+  box-shadow: 0 3px 0 var(--dc-shadow);
+}
+
 /* Safe-area padding for the notch and the home indicator, ready for the
    board rounds. index.html carries viewport-fit=cover, without which every
    env(safe-area-inset-*) resolves to zero and these are silently no-ops.
@@ -212,6 +221,12 @@ body {
 
   .dc-tile:active {
     transform: scale(0.97);
+  }
+
+  /* A bottom sheet rises over the board (v1.2 R1). Under reduced motion it
+     is simply there. */
+  .dc-sheet-in {
+    animation: dc-sheet-in 180ms ease-out;
   }
 
 
@@ -518,5 +533,16 @@ body {
   }
   to {
     opacity: 0;
+  }
+}
+
+@keyframes dc-sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
   }
 }

@@ -1,13 +1,16 @@
-// Text-first game shell, restyled in R2 per design brief v0.2: phosphor
-// terminal chrome, hero-derived state accents (blue = friendly/defense,
-// magenta = hostile/threat, amber = alerts), monospace HUD over sans body.
-// All game logic is unchanged from R1.5. The game-feel pass (Round 2) adds
-// a playback phase between resolve and aftermath: the director plays the
-// resolved turn beat by beat over a presented state, and instant speed
-// skips straight to the aftermath exactly as v1.0 did. Instant is an
-// explicit choice only: reduced motion keeps the sequence and takes the
-// static form of every cue (brief v1.2 section 3). The engine call is
-// untouched.
+// The game shell. Since v1.2 Round 1 the play screen is a BOARD (board
+// pass brief section 4): a pinned HUD, the threat banner, three layer
+// panels of asset tiles, and a pinned five-button action bar whose first
+// four open bottom sheets over the board. The start screen and the
+// outcome screen are the v1.1 ones. All game logic is unchanged: this
+// file still owns the cart, the affordability gate, the cues and the
+// engine call, and the components under ./board only render what it
+// hands them. The game-feel pass (Round 2) adds a playback phase between
+// resolve and aftermath: the director plays the resolved turn beat by
+// beat over a presented state, and instant speed skips straight to the
+// aftermath exactly as v1.0 did. Instant is an explicit choice only:
+// reduced motion keeps the sequence and takes the static form of every
+// cue (brief v1.2 section 3).
 
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { ADVERSARY } from '../config'
@@ -36,15 +39,22 @@ import {
   type Beat,
   type Speed,
 } from '../director'
-import Readout from './cues/Meter'
-import ConditionBadge, { useBadgePhases } from './cues/ConditionBadge'
-import Teletype, { TransmissionBar } from './cues/Teletype'
+import { useBadgePhases } from './cues/ConditionBadge'
 import { CUE_MS, useCueClass, useReducedMotion } from './cues/motion'
-import { layerBadges, vectorIcons } from './cues/icons'
+import { vectorIcons } from './cues/icons'
 import Glossary from './Glossary'
-import { kindLabels, techniqueLabel } from './labels'
-import { CHAIN_ARMED_LINE, JOB_FRAMING_HEADING, briefCopy, hudLabels, hudStatusLine, jobFramingBlocks, postureDetailLines, type PostureTone } from './brief'
-import { verdictFor } from './verdict'
+import { JOB_FRAMING_HEADING, jobFramingBlocks } from './brief'
+import Hud from './board/Hud'
+import ThreatBanner from './board/ThreatBanner'
+import LayerPanel, { type ChipModel } from './board/LayerPanel'
+import BoardReference from './board/BoardReference'
+import AftermathCard from './board/AftermathCard'
+import ProcureSheet, { type ProcurePick } from './board/ProcureSheet'
+import HardenSheet, { HARDEN_STEPS } from './board/HardenSheet'
+import IntelSheet, { INTEL_STEPS } from './board/IntelSheet'
+import SurgeSheet from './board/SurgeSheet'
+import type { SheetId } from './board/Sheet'
+import { conditionsOn, defensesOn, tilesByLayer } from './board/board'
 import {
   COUNTERMEASURE_COUNT,
   DEFAULT_SCENARIO,
@@ -54,31 +64,10 @@ import {
   THREAT_EVENT_COUNT,
   UNVERIFIED_REF_COUNT,
 } from '../content'
-import {
-  CHAIN_BONUS,
-  DEPLOY_ETA,
-  MITIGATION_PER_COUNTER,
-  SSA_MITIGATION_BONUS,
-  DIFFICULTIES,
-  SURGE_TOKEN_CAP,
-  TIER_A_FLEET_SHARE,
-  effectiveIntel,
-  incomeFor,
-  newGame,
-  resolveTurn,
-} from '../engine/reducer'
+import { DIFFICULTIES, effectiveIntel, incomeFor, newGame, resolveTurn } from '../engine/reducer'
 import { turnRng } from '../engine/rng'
-import { COVERAGE_PER_DRONE, COVERAGE_PER_SAT, METER_CAP, assetPrice, coverage, maiScore } from '../engine/scoring'
-import type {
-  AssetBuy,
-  AssetKind,
-  CountermeasureId,
-  Difficulty,
-  GameState,
-  ResolvedEvent,
-  TrustTier,
-  TurnActions,
-} from '../engine/types'
+import { assetPrice, coverage } from '../engine/scoring'
+import { LAYERS, type AssetKind, type Difficulty, type GameState, type TrustTier, type TurnActions } from '../engine/types'
 
 import Wordmark from './Wordmark'
 import defeatSphereUrl from './assets/defeat-sphere.webp'
@@ -120,30 +109,33 @@ interface PlaybackSession {
   beats: Beat[]
 }
 
-// Plain-language effect of buying each asset kind, shown at the point of
-// purchase so the reason for every buy is legible.
-const assetEffects: Record<AssetKind, string> = {
-  sat: `+${COVERAGE_PER_SAT} coverage, ${DEPLOY_ETA.sat.min} to ${DEPLOY_ETA.sat.max} turns to orbit`,
-  rpoSat: `+${COVERAGE_PER_SAT} coverage, ${DEPLOY_ETA.rpoSat.min} to ${DEPLOY_ETA.rpoSat.max} turns to orbit; hosts the docking LiDAR (no extra effect in this build)`,
-  drone: `+${COVERAGE_PER_DRONE} coverage, deploys next turn; flies the LiDAR mapping sorties`,
-  groundStation: `no coverage, ${DEPLOY_ETA.groundStation.min} to ${DEPLOY_ETA.groundStation.max} turns to stand up; ground ops capacity with no game effect in this build`,
-}
-
 const btn =
   'font-mono border border-phosphor/60 text-phosphor px-3 py-1 hover:bg-phosphor/10 disabled:opacity-40 disabled:cursor-not-allowed'
-// Tiles take a press: the scale is motion-only, the border and background
-// carry the press for reduced motion (brief v0.5 section 6).
-// Posture detail's tones, by meaning rather than by position.
-const POSTURE_TONE: Record<PostureTone, string> = { dim: 'text-ink-dim', blue: 'text-hero-blue', amber: 'font-mono text-alert-amber' }
-const tileBtn = `dc-tile ${btn} active:bg-phosphor/20 active:border-phosphor`
-// A refused tile swaps its colour utilities rather than appending others:
-// Tailwind resolves a conflict by stylesheet order, not by class order.
-// The box is otherwise identical to tileBtn, so a refusal never changes
-// the tile's size and shifts the row.
-const tileBtnDenied =
-  'dc-tile font-mono border border-hero-magenta text-hero-magenta bg-hero-magenta/10 px-3 py-1'
 const panel = 'border border-phosphor/30 bg-panel p-3'
 const h2cls = 'font-mono font-bold text-phosphor uppercase tracking-widest text-sm'
+
+// THE BOARD'S CONTROLS (v1.2 R1). The confirm button in a sheet takes a
+// press: the scale is motion-only, the border and background carry the
+// press for reduced motion (brief v0.5 section 6). A refused control
+// swaps its colour utilities rather than appending others: Tailwind
+// resolves a conflict by stylesheet order, not by class order. The box is
+// otherwise identical, so a refusal never changes the control's size.
+const buyBtn = 'dc-tile font-display uppercase text-[10px] border-2 border-dc-go bg-dc-go/10 text-dc-go px-3 shadow-press active:shadow-none active:bg-dc-go/20'
+const buyBtnDenied = 'dc-tile font-display uppercase text-[10px] border-2 border-hero-magenta bg-hero-magenta/10 text-hero-magenta px-3'
+// The action bar's four sheet buttons and the two shapes of the fifth.
+const barBtn =
+  'dc-tile flex flex-col items-center justify-center gap-0.5 min-h-16 font-display text-[10px] border-2 border-dc-line bg-dc-panel text-dc-ink shadow-press active:shadow-none disabled:opacity-40 disabled:cursor-not-allowed'
+const barBtnOpen = `${barBtn} border-dc-friendly text-dc-friendly bg-dc-friendly/10`
+const barPrimary = `${barBtn} border-dc-go bg-dc-go/10 text-dc-go`
+
+// Which sheet is open. The sheet is presentation state, not a phase: the
+// v1.1 phases 'procure' and 'harden' still arrive from older autosaves and
+// save codes, and they open the matching sheet on a board at 'brief'.
+type Sheet = SheetId
+function arrive(phase: Phase | undefined): { phase: Phase; sheet: Sheet | null } {
+  if (phase === 'procure' || phase === 'harden') return { phase: 'brief', sheet: phase }
+  return { phase: phase ?? 'brief', sheet: null }
+}
 
 // Persistence singletons (R4). Local implementations behind the SaveStore
 // and ScoreSink interfaces; the remote seam is v2 and not imported.
@@ -189,7 +181,14 @@ function plannedCost(state: GameState, actions: TurnActions): number {
 
 export default function Game({ onExit, initial }: { onExit?: () => void; initial?: RestoredGame | null }) {
   const [state, setState] = useState<GameState | null>(initial?.state ?? null)
-  const [phase, setPhase] = useState<Phase>((initial?.phase as Phase) ?? 'brief')
+  const [phase, setPhase] = useState<Phase>(() => arrive(initial?.phase as Phase | undefined).phase)
+  const [sheet, setSheet] = useState<Sheet | null>(() => arrive(initial?.phase as Phase | undefined).sheet)
+  // Where each sheet is in its steps, and what PROCURE has picked so far.
+  const [step, setStep] = useState(1)
+  const [pick, setPick] = useState<ProcurePick>({})
+  const [surgePick, setSurgePick] = useState<string | undefined>(undefined)
+  // The tile whose full name and exact integrity the panel prints.
+  const [selectedTile, setSelectedTile] = useState<string | null>(null)
   const [actions, setActions] = useState<TurnActions>(EMPTY_ACTIONS)
   const [seedInput, setSeedInput] = useState(String(DEFAULT_SEED))
   const [difficulty, setDifficulty] = useState<Difficulty>('standard')
@@ -407,16 +406,43 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     }
   }, [glossaryFocus])
 
+  // Opening a sheet starts it at step one with nothing picked; the same
+  // button again closes it. The four sheets are exclusive.
+  const openSheet = (next: Sheet | null) => {
+    setSheet(next)
+    setStep(1)
+    setPick({})
+    setSurgePick(undefined)
+  }
+  const toggleSheet = (next: Sheet) => openSheet(sheet === next ? null : next)
+
+  // Escape closes the sheet, on a window listener like the glossary's,
+  // and not while the glossary is open: its own listener answers then.
+  useEffect(() => {
+    if (!sheet || glossaryFocus) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        openSheet(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [sheet, glossaryFocus])
+
   const beginGame = (next: GameState, nextPhase: Phase) => {
     // A loaded code that is already over was not played here, so it neither
     // posts a score nor clears the autosave of the campaign it interrupts.
     recordedRef.current = next.status !== 'playing'
+    const arrival = arrive(nextPhase)
     setState(next)
     setActions(EMPTY_ACTIONS)
     setPlayback(null)
     setPresented(null)
     setChosenSpend(0)
-    setPhase(nextPhase)
+    setPhase(arrival.phase)
+    openSheet(arrival.sheet)
+    setSelectedTile(null)
     setNotice('')
   }
 
@@ -433,6 +459,8 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     setPresented(null)
     setChosenSpend(0)
     setPhase('brief')
+    openSheet(null)
+    setSelectedTile(null)
     setSlots(saveStore.list())
     setNotice('')
   }
@@ -706,6 +734,8 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
       }
       setState(next)
       setActions(EMPTY_ACTIONS)
+      openSheet(null)
+      setSelectedTile(null)
       // The cart is gone, so the entry the cue pointed at is too.
       setArrived(null)
       if (!beats) {
@@ -726,6 +756,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
 
   // The engine is the authority on affordability; this keeps the cart
   // inside the same budget so the gate never has to refuse at resolve time.
+  const afforded = (kind: AssetKind, tier: TrustTier): boolean => cost + assetPrice(scenario, kind, tier) <= available
   const afford = (price: number, tileId: string): boolean => {
     if (cost + price <= available) return true
     // Every refusal in the phase comes through here, so the buzz does too:
@@ -766,220 +797,70 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     })
   }
 
-  const shortEventName = (id: string) => scenario.events.find((e) => e.id === id)?.name.split(' (')[0] ?? id
-
   // Surge authority (item 4): queue one live condition to be cleared when
   // the turn resolves. The reducer applies it before condition pressure, so
-  // a queued condition never presses again. Toggle to change the mind.
-  const toggleSurge = (instanceId: string) =>
-    setActions({ ...actions, spendSurgeOn: actions.spendSurgeOn === instanceId ? undefined : instanceId })
+  // a queued condition never presses again. Undo to change the mind.
+  const queueSurge = (instanceId: string | undefined) => setActions({ ...actions, spendSurgeOn: instanceId })
 
-  // Item 1 UI: active-conditions panel with per-condition elapsed counters.
-  // Only high intel estimates how many turns a condition has left; otherwise
-  // the remaining span stays hidden, as the mechanic intends.
-  const brief = briefCopy(shown)
-  const hud = hudLabels(shown)
+  // THE BOARD'S STATE, derived. During playback the panels follow the
+  // director's presented state, like the HUD, so a hit lands on the beat
+  // that applies it rather than at the engine's end state.
+  const deciding = phase !== 'playback' && phase !== 'aftermath'
   const showsDurationEstimate = effectiveIntel(shown) >= 3
-  const canSurge = state.surgeTokens > 0 && phase !== 'aftermath' && phase !== 'playback'
-  const activeConditions =
-    badges.length > 0 ? (
-      <div className="mt-2 border border-hero-magenta/40 bg-hero-magenta/5 p-2">
-        <p className="text-xs font-bold text-hero-magenta uppercase tracking-widest">
-          Active conditions ({shown.conditions.length || badges.length})
-        </p>
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {badges.map((c) => {
-            const queued = actions.spendSurgeOn === c.instanceId
-            // Counted from the engine's turn so the number does not jump when
-            // playback hands over to the aftermath.
-            const elapsed = state.turn - c.startedTurn
-            const def = scenario.events.find((e) => e.id === c.eventId)
-            const offerSurge = phases[c.instanceId] !== 'clearing' && (queued || (canSurge && !actions.spendSurgeOn))
-            return (
-              <ConditionBadge
-                key={c.instanceId}
-                condition={c}
-                layer={def?.layers[0]}
-                phase={phases[c.instanceId] ?? 'attached'}
-                elapsed={elapsed}
-                remainingEstimate={showsDurationEstimate ? c.remainingTurns : undefined}
-                queuedForSurge={queued}
-                onSurge={offerSurge ? () => toggleSurge(c.instanceId) : undefined}
-                surgeLabel={queued ? 'undo' : 'surge'}
-              />
-            )
-          })}
-        </div>
-      </div>
-    ) : null
-
-  // Item 6: say in plain words why damage landed and what was missing, with
-  // each counter's real worth. When everything applicable was owned, name
-  // the gate that made an owned defense inert rather than blaming base
-  // severity. state.counters after resolution reflects what was active.
-  const whatWouldHaveHelped = (ev: ResolvedEvent): string => {
-    const def = scenario.events.find((e) => e.id === ev.eventId)
-    if (!def) return ''
-    const missing = def.counters.filter((c) => !state.counters.includes(c))
-    if (missing.length > 0) {
-      const worth = (c: CountermeasureId): string => {
-        if (c === 'ssaManeuver' && def.effect.special === 'debrisStrike') {
-          return `cuts severity by ${MITIGATION_PER_COUNTER + SSA_MITIGATION_BONUS} when the maneuver budget is funded`
-        }
-        if (c === 'sensorFusion' && ev.chainBonus > 0) {
-          return `cuts severity by ${MITIGATION_PER_COUNTER} and removes the +${CHAIN_BONUS} chain bonus`
-        }
-        if (c === 'tierAAttestation') {
-          return `cuts severity by ${MITIGATION_PER_COUNTER} once at least a third of the sensored fleet flies Tier A`
-        }
-        return `cuts severity by ${MITIGATION_PER_COUNTER}`
+  const canSurge = deciding && state.surgeTokens > 0 && shown.conditions.length > 0
+  const surgeReason = !deciding ? '' : state.surgeTokens === 0 ? 'no tokens' : shown.conditions.length === 0 ? 'no conditions' : ''
+  const tiles = tilesByLayer(shown, actions.buyAssets)
+  // The queued tile that just slid in carries the manifest cue (brief
+  // section 4: "item slides into the manifest"); the manifest is the
+  // layer panel now.
+  for (const layer of LAYERS) {
+    for (const tile of tiles[layer]) {
+      if (tile.kind === 'queued') {
+        const i = tile.index
+        tile.cue = arrived?.index === i ? manifestCue : undefined
       }
-      const names = missing.map((c) => `${scenario.countermeasures.find((x) => x.id === c)?.name ?? c} (${worth(c)})`)
-      return `What would have helped: ${names.join('; ')}.`
     }
-    const sensored = state.assets.filter((a) => a.integrity > 0 && a.kind !== 'groundStation')
-    const tierAShare = sensored.length > 0 ? sensored.filter((a) => a.tier === 'A').length / sensored.length : 0
-    if (def.counters.includes('tierAAttestation') && tierAShare < TIER_A_FLEET_SHARE) {
-      return 'Firmware attestation was owned but inert: it bites once at least a third of the sensored fleet flies Tier A.'
-    }
-    if (def.effect.special === 'debrisStrike' && ev.mitigation < MITIGATION_PER_COUNTER + SSA_MITIGATION_BONUS) {
-      return 'SSA was owned but the maneuver budget could not cover the avoidance burn.'
-    }
-    return 'Every applicable defense was active. What landed is what the attack buys through them.'
   }
+  // Condition chips per layer (brief 4.3), from the one badge hook above,
+  // with elapsed time counted from the engine's turn so the number does
+  // not jump when playback hands over to the aftermath.
+  const chipsOn = (layer: (typeof LAYERS)[number]): ChipModel[] =>
+    conditionsOn(layer, badges, scenario).map((c) => ({
+      condition: c,
+      phase: phases[c.instanceId] ?? 'attached',
+      elapsed: state.turn - c.startedTurn,
+      remainingEstimate: showsDurationEstimate ? c.remainingTurns : undefined,
+      queuedForSurge: actions.spendSurgeOn === c.instanceId,
+    }))
+  const surgeOptions = shown.conditions.map((c) => ({
+    condition: c,
+    layers: scenario.events.find((e) => e.id === c.eventId)?.layers ?? [],
+    elapsed: state.turn - c.startedTurn,
+  }))
 
-  const statusPanel = (
-    <section className={`${panel} mt-4 font-mono`}>
-      <h2 className="sr-only">Posture</h2>
-      {/* Meters ease and count to their new values, with the tone carrying
-          the direction; MAI strobes while it sits under the win line
-          (brief v0.5 section 6). Reduced motion keeps the numbers and the
-          colour and drops the movement. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
-        <Readout
-          label={hud.mai}
-          value={maiScore(shown)}
-          max={METER_CAP}
-          warnBelow={scenario.winThreshold}
-          strobeOnWarn
-        />
-        {/* During the decision phases the ticker shows what the cart
-            leaves, so a buy ticks the number down as the brief asks; at
-            every other time it is the engine's balance. */}
-        <Readout
-          label={hud.credits}
-          value={phase === 'procure' || phase === 'harden' ? available - cost : shown.credits}
-          basis={phase === 'procure' || phase === 'harden' ? 'cart' : 'balance'}
-          chosen={phase === 'procure' || phase === 'harden'}
-          chosenDelta={chosenSpend}
-        />
-        <Readout label={hud.coverage} value={coverage(shown.assets)} max={METER_CAP} />
-        <Readout label={hud.link} value={shown.meters.linkAvailability} max={METER_CAP} />
-        <Readout label={hud.data} value={shown.meters.dataIntegrity} max={METER_CAP} />
-        <Readout label={hud.sensor} value={shown.meters.sensorIntegrity} max={METER_CAP} />
-      </div>
-      <p className="mt-2 text-xs text-ink-dim">
-        {hudStatusLine(shown, DIFFICULTIES[shown.difficulty].label, displayTurn)}
-      </p>
-      <details className="mt-1 text-sm font-sans text-ink-dim">
-        <summary className="cursor-pointer">What these numbers mean</summary>
-        <ul className="list-disc ml-6 mt-1 text-ink">
-          <li>
-            MAI: overall mission health, a weighted blend of Coverage, Link, Data, and Sensor. Finish at{' '}
-            {scenario.winThreshold} or higher to win. Below {scenario.collapseThreshold} at any point, the mission
-            collapses.
-          </li>
-          <li>
-            Coverage: how much of the mission area the fleet can see, capped at 100. Each sat adds{' '}
-            {COVERAGE_PER_SAT}, each drone {COVERAGE_PER_DRONE}. At {scenario.slaBonus.coverageMin} or more, the
-            coverage SLA pays +{scenario.slaBonus.credits} credits a turn.
-          </li>
-          <li>Link: command and data links available. Jamming, link intrusion, and time spoofing drive it down.</li>
-          <li>
-            Data: mission data you can trust, kept confidential and intact. Ransomware, phishing, replay,
-            eavesdropping, insider exfiltration, firmware implants, and the BLACKOUT CHAIN drive it down.
-          </li>
-          <li>
-            Sensor: sensors telling the truth. LiDAR dazzle, injection and blinding, GNSS spoofing, training-data
-            poisoning, firmware implants, and the BLACKOUT CHAIN drive it down.
-          </li>
-          <li>
-            Damaged meters recover +{scenario.recovery.base} a turn, or +{scenario.recovery.withIrRetainer} with the
-            incident response retainer.
-          </li>
-          <li>
-            Credits: the budget. Income +{incomeFor(shown.difficulty, scenario.incomePerTurn)} a turn plus any SLA bonus. Repairs come out of it,
-            and below zero the program folds.
-          </li>
-          <li>
-            Conditions: some attacks (jamming, spoofing, eavesdropping, ransomware) stay active for a hidden{' '}
-            {conditionDurationRange}, pressing the meters every turn until they lift. They stack.
-          </li>
-          <li>
-            Surge authority: hold one or more (cap {SURGE_TOKEN_CAP}). Spend one in any decision phase to clear a
-            condition. Earn one by holding the win line under two or more conditions; the IR retainer grants one on
-            purchase.
-          </li>
-          <li>
-            Commendations: end a turn at or above the win line with conditions active, or fully counter an attack, for
-            credit and, under heavier pressure, meter bonuses.
-          </li>
-          <li>Deployments arrive after a lead time; sats can slip a turn. Watch the in-transit line.</li>
-        </ul>
-      </details>
-      {shown.flags.lidarFallback && (
-        <details className="mt-2 border border-hero-magenta/60 bg-hero-magenta/10 p-2">
-          <summary className="cursor-pointer font-bold text-hero-magenta">{CHAIN_ARMED_LINE}</summary>
-          <p className="mt-1 text-sm text-hero-magenta">
-            GNSS is jammed, so the next LiDAR attack lands harder (+{CHAIN_BONUS} severity) unless sensor fusion
-            cross-checks are in place or every drone flies Tier A sensors.
-          </p>
-        </details>
-      )}
-      {/* Reading diet (brief v0.5 section 5): the fleet, the countermeasure
-          list, the in-transit line and the surge detail are reference, not
-          the decision, so they sit one tap away rather than on screen
-          before the first input. */}
-      <details className="mt-2">
-        <summary className="cursor-pointer font-mono text-xs text-phosphor">Posture detail</summary>
-        {/* Round 7: the lines come from postureDetailLines in ui/brief.ts,
-            so the word budget sweeps every state instead of a handful, and
-            the fleet is grouped by kind and tier rather than listed asset
-            by asset, which had no upper bound. */}
-        {postureDetailLines(shown).map((line, i) => (
-          <p key={i} data-posture-tone={line.tone} className={`${i === 0 ? 'mt-2' : 'mt-1'} text-xs ${POSTURE_TONE[line.tone]}`}>
-            {line.text}
-          </p>
-        ))}
-      </details>
-      {activeConditions}
-      {/* Saving and exporting belong to a campaign in progress; muting does
-          not. The toggles rode this row when it was first built and
-          vanished the moment the engine returned won or lost, which is
-          exactly when the longest cues of the whole game play: the
-          deciding turn's playback runs with status already decided, so a
-          player reaching the BLACKOUT CHAIN or the defeat sting had no
-          mute control on screen and no way back to one short of starting
-          a new campaign. Principle 4 calls the effects toggle an
-          accessibility path, and an accessibility path that disappears at
-          the loudest moment is not one. */}
-      <div className="mt-2 flex flex-wrap items-center gap-2 pt-2 border-t border-phosphor/15">
-        {state.status === 'playing' && (
-          <>
-            <button className={`${btn} text-xs py-0.5`} onClick={saveSlot}>
-              Save
-            </button>
-            <button className={`${btn} text-xs py-0.5`} onClick={exportCode}>
-              Export code
-            </button>
-          </>
-        )}
-        <SoundToggles prefs={soundPrefs} onChange={setSoundPrefs} />
-        {state.status === 'playing' && <span className="text-xs text-ink-dim">Autosaved each turn.</span>}
-      </div>
-      {notice && <p className="mt-1 font-mono text-xs text-alert-amber">{notice}</p>}
-    </section>
+  // The spend line every decision sheet carries. It is the element the
+  // cannot-afford flash lands on (brief v0.5 section 6).
+  const spendLine = (
+    <p className={`text-xs font-mono text-dc-muted ${denialFlash}`}>
+      Planned spend: {cost} of {available} credits available (current {state.credits} plus {turnIncome} turn income).
+    </p>
   )
+  // The colour channel of a refusal, which survives reduced motion; the
+  // shake is the motion channel. Both on the control that was touched.
+  const deniedTile = (id: string) => (denied?.id === id ? `${denialShake} border-hero-magenta/60` : 'border-transparent')
+
+  // The confirm step's control. The refused buy swaps its classes (see
+  // buyBtnDenied) and shakes.
+  const buyClass = pick.kind && pick.tier && denied?.id === `${pick.kind}-${pick.tier}` ? `${buyBtnDenied} ${denialShake}` : buyBtn
+  const buyPicked = () => {
+    if (!pick.kind || !pick.tier) return
+    const ok = afforded(pick.kind, pick.tier)
+    addAsset(pick.kind, pick.tier)
+    // A buy closes the sheet, so the queued tile is seen sliding into its
+    // layer. A refused one stays on the confirm step, so the refusal is
+    // seen on the control that was pressed.
+    if (ok) openSheet(null)
+  }
 
   // The deciding turn's playback and aftermath still render before the
   // report card, exactly as the aftermath alone did in v1.0.
@@ -1115,313 +996,42 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     )
   }
 
+  const displayRecord = phase === 'aftermath' && lastRecord ? lastRecord : null
+  const sheetOpen = sheet !== null
+
   return (
     <>
       {/* The game, marked inert while the overlay is open. aria-modal is a
           promise to a screen reader that nothing behind the dialog is
-          reachable; inert is what keeps it. */}
+          reachable; inert is what keeps it. The pinned chrome and the
+          sheets all sit inside this landmark for the same reason. */}
       <main
-        className="min-h-screen p-4 sm:p-8 max-w-3xl mx-auto"
+        className="relative flex flex-1 min-h-0 w-full max-w-[560px] mx-auto flex-col overflow-hidden bg-dc-ground text-dc-ink"
         {...(glossaryFocus ? { inert: true, 'aria-hidden': true } : {})}
       >
-      <div className="flex items-center justify-between gap-2">
-        <h1>
-          <Wordmark size="clamp(0.6rem, 3vw, 1.4rem)" />
-        </h1>
-        {onExit && (
-          <button className={`${btn} text-sm`} onClick={onExit}>
-            Back to menu
-          </button>
-        )}
-      </div>
-      {statusPanel}
-
-      {phase === 'brief' && (
-        <section className="mt-4">
-          <h2 className={h2cls}>1. Intel brief, turn {state.turn}</h2>
-          {/* Reading diet (brief v0.5 section 5): a headline of eight words
-              or fewer, one threat-vector line, and the technique tag. The
-              full forecast is one tap away, and the turn-1 job framing sits
-              with it rather than in front of the first decision. */}
-          <div className="mt-2">
-            <TransmissionBar cueKey={state.turn}>
-              <p className="mt-1 font-mono text-base sm:text-lg text-phosphor">
-                <Teletype text={brief.headline} cueKey={state.turn} />
-              </p>
-            </TransmissionBar>
-            <p className="mt-2 text-sm">{brief.vector}</p>
-            {brief.tag && (
-              <p className="mt-1 font-mono text-xs text-ink-dim">
-                Technique:{' '}
-                {/* OPENS THE GLOSSARY ENTRY, not the framework site (brief
-                    section 5, and principle 1: "the GLOSSARY remains the
-                    deep-reading layer"). Until Round 6e this was an external
-                    anchor with target=_blank, which sent the player out of
-                    the game on their first hop; the citation it went to is
-                    still one tap away, on the entry itself.
-                    The tag text IS the glossary key, both built by
-                    techniqueLabel, so this resolves by construction. */}
-                <button
-                  type="button"
-                  className="underline text-ink hover:text-phosphor"
-                  data-technique-tag={brief.tag}
-                  onClick={() => setGlossaryFocus(brief.tag ?? null)}
-                >
-                  {brief.tag}
-                </button>
-              </p>
-            )}
-            <details className="mt-3 border border-phosphor/20 bg-panel p-2">
-              <summary className="cursor-pointer font-mono text-xs text-phosphor">Expand full brief</summary>
-              {/* Round 7b: `brief.full`, not `state.forecast.lines`. The
-                  field existed on six branches of briefCopy and was read by
-                  nobody while this reached past it to the engine's own
-                  prose, which below top intel was a re-wording of the
-                  summary above it. It also matters that state.forecast
-                  rides inside save codes: an engine-side prose fix would
-                  never reach a campaign restored from an older code. */}
-              {/* Round 7: the turn-1 job renders under its own heading,
-                  numbered, ABOVE the posture list rather than merged into
-                  it. Folding it into one bullet list ran the player's
-                  instructions straight into their fleet status at 375px. */}
-              {brief.framing.length > 0 && (
-                <div className="mt-2">
-                  <p className={h2cls}>{JOB_FRAMING_HEADING}</p>
-                  {brief.framing.map((line, i) => (
-                    <p key={i} className={i === brief.framing.length - 1 ? 'mt-1 text-ink-dim' : 'mt-1'}>
-                      {line}
-                    </p>
-                  ))}
-                </div>
-              )}
-              <ul className="list-disc ml-6 mt-2 font-mono text-sm">
-                {brief.full.map((line, i) => (
-                  <li key={i}>{line}</li>
-                ))}
-              </ul>
-            </details>
-          </div>
-          <button className={`${btn} mt-4`} onClick={() => setPhase('procure')}>
-            To procurement
-          </button>
-        </section>
-      )}
-
-      {phase === 'procure' && (
-        <section className="mt-4">
-          <h2 className={h2cls}>2. Procure and deploy</h2>
-          <p className={`mt-2 text-sm font-mono ${denialFlash}`}>
-            Planned spend: {cost} of {available} credits available (current {state.credits} plus {turnIncome} turn
-            income).
-          </p>
-          <ul className="mt-2">
-            {(['sat', 'rpoSat', 'drone', 'groundStation'] as AssetKind[]).map((kind) => (
-              <li key={kind} className="mt-2">
-                {kindLabels[kind]} <span className="text-ink-dim text-sm">({assetEffects[kind]})</span>:{' '}
-                {(kind === 'groundStation' ? (['B'] as TrustTier[]) : (['B', 'A'] as TrustTier[])).map((tier) => (
-                  <button
-                    key={tier}
-                    className={`${denied?.id === `${kind}-${tier}` ? `${tileBtnDenied} ${denialShake}` : tileBtn} ml-2 text-sm`}
-                    onClick={() => addAsset(kind, tier)}
-                  >
-                    {kind === 'groundStation'
-                      ? `Buy (${assetPrice(scenario, kind, tier)})`
-                      : `Buy Tier ${tier} (${assetPrice(scenario, kind, tier)})`}
-                  </button>
-                ))}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-sm text-ink-dim">
-            Tier B sensor packages are cheap with a hidden supply-chain risk: only Tier B hardware can host the
-            firmware implant. Tier A packages cost more on sats and drones, are immune to the implant, and an all
-            Tier A drone fleet breaks the BLACKOUT CHAIN. Ground stations carry no sensor package.
-          </p>
-          {actions.buyAssets.length > 0 && (
-            <ul className="list-disc ml-6 mt-2 font-mono text-sm text-hero-blue">
-              {actions.buyAssets.map((buy: AssetBuy, i: number) => (
-                <li key={i} className={arrived?.index === i ? manifestCue : undefined}>
-                  {kindLabels[buy.kind]} Tier {buy.tier} ({assetPrice(scenario, buy.kind, buy.tier)}){' '}
-                  <button className={`${btn} px-1 py-0 text-xs`} onClick={() => removeAsset(i)}>
-                    remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {/* The refusal has to be attributable to the control the player
-              touched, which means this tile has to carry it: afford() sets
-              denied.id to 'intel' here, and nothing in the tree matched
-              that id, so a refused intel upgrade buzzed and flashed the
-              spend line while the control itself sat still.
-              TWO channels, not one. The shake is motion and disappears
-              under the preference; the border is colour and does not,
-              which is how every other refusable control in this component
-              already works (the fleet tiles swap to tileBtnDenied, the
-              countermeasure tiles add a magenta border). The first version
-              of this fix carried the shake alone, so it did nothing at all
-              for a reduced-motion player, in the round that made reduced
-              motion a first-class path. */}
-          <p
-            className={`mt-2 dc-tile ${
-              denied?.id === 'intel' ? `${denialShake} border border-hero-magenta/60` : 'border border-transparent'
-            }`}
-          >
-            <label>
-              <input
-                type="checkbox"
-                checked={actions.buyIntelLevel}
-                disabled={state.intelLevel >= 3}
-                onChange={(e) => {
-                  const intelPrice = state.intelLevel !== 3 ? scenario.prices.intelLevels[state.intelLevel] : 0
-                  if (e.target.checked && !afford(intelPrice, 'intel')) return
-                  play('buy-click')
-                  setActions({ ...actions, buyIntelLevel: e.target.checked })
-                }}
-              />{' '}
-              Raise intel to level {Math.min(3, state.intelLevel + 1)} (
-              {state.intelLevel !== 3 ? scenario.prices.intelLevels[state.intelLevel] : 'maxed'}) for a sharper
-              forecast of the coming turn
-            </label>
-          </p>
-          <button className={`${btn} mt-4`} onClick={() => setPhase('harden')}>
-            To hardening
-          </button>
-        </section>
-      )}
-
-      {phase === 'harden' && (
-        <section className="mt-4">
-          <h2 className={h2cls}>3. Harden and configure</h2>
-          <p className={`mt-2 text-sm font-mono ${denialFlash}`}>
-            Planned spend: {cost} of {available} credits available (current {state.credits} plus {turnIncome} turn
-            income).
-          </p>
-          <ul className="mt-2">
-            {scenario.countermeasures
-              .filter((cm) => cm.id !== 'intelInvestment' && cm.id !== 'irRetainer')
-              .map((cm) => (
-                <li
-                  key={cm.id}
-                  className={`dc-tile mt-3 border border-transparent p-1 ${
-                    denied?.id === `cm-${cm.id}` ? `${denialShake} border-hero-magenta/60` : ''
-                  } ${actions.buyCounters.includes(cm.id) ? 'border-hero-blue/40 bg-hero-blue/5' : ''}`}
-                >
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={state.counters.includes(cm.id) || actions.buyCounters.includes(cm.id)}
-                      disabled={state.counters.includes(cm.id)}
-                      onChange={() => toggleCounter(cm.id)}
-                    />{' '}
-                    {cm.name} ({cm.cost})
-                    {state.counters.includes(cm.id) && <span className="text-hero-blue font-mono"> [ACTIVE]</span>}
-                  </label>
-                  <p className="text-sm ml-6 text-hero-blue">
-                    Answers: {cm.counters.map((id) => shortEventName(id)).join(', ') || 'posture-wide'}
-                  </p>
-                  <p className="text-sm ml-6 text-ink-dim">{cm.blurb}</p>
-                  {cm.spartaCms.length > 0 && (
-                    <p className="ml-6 font-mono text-xs text-ink-dim">
-                      SPARTA:{' '}
-                      {cm.spartaCms.map((ref, j) => (
-                        <span key={ref.id}>
-                          {j > 0 ? '; ' : ''}
-                          <a className="underline" href={ref.url} target="_blank" rel="noreferrer">
-                            {ref.id} {ref.name}
-                          </a>{' '}
-                          ({ref.tier})
-                        </span>
-                      ))}
-                    </p>
-                  )}
-                </li>
-              ))}
-            {/* Same as the intel tile, including the colour channel that
-                survives reduced motion: afford() sets denied.id to
-                'cm-irRetainer' and the countermeasure list filters this one
-                out, so nothing carried the refusal for it. */}
-            <li
-              className={`mt-3 dc-tile ${
-                denied?.id === 'cm-irRetainer'
-                  ? `${denialShake} border border-hero-magenta/60`
-                  : 'border border-transparent'
-              }`}
-            >
-              <label>
-                <input
-                  type="checkbox"
-                  checked={state.irRetainer || actions.buyIrRetainer}
-                  disabled={state.irRetainer}
-                  onChange={(e) => {
-                    const price = scenario.countermeasures.find((c) => c.id === 'irRetainer')?.cost ?? 0
-                    if (e.target.checked && !afford(price, 'cm-irRetainer')) return
-                    play('buy-click')
-                    setActions({ ...actions, buyIrRetainer: e.target.checked })
-                  }}
-                />{' '}
-                Incident response retainer (
-                {scenario.countermeasures.find((c) => c.id === 'irRetainer')?.cost}
-                ){state.irRetainer && <span className="text-hero-blue font-mono"> [ACTIVE]</span>}
-              </label>
-              <p className="text-sm ml-6 text-hero-blue">
-                Answers: everything, indirectly. Every damaged meter recovers +{scenario.recovery.withIrRetainer} a
-                turn instead of +{scenario.recovery.base}.
-              </p>
-              {(scenario.countermeasures.find((c) => c.id === 'irRetainer')?.spartaCms ?? []).length > 0 && (
-                <p className="ml-6 font-mono text-xs text-ink-dim">
-                  SPARTA:{' '}
-                  {(scenario.countermeasures.find((c) => c.id === 'irRetainer')?.spartaCms ?? []).map((ref, j) => (
-                    <span key={ref.id}>
-                      {j > 0 ? '; ' : ''}
-                      <a className="underline" href={ref.url} target="_blank" rel="noreferrer">
-                        {ref.id} {ref.name}
-                      </a>{' '}
-                      ({ref.tier})
-                    </span>
-                  ))}
-                </p>
-              )}
-            </li>
-          </ul>
-          {!affordable && (
-            <p className="mt-2 font-bold font-mono text-alert-amber">Planned spend exceeds credits. Trim the cart.</p>
-          )}
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {/* The turn is the one irreversible action in the game, so it
-                asks for a deliberate gesture rather than a tap that can
-                land by accident on a phone (brief section 4). A keyboard
-                or assistive activation fires at once. */}
-            <HoldButton
-              className={`${tileBtn} min-h-11 px-4`}
-              disabled={!affordable}
-              onConfirm={resolve}
-              label={`4. Hold to resolve turn ${state.turn}`}
-              holdingLabel={`Hold... resolving turn ${state.turn}`}
-            />
-            <button className={tileBtn} onClick={() => setPhase('procure')}>
-              Back to procurement
-            </button>
-          </div>
-          {/* The adversary phase plays back beat by beat unless the speed is
-              instant, which resolves straight to the aftermath as v1.0 did.
-              The control lives here as well as in the playback view, because
-              instant never mounts that view and would otherwise be a choice
-              with no way back. */}
-          <div className="mt-3 pt-3 border-t border-phosphor/15">
-            <SpeedSelect speed={speed} onChange={setSpeed} />
-            <p className="mt-1 font-mono text-xs text-ink-dim">
-              {speed === 'instant'
-                ? 'Results appear at once, with no beat-by-beat playback.'
-                : 'The adversary phase plays out beat by beat. Tap to advance, or skip at any point.'}
-            </p>
-          </div>
-        </section>
-      )}
-
-      {/* The adversary phase enters through a dim. It plays on the way in
-          and blocks nothing: the engine resolved the turn before this
-          renders (principle 3). */}
+      <Hud
+        shown={shown}
+        displayTurn={displayTurn}
+        credits={{
+          // During the decision the ticker shows what the cart leaves, so
+          // a buy ticks the number down as the brief asks; at every other
+          // time it is the engine's balance. A buy is a decision, not
+          // damage, so the tone is dropped while the player is choosing.
+          value: deciding ? available - cost : shown.credits,
+          basis: deciding ? 'cart' : 'balance',
+          chosen: deciding,
+          chosenDelta: chosenSpend,
+        }}
+      />
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* Keyed on the PRESENTED turn, so the teletype runs once when a
+            turn's transmission arrives and not again when the engine's
+            turn advances under a playback that is still showing this one. */}
+        <ThreatBanner shown={shown} cueKey={shown.turn} onTag={(tag) => setGlossaryFocus(tag)} />
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1.5 flex flex-col gap-1.5">
+          {/* The adversary phase enters through a dim. It plays on the
+              way in and blocks nothing: the engine resolved the turn
+              before this renders (principle 3). */}
       {phase === 'playback' && playback && (
         <div className={phaseDim}>
           <DirectorView
@@ -1435,131 +1045,194 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
           />
         </div>
       )}
-
-      {phase === 'aftermath' && lastRecord && (
-        <section className="mt-4">
-          <h2 className={h2cls}>5. Aftermath, turn {lastRecord.turn}</h2>
-          {/* The playback was the report, so the aftermath opens on one
-              verdict line; the engine's full ledger is one tap away (brief
-              v0.5 section 5). */}
-          <p className="mt-2 text-base text-ink">{verdictFor(lastRecord, scenario)}</p>
-          {lastRecord.commendations.length > 0 && (
-            <div
-              className={`mt-2 border border-hero-blue/50 bg-hero-blue/5 p-2 ${reducedMotion ? '' : 'dc-ribbon-in'}`}
-            >
-              <p className="text-xs font-bold text-hero-blue uppercase tracking-widest">Commendations</p>
-              {lastRecord.commendations.map((c, i) => (
-                <p key={i} className="text-sm mt-1 text-hero-blue">
-                  {c}
-                </p>
-              ))}
-            </div>
+          {displayRecord && (
+            <AftermathCard record={displayRecord} state={state} scenario={scenario} reducedMotion={reducedMotion} ledgerOpen={speed === 'instant'} />
           )}
-          {/* The playback was the report; the per-event ledger with its
-              severity math, counterfactuals and citations stays one tap
-              away (brief v0.5 section 5). */}
-          {/* At instant speed there was no playback, so the aftermath is
-              the only report of the turn and opens with the ledger already
-              expanded. */}
-          <details className="mt-2 border border-phosphor/20 bg-panel p-2" open={speed === 'instant'}>
-            <summary className="cursor-pointer font-mono text-xs text-phosphor">
-              Details: turn ledger ({lastRecord.events.length} event{lastRecord.events.length === 1 ? '' : 's'},{' '}
-              {lastRecord.notes.length} note{lastRecord.notes.length === 1 ? '' : 's'})
-            </summary>
-            {lastRecord.notes.map((n, i) => (
-              <p key={i} className="mt-1 font-mono text-sm">
-                {n}
-              </p>
-            ))}
-            {lastRecord.events.length === 0 && <p className="mt-2">No adversary activity this turn.</p>}
-            {lastRecord.events.map((ev, i) => {
-              const def = scenario.events.find((e) => e.id === ev.eventId)
-              const isOpportunity = (def?.kind ?? 'threat') === 'opportunity'
-              const landed = ev.effectiveSeverity > 0
-              if (isOpportunity) {
-                return (
-                  <div key={i} className="border p-3 mt-2 border-hero-blue/50 bg-hero-blue/5">
-                    <h3 className="font-bold font-mono text-hero-blue">Opportunity: {ev.name}</h3>
-                    {ev.notes.map((n, j) => (
-                      <p key={j} className="text-sm mt-1 text-hero-blue">
-                        {n}
-                      </p>
-                    ))}
-                    {def && <p className="text-sm mt-1 text-ink-dim">{def.blurb}</p>}
-                  </div>
-                )
-              }
-              return (
-                <div
-                  key={i}
-                  className={`border p-3 mt-2 ${landed ? 'border-hero-magenta/50 bg-hero-magenta/5' : 'border-phosphor/30 bg-panel'}`}
-                >
-                  <h3 className="font-bold font-mono flex items-center gap-2">
-                    {def && <img src={vectorIcons[def.vector]} alt="" aria-hidden="true" className="w-6 h-6" />}
-                    <span className={landed ? 'text-hero-magenta' : 'text-phosphor'}>{ev.name}</span>
-                    <span className="ml-auto flex gap-2">
-                      {def?.layers.map((layer) => (
-                        <span key={layer} className="flex flex-col items-center">
-                          <img src={layerBadges[layer]} alt="" className="h-7 w-auto" />
-                          <span className="font-mono text-[9px] text-ink-dim leading-none mt-0.5">{layer}</span>
-                        </span>
-                      ))}
-                    </span>
-                  </h3>
-                  <p className={`text-sm font-mono mt-1 ${landed ? 'text-hero-magenta' : 'text-ink-dim'}`}>
-                    Severity {ev.baseSeverity} base {ev.chainBonus > 0 ? `+ ${ev.chainBonus} chain ` : ''}
-                    {ev.mitigation > 0 ? `- ${ev.mitigation} mitigated ` : ''}= {ev.effectiveSeverity} effective.
-                    {ev.repairCost > 0 ? ` Repairs: ${ev.repairCost} credits.` : ''}
-                  </p>
-                  {ev.notes.map((n, j) => (
-                    <p key={j} className="text-sm mt-1">
-                      {n}
-                    </p>
-                  ))}
-                  {landed && <p className="text-sm mt-1 font-bold text-alert-amber">{whatWouldHaveHelped(ev)}</p>}
-                  {ev.firedTechniqueRefs.length > 0 && (
-                    <p className="text-sm mt-1">
-                      Techniques:{' '}
-                      {ev.firedTechniqueRefs.map((ref, j) => (
-                        <span key={j}>
-                          {j > 0 ? '; ' : ''}
-                          <a className="underline text-ink" href={ref.url} target="_blank" rel="noreferrer">
-                            {techniqueLabel(ref)}, {ref.name}
-                          </a>{' '}
-                          <span className="text-ink-dim font-mono text-xs">[{ref.status}]</span>
-                        </span>
-                      ))}
-                    </p>
-                  )}
-                  {(def?.learnMoreCards ?? []).map((card, j) => (
-                    <details key={j} className="mt-2 border border-phosphor/20 bg-panel p-2">
-                      <summary className="cursor-pointer text-sm font-mono text-phosphor">
-                        Learn more: {card.title}
-                      </summary>
-                      <p className="text-sm mt-2">{card.body}</p>
-                      <ul className="list-disc ml-6 mt-2 text-sm">
-                        {card.sources.map((src, k) => (
-                          <li key={k}>
-                            <a className="underline text-ink" href={src.url} target="_blank" rel="noreferrer">
-                              {src.title}
-                            </a>{' '}
-                            <span className="text-ink-dim font-mono text-xs">
-                              [{src.type}] [{src.status}]
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                  ))}
-                </div>
-              )
-            })}
-          </details>
-          <button className={`${btn} mt-4`} onClick={nextTurn}>
-            {state.status === 'playing' ? `To turn ${state.turn} intel brief` : 'View final report'}
+          {LAYERS.map((layer) => (
+            <LayerPanel
+              key={layer}
+              layer={layer}
+              tiles={tiles[layer]}
+              chips={chipsOn(layer)}
+              defenses={defensesOn(layer, shown.counters, scenario)}
+              selectedKey={selectedTile}
+              onSelect={setSelectedTile}
+              onRemoveQueued={removeAsset}
+            />
+          ))}
+          <BoardReference shown={shown} conditionDurationRange={conditionDurationRange} />
+          {/* Saving and exporting belong to a campaign in progress; muting
+              does not. The toggles vanished with the old save row the
+              moment the engine returned won or lost, which is exactly when
+              the longest cues of the whole game play: principle 4 calls
+              the effects toggle an accessibility path, and one that
+              disappears at the loudest moment is not one. */}
+          <div className="flex flex-wrap items-center gap-2 border-t-2 border-dc-line pt-2 pb-2">
+            {state.status === 'playing' && (
+              <>
+                <button className={`${btn} text-xs min-h-11`} onClick={saveSlot}>
+                  Save
+                </button>
+                <button className={`${btn} text-xs min-h-11`} onClick={exportCode}>
+                  Export code
+                </button>
+              </>
+            )}
+            {onExit && (
+              <button className={`${btn} text-xs min-h-11`} onClick={onExit}>
+                Back to menu
+              </button>
+            )}
+            <SoundToggles prefs={soundPrefs} onChange={setSoundPrefs} />
+            {/* The adversary phase plays back beat by beat unless the speed
+                is instant, which resolves straight to the aftermath as v1.0
+                did. The control lives here as well as in the playback view,
+                because instant never mounts that view and would otherwise
+                be a choice with no way back. */}
+            <SpeedSelect speed={speed} onChange={setSpeed} />
+          </div>
+          {notice && <p className="font-mono text-xs text-alert-amber">{notice}</p>}
+        </div>
+        {/* THE SHEETS (brief 4.4), over the dimmed board and under the
+            action bar, which stays live so the next action is one tap
+            away from inside any sheet. The backdrop closes the sheet. */}
+        {sheetOpen && <button type="button" aria-label="Close sheet" className="absolute inset-0 z-20 bg-dc-ground/80" onClick={() => openSheet(null)} />}
+        {sheet === 'procure' && (
+          <ProcureSheet
+            scenario={scenario}
+            step={step}
+            pick={pick}
+            onKind={(kind) => {
+              setPick({ kind })
+              setStep(2)
+            }}
+            onTier={(tier) => {
+              setPick((p) => ({ ...p, tier }))
+              setStep(3)
+            }}
+            onBuy={buyPicked}
+            onBack={() => setStep((n) => Math.max(1, n - 1))}
+            onClose={() => openSheet(null)}
+            buyClass={buyClass}
+            spendLine={spendLine}
+          />
+        )}
+        {sheet === 'harden' && (
+          <HardenSheet
+            scenario={scenario}
+            state={state}
+            queued={actions.buyCounters}
+            step={step}
+            onToggle={toggleCounter}
+            onNext={() => setStep(Math.min(HARDEN_STEPS, step + 1))}
+            onBack={() => setStep((n) => Math.max(1, n - 1))}
+            onClose={() => openSheet(null)}
+            deniedClassFor={(id) => deniedTile(`cm-${id}`)}
+            spendLine={spendLine}
+          />
+        )}
+        {sheet === 'intel' && (
+          <IntelSheet
+            scenario={scenario}
+            state={state}
+            actions={actions}
+            step={step}
+            onIntel={(checked) => {
+              const intelPrice = state.intelLevel !== 3 ? scenario.prices.intelLevels[state.intelLevel] : 0
+              if (checked && !afford(intelPrice, 'intel')) return
+              play('buy-click')
+              setActions({ ...actions, buyIntelLevel: checked })
+            }}
+            onRetainer={(checked) => {
+              const price = scenario.countermeasures.find((c) => c.id === 'irRetainer')?.cost ?? 0
+              if (checked && !afford(price, 'cm-irRetainer')) return
+              play('buy-click')
+              setActions({ ...actions, buyIrRetainer: checked })
+            }}
+            onNext={() => setStep(Math.min(INTEL_STEPS, step + 1))}
+            onBack={() => setStep((n) => Math.max(1, n - 1))}
+            onClose={() => openSheet(null)}
+            intelClass={deniedTile('intel')}
+            retainerClass={deniedTile('cm-irRetainer')}
+            spendLine={spendLine}
+          />
+        )}
+        {sheet === 'surge' && (
+          <SurgeSheet
+            options={surgeOptions}
+            tokens={state.surgeTokens}
+            queuedId={actions.spendSurgeOn}
+            step={step}
+            pickedId={surgePick}
+            onPick={(id) => {
+              setSurgePick(id)
+              setStep(2)
+            }}
+            onConfirm={() => {
+              queueSurge(surgePick)
+              openSheet(null)
+            }}
+            onUndo={() => queueSurge(undefined)}
+            onBack={() => setStep((n) => Math.max(1, n - 1))}
+            onClose={() => openSheet(null)}
+          />
+        )}
+      </div>
+      {/* THE ACTION BAR (brief 4.1), pinned, five buttons of 60px or more.
+          The fifth is the one irreversible action in the game, so it asks
+          for a deliberate gesture rather than a tap that can land by
+          accident on a phone; a keyboard or assistive activation fires at
+          once. After playback it becomes the way to the next turn. */}
+      <nav aria-label="Actions" className="flex-none border-t-2 border-dc-line bg-dc-chrome px-safe pb-safe">
+        <div className="grid grid-cols-5 gap-1 p-1">
+          <button type="button" className={sheet === 'procure' ? barBtnOpen : barBtn} aria-expanded={sheet === 'procure'} disabled={!deciding} onClick={() => toggleSheet('procure')}>
+            PROCURE
+            {actions.buyAssets.length > 0 && <span className="font-mono text-[10px] text-dc-friendly">{actions.buyAssets.length} queued</span>}
           </button>
-        </section>
-      )}
+          <button type="button" className={sheet === 'harden' ? barBtnOpen : barBtn} aria-expanded={sheet === 'harden'} disabled={!deciding} onClick={() => toggleSheet('harden')}>
+            HARDEN
+            {actions.buyCounters.length > 0 && <span className="font-mono text-[10px] text-dc-friendly">{actions.buyCounters.length} queued</span>}
+          </button>
+          <button type="button" className={sheet === 'intel' ? barBtnOpen : barBtn} aria-expanded={sheet === 'intel'} disabled={!deciding} onClick={() => toggleSheet('intel')}>
+            INTEL
+            {(actions.buyIntelLevel || actions.buyIrRetainer) && <span className="font-mono text-[10px] text-dc-friendly">queued</span>}
+          </button>
+          <button
+            type="button"
+            className={sheet === 'surge' ? barBtnOpen : barBtn}
+            aria-expanded={sheet === 'surge'}
+            disabled={!canSurge && !actions.spendSurgeOn}
+            onClick={() => toggleSheet('surge')}
+          >
+            SURGE
+            <span className="font-mono text-[10px] text-dc-muted">{actions.spendSurgeOn ? 'queued' : surgeReason || `${state.surgeTokens} token${state.surgeTokens === 1 ? '' : 's'}`}</span>
+          </button>
+          {deciding ? (
+            <HoldButton
+              className={barPrimary}
+              disabled={!affordable}
+              onConfirm={resolve}
+              label={
+                <>
+                  <span aria-hidden="true">RESOLVE</span>
+                  <span className="sr-only">Hold to resolve turn {state.turn}</span>
+                </>
+              }
+              holdingLabel={
+                <>
+                  <span aria-hidden="true">RESOLVING</span>
+                  <span className="sr-only">Hold... resolving turn {state.turn}</span>
+                </>
+              }
+            />
+          ) : (
+            <button type="button" className={barPrimary} disabled={phase === 'playback'} onClick={nextTurn}>
+              {phase === 'playback' ? 'PLAYBACK' : state.status === 'playing' ? 'NEXT TURN' : 'FINAL REPORT'}
+            </button>
+          )}
+        </div>
+        {!affordable && deciding && <p className="px-2 pb-1 font-mono text-[10px] text-alert-amber">Planned spend exceeds credits. Trim the cart.</p>}
+      </nav>
     </main>
       {/* THE GLOSSARY OVERLAY, a sibling of the game rather than a child of
           it. Rendered inside this component so nothing unmounts: the

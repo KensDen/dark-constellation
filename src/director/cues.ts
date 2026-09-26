@@ -578,11 +578,12 @@ export const SECTION_6_ROWS: Section6Row[] = [
   {
     beat: 'Buy fleet or countermeasure',
     visual: 'tile-press',
-    // A fleet buy slides into the manifest; a countermeasure has no
-    // manifest entry to slide into and carries its selected state on the
-    // tile instead. Recorded so the row is not read as promising a
-    // manifest entrance the countermeasure half never had.
-    where: 'ui/Game.tsx procurement tiles (fleet buys slide into the manifest; countermeasure tiles hold their state in place)',
+    // A fleet buy slides into its layer panel as a queued tile (the
+    // manifest, since the v1.2 board); a countermeasure has no tile to
+    // slide into and carries its selected state in the HARDEN sheet
+    // instead. Recorded so the row is not read as promising an entrance
+    // the countermeasure half never had.
+    where: 'ui/Game.tsx procurement controls (fleet buys slide into their layer panel as queued tiles; countermeasure tiles hold their state in place)',
     sound: 'buy-click',
     haptic: 'light',
     soundWhere: 'ui/Game.tsx',
@@ -590,7 +591,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
   {
     beat: 'Cannot afford',
     visual: 'shake-flash',
-    where: 'ui/Game.tsx procurement tiles',
+    where: 'ui/Game.tsx procurement controls',
     sound: 'denied-buzz',
     haptic: 'double',
     soundWhere: 'ui/Game.tsx',

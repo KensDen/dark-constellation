@@ -3,6 +3,11 @@
 // persists, and sweeps green as it dissolves on clear. The hidden span
 // stays hidden: the badge never shows how many turns are left unless the
 // player has bought top intel, which is the mechanic's whole point.
+//
+// The time reads T+n, elapsed turns only (v1.2 brief 4.3). It used to
+// read the start turn as well ("t3 +1"); on a layer header a chip has
+// room for one number, and the one that matters is how long the thing
+// has been pressing.
 
 import { useEffect, useRef, useState } from 'react'
 import type { ActiveCondition, Layer } from '../../engine/types'
@@ -82,8 +87,7 @@ export default function ConditionBadge({
         {condition.name}
       </span>
       <span className="font-mono text-[10px] text-ink-dim">
-        t{condition.startedTurn}
-        {elapsed > 0 ? ` +${elapsed}` : ''}
+        T+{elapsed}
         {remainingEstimate !== undefined ? `, ~${remainingEstimate} left` : ''}
       </span>
       {onSurge && (

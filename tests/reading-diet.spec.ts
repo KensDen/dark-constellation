@@ -34,6 +34,7 @@ import {
   firstInputWords,
   hudLabels,
   hudStatusLine,
+  ACTION_BAR_LABELS,
 } from '../src/ui/brief'
 import { VERDICT_WORD_MAX, verdictFor } from '../src/ui/verdict'
 import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
@@ -271,16 +272,19 @@ describe('reading diet: the intel brief', () => {
     // The authoritative list is what the screen renders. There is no DOM
     // here, so it is pinned by name; Round 5's rendering environment is
     // what will derive it instead.
+    // Since v1.2 R1 the chrome is the board's: the five action-bar labels
+    // and the playback speed control are on the first screen, and the
+    // numbered section heading and the phase button are gone.
     const required = [
       '> INCOMING TRANSMISSION_',
       'Expand full brief',
-      'To procurement',
+      ...ACTION_BAR_LABELS,
       'What these numbers mean',
       'Posture detail',
       'Back to menu',
       'Save',
       'Export code',
-      'Autosaved each turn.',
+      'Playback:',
       SOUND_TOGGLE_LABELS.effects,
       SOUND_TOGGLE_LABELS.music,
     ]
@@ -290,40 +294,51 @@ describe('reading diet: the intel brief', () => {
         for (const control of required) {
           expect(chrome, `chrome no longer counts "${control}"`).toContain(control)
         }
-        // The heading carries the turn, so it is checked by shape.
-        expect(chrome.some((line) => /^1\. Intel brief, turn \d+$/.test(line)), 'the section heading is not counted').toBe(
-          true,
-        )
       }
     }
     // The other direction: a control that leaves the screen but stays in
     // the list makes the bound look tighter than it is, which is the same
     // dishonesty in reverse. Pinned against the source that renders them,
-    // since there is no DOM here to ask.
-    const game = readFileSync(join(SRC, 'ui', 'Game.tsx'), 'utf8')
-    // Three controls are rendered by components of their own rather than
-    // spelled in Game.tsx, so each is pinned where it actually lives.
-    const elsewhere = new Set<string>([
-      '> INCOMING TRANSMISSION_',
-      SOUND_TOGGLE_LABELS.effects,
-      SOUND_TOGGLE_LABELS.music,
-    ])
-    for (const control of required.filter((c) => !elsewhere.has(c))) {
-      expect(game.includes(control), `chrome counts "${control}", which the screen no longer renders`).toBe(true)
+    // since there is no DOM here to ask; the board split the play screen
+    // into components, so each control is pinned where it actually lives.
+    // tests/game.dom.spec.tsx asserts the same list against a rendered
+    // DOM, which is what tells a rendered control from one in a branch
+    // nothing reaches.
+    const source = (...parts: string[]) => readFileSync(join(SRC, ...parts), 'utf8')
+    const renderedIn: Record<string, string> = {
+      'Expand full brief': source('ui', 'board', 'ThreatBanner.tsx'),
+      'What these numbers mean': source('ui', 'board', 'BoardReference.tsx'),
+      'Posture detail': source('ui', 'board', 'BoardReference.tsx'),
+      'Back to menu': source('ui', 'Game.tsx'),
+      Save: source('ui', 'Game.tsx'),
+      'Export code': source('ui', 'Game.tsx'),
+      'Playback:': source('director', 'SpeedSelect.tsx'),
     }
-    // The transmission label is rendered as an entity by the teletype bar.
-    const teletype = readFileSync(join(SRC, 'ui', 'cues', 'Teletype.tsx'), 'utf8')
+    for (const label of ACTION_BAR_LABELS) renderedIn[label] = source('ui', 'Game.tsx')
+    for (const [control, file] of Object.entries(renderedIn)) {
+      expect(file.includes(control), `chrome counts "${control}", which the screen no longer renders`).toBe(true)
+    }
+    // The transmission label is rendered as an entity by the teletype bar,
+    // which the banner mounts.
+    const teletype = source('ui', 'cues', 'Teletype.tsx')
     expect(teletype.includes('INCOMING TRANSMISSION_'), 'chrome counts a transmission label nothing renders').toBe(true)
+    expect(source('ui', 'board', 'ThreatBanner.tsx').includes('<TransmissionBar'), 'the banner no longer mounts the transmission bar').toBe(true)
     // The two audio toggles read their names from this same constant
     // rather than spelling them, so the text pin would be circular. What
     // has to be true is that Game.tsx mounts the control and that the
     // control renders those names, and the second half is asserted against
     // a rendered DOM in tests/sound.dom.spec.tsx rather than by grep.
+    const game = source('ui', 'Game.tsx')
     expect(game.includes('<SoundToggles'), 'chrome counts two toggles the campaign screen does not mount').toBe(true)
-    const toggles = readFileSync(join(SRC, 'ui', 'cues', 'SoundToggles.tsx'), 'utf8')
+    const toggles = source('ui', 'cues', 'SoundToggles.tsx')
     expect(toggles.includes('SOUND_TOGGLE_LABELS'), 'the toggles no longer read their names from the counted constant').toBe(
       true,
     )
+    // The speed labels the same way: SpeedSelect reads SPEED_LABEL, and
+    // chromeCopy reads the same table, so the count cannot disagree with
+    // the buttons.
+    expect(game.includes('<SpeedSelect'), 'chrome counts a speed control the campaign screen does not mount').toBe(true)
+    expect(source('director', 'SpeedSelect.tsx').includes('SPEED_LABEL'), 'the speed control no longer reads the counted labels').toBe(true)
   })
 
   it('bounds the interface chrome that the reading budget excludes', () => {

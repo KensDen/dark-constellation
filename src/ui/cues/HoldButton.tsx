@@ -21,7 +21,7 @@
 // click, which is why driving the page from script did not show it. The
 // reducer makes that ordering testable without a DOM.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useReducedMotion } from './motion'
 import { useSound } from '../../audio'
 import type { SoundCue } from '../../director/cues'
@@ -116,8 +116,11 @@ export function holdReducer(
 }
 
 export interface HoldButtonProps {
-  label: string
-  holdingLabel: string
+  // A node rather than a string since v1.2 R1: the action bar shows the
+  // one word RESOLVE and keeps the longer "Hold to resolve turn n" for
+  // assistive technology, in a visually hidden span.
+  label: ReactNode
+  holdingLabel: ReactNode
   onConfirm: () => void
   disabled?: boolean
   className?: string

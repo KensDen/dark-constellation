@@ -115,9 +115,13 @@ function App() {
           <IntroSequence onDone={() => setScreen('menu')} />
         </Suspense>
       ) : (
-        <div className="min-h-screen flex flex-col">
+        <div className={`${screen === 'game' ? 'h-dvh' : 'min-h-screen'} flex flex-col`}>
+          {/* The board (v1.2 R1) fills the viewport under the terminal
+              header and scrolls its own layer area, so the game screen's
+              shell is bounded to the viewport; every other screen is a
+              document that scrolls the page as before. */}
           <TerminalChrome status={STATUS[screen]} />
-          <div className="flex-1">
+          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
             {/* One boundary around every screen that arrives as a chunk, so
                 a detour shows the same thing whichever one it is. Menu and
                 Game render inside it and never suspend. */}

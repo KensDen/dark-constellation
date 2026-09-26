@@ -61,7 +61,7 @@ import { turnRng } from '../src/engine/rng'
 import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
 import { glossaryEntries } from '../src/ui/reference'
 import { CHAIN_ARMED_LINE, DISCLOSURE_WORD_BUDGETS, JOB_FRAMING_HEADING, briefCopy, countWords, disclosureBlocks, jobFramingBlocks, postureDetailLines } from '../src/ui/brief'
-import type { GameState, TurnActions } from '../src/engine/types'
+import type { AssetKind, GameState, TrustTier, TurnActions } from '../src/engine/types'
 import { PLAYBACK_SPEED_KEY, SECTION_6_ROWS, VISUAL_CLASS, deriveBeats, type Beat } from '../src/director'
 import DirectorView from '../src/director/DirectorView'
 import { SOUND_TOGGLE_LABELS, chromeCopy } from '../src/ui/brief'
@@ -203,6 +203,46 @@ function creditsSpan(): HTMLElement {
   return el as HTMLElement
 }
 
+// THE BOARD'S CONTROLS (v1.2 R1). The numbered sections had one buy
+// button per fleet tile; the board has a PROCURE sheet of three steps
+// (kind, tier, confirm) behind a pinned action bar, and HARDEN, INTEL and
+// SURGE sheets beside it. These drive the sheets the way a thumb does, by
+// the attributes the sheets carry for exactly this, so the tests above
+// the board read the same as they did above the sections. A test that
+// renders at 'procure' or 'harden' lands with that sheet already open,
+// which is what an autosave from the v1.1 phases does too.
+const sheetOpen = (id: string) => container.querySelector(`[data-sheet="${id}"]`)
+function openSheet(label: 'PROCURE' | 'HARDEN' | 'INTEL' | 'SURGE') {
+  if (sheetOpen(label.toLowerCase())) return
+  const control = byText(new RegExp(`^${label}`))
+  if (!control) throw new Error(`no ${label} control on screen`)
+  click(control)
+}
+// Walk the PROCURE sheet to its confirm step for one kind and tier and
+// return the confirm control WITHOUT pressing it, since that press is
+// what several tests inspect. A sheet already on its confirm step (after
+// a refusal) is left there.
+function reachBuy(kind: AssetKind, tier: TrustTier): HTMLButtonElement {
+  openSheet('PROCURE')
+  const k = container.querySelector(`[data-procure-kind="${kind}"]`)
+  if (k) click(k)
+  const t = container.querySelector(`[data-procure-tier="${tier}"]`)
+  if (t) click(t)
+  const confirm = container.querySelector('[data-procure-buy]') as HTMLButtonElement | null
+  if (!confirm) throw new Error('the PROCURE sheet never reached its confirm step')
+  return confirm
+}
+function buy(kind: AssetKind, tier: TrustTier): HTMLButtonElement {
+  const confirm = reachBuy(kind, tier)
+  click(confirm)
+  return confirm
+}
+// The dearest thing on offer, which a refusal drive buys until the cart
+// refuses: the RPO servicer at Tier A.
+const DEAREST: [AssetKind, TrustTier] = ['rpoSat', 'A']
+// The control that moves on after a turn, on the action bar.
+const NEXT_TURN = /^NEXT TURN|^FINAL REPORT/
+
 describe('the fixture renders the real campaign screen', () => {
   it('mounts a turn in progress without a browser', () => {
     render(gameAt(3))
@@ -225,10 +265,8 @@ describe('the declaration chain, asserted by execution', () => {
   it('does not paint the player-s own spend as damage', () => {
     const state = gameAt(2)
     render(state, 'procure')
-    // Buy the cheapest thing on offer, whatever it is.
-    const buy = buttons().find((b) => /\(\d+\)/.test(b.textContent ?? '') && !/hold/i.test(b.textContent ?? ''))
-    expect(buy, 'the procurement phase offered nothing to buy').toBeDefined()
-    click(buy!)
+    // Buy the cheapest thing on offer.
+    buy('sat', 'B')
     // The ticker shows the cart during procurement, so the number falls.
     // It must not carry the damage colour: the fall is the player's own.
     expect(creditsSpan().className, 'a purchase was painted as damage').not.toMatch(/dc-flash-bad/)
@@ -248,17 +286,12 @@ describe('the declaration chain, asserted by execution', () => {
       const state = gameAt(turn)
       if (state.status !== 'playing') return null
       render(state, 'procure')
-      const buy = buttons().find((b) => /\(\d+\)/.test(b.textContent ?? '') && !/hold/i.test(b.textContent ?? ''))
-      if (!buy) return null
       const read = () => Number(/Credits (\d+)/.exec(creditsSpan().getAttribute('aria-label') ?? '')?.[1] ?? 0)
       const beforeBuy = read()
-      click(buy)
+      buy('sat', 'B')
       const spend = beforeBuy - read()
       if (spend <= 0) return null
 
-      const toHarden = byText(/To hardening/i)
-      if (!toHarden) return null
-      click(toHarden)
       const execute = byText(/Hold to resolve/i)
       if (!execute) return null
       // The keyboard path commits at once, which is the control's
@@ -352,16 +385,11 @@ describe('the declaration survives leaving playback early', () => {
       const state = gameAt(turn)
       if (state.status !== 'playing') return null
       render(state, 'procure')
-      const buy = buttons().find((b) => /\(\d+\)/.test(b.textContent ?? '') && !/hold/i.test(b.textContent ?? ''))
-      if (!buy) return null
       const read = () => Number(/Credits (\d+)/.exec(creditsSpan().getAttribute('aria-label') ?? '')?.[1] ?? 0)
       const pre = read()
-      click(buy)
+      buy('sat', 'B')
       const spend = pre - read()
       if (spend <= 0) return null
-      const toHarden = byText(/To hardening/i)
-      if (!toHarden) return null
-      click(toHarden)
       const execute = byText(/Hold to resolve/i)
       if (!execute) return null
       act(() => {
@@ -464,15 +492,14 @@ describe('the procurement sounds, asserted by execution', () => {
     expect(buyVoice, 'the two voices are indistinguishable, so this proves nothing').not.toEqual(denyVoice)
 
     const pressed: string[] = []
-    // Call site one: a fleet tile.
-    const tile = buttons().find((b) => /\(\d+\)/.test(b.textContent ?? '') && !/hold/i.test(b.textContent ?? ''))
-    expect(tile, 'nothing to buy').toBeDefined()
+    // Call site one: a fleet buy, through the PROCURE sheet's confirm.
+    const confirm = reachBuy('sat', 'B')
     ctx().reset()
-    click(tile!)
-    expect(ctx().oscillators().map((o) => o.frequency.first()), 'the fleet tile did not sound the buy voice').toEqual(
+    click(confirm)
+    expect(ctx().oscillators().map((o) => o.frequency.first()), 'the fleet buy did not sound the buy voice').toEqual(
       buyVoice,
     )
-    pressed.push('fleet tile')
+    pressed.push('fleet buy')
 
     // Call site two: taking it back out again, which is the same control.
     const remove = byText(/^Remove$|^remove$/i) ?? buttons().find((b) => /remove/i.test(b.textContent ?? ''))
@@ -486,7 +513,9 @@ describe('the procurement sounds, asserted by execution', () => {
       pressed.push('remove')
     }
 
-    // Call site three: the intel upgrade, a different control entirely.
+    // Call site three: the intel upgrade, a different control entirely,
+    // in the INTEL sheet since the board.
+    openSheet('INTEL')
     const intel = [...container.querySelectorAll('input[type="checkbox"]')].find((b) =>
       /Raise intel/i.test(b.closest('label')?.textContent ?? ''),
     ) as HTMLInputElement | undefined
@@ -502,12 +531,13 @@ describe('the procurement sounds, asserted by execution', () => {
       pressed.push('intel')
     }
 
-    // Call sites four and five live in the HARDENING phase, which this
-    // render never reaches. Two of the five were therefore still covered
-    // only by the source text pin the fixture was written to replace, so
-    // deleting the sound from toggleCounter silenced every countermeasure
-    // purchase with the suite green.
-    click(byText(/To hardening/i)!)
+    // Call sites four and five lived in the HARDENING phase, which the
+    // first render never reached. Two of the five were therefore still
+    // covered only by the source text pin the fixture was written to
+    // replace, so deleting the sound from toggleCounter silenced every
+    // countermeasure purchase with the suite green. On the board they are
+    // the HARDEN sheet and the INTEL sheet's second step.
+    openSheet('HARDEN')
     const hardenBoxes = () => [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
     const counter = hardenBoxes().find(
       (b) => !b.disabled && !b.checked && !/Incident response/i.test(b.closest('label')?.textContent ?? ''),
@@ -523,6 +553,8 @@ describe('the procurement sounds, asserted by execution', () => {
     ).toEqual(buyVoice)
     pressed.push('countermeasure')
 
+    openSheet('INTEL')
+    click(container.querySelector('[data-intel-next]')!)
     const retainer = hardenBoxes().find((b) =>
       /Incident response retainer/i.test(b.closest('label')?.textContent ?? ''),
     )
@@ -551,20 +583,19 @@ describe('the cannot-afford cue, asserted by execution', () => {
     // three channels at once and the point is that they fire together.
     const broke: GameState = { ...gameAt(2), credits: 1 }
     render(broke, 'procure')
-    const buy = buttons().find((b) => /\(\d+\)/.test(b.textContent ?? '') && !/hold/i.test(b.textContent ?? ''))
-    expect(buy, 'nothing to try to buy').toBeDefined()
+    const buy = reachBuy('sat', 'B')
     act(() => {
-      buy!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+      buy.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
     })
     const before = ctx() ? ctx().startedCount() : 0
     const balanceBefore = creditsSpan().getAttribute('aria-label')
-    click(buy!)
+    click(buy)
     // Scoped to the elements that own each channel. Asked container-wide
     // at first, which proved only that the nonce fired once: both classes
     // hang off the same nonce, so moving the flash onto the tile beside
     // the shake left both queries satisfied while the spend line never
     // flashed, and the failure message named an element nothing inspected.
-    const tile = buy!.closest('.dc-tile') ?? buy!
+    const tile = buy.closest('.dc-tile') ?? buy
     expect(tile.className, 'the refused tile did not shake').toMatch(/dc-shake/)
     // The spend line is identified by WHAT IT IS, not by what it is not.
     // Scoped negatively at first ("some paragraph carrying the flash that
@@ -574,7 +605,7 @@ describe('the cannot-afford cue, asserted by execution', () => {
     const spendLine = [...container.querySelectorAll('p')].find((el) => /Planned spend/i.test(el.textContent ?? ''))
     expect(spendLine, 'the planned-spend line is not on screen').toBeDefined()
     expect(spendLine!.className, 'the spend line did not flash').toMatch(/dc-flash-bad/)
-    expect(spendLine!.contains(buy!), 'the spend line and the tile are the same element').toBe(false)
+    expect(spendLine!.contains(buy), 'the spend line and the tile are the same element').toBe(false)
     expect(ctx().startedCount(), 'the refusal was silent').toBeGreaterThan(before)
     // And nothing was added to the cart: a cue that fired alongside a
     // successful buy would be a different bug wearing the same clothes.
@@ -592,28 +623,34 @@ describe('every refusable control answers for its own refusal', () => {
     // The budget is credits PLUS this turn's income, so zeroing credits is
     // not enough to force a refusal; the cart is filled first instead,
     // which is also how a player actually reaches this.
+    //
+    // Since the board (v1.2 R1) the intel upgrade lives in its own sheet,
+    // so the fleet buy's refusal is no longer on screen when the intel
+    // control is examined: opening INTEL replaces the PROCURE sheet. The
+    // exclusivity claim is kept in the form the board allows, that a
+    // refusal elsewhere leaves this control still, and the attribution
+    // claim, that the control touched is the one that shakes, is as it
+    // was.
+    // The cart is filled with the cheapest sat, as the numbered layout's
+    // first tile was, so what is left is less than the intel upgrade.
     render(gameAt(3), 'procure')
-    const tiles = () =>
-      buttons().filter((b) => /\(\d+\)/.test(b.textContent ?? '') && !/hold/i.test(b.textContent ?? ''))
     for (let i = 0; i < 12; i += 1) {
-      const t = tiles().find((b) => !/dc-shake/.test(b.className))
-      if (!t) break
-      click(t)
+      buy('sat', 'B')
       if (container.querySelector('.dc-shake')) break
     }
+    expect(container.querySelector('.dc-shake'), 'the loop did not leave a refusal on screen').not.toBeNull()
+    openSheet('INTEL')
     const intel = [...container.querySelectorAll('input[type="checkbox"]')].find((b) =>
       /Raise intel/i.test(b.closest('label')?.textContent ?? ''),
     ) as HTMLInputElement | undefined
     expect(intel, 'the intel upgrade is not on screen').toBeDefined()
     expect(intel!.disabled, 'the intel upgrade is maxed, so it cannot be refused').toBe(false)
-    // EXCLUSIVITY, which is the whole point: the loop above left a fleet
-    // tile refused and shaking, and this control must not be shaking with
-    // it. Without this the tile could key off `denied !== null` and shake
-    // for every refusal anywhere, which is the mis-attribution the fix
-    // exists to prevent, and both tests would still pass.
+    // EXCLUSIVITY: a refusal on the fleet buy must not have left this
+    // control shaking. Without this the tile could key off
+    // `denied !== null` and shake for every refusal anywhere, which is the
+    // mis-attribution the fix exists to prevent.
     const before = intel!.closest('.dc-tile')
     expect(before, 'the intel upgrade is not on a tile that can carry a cue').not.toBeNull()
-    expect(container.querySelector('.dc-shake'), 'the loop did not leave a refusal on screen').not.toBeNull()
     expect(before!.className, 'the intel tile shook for a refusal on a different control').not.toMatch(/dc-shake/)
     act(() => {
       intel!.click()
@@ -640,22 +677,26 @@ describe('every refusable control answers for its own refusal', () => {
   })
 
   it('shakes the retainer tile too, which lives in the other decision phase', () => {
-    // The IR retainer is the fourth refusable id and the only one in the
-    // hardening phase. Guarding the intel tile alone left this one's fix
-    // unguarded, which a mutation showed.
+    // The IR retainer is the fourth refusable id and the only one that
+    // lived in the hardening phase. Guarding the intel tile alone left
+    // this one's fix unguarded, which a mutation showed. On the board it
+    // is the INTEL sheet's second step; the budget is filled through the
+    // HARDEN sheet first, as it was through the hardening phase.
     render(gameAt(3), 'harden')
     const boxes = () => [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
-    const retainer = boxes().find((b) => /Incident response retainer/i.test(b.closest('label')?.textContent ?? ''))
-    expect(retainer, 'the retainer is not on screen').toBeDefined()
-    expect(retainer!.disabled, 'the retainer is already active, so it cannot be refused').toBe(false)
     // Fill the budget with the countermeasures on offer until one refuses.
     for (const box of boxes()) {
-      if (box === retainer || box.disabled || box.checked) continue
+      if (box.disabled || box.checked) continue
       act(() => {
         box.click()
       })
       if (container.querySelector('.dc-shake')) break
     }
+    openSheet('INTEL')
+    click(container.querySelector('[data-intel-next]')!)
+    const retainer = boxes().find((b) => /Incident response retainer/i.test(b.closest('label')?.textContent ?? ''))
+    expect(retainer, 'the retainer is not on screen').toBeDefined()
+    expect(retainer!.disabled, 'the retainer is already active, so it cannot be refused').toBe(false)
     const before = retainer!.closest('.dc-tile')
     expect(before, 'the retainer is not on a tile that can carry a cue').not.toBeNull()
     expect(before!.className, 'the retainer shook for a refusal on a different control').not.toMatch(/dc-shake/)
@@ -691,18 +732,19 @@ describe('the chrome the reading budget counts, asserted by execution', () => {
     const text = container.textContent ?? ''
     const missing: string[] = []
     for (const line of chromeCopy(state)) {
-      // The heading carries a turn number and the transmission label is
-      // rendered by the teletype bar as its own entity; both are matched
-      // by shape below rather than by exact string.
-      if (/^1\. Intel brief, turn \d+$/.test(line)) continue
+      // The transmission label is rendered by the teletype bar as its own
+      // entity, so it is matched by shape below rather than by exact
+      // string. (The numbered section heading left with the board.)
       if (line.startsWith('>')) continue
       if (!text.includes(line)) missing.push(line)
     }
     expect(missing.join(', '), 'chrome charges the budget for controls the screen does not render').toBe('')
-    expect(text).toMatch(/1\. Intel brief, turn \d+/)
     expect(text).toContain('INCOMING TRANSMISSION_')
     // The count itself, so this cannot pass by chromeCopy shrinking.
-    expect(chromeCopy(state).length, 'the chrome list changed size without this guard noticing').toBe(12)
+    // Eighteen since v1.2 R1: the five action-bar labels and the playback
+    // speed control joined the first screen, the heading and the phase
+    // button left it.
+    expect(chromeCopy(state).length, 'the chrome list changed size without this guard noticing').toBe(18)
   })
 })
 
@@ -1751,7 +1793,7 @@ describe('the save code is on the screen, not only on the clipboard', () => {
     // report. View final report is the control that moves on, and the
     // re-review flagged this same gate as the reason an earlier assertion
     // was matching the wrong screen.
-    const toReport = byText(/view final report/i)
+    const toReport = byText(/final report/i)
     expect(toReport, 'no way from the loaded aftermath to the outcome screen').toBeDefined()
     click(toReport!)
 
@@ -1911,7 +1953,9 @@ describe('the technique tag opens the GLOSSARY entry', () => {
       container.textContent,
       'opening a glossary entry threw away state the component was holding',
     ).toContain(noticeBefore![0].trim())
-    expect(container.textContent, 'coming back landed somewhere other than the brief').toMatch(/intel brief/i)
+    // The board has no "intel brief" heading; the transmission bar is
+    // the landmark the brief lives under now.
+    expect(container.textContent, 'coming back landed somewhere other than the brief').toContain('INCOMING TRANSMISSION_')
   })
 })
 
@@ -2039,12 +2083,6 @@ describe('a loaded campaign is not a campaign that was played here', () => {
     expect(scores(), 'the board is not empty at the start').toHaveLength(0)
 
     render(state, 'brief')
-    const toProcure = byText(/To procurement/i)
-    expect(toProcure, 'no way into procurement').toBeDefined()
-    click(toProcure!)
-    const toHarden = byText(/To hardening/i)
-    expect(toHarden, 'no way into hardening').toBeDefined()
-    click(toHarden!)
     const execute = byText(/Hold to resolve/i)
     expect(execute, 'no commit control on the final turn').toBeDefined()
     act(() => {
@@ -2121,12 +2159,6 @@ describe('a loaded campaign is not a campaign that was played here', () => {
     expect(container.querySelector('[aria-label^="Credits"]'), 'the campaign did not start').not.toBeNull()
 
     for (let turn = 0; turn < DEFAULT_SCENARIO.totalTurns + 2; turn += 1) {
-      const toProcure = byText(/To procurement/i)
-      if (!toProcure) break
-      click(toProcure)
-      const toHarden = byText(/To hardening/i)
-      if (!toHarden) break
-      click(toHarden)
       const execute = byText(/Hold to resolve/i)
       if (!execute) break
       act(() => {
@@ -2135,7 +2167,7 @@ describe('a loaded campaign is not a campaign that was played here', () => {
       act(() => {
         vi.advanceTimersByTime(60_000)
       })
-      const next = byText(/To turn \d+ intel brief|View final report/i)
+      const next = byText(NEXT_TURN)
       if (!next) break
       click(next)
     }
@@ -2157,8 +2189,6 @@ describe('a loaded campaign is not a campaign that was played here', () => {
     render(nearEnd, 'brief')
     expect(localStorage.getItem('dc-autosave'), 'nothing autosaved while playing').not.toBeNull()
 
-    click(byText(/To procurement/i)!)
-    click(byText(/To hardening/i)!)
     act(() => {
       byText(/Hold to resolve/i)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     })
@@ -2244,41 +2274,35 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     const playback = new Set<string>()
     const onCard = new Set<string>()
 
-    const toProcure = byText(/To procurement/i)
-    if (toProcure) click(toProcure)
     // Buy the cheapest thing on offer, because a new player buys
     // something, and the procurement cues are five of the seventeen rows.
-    const priced = () =>
-      buttons().filter((b) => /\(\d+\)/.test(b.textContent ?? '') && !/hold/i.test(b.textContent ?? ''))
     // 'drone' buys exactly one Tier B drone, which the engine can replay
     // exactly, so a seed chosen by engine search lands where it was chosen.
-    const buy =
-      opts.buy === 'drone'
-        ? [...container.querySelectorAll('li')]
-            .find((li) => (li.textContent ?? '').trimStart().startsWith('Drone'))
-            ?.querySelector('button')
-        : priced()[0]
-    if (buy) click(buy)
+    if (opts.buy === 'drone') buy('drone', 'B')
+    else buy('sat', 'B')
     // Then try to buy more than the turn can take. A new player taps past
     // their balance, and that refusal is a section 6 row of its own:
     // driving it is the difference between the row being MET and the row
     // being excused because the fixture was too careful to trip it.
-    const dearest = priced().sort(
-      (a, b) => Number(/\((\d+)\)/.exec(b.textContent ?? '')?.[1] ?? 0) - Number(/\((\d+)\)/.exec(a.textContent ?? '')?.[1] ?? 0),
-    )[0]
-    if (dearest && opts.overbuy !== false) for (let i = 0; i < 12; i += 1) click(dearest)
-    const toHarden = byText(/To hardening/i)
-    if (toHarden) click(toHarden)
+    if (opts.overbuy !== false) for (let i = 0; i < 12; i += 1) buy(...DEAREST)
     // Spend surge authority when the game offers it (Round 7). The control
     // is a normal decision-phase action like the buy and the over-buy
-    // above, and it renders on this seed from turn 3. The drive used to
+    // above, and it is offered on this seed from turn 3. The drive used to
     // walk past it, so "Surge token spent" and "Condition cleared" were
     // EXCUSED as out of reach when they were only unreached: a split
-    // finding in 7b's re-review, and correct.
-    const surge = opts.surge ? buttons().find((b) => (b.textContent ?? '').trim().toLowerCase() === 'surge') : undefined
-    if (surge) {
-      click(surge)
-      surged += 1
+    // finding in 7b's re-review, and correct. On the board it is the
+    // SURGE sheet: pick a condition, then spend the token on it.
+    const surgeControl = opts.surge ? byText(/^SURGE/) : undefined
+    if (surgeControl && !surgeControl.disabled) {
+      click(surgeControl)
+      const condition = container.querySelector('[data-surge-condition]')
+      if (condition) {
+        click(condition)
+        click(container.querySelector('[data-surge-confirm]')!)
+        surged += 1
+      } else {
+        click(surgeControl)
+      }
     }
     const execute = byText(/Hold to resolve/i)
     expect(execute, 'the commit control is not on screen').toBeDefined()
@@ -2329,7 +2353,7 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
       act(() => {
         vi.advanceTimersByTime(300)
       })
-      if (byText(/intel brief|final report/i)) break
+      if (byText(NEXT_TURN)) break
     }
     for (const s of played.slice(mark)) {
       sounds.add(s)
@@ -2350,7 +2374,7 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     render(newGame(DEFAULT_SCENARIO, opts.seed ?? 20260712, 'standard'), 'brief')
     for (let t = 0; t < turns; t += 1) {
       perTurn.push(driveTurn(opts))
-      const onward = byText(/intel brief/i)
+      const onward = byText(/^NEXT TURN/)
       if (!onward) break
       click(onward)
     }
