@@ -196,6 +196,18 @@ const click = (el: Element) => {
   })
 }
 
+// The glossary's entries arrive by chunk since the Round 1 fix batch (the
+// overlay's module is lazy), so a tap opens the dialog at once and the
+// entries land when the import settles. The glossary tests wait for that
+// the way a player's browser does, and the ones that look at the dialog
+// itself (that it opened, that it holds focus, that the game behind it is
+// inert) look before the chunk lands as well as after.
+async function settle() {
+  await act(async () => {
+    await vi.dynamicImportSettled()
+  })
+}
+
 // The credits readout's own span, which is where the flash class lands.
 function creditsSpan(): HTMLElement {
   const el = container.querySelector('[aria-label^="Credits"]')
@@ -1878,7 +1890,7 @@ describe('the technique tag opens the GLOSSARY entry', () => {
     throw new Error('no turn of any line searched carries a technique tag, so these guards assert nothing')
   }
 
-  it('opens the glossary in place, without leaving the game', () => {
+  it('opens the glossary in place, without leaving the game', async () => {
     render(turnWithATag(), 'brief')
     const el = tag()
     expect(el, 'the intel brief renders no technique tag').not.toBeNull()
@@ -1889,23 +1901,30 @@ describe('the technique tag opens the GLOSSARY entry', () => {
 
     click(el!)
     expect(overlay(), 'tapping the tag opened nothing').not.toBeNull()
+    // The dialog is there before its chunk is, with the terminal fallback
+    // inside it rather than an empty box.
+    expect(overlay()!.textContent, 'the dialog opened empty while its chunk loads').toMatch(/LOADING MODULE|glossary/i)
+    await settle()
+    expect(overlay(), 'the overlay closed when its chunk landed').not.toBeNull()
   })
 
-  it('lands on the entry for the technique that was tapped', () => {
+  it('lands on the entry for the technique that was tapped', async () => {
     render(turnWithATag(), 'brief')
     const key = tag()!.getAttribute('data-technique-tag')!
     click(tag()!)
+    await settle()
     const focused = container.querySelector('[data-glossary-focus]')
     expect(focused, 'the glossary opened with no entry focused, which is opening the glossary and leaving them to look').not.toBeNull()
     expect(focused!.getAttribute('data-glossary-focus'), 'the wrong entry was focused').toBe(key)
   })
 
-  it('keeps the external citation on the entry', () => {
+  it('keeps the external citation on the entry', async () => {
     // Both halves matter. Keeping the player in the game is worth nothing
     // if the live-verified framework reference is dropped on the way.
     render(turnWithATag(), 'brief')
     const key = tag()!.getAttribute('data-technique-tag')!
     click(tag()!)
+    await settle()
     const focused = container.querySelector('[data-glossary-focus]')!
     const links = [...focused.querySelectorAll('a')]
     expect(links.length, 'the focused entry carries no citation at all').toBeGreaterThan(0)
@@ -1944,6 +1963,7 @@ describe('the technique tag opens the GLOSSARY entry', () => {
 
     click(tag()!)
     expect(overlay()).not.toBeNull()
+    await settle()
     const back = [...container.querySelectorAll('button')].find((b) => /back to the brief/i.test(b.textContent ?? ''))
     expect(back, 'the overlay has no way back').toBeDefined()
     click(back!)
@@ -1982,11 +2002,12 @@ describe('the glossary overlay is a dialog a keyboard can use', () => {
     throw new Error('no turn of any line searched carries a technique tag')
   }
 
-  it('closes on Escape pressed where the player actually is', () => {
+  it('closes on Escape pressed where the player actually is', async () => {
     render(turnWithATag(), 'brief')
     const el = tag()!
     click(el)
     expect(overlay(), 'the overlay did not open').not.toBeNull()
+    await settle()
 
     // Dispatched from the element that really holds focus, which is the
     // tag button outside the overlay. A handler bound to the overlay's own
@@ -1997,35 +2018,42 @@ describe('the glossary overlay is a dialog a keyboard can use', () => {
     expect(overlay(), 'Escape did not close the overlay').toBeNull()
   })
 
-  it('moves focus into the dialog and gives it back', () => {
+  it('moves focus into the dialog and gives it back', async () => {
     render(turnWithATag(), 'brief')
     const el = tag()!
     act(() => el.focus())
     expect(document.activeElement, 'the tag never took focus, so this asserts nothing').toBe(el)
 
     click(el)
+    // Focus moves the moment the dialog opens, not when its chunk lands.
     expect(overlay()!.contains(document.activeElement), 'focus stayed outside the dialog').toBe(true)
+    await settle()
+    expect(overlay()!.contains(document.activeElement), 'the chunk landing threw focus out of the dialog').toBe(true)
 
     const back = [...container.querySelectorAll('button')].find((b) => /back to the brief/i.test(b.textContent ?? ''))
     click(back!)
     expect(document.activeElement, 'closing the dialog dropped focus to the document').toBe(el)
   })
 
-  it('makes the game behind it inert rather than only covering it', () => {
+  it('makes the game behind it inert rather than only covering it', async () => {
     render(turnWithATag(), 'brief')
     const main = container.querySelector('main')!
     expect(main.hasAttribute('inert'), 'the game is inert before anything opened').toBe(false)
     click(tag()!)
     expect(main.hasAttribute('inert'), 'aria-modal was declared over a page that is still reachable').toBe(true)
     expect(main.getAttribute('aria-hidden')).toBe('true')
+    await settle()
     const back = [...container.querySelectorAll('button')].find((b) => /back to the brief/i.test(b.textContent ?? ''))
     click(back!)
     expect(main.hasAttribute('inert'), 'the game stayed inert after the dialog closed').toBe(false)
   })
 
-  it('does not nest a second main or a second h1 in the document', () => {
+  it('does not nest a second main or a second h1 in the document', async () => {
     render(turnWithATag(), 'brief')
     click(tag()!)
+    // While the chunk loads too: the fallback is a block, not a landmark.
+    expect(container.querySelectorAll('main').length, 'the loading fallback put a second main on the page').toBe(1)
+    await settle()
     const mains = container.querySelectorAll('main')
     expect(mains.length, 'the overlay put a second main landmark on the page').toBe(1)
     expect(mains[0].querySelector('[data-glossary-overlay]'), 'the overlay is nested inside the game main').toBeNull()

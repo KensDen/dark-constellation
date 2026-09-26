@@ -42,7 +42,6 @@ import {
 import { useBadgePhases } from './cues/ConditionBadge'
 import { CUE_MS, useCueClass, useReducedMotion } from './cues/motion'
 import { vectorIcons } from './cues/icons'
-import Glossary from './Glossary'
 import { JOB_FRAMING_HEADING, jobFramingBlocks } from './brief'
 import Hud from './board/Hud'
 import ThreatBanner from './board/ThreatBanner'
@@ -83,6 +82,25 @@ const FrameStill = () => <img src={frameUrl} alt="" aria-hidden="true" className
 const Constellation = lazy(() =>
   import('./Constellation').catch(() => ({ default: FrameStill as unknown as (typeof import('./Constellation'))['default'] })),
 )
+
+// The GLOSSARY overlay's module, split out in the Round 1 fix batch. The
+// overlay is an element of this component, so the split unmounts nothing:
+// the campaign, the phase and the cart are exactly where they were while
+// the chunk loads and after it closes. The dialog element itself is
+// static and takes focus at once; only the entries arrive by chunk.
+const Glossary = lazy(() => import('./Glossary'))
+
+// The terminal-style fallback the other split screens use, as a block
+// rather than a landmark: it renders inside the dialog, and a second
+// <main> in the document is the thing the overlay exists to avoid.
+function OverlayLoading() {
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-10 font-mono text-sm">
+      <p className="text-phosphor">&gt; LOADING MODULE_</p>
+      <p className="mt-2 text-ink-dim">Standby.</p>
+    </div>
+  )
+}
 
 const DEFAULT_SEED = 20260711
 
@@ -1250,12 +1268,14 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
           aria-label="glossary"
           data-glossary-overlay
         >
-          <Glossary
-            embedded
-            focus={glossaryFocus}
-            backLabel="Back to the brief"
-            onBack={() => setGlossaryFocus(null)}
-          />
+          <Suspense fallback={<OverlayLoading />}>
+            <Glossary
+              embedded
+              focus={glossaryFocus}
+              backLabel="Back to the brief"
+              onBack={() => setGlossaryFocus(null)}
+            />
+          </Suspense>
         </div>
       )}
     </>

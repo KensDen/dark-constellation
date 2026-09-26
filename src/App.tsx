@@ -8,7 +8,6 @@ import { Suspense, lazy, useState } from 'react'
 import Game from './ui/Game'
 import MainMenu, { type MenuTarget } from './ui/MainMenu'
 import TerminalChrome from './ui/TerminalChrome'
-import Glossary from './ui/Glossary'
 import { hasSeenIntro } from './ui/introSeen'
 import { LocalStorageStore, type RestoredGame } from './persistence'
 import { useGestureUnlock } from './audio'
@@ -23,17 +22,18 @@ import { useGestureUnlock } from './audio'
 // reads these declarations and proves that nothing reachable from main.tsx
 // imports the same modules statically, which is what would quietly put
 // them back in the initial chunk (principle 17).
-// GLOSSARY IS NOT IN THE SPLIT, and the guard is what proved it. Round 6e
-// made the glossary an overlay inside Game rather than a route, because
-// routing unmounts Game and the autosave does not carry the procurement
-// cart. Game therefore imports it statically, so the module rides in the
-// initial chunk whatever App does, and a lazy declaration here would have
-// claimed a saving that does not exist. Splitting it means splitting it
-// inside Game, mid-turn, which is a play-screen change and not R0's.
+// THE GLOSSARY JOINED THE SPLIT in the Round 1 fix batch. R0 left it out,
+// and the guard is what proved it had to: Round 6e made the glossary an
+// overlay inside Game rather than a route, so Game imported it statically
+// and the module rode in the initial chunk whatever App declared. Game
+// now lazy-loads the overlay's module too (it is an overlay, so nothing
+// unmounts and the cart is untouched), and this declaration is the one
+// the guard derives the requirement from.
 const FieldManual = lazy(() => import('./ui/FieldManual'))
 const HowToPlay = lazy(() => import('./ui/HowToPlay'))
 const Credits = lazy(() => import('./ui/Credits'))
 const Scoreboard = lazy(() => import('./ui/Scoreboard'))
+const Glossary = lazy(() => import('./ui/Glossary'))
 const IntroSequence = lazy(() => import('./ui/IntroSequence'))
 
 // The dev-only sound board (brief section 7). import.meta.env.DEV folds to

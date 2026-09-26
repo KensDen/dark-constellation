@@ -120,10 +120,13 @@ describe('the split screens stay out of the initial chunk (v1.2 R0)', () => {
     // chunk, so the check below has nothing to object to and passes. The
     // first attempt at proving this guard did exactly that and slept.
     // A count is a second structure: dropping one costs an edit here and a
-    // sentence about why. Six, not five: the dev-only SoundBoard is lazy
-    // too, behind an import.meta.env.DEV ternary that folds to null in a
-    // production build.
-    expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(6)
+    // sentence about why. Six was five plus the dev-only SoundBoard, which
+    // is lazy too, behind an import.meta.env.DEV ternary that folds to
+    // null in a production build. Seven since the Round 1 fix batch: the
+    // Glossary joined the split once its overlay inside Game stopped
+    // importing it statically, which is the trail this guard reported in
+    // R0 when the declaration was tried too early.
+    expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(7)
     for (const spec of lazySpecs) {
       expect(resolveLocal(APP, spec), `lazy import ${spec} resolves to no file`).toBeTruthy()
     }
