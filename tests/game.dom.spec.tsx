@@ -1775,6 +1775,9 @@ describe('the save code is on the screen, not only on the clipboard', () => {
     // each call, which tears Game down, and a new mount legitimately
     // restamps. Clicking a control that flashes a notice re-renders the
     // same instance, which is what a player does.
+    // The share control is the score screen's, which arrives by chunk
+    // since v1.2 R5; the save code and its export stay in Game.
+    await settle()
     vi.setSystemTime(new Date(Date.now() + 90_000))
     const copyResultButton = byText(/copy result/i)
     expect(copyResultButton, 'no control here re-renders without remounting, so this asserts nothing').toBeDefined()

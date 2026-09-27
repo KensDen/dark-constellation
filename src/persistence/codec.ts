@@ -21,10 +21,33 @@ import type { GameState } from '../engine/types'
 // after the save draws its events the new way. So a v2 save resumes with
 // different threats ahead than it would have met on the build that wrote
 // it.
+// Still v3 (v1.2 R5): a record may carry `daily`, the Daily Op identity,
+// beside the state and never inside it. The field is optional and at the
+// top level, and restoreGame has always ignored top-level fields it does
+// not know (a slot's `name` rides the same way), so a build that predates
+// it loads a Daily Op as free play, which is also the safe reading. A
+// bump would buy nothing and make every older build refuse the new codes.
 export const SAVE_VERSION = 3
 const OLDEST_MIGRATABLE = 1
 
 export type SavePhase = 'brief' | 'procure' | 'harden' | 'aftermath'
+
+// WHICH DAILY OP A CAMPAIGN IS (v1.2 R5, brief 7.1): the local date it
+// started on and its number. It lives in the persisted record, not in the
+// engine's state, so the determinism snapshot does not move, and it rides
+// every copy this device keeps (the autosave and the slots), which is what
+// keeps a resumed Daily Op official.
+//
+// `pasted` marks one that arrived as a pasted save code. A code is plain
+// text that anyone can decode and edit, so a Daily Op from a code is
+// PRACTICE, always: decodeSaveCode sets the mark whatever the code says,
+// and every later copy carries it, so a refresh or a slot cannot launder
+// a pasted code into an official run.
+export interface DailyOp {
+  dateKey: string
+  n: number
+  pasted?: true
+}
 
 export interface PersistedGame {
   version: number
@@ -32,6 +55,14 @@ export interface PersistedGame {
   phase: SavePhase
   scenarioId: string
   state: Omit<GameState, 'scenario'>
+  // Absent for free play, so a free-play record is byte for byte what it was.
+  daily?: DailyOp
+}
+
+export interface RestoredRecord {
+  state: GameState
+  phase: SavePhase
+  daily?: DailyOp
 }
 
 export class SaveError extends Error {
@@ -43,9 +74,22 @@ export class SaveError extends Error {
 
 // Build the persisted record from a live game. savedAt is injected by the
 // caller so this stays pure and testable.
-export function captureGame(state: GameState, phase: SavePhase, savedAt: string): PersistedGame {
+export function captureGame(state: GameState, phase: SavePhase, savedAt: string, daily?: DailyOp): PersistedGame {
   const { scenario, ...rest } = state
-  return { version: SAVE_VERSION, savedAt, phase, scenarioId: scenario.id, state: rest }
+  const p: PersistedGame = { version: SAVE_VERSION, savedAt, phase, scenarioId: scenario.id, state: rest }
+  if (daily) p.daily = daily
+  return p
+}
+
+// A Daily Op identity as it was written, or nothing. Anything malformed is
+// dropped rather than rejected: the campaign still loads, as free play,
+// and free play is never official.
+function readDaily(d: unknown): DailyOp | undefined {
+  if (!d || typeof d !== 'object') return undefined
+  const { dateKey, n, pasted } = d as Record<string, unknown>
+  if (typeof dateKey !== 'string' || !/^\d{8}$/.test(dateKey)) return undefined
+  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) return undefined
+  return pasted === true ? { dateKey, n, pasted: true } : { dateKey, n }
 }
 
 // Validate every dynamic GameState field the engine reads. A partial but
@@ -71,6 +115,9 @@ function isPlainState(s: unknown): s is Omit<GameState, 'scenario'> {
     Array.isArray(st.assets) &&
     Array.isArray(st.counters) &&
     Array.isArray(st.history) &&
+    // A campaign ends only by playing a turn, so a finished one with no
+    // turns is corrupt, and the score screen has nothing to grade.
+    (st.status === 'playing' || (st.history as unknown[]).length > 0) &&
     Array.isArray(st.conditions) &&
     Array.isArray(st.pipeline) &&
     Array.isArray(st.pendingCounters) &&
@@ -85,7 +132,7 @@ function isPlainState(s: unknown): s is Omit<GameState, 'scenario'> {
 
 // Rehydrate a live game (with its scenario reattached) from a persisted
 // record. Throws SaveError with a human-readable reason on any mismatch.
-export function restoreGame(p: unknown): { state: GameState; phase: SavePhase } {
+export function restoreGame(p: unknown): RestoredRecord {
   if (!p || typeof p !== 'object') throw new SaveError('This is not a valid save.')
   const rec = p as Partial<PersistedGame>
   if (typeof rec.version !== 'number') throw new SaveError('This save is missing its version.')
@@ -104,7 +151,9 @@ export function restoreGame(p: unknown): { state: GameState; phase: SavePhase } 
   if (!isPlainState(migrated)) throw new SaveError('This save is corrupt or incomplete.')
   const phase: SavePhase =
     rec.phase === 'procure' || rec.phase === 'harden' || rec.phase === 'aftermath' ? rec.phase : 'brief'
-  return { state: { ...(migrated as Omit<GameState, 'scenario'>), scenario } as GameState, phase }
+  const state = { ...(migrated as Omit<GameState, 'scenario'>), scenario } as GameState
+  const daily = readDaily(rec.daily)
+  return daily ? { state, phase, daily } : { state, phase }
 }
 
 // UTF-8-safe base64, so save codes survive copy-paste through any channel.
@@ -131,7 +180,7 @@ export function encodeSaveCode(p: PersistedGame): string {
   return CODE_PREFIX + toBase64(JSON.stringify(p))
 }
 
-export function decodeSaveCode(code: string): { state: GameState; phase: SavePhase } {
+export function decodeSaveCode(code: string): RestoredRecord {
   const trimmed = code.trim()
   if (!trimmed.startsWith(CODE_PREFIX)) {
     throw new SaveError('This does not look like a DARK CONSTELLATION save code.')
@@ -142,5 +191,10 @@ export function decodeSaveCode(code: string): { state: GameState; phase: SavePha
   } catch {
     throw new SaveError('This save code is damaged and could not be read.')
   }
-  return restoreGame(parsed)
+  const restored = restoreGame(parsed)
+  // A PASTED DAILY OP IS PRACTICE (brief 7.1: save codes never count). Set
+  // here, whatever the code carries, because this is the one place a code
+  // becomes a game; tests/daily-op.dom.spec.tsx fails if it counts.
+  if (restored.daily) restored.daily = { ...restored.daily, pasted: true }
+  return restored
 }

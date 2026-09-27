@@ -1,0 +1,109 @@
+/* The score screen's look and motion (v1.2 R5, brief 7.2). Imported by
+   ScoreScreen alone, so Vite splits it into the score screen's chunk and
+   the first download never carries it.
+
+   Transform and opacity only, and every rule that moves sits inside the
+   no-preference guard. ScoreScreen applies no motion class at all under
+   reduced motion, so the guard is the second of two locks, not the only
+   one. The resting state of every piece is set outside it: the grade
+   letter at its size, the strip squares in their colours. */
+
+.dc-grade-letter {
+  font-size: 44px;
+  line-height: 1;
+}
+
+/* A piece waiting for its turn in the reveal. */
+.dc-score-wait {
+  opacity: 0;
+}
+
+/* THE TURN STRIP: one square a turn, sized for a full campaign so a short
+   one is short rather than stretched. Colours are the board's tokens:
+   green is the MAI's own colour, amber the degraded one, magenta hits. */
+.dc-strip {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dc-strip-cell {
+  aspect-ratio: 1;
+  box-shadow: 2px 2px 0 var(--dc-shadow);
+}
+
+.dc-strip-green {
+  background: var(--dc-go);
+}
+
+.dc-strip-amber {
+  background: var(--dc-warn);
+}
+
+.dc-strip-magenta {
+  background: var(--dc-hostile);
+}
+
+/* The legend's swatch, a square the size of a capital. */
+.dc-strip-key {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  vertical-align: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The grade drops in and bounces once. The duration is
+     SCORE_MOTION.gradeMs. */
+  .dc-grade-drop {
+    animation: dc-grade-drop 640ms both;
+  }
+
+  /* Each square fills in turn; ScoreScreen sets each one's delay. The
+     duration is SCORE_MOTION.stripCellMs. */
+  .dc-strip-fill {
+    animation: dc-strip-fill 160ms ease-out both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dc-grade-drop,
+  .dc-strip-fill {
+    animation: none;
+  }
+}
+
+/* A fall that speeds up, one bounce, and rest. */
+@keyframes dc-grade-drop {
+  0% {
+    opacity: 0;
+    transform: translateY(-180%);
+    animation-timing-function: cubic-bezier(0.5, 0, 1, 1);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0, 0, 0.5, 1);
+  }
+  75% {
+    transform: translateY(-22%);
+    animation-timing-function: cubic-bezier(0.5, 0, 1, 1);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dc-strip-fill {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

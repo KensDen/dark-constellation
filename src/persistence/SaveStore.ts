@@ -4,7 +4,7 @@
 // implement the same interface with zero engine or UI changes; nothing
 // remote is imported here.
 
-import { captureGame, restoreGame, type PersistedGame, type SavePhase } from './codec'
+import { captureGame, restoreGame, type DailyOp, type PersistedGame, type RestoredRecord, type SavePhase } from './codec'
 import type { GameState } from '../engine/types'
 
 export interface SaveMeta {
@@ -15,17 +15,16 @@ export interface SaveMeta {
   scenarioId: string
 }
 
-export interface RestoredGame {
-  state: GameState
-  phase: SavePhase
-}
+// What a load hands the game, the Daily Op identity included when the
+// record carries one (v1.2 R5).
+export type RestoredGame = RestoredRecord
 
 export interface SaveStore {
   list(): SaveMeta[]
   load(id: string): RestoredGame | null
-  save(state: GameState, phase: SavePhase, name: string): SaveMeta
+  save(state: GameState, phase: SavePhase, name: string, daily?: DailyOp): SaveMeta
   remove(id: string): void
-  autosave(state: GameState, phase: SavePhase): void
+  autosave(state: GameState, phase: SavePhase, daily?: DailyOp): void
   loadAutosave(): RestoredGame | null
   clearAutosave(): void
 }
@@ -82,9 +81,9 @@ export class LocalStorageStore implements SaveStore {
     }
   }
 
-  save(state: GameState, phase: SavePhase, name: string): SaveMeta {
+  save(state: GameState, phase: SavePhase, name: string, daily?: DailyOp): SaveMeta {
     const id = this.nextId()
-    const p = captureGame(state, phase, nowIso())
+    const p = captureGame(state, phase, nowIso(), daily)
     const withName = { ...p, name }
     try {
       localStorage.setItem(NAMED_PREFIX + id, JSON.stringify(withName))
@@ -102,9 +101,9 @@ export class LocalStorageStore implements SaveStore {
     }
   }
 
-  autosave(state: GameState, phase: SavePhase): void {
+  autosave(state: GameState, phase: SavePhase, daily?: DailyOp): void {
     try {
-      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(captureGame(state, phase, nowIso())))
+      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(captureGame(state, phase, nowIso(), daily)))
     } catch {
       // autosave is best-effort; a failure just means no resume this session
     }

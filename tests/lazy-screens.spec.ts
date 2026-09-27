@@ -170,7 +170,11 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
   const gameSpecs = lazySpecifiers(readFileSync(GAME, 'utf8'))
 
   it('finds them, and none is reachable by static import from the entry point', () => {
-    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(3)
+    // Four since v1.2 R5: the score screen joined them. It replaces the
+    // end-of-run report, which every finished campaign reaches and no turn
+    // of play needs, so it arrives in its own chunk when a campaign ends
+    // (brief 7.2); the save code and the ways out stay static in Game.
+    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(4)
     const graph = staticGraphFrom(ENTRY)
     const offenders: string[] = []
     for (const spec of gameSpecs) {
@@ -181,6 +185,53 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     }
     expect(offenders.join('\n'), 'an overlay Game loads on demand is in the initial chunk anyway').toBe('')
     expect(gameSpecs).toContain('./board/IntelCard')
+    expect(gameSpecs).toContain('./ScoreScreen')
+  })
+})
+
+describe('the score screen carries its own weight, and the debrief its own (v1.2 R5)', () => {
+  // The score screen is lazy in Game (above). It declares one lazy module
+  // of its own, the debrief (brief 4.8: loaded when opened), which neither
+  // block above reads, so it is read here from ScoreScreen.tsx, pinned by
+  // count and walked the same way. A static import of the debrief would
+  // otherwise pass unnoticed: it would still be out of the first download,
+  // only inside the score screen's chunk instead of its own.
+  const SCORE = join(SRC, 'ui', 'ScoreScreen.tsx')
+  const scoreSpecs = lazySpecifiers(readFileSync(SCORE, 'utf8'))
+
+  it('finds the debrief, and nothing reaches it statically from the entry point or the score screen', () => {
+    expect(scoreSpecs, "the score screen's lazy set changed; say why").toEqual(['./Debrief'])
+    const debrief = resolveLocal(SCORE, './Debrief')
+    expect(debrief, 'the debrief resolves to no file').toBeTruthy()
+    expect(debrief!.endsWith(join('ui', 'Debrief.tsx')), `./Debrief resolved to ${debrief}`).toBe(true)
+    for (const [from, graph] of [
+      ['main.tsx', staticGraphFrom(ENTRY)],
+      ['ScoreScreen.tsx', staticGraphFrom(SCORE)],
+    ] as const) {
+      const trail = graph.get(debrief!)
+      expect(trail && [...trail, debrief!].map((f) => f.slice(SRC.length + 1)).join(' -> '), `the debrief is static from ${from}`).toBeUndefined()
+    }
+    // What only the debrief reads rides in its chunk: reachable from it,
+    // and from neither the entry nor the score screen.
+    const own = join(SRC, 'ui', 'threatsFaced.ts')
+    expect(staticGraphFrom(debrief!).has(own), 'the debrief no longer reaches threatsFaced.ts').toBe(true)
+    expect(staticGraphFrom(ENTRY).has(own), 'threatsFaced.ts is in the first download').toBe(false)
+    expect(staticGraphFrom(SCORE).has(own), "threatsFaced.ts is in the score screen's chunk").toBe(false)
+  })
+
+  it('keeps what only the score screen needs out of the first download', () => {
+    // What the screen reads to score a run and share it: the grade and the
+    // strip, the share text, its timing and its stylesheet. The positive
+    // control first: the score screen's own walk reaches every one, so a
+    // pass below is not a walk that found nothing.
+    const own = ['engine/grade.ts', 'ui/reportCard.ts', 'ui/scoreMotion.ts', 'ui/scoreScreen.css'].map((f) => join(SRC, f))
+    const fromScore = staticGraphFrom(SCORE)
+    for (const f of own) expect(fromScore.has(f), `the score screen no longer reaches ${f.slice(SRC.length + 1)}`).toBe(true)
+    const graph = staticGraphFrom(ENTRY)
+    const offenders = own
+      .filter((f) => graph.has(f))
+      .map((f) => `${f.slice(SRC.length + 1)} is reachable statically: ${[...graph.get(f)!.slice(1), f].map((x) => x.slice(SRC.length + 1)).join(' -> ')}`)
+    expect(offenders.join('\n'), "the score screen's own modules are in the initial chunk").toBe('')
   })
 })
 

@@ -19,6 +19,20 @@ campaign ends early. There is no dominant strategy: coverage, trust, and redunda
 against each other, and the cheap sensor package that saved credits in turn 2 is the one the
 supply-chain implant is looking for in turn 5.
 
+## Daily Op and the score screen
+
+- **DAILY OP #n.** One mission a day from the main menu, the same for every player whose
+  calendar shows that date: FIRST LIGHT on Standard, seeded from the local date. The first Daily
+  Op you finish on a date is recorded on your device as the official run. Replays that day are
+  practice, and so is any Daily Op loaded from a save code, since a code is text anyone can edit.
+  A run belongs to the date it started on.
+- **The score screen.** A grade from S to F, the final index, hits taken and credits left, and a
+  strip with one square per turn: green when the index held, amber for a small drop, magenta for
+  a large one or a lost asset. Share it as a few lines of text through your device's share sheet,
+  or the clipboard where there is none.
+- **Debrief.** Every threat you faced, with its framework technique and its sources, as a study
+  guide from your own run.
+
 ## The mechanics in brief
 
 - **Mission Assurance Index.** A weighted blend of Coverage, Link availability, Data integrity,
@@ -94,7 +108,6 @@ values, and each beat carries its own visual cue and its own sound.
 Deliberately out of scope, recorded here as future work:
 
 - A remote, shared leaderboard
-- A daily seeded challenge with shareable results
 - A red-teaming crossover scenario, attacking the AI-enabled ground segment
 
 ## Credits

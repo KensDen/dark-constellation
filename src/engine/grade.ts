@@ -1,8 +1,10 @@
-// The score screen's grade and turn strip (v1.2 Round 5a, brief 7.2), as
-// pure rules over a finished campaign. The screen itself is a later round;
-// these are the numbers it will read, in one place, so no test and no
+// The score screen's grade, stats and turn strip (v1.2 Rounds 5a and 5,
+// brief 7.2), as pure rules over a finished campaign: the numbers the
+// screen and the share text read, in one place, so no test and no
 // component restates them (principle 17).
 
+import { ASSET_DAMAGE_PER_SEVERITY, newGame } from './reducer'
+import { maiScore } from './scoring'
 import type { GameState } from './types'
 
 export type Grade = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
@@ -65,4 +67,56 @@ export function stripColour({ maiBefore, maiAfter, knockedOut }: StripTurn): Str
   const drop = Math.round((maiBefore - maiAfter) * 10) / 10
   if (knockedOut || drop >= TURN_STRIP.magentaDrop) return 'magenta'
   return drop > 0 ? 'amber' : 'green'
+}
+
+// HITS TAKEN, the score screen's second stat: events that landed, meaning
+// an effective severity above 0. A held threat and an opportunity are 0.
+export function hitsTaken(state: GameState): number {
+  return state.history.reduce((n, rec) => n + rec.events.filter((ev) => ev.effectiveSeverity > 0).length, 0)
+}
+
+// KNOCKOUTS PER TURN, DERIVED rather than recorded, so the turn record and
+// the determinism snapshot stay as they are. The derivation is exact
+// because of how the reducer treats integrity, and each of these is a
+// fact of src/engine/reducer.ts that tests/grade.spec.ts holds against
+// the engine's own assets on every turn of many campaigns:
+// - every asset starts at 100, whether it began the campaign or arrived;
+// - integrity only ever falls, and only through an event that names its
+//   asset in targetAssetId (nothing repairs an asset);
+// - a debris strike that names an asset sets it to 0, and every other
+//   named hit takes effectiveSeverity * ASSET_DAMAGE_PER_SEVERITY off it,
+//   floored at 0;
+// - a named asset was live when it was hit.
+// So replaying the named hits from 100 reproduces every asset's integrity
+// after every turn, and a knockout is a named asset that reached 0.
+export function knockoutsByTurn(state: GameState): number[] {
+  const integrity = new Map<string, number>()
+  return state.history.map((rec) => {
+    let knocked = 0
+    for (const ev of rec.events) {
+      const id = ev.targetAssetId
+      if (id === undefined) continue
+      const before = integrity.get(id) ?? 100
+      const def = state.scenario.events.find((e) => e.id === ev.eventId)
+      const after =
+        def?.effect.special === 'debrisStrike' ? 0 : Math.max(0, before - ev.effectiveSeverity * ASSET_DAMAGE_PER_SEVERITY)
+      integrity.set(id, after)
+      if (before > 0 && after === 0) knocked += 1
+    }
+    return knocked
+  })
+}
+
+// The turn strip of a finished or unfinished campaign, one colour a turn.
+// A turn's MAI before is the turn before's after; the first turn's is the
+// campaign's opening MAI, rebuilt from its seed and difficulty, which is
+// the state the first turn resolved from (newGame is pure).
+export function turnStrip(state: GameState): StripColour[] {
+  const knockouts = knockoutsByTurn(state)
+  let maiBefore = maiScore(newGame(state.scenario, state.seed, state.difficulty))
+  return state.history.map((rec, i) => {
+    const colour = stripColour({ maiBefore, maiAfter: rec.maiScore, knockedOut: knockouts[i] > 0 })
+    maiBefore = rec.maiScore
+    return colour
+  })
 }

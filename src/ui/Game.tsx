@@ -5,7 +5,8 @@
 // outcome screen are the v1.1 ones. All game logic is unchanged: this
 // file still owns the cart, the affordability gate, the cues and the
 // engine call, and the components under ./board only render what it
-// hands them. The game-feel pass (Round 2) adds a playback phase between
+// hands them. Since v1.2 R5 the outcome screen is the score screen, a
+// chunk of its own (./ScoreScreen), and a campaign may be a Daily Op. The game-feel pass (Round 2) adds a playback phase between
 // resolve and aftermath: the director plays the resolved turn beat by
 // beat over a presented state, and instant speed skips straight to the
 // aftermath exactly as v1.0 did. Instant is an explicit choice only:
@@ -16,17 +17,21 @@ import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { getHaptics } from '../haptics'
 import { ADVERSARY } from '../config'
 import {
+  LocalDailyLedger,
   LocalScoreSink,
   LocalStorageStore,
   SaveError,
   captureGame,
   decodeSaveCode,
   encodeSaveCode,
+  type DailyOp,
+  type DailyStanding,
   type RestoredGame,
   type SaveMeta,
   type SavePhase,
 } from '../persistence'
-import { reportData, shareText } from './reportCard'
+import { copyToClipboard } from './clipboard'
+import { DC_BTN } from './buttons'
 import DirectorView from '../director/DirectorView'
 import HoldButton from './cues/HoldButton'
 import { useMusicState, useSound, useSoundPrefs } from '../audio'
@@ -42,7 +47,6 @@ import {
 } from '../director'
 import { useBadgePhases } from './cues/ConditionBadge'
 import { CUE_MS, useCueClass, usePageVisible, useReducedMotion } from './cues/motion'
-import { vectorIcons } from './cues/icons'
 import { JOB_FRAMING_HEADING, jobFramingBlocks } from './brief'
 import Hud from './board/Hud'
 import ThreatBanner from './board/ThreatBanner'
@@ -74,8 +78,6 @@ import { assetPrice, maiScore } from '../engine/scoring'
 import { LAYERS, type AssetKind, type Difficulty, type GameState, type TrustTier, type TurnActions } from '../engine/types'
 
 import Wordmark from './Wordmark'
-import defeatSphereUrl from './assets/defeat-sphere.webp'
-import winSphereUrl from './assets/win-sphere.webp'
 import heroUrl from './assets/hero.webp'
 import heroPlaceholderUrl from './assets/hero-placeholder.webp'
 import frameUrl from './assets/constellation-frame.svg'
@@ -114,6 +116,18 @@ const Glossary = lazy(() => import('./Glossary').catch(() => ({ default: Glossar
 // loaded on first open like the Glossary: it is an element of this
 // component, so the split unmounts nothing.
 const IntelCard = lazy(() => import('./board/IntelCard').catch(() => ({ default: IntelUnavailable })))
+
+// THE SCORE SCREEN (v1.2 R5, brief 7.2), in a chunk of its own. It holds
+// everything the end of a run shows except the save code and the ways
+// out, which stay here, outside the chunk: a fetch that fails leaves a
+// line saying so above them, never a lost code (the Round 6d defect).
+// The chunk is fetched as soon as a campaign ends, while its last turn
+// plays back, so the screen is usually there before it is asked for.
+type ScoreScreenProps = Parameters<(typeof import('./ScoreScreen'))['default']>[0]
+const ScoreUnavailable = (_: ScoreScreenProps) => (
+  <p className="relative z-10 mt-4 font-mono text-sm text-dc-warn">The score screen could not load. Your save code is below.</p>
+)
+const ScoreScreen = lazy(() => import('./ScoreScreen').catch(() => ({ default: ScoreUnavailable })))
 
 // The terminal-style fallback the other split screens use, as a block
 // rather than a landmark: it renders inside the dialog, and a second
@@ -182,32 +196,11 @@ function arrive(phase: Phase | undefined): { phase: Phase; sheet: Sheet | null }
 }
 
 // Persistence singletons (R4). Local implementations behind the SaveStore
-// and ScoreSink interfaces; the remote seam is v2 and not imported.
+// and ScoreSink interfaces; the remote seam is v2 and not imported. The
+// Daily Op's ledger of official results joined them in v1.2 R5.
 const saveStore = new LocalStorageStore()
 const scoreSink = new LocalScoreSink()
-
-// Copy text to the clipboard with a synchronous fallback for browsers that
-// gate the async clipboard API.
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    try {
-      const ta = document.createElement('textarea')
-      ta.value = text
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      const ok = document.execCommand('copy')
-      document.body.removeChild(ta)
-      return ok
-    } catch {
-      return false
-    }
-  }
-}
+const dailyLedger = new LocalDailyLedger()
 
 function plannedCost(state: GameState, actions: TurnActions): number {
   const s = state.scenario
@@ -223,8 +216,25 @@ function plannedCost(state: GameState, actions: TurnActions): number {
   return total
 }
 
-export default function Game({ onExit, initial }: { onExit?: () => void; initial?: RestoredGame | null }) {
+export default function Game({
+  onExit,
+  onScoreboard,
+  initial,
+}: {
+  onExit?: () => void
+  onScoreboard?: () => void
+  initial?: RestoredGame | null
+}) {
   const [state, setState] = useState<GameState | null>(initial?.state ?? null)
+  // WHICH DAILY OP THIS IS, when it is one (v1.2 R5, brief 7.1). It rides
+  // beside the state in every copy this device writes (the autosave, the
+  // slots, the codes) and never inside it. A pasted code arrives marked
+  // (src/persistence/codec.ts), and the mark travels on.
+  const [daily, setDaily] = useState<DailyOp | undefined>(initial?.daily)
+  // Whether this campaign's finish claimed its date as the official run.
+  // Only a finish played here can: null until then, and for a campaign
+  // that arrived finished.
+  const [standing, setStanding] = useState<DailyStanding | null>(null)
   const [phase, setPhase] = useState<Phase>(() => arrive(initial?.phase as Phase | undefined).phase)
   const [sheet, setSheet] = useState<Sheet | null>(() => arrive(initial?.phase as Phase | undefined).sheet)
   // Where each sheet is in its steps, and what PROCURE has picked so far.
@@ -492,15 +502,19 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
 
   // Autosave every turn/phase change while playing, for refresh-safe
   // resume. On game over, record the score once and clear the autosave so
-  // a finished run is not offered for resume.
+  // a finished run is not offered for resume. A Daily Op's finish also
+  // goes to the ledger, which says whether it is the date's official run:
+  // the date is the one the run started on, from its identity, never the
+  // clock at the finish (brief 7.1).
   useEffect(() => {
     if (!state) return
     if (state.status === 'playing') {
-      saveStore.autosave(state, persistPhase(phase))
+      saveStore.autosave(state, persistPhase(phase), daily)
     } else if (!recordedRef.current) {
       recordedRef.current = true
       saveStore.clearAutosave()
       const last = state.history[state.history.length - 1]
+      const recordedAt = new Date().toISOString()
       scoreSink.record({
         outcome: state.status,
         mai: last?.maiScore ?? 0,
@@ -509,10 +523,31 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
         totalTurns: scenario.totalTurns,
         scenarioId: scenario.id,
         difficulty: state.difficulty,
-        recordedAt: new Date().toISOString(),
+        recordedAt,
       })
+      if (daily) {
+        setStanding(
+          dailyLedger.claim(daily, {
+            n: daily.n,
+            seed: state.seed,
+            outcome: state.status,
+            lossReason: state.lossReason,
+            mai: last?.maiScore ?? 0,
+            turns: state.history.length,
+            recordedAt,
+          }),
+        )
+      }
     }
-  }, [state, phase, scenario])
+  }, [state, phase, scenario, daily])
+
+  // Fetch the score screen's chunk the moment a campaign ends, while its
+  // last turn is still playing back. The same import the lazy declaration
+  // makes, so it is the same chunk, fetched once.
+  const finished = !!state && state.status !== 'playing'
+  useEffect(() => {
+    if (finished) import('./ScoreScreen').catch(() => undefined)
+  }, [finished])
 
   const flash = (msg: string) => setNotice(msg)
 
@@ -627,12 +662,14 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     return () => window.clearTimeout(id)
   }, [holdHint])
 
-  const beginGame = (next: GameState, nextPhase: Phase) => {
+  const beginGame = (next: GameState, nextPhase: Phase, nextDaily?: DailyOp) => {
     // A loaded code that is already over was not played here, so it neither
     // posts a score nor clears the autosave of the campaign it interrupts.
     recordedRef.current = next.status !== 'playing'
     const arrival = arrive(nextPhase)
     setState(next)
+    setDaily(nextDaily)
+    setStanding(null)
     setActions(EMPTY_ACTIONS)
     setPlayback(null)
     setPresented(null)
@@ -652,6 +689,8 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const newCampaign = () => {
     recordedRef.current = false
     setState(null)
+    setDaily(undefined)
+    setStanding(null)
     setActions(EMPTY_ACTIONS)
     setPlayback(null)
     setPresented(null)
@@ -668,7 +707,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   const loadCode = () => {
     try {
       const restored = decodeSaveCode(codeInput)
-      beginGame(restored.state, restored.phase as Phase)
+      beginGame(restored.state, restored.phase as Phase, restored.daily)
     } catch (e) {
       flash(e instanceof SaveError ? e.message : 'That save code could not be read.')
     }
@@ -676,21 +715,21 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
 
   const loadSlot = (id: string) => {
     const restored = saveStore.load(id)
-    if (restored) beginGame(restored.state, restored.phase as Phase)
+    if (restored) beginGame(restored.state, restored.phase as Phase, restored.daily)
     else flash('That save could not be loaded.')
   }
 
   const saveSlot = () => {
     if (!state) return
     const name = `Turn ${Math.min(state.turn, scenario.totalTurns)} save`
-    saveStore.save(state, persistPhase(phase), name)
+    saveStore.save(state, persistPhase(phase), name, daily)
     setSlots(saveStore.list())
     flash('Saved to a slot.')
   }
 
   const exportCode = async () => {
     if (!state) return
-    const code = encodeSaveCode(captureGame(state, persistPhase(phase), new Date().toISOString()))
+    const code = encodeSaveCode(captureGame(state, persistPhase(phase), new Date().toISOString(), daily))
     flash(
       (await copyToClipboard(code))
         ? 'Save code copied to clipboard.'
@@ -731,7 +770,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
     stampRef.current = { for: state, at: new Date().toISOString() }
   }
   const outcomeCode =
-    state && state.status !== 'playing' ? encodeSaveCode(captureGame(state, 'aftermath', stampRef.current.at)) : ''
+    state && state.status !== 'playing' ? encodeSaveCode(captureGame(state, 'aftermath', stampRef.current.at, daily)) : ''
 
   const copyOutcomeCode = async () => {
     flash(
@@ -739,11 +778,6 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
         ? 'Save code copied to clipboard.'
         : 'Copy failed. Select the code above and copy it.',
     )
-  }
-
-  const copyResult = async () => {
-    if (!state) return
-    flash((await copyToClipboard(shareText(state))) ? 'Result summary copied.' : 'Copy failed; try again.')
   }
 
   if (!state) {
@@ -1078,32 +1112,10 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   }
 
   // The deciding turn's playback and aftermath still render before the
-  // report card, exactly as the aftermath alone did in v1.0.
+  // score screen, exactly as the aftermath alone did in v1.0.
   if (state.status !== 'playing' && phase !== 'aftermath' && phase !== 'playback') {
-    // The same report data feeds the on-screen card and the shareable
-    // summary, so they can never disagree (R4).
-    const report = reportData(state)
-    const won = state.status === 'won'
     return (
       <main className="relative min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
-        {/* Outcome backdrop: dimmed and duotoned toward the state colour,
-            magenta on a loss (R3.5) and blue on a win (R5), lazy-loaded and
-            symmetric. Only the one that applies is ever requested. */}
-        <div aria-hidden="true" className="fixed inset-0 z-0 pointer-events-none">
-          <img
-            src={won ? winSphereUrl : defeatSphereUrl}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            className="w-full h-full object-cover opacity-60"
-            style={{
-              filter: won
-                ? 'grayscale(1) brightness(0.55) sepia(1) hue-rotate(175deg) saturate(4)'
-                : 'grayscale(1) brightness(0.5) sepia(1) hue-rotate(270deg) saturate(4)',
-            }}
-          />
-          <div className="absolute inset-0 bg-base/60" />
-        </div>
         <div className="relative z-10 flex items-center justify-between gap-2">
           <h1>
             <Wordmark size="clamp(0.6rem, 3vw, 1.4rem)" />
@@ -1114,71 +1126,24 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
             </button>
           )}
         </div>
-        <h2
-          className={`relative z-10 mt-6 font-display text-xl sm:text-2xl tracking-widest ${won ? 'text-hero-blue' : 'text-hero-magenta'}`}
-        >
-          {won ? 'MISSION ASSURED' : 'MISSION FAILED'}
-        </h2>
-        <p className="relative z-10 mt-2">
-          {won
-            ? `The architecture held through turn ${scenario.totalTurns}.`
-            : state.lossReason === 'insolvency'
-              ? 'Budget insolvency. The program ran out of credits before it ran out of threats.'
-              : state.lossReason === 'maiCollapse'
-                ? 'Mission Assurance Index collapse. The architecture came apart under the campaign.'
-                : `End of campaign below the win threshold of ${scenario.winThreshold}.`}
-        </p>
-        <p className="relative z-10 mt-4 font-mono text-xl text-phosphor">
-          Final MAI: {lastRecord?.maiScore ?? 0}
-          <span className="text-ink-dim text-sm">
-            {' '}
-            | turns survived {state.history.length} of {scenario.totalTurns} | seed {state.seed} |{' '}
-            {DIFFICULTIES[state.difficulty].label}
-          </span>
-        </p>
-        <h3 className={`${h2cls} relative z-10 mt-6`}>Technique report card</h3>
-        <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-          {report.burned.map((t) => (
-            <div key={t.id} className="border border-hero-magenta/50 bg-hero-magenta/5 p-2 font-mono text-xs">
-              <p className="text-hero-magenta font-bold flex items-center gap-2">
-                {t.vector && <img src={vectorIcons[t.vector]} alt="" className="w-5 h-5" />}
-                COMPROMISED
-              </p>
-              <p className="mt-1">{t.id}</p>
-              <p className="text-ink-dim font-sans">{t.name}</p>
-            </div>
-          ))}
-          {report.resisted.map((t) => (
-            <div key={t.id} className="border border-hero-blue/50 bg-hero-blue/5 p-2 font-mono text-xs">
-              <p className="text-hero-blue font-bold flex items-center gap-2">
-                {t.vector && <img src={vectorIcons[t.vector]} alt="" className="w-5 h-5" />}
-                RESILIENT
-              </p>
-              <p className="mt-1">{t.id}</p>
-              <p className="text-ink-dim font-sans">{t.name}</p>
-            </div>
-          ))}
-          {report.burned.length === 0 && report.resisted.length === 0 && (
-            <p className="text-ink-dim">No technique fired or was shut out this run.</p>
-          )}
-        </div>
-        <div className="relative z-10 mt-6 pt-3 border-t border-phosphor/30 flex flex-wrap items-center justify-between gap-2">
-          <Wordmark size="0.7rem" />
-          <p className="font-mono text-xs text-ink-dim">
-            {won ? 'assured' : 'failed'} at MAI {lastRecord?.maiScore ?? 0} | seed {state.seed} |
-            kensden.github.io/dark-constellation
-          </p>
-        </div>
+        {/* The score screen's own boundary: Game never suspends, so App's
+            boundary never swaps the whole screen for a loading line, and
+            the save code below renders whatever the chunk is doing. */}
+        <Suspense fallback={<OverlayLoading />}>
+          <ScoreScreen state={state} daily={daily} standing={standing} />
+        </Suspense>
         {/* THE SAVE CODE REVEAL (brief section 4, outcome row; Round 6e).
             Rendered, not merely copyable. A readonly textarea rather than a
             <code> block because it is the one element a phone will reliably
             let a player select and copy from, and because the failure path
             this fixes is exactly the player whose clipboard API is gated.
             The copy button below sends this string, not a freshly stamped
-            one, so what is on screen is what lands on the clipboard. */}
-        <div className="relative z-10 mt-6 border-t border-phosphor/30 pt-3">
-          <label className="font-mono text-xs text-phosphor" htmlFor="outcome-save-code">
-            Save code
+            one, so what is on screen is what lands on the clipboard. Kept
+            here rather than in the score screen's chunk (v1.2 R5), so it
+            never waits on a fetch. */}
+        <div className="relative z-10 mt-6 border-t-2 border-dc-line pt-3">
+          <label className="font-display text-[9px] text-dc-muted" htmlFor="outcome-save-code">
+            SAVE CODE
           </label>
           <textarea
             id="outcome-save-code"
@@ -1186,27 +1151,29 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
             readOnly
             value={outcomeCode}
             onFocus={(e) => e.currentTarget.select()}
-            className="mt-1 w-full border border-phosphor/40 bg-base text-ink px-2 py-1 font-mono text-xs h-16 break-all"
+            className="mt-1 w-full border-2 border-dc-line bg-dc-ground text-dc-ink px-2 py-1 font-mono text-xs h-16 break-all"
             aria-label="save code for this campaign"
           />
         </div>
         <div className="relative z-10 mt-3 flex flex-wrap gap-2">
-          <button className={btn} onClick={copyResult}>
-            Copy result
+          <button className={DC_BTN} onClick={copyOutcomeCode}>
+            EXPORT SAVE CODE
           </button>
-          <button className={btn} onClick={copyOutcomeCode}>
-            Export save code
+          <button className={DC_BTN} onClick={newCampaign}>
+            NEW CAMPAIGN
           </button>
-          <button className={btn} onClick={newCampaign}>
-            New campaign
-          </button>
+          {onScoreboard && (
+            <button className={DC_BTN} onClick={onScoreboard}>
+              SCOREBOARD
+            </button>
+          )}
           {onExit && (
-            <button className={btn} onClick={onExit}>
-              Back to menu
+            <button className={DC_BTN} onClick={onExit}>
+              BACK TO MENU
             </button>
           )}
         </div>
-        {notice && <p className="mt-2 font-mono text-sm text-alert-amber">{notice}</p>}
+        {notice && <p className="relative z-10 mt-2 font-mono text-sm text-alert-amber">{notice}</p>}
       </main>
     )
   }

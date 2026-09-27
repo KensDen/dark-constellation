@@ -11,6 +11,7 @@ import TerminalChrome from './ui/TerminalChrome'
 import { hasSeenIntro } from './ui/introSeen'
 import { LocalStorageStore, type RestoredGame } from './persistence'
 import { useGestureUnlock } from './audio'
+import { startDailyOp } from './ui/dailyOp'
 
 // SPLIT OUT OF THE INITIAL CHUNK (v1.2 R0, brief section 8). A player who
 // opens the game and plays a turn downloads the menu and the board; every
@@ -103,6 +104,9 @@ function App() {
     } else if (t === 'game') {
       setGameInitial(null)
       setScreen('game')
+    } else if (t === 'daily') {
+      setGameInitial(startDailyOp(new Date()))
+      setScreen('game')
     } else {
       setScreen(t)
     }
@@ -130,7 +134,17 @@ function App() {
                 Game render inside it and never suspend. */}
             <Suspense fallback={<ScreenLoading />}>
               {screen === 'menu' && <MainMenu onSelect={onSelect} resumeAvailable={!!store.loadAutosave()} />}
-              {screen === 'game' && <Game key={gameInitial ? 'resume' : 'new'} initial={gameInitial} onExit={toMenu} />}
+              {screen === 'game' && (
+                <Game
+                  key={gameInitial ? 'resume' : 'new'}
+                  initial={gameInitial}
+                  onExit={toMenu}
+                  onScoreboard={() => {
+                    setGameInitial(null)
+                    setScreen('scoreboard')
+                  }}
+                />
+              )}
               {screen === 'scoreboard' && <Scoreboard onBack={toMenu} />}
               {screen === 'howto' && <HowToPlay onBack={toMenu} />}
               {screen === 'manual' && <FieldManual onBack={toMenu} />}
