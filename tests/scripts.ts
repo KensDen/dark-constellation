@@ -16,18 +16,15 @@ export const a = (partial: Partial<TurnActions>): TurnActions => ({ ...NO_OP, ..
 
 // Keyed by turn number, 1..12.
 //
-// KNOWN ILLEGAL ON EXPERT at seeds 41, 104, 238 and 277, all at turn 9,
-// where the prepared line cannot afford its Tier A sat and resolveTurn
-// refuses the cart. All four are outside the twelve seeds the suite
-// sweeps, so nothing fails today; widening that sweep without funding
-// turn 9 will fail on them. The fix is parked because this script is
-// hashed by the determinism snapshot, so changing it needs its own round
-// and a re-approved snapshot (brief v0.9, Appendix E).
-//
-// Note the asymmetry while you are here: TOP_INTEL_SCRIPT is asserted
-// legal across 100 seeds on every difficulty in tests/reading-diet.spec.ts;
-// this script has no such assertion, which is why its bad seeds are a
-// comment rather than a failing test.
+// TURN 9 BUYS ITS SAT AT TIER B since v1.2 Round 5a. At Tier A the line
+// could not afford it on Expert at some seeds, and resolveTurn refused the
+// cart: at 41, 104, 238 and 277 before the deck stream, and at 8, 36, 50,
+// 69, 72 and 77 after it, each 6 to 11 credits short entering turn 9. At
+// Tier B it is legal on every difficulty across 300 seeds and wins as
+// often, within four seeds in three hundred on each difficulty.
+// tests/reading-diet.spec.ts now asserts the first 100 seeds on every
+// difficulty, as it already did for TOP_INTEL_SCRIPT, so a shortfall is
+// a failing test rather than a comment.
 export const WIN_SCRIPT: Record<number, TurnActions> = {
   1: a({ buyCounters: ['sensorFusion', 'antiJam'], buyAssets: [{ kind: 'sat', tier: 'B' }], buyIntelLevel: true }),
   2: a({ buyAssets: [{ kind: 'sat', tier: 'B' }] }),
@@ -37,7 +34,7 @@ export const WIN_SCRIPT: Record<number, TurnActions> = {
   6: a({ buyAssets: [{ kind: 'drone', tier: 'A' }] }),
   7: a({ buyAssets: [{ kind: 'drone', tier: 'A' }] }),
   8: a({ buyCounters: ['linkAuth'] }),
-  9: a({ buyAssets: [{ kind: 'sat', tier: 'A' }] }),
+  9: a({ buyAssets: [{ kind: 'sat', tier: 'B' }] }),
   10: a({}),
   11: a({ buyAssets: [{ kind: 'drone', tier: 'A' }] }),
   12: a({}),

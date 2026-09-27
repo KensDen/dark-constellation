@@ -90,12 +90,19 @@ const POST_TARGET_FILE_SHA1 = '5413e6332b09bc3be21cec6c4e2e39fcfff38f7e'
 // stream of its own. The snapshot after R3 held these two hashes, in the
 // file POST_TARGET_FILE_SHA1 names; the proof below replays both lines with
 // the deck routed back to the main stream and requires them, to the byte.
-// The snapshot after R5a is the committed file; its SHA-1 is POST_DECK_FILE_SHA1.
+// The deck move alone gave the file POST_DECK_FILE_SHA1 names.
 const POST_TARGET = {
   win: 'c99c56a6b731e236ee39b330d9c3c50c63e7b3466b06224030cd07d8310ec61c',
   loss: 'd31a41e8aa638dc957cd891d225a3fadfeeebfbbc5951438e3485aec5d94b896',
 }
+const POST_DECK = {
+  win: 'faf9ad331dacc6429c3485d41e6c8f432f3686dd0aedf667c895b53af39c0685',
+  loss: '9734c6503c8442d85535e19c5e03ab50c1c167dd7db0efa4fa30c545d4794e32',
+}
 const POST_DECK_FILE_SHA1 = '1baa3371d9d0bbb241c910801bc27fce25482f66'
+// THE SECOND R5a MOVE: the prepared line buys its turn 9 sat at Tier B
+// (tests/scripts.ts). The committed snapshot is the one after both moves.
+const SNAPSHOT_FILE_SHA1 = '795ec81875056aa2c0c814c34902bc1d95457fef'
 
 function withoutTargets(state: GameState): GameState {
   return {
@@ -155,9 +162,18 @@ describe('determinism', () => {
     // And the deck is really its own: on its own stream, both replays move.
     expect(gameLogHash(playGame(WIN_SEED, WIN_SCRIPT_BEFORE_R5A))).not.toBe(POST_TARGET.win)
     expect(gameLogHash(playGame(LOSS_SEED, LOSS_SCRIPT))).not.toBe(POST_TARGET.loss)
+  })
+
+  it('moves a second time by the prepared line alone; its old script on the deck stream rebuilds the deck snapshot to the byte', () => {
+    const deckOnly = {
+      win: gameLogHash(playGame(WIN_SEED, WIN_SCRIPT_BEFORE_R5A)),
+      loss: gameLogHash(playGame(LOSS_SEED, LOSS_SCRIPT)),
+    }
+    expect(deckOnly, 'the old script on the deck stream does not replay as the deck move left it').toEqual(POST_DECK)
+    expect(sha1(snapshotFile(deckOnly)), 'the rebuilt deck snapshot is not 1baa3371').toBe(POST_DECK_FILE_SHA1)
     // The committed snapshot is the one this build produces, and its file
     // hash is the one recorded above.
-    expect(sha1(readFileSync(SNAPSHOT_PATH, 'utf8')), 'the committed snapshot file changed').toBe(POST_DECK_FILE_SHA1)
+    expect(sha1(readFileSync(SNAPSHOT_PATH, 'utf8')), 'the committed snapshot file changed').toBe(SNAPSHOT_FILE_SHA1)
   })
 
   it('GUARD R5a (b): every player on a seed meets the same threats, whatever they buy', () => {

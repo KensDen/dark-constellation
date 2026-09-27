@@ -67,6 +67,13 @@ function novelTokens(copy: ReturnType<typeof briefCopy>): string[] {
   return [...tokensOf(disclosureBlocks(copy).join(' '))].filter((w) => !summary.has(w))
 }
 const SEEDS = 12
+// The two tests that pin a MEASURED EXTREME (the thinnest disclosure and
+// the longest beat title) sweep wider. A pin is only as good as the sweep
+// that reaches the extreme, and when the deck stream of v1.2 R5a moved
+// every campaign's draws, both extremes left the first 12 seeds (they come
+// up at seeds 15 and 24): a 12-seed sweep re-pinned to what it could see
+// would have let the real extreme outgrow its budget unseen.
+const EXTREME_SEEDS = 40
 const DIFFS: Difficulty[] = ['easy', 'standard', 'expert']
 // Five lines of play, so the copy is measured against the deck as a lazy
 // player meets it as well as a prepared one. The top-intel line is the one
@@ -432,7 +439,7 @@ describe('reading diet: the intel brief', () => {
     let worstNovelAt = ''
     for (const [name, script] of LINES) {
       for (const difficulty of DIFFS) {
-        for (let seed = 1; seed <= SEEDS; seed += 1) {
+        for (let seed = 1; seed <= EXTREME_SEEDS; seed += 1) {
           for (const { before } of playTurns(seed, script, difficulty)) {
             const copy = briefCopy(before)
             const novel = novelTokens(copy)
@@ -456,7 +463,8 @@ describe('reading diet: the intel brief', () => {
     // ever weakens a threshold: the guard above would keep passing while
     // the bar it names had stopped meaning anything. A mutation proved
     // exactly that and slept. Pinning the floor's real distance from the
-    // bar makes both directions have to come here and say so.
+    // bar makes both directions have to come here and say so. Swept over
+    // EXTREME_SEEDS since v1.2 R5a (see the constant).
     expect(worstNovel, `thinnest disclosure measured: ${worstNovel} novel tokens at ${worstNovelAt}`).toBe(31)
   })
 
@@ -668,7 +676,7 @@ describe('reading diet: the intel brief', () => {
     ]
     for (const [name, pick] of lines) {
       for (const difficulty of DIFFS) {
-        for (let seed = 1; seed <= SEEDS; seed += 1) {
+        for (let seed = 1; seed <= EXTREME_SEEDS; seed += 1) {
           let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
           while (state.status === 'playing') {
             const after = resolveTurn(state, pick(state), turnRng(state.seed, state.turn))
@@ -701,6 +709,7 @@ describe('reading diet: the intel brief', () => {
     // 11 swept NO_OP only; 12 widened to every line; 13 once the
     // zero-recovery clause went back to naming the three meters. Re-pinned
     // in Round 7 against visible beats only and a surge-spending line.
+    // Swept over EXTREME_SEEDS since v1.2 R5a (see the constant).
     expect(worst, `worst beat title measured: ${worst} words at ${worstAt}`).toBe(13)
   })
 
@@ -837,12 +846,7 @@ describe('reading diet: the fixtures themselves', () => {
   it('keeps the top-intel line legal well past the seeds the suite sweeps', () => {
     // The line this round added is checked wider than the sweep, because
     // its failure mode was latent: legal on the seeds measured, illegal a
-    // few seeds later. Only this line is swept this wide. The other four
-    // are already played end to end by every budget test in this file, so
-    // an illegal cart on the swept seeds would fail those; and the
-    // prepared line has a turn-9 shortfall on expert beyond them that
-    // predates this round and is recorded as a finding rather than fixed
-    // here.
+    // few seeds later. The prepared line is checked the same way below.
     for (const difficulty of DIFFS) {
       for (let seed = 1; seed <= 100; seed += 1) {
         let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
@@ -853,6 +857,24 @@ describe('reading diet: the fixtures themselves', () => {
             `top intel, ${difficulty}, seed ${seed}, turn ${turn}`,
           ).not.toThrow()
           state = resolveTurn(state, TOP_INTEL_SCRIPT[turn] ?? NO_OP, turnRng(state.seed, turn))
+        }
+      }
+    }
+  })
+  it('keeps the prepared line legal well past the seeds the suite sweeps (v1.2 R5a)', () => {
+    // The assertion TOP_INTEL_SCRIPT already had. Without it the prepared
+    // line's turn-9 shortfall on Expert lived in a comment for two versions,
+    // failing on seeds nobody swept (see tests/scripts.ts).
+    for (const difficulty of DIFFS) {
+      for (let seed = 1; seed <= 100; seed += 1) {
+        let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
+        while (state.status === 'playing') {
+          const turn = state.turn
+          expect(
+            () => resolveTurn(state, WIN_SCRIPT[turn] ?? NO_OP, turnRng(state.seed, turn)),
+            `prepared line, ${difficulty}, seed ${seed}, turn ${turn}`,
+          ).not.toThrow()
+          state = resolveTurn(state, WIN_SCRIPT[turn] ?? NO_OP, turnRng(state.seed, turn))
         }
       }
     }
