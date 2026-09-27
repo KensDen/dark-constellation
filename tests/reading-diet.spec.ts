@@ -277,7 +277,7 @@ describe('reading diet: the intel brief', () => {
     // Since v1.2 R1 the chrome is the board's: the five action-bar labels
     // are on the first screen, and the numbered section heading and the
     // phase button are gone. Since R1b the bar carries the step numbers,
-    // and Save, Export code, Back to menu, the two toggles and the
+    // and Save, Copy save code, Back to menu, the two toggles and the
     // playback speed sit in the SYSTEM sheet behind the gear, so the first
     // screen shows one word for the six of them. Since R2b RESOLVE's label
     // is the instruction with the turn in it (it replaced the word RESOLVE
@@ -349,7 +349,7 @@ describe('reading diet: the intel brief', () => {
     // The six system controls left the first screen for the sheet, which
     // lists them by name; tests/action-bar.dom.spec.tsx renders that list.
     const systemSheet = source('ui', 'board', 'SystemSheet.tsx')
-    for (const name of ['Save', 'Export code', 'Back to menu', 'Playback:']) {
+    for (const name of ['Save', 'Copy save code', 'Back to menu', 'Playback:']) {
       expect(systemSheet.includes(name), `the SYSTEM sheet no longer lists "${name}"`).toBe(true)
     }
     // The transmission label is rendered as an entity by the teletype bar,

@@ -262,7 +262,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
   // the campaign arrived already finished, because it was not played here.
   //
   // Round 6e made this reachable. Until the save code was rendered, a
-  // finished-state code was hard to come by: Save and Export code render
+  // finished-state code was hard to come by: Save and Copy save code render
   // only while playing. Now a player can paste a friend's MISSION ASSURED
   // code, or reload their own to re-read it, and the effect below would
   // treat "this state is finished" as "a run finished here": it posted a
@@ -1330,7 +1330,7 @@ export default function Game({ onExit, initial }: { onExit?: () => void; initial
           ))}
           <BoardReference shown={shown} conditionDurationRange={conditionDurationRange} />
           {/* The flash notice, when the SYSTEM sheet that carries it is not
-              open. Save, Export code, Back to menu, the toggles and the
+              open. Save, Copy save code, Back to menu, the toggles and the
               playback speed live in that sheet since R1b, so the board
               ends at the action bar. */}
           {notice && sheet !== 'system' && <p className="font-mono text-xs text-alert-amber">{notice}</p>}

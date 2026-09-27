@@ -1,9 +1,11 @@
 // The SYSTEM sheet (v1.2 R1b): the controls that are not a decision about
 // the turn, behind the gear on the HUD, so the board ends at the action
-// bar. Save, Export code, Back to menu, the two audio toggles and the
+// bar. Save, Copy save code, Back to menu, the two audio toggles and the
 // playback speed, driven by the one list below, which the board suite
 // pins by count and by name so a control cannot drop out of the sheet
-// unnoticed. Every control keeps the name it had on the old save row.
+// unnoticed. Every control keeps the name it had on the old save row,
+// except Export code, which became Copy save code in v1.2 R4b to say what
+// it does.
 //
 // Muting stays available whatever the campaign's status, on the same
 // principle as before: an accessibility path that disappears at the
@@ -28,7 +30,7 @@ export interface SystemControl {
 // entry stands for the name it also carries.
 export const SYSTEM_CONTROLS: readonly SystemControl[] = [
   { id: 'save', name: 'Save' },
-  { id: 'export', name: 'Export code' },
+  { id: 'export', name: 'Copy save code' },
   { id: 'menu', name: 'Back to menu' },
   { id: 'sound', name: SOUND_TOGGLE_LABELS.effects },
   { id: 'music', name: SOUND_TOGGLE_LABELS.music },

@@ -1872,9 +1872,9 @@ describe('the save code is on the screen, not only on the clipboard', () => {
     const playing = gameAt(3)
     render(playing, 'brief')
     expect(codeBox(), 'the brief screen renders a code box').toBeNull()
-    // Export code lives in the SYSTEM sheet since R1b.
+    // Copy save code lives in the SYSTEM sheet since R1b.
     click(container.querySelector('button[aria-label="System"]')!)
-    const inPlayExport = byText(/export code/i)
+    const inPlayExport = byText(/copy save code/i)
     expect(inPlayExport, 'the brief screen has no export control').toBeDefined()
 
     vi.stubGlobal('navigator', {
@@ -1991,10 +1991,10 @@ describe('the technique tag opens the GLOSSARY entry', () => {
     // the save-code paste box is on the start screen rather than this one,
     // so both would have failed for reasons unrelated to what is asserted.
     render(turnWithATag(), 'brief')
-    // Export code lives in the SYSTEM sheet since R1b; the sheet stays
+    // Copy save code lives in the SYSTEM sheet since R1b; the sheet stays
     // open across the glossary round trip, like the cart does.
     click(container.querySelector('button[aria-label="System"]')!)
-    const exportButton = byText(/export code/i)
+    const exportButton = byText(/copy save code/i)
     expect(exportButton, 'the brief screen has no export control, so this asserts nothing').toBeDefined()
     await act(async () => {
       exportButton!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
@@ -2105,7 +2105,7 @@ describe('the glossary overlay is a dialog a keyboard can use', () => {
 describe('a loaded campaign is not a campaign that was played here', () => {
   // CONFIRMED BY THE PASS, and Round 6e is what made it reachable: until
   // the save code was rendered, a finished-state code was hard to come by,
-  // because Save and Export code render only while playing. Now a player
+  // because Save and Copy save code render only while playing. Now a player
   // can paste a friend's MISSION ASSURED code, or reload their own to
   // re-read it, and the effect that posts a score treated "this state is
   // finished" as "a run finished here".

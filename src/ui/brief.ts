@@ -538,7 +538,7 @@ export function firstInputWords(state: GameState, difficultyLabel: string): numb
 // read from the one action array; RESOLVE also carries "Hold to resolve
 // turn n" for assistive technology, which is not reading load on the
 // screen and is not counted here. R1b put the step numbers and the HOLD
-// caption on the bar and moved Save, Export code, Back to menu, the two
+// caption on the bar and moved Save, Copy save code, Back to menu, the two
 // toggles and the playback speed off the board into the SYSTEM sheet
 // behind the gear, whose one word is what the first screen shows of them
 // (src/ui/board/SystemSheet.tsx lists the six by name).
