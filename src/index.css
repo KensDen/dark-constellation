@@ -1,0 +1,900 @@
+@import "tailwindcss";
+
+/* Bundled OFL pixel display font (R3.5), self-hosted, subset. License at
+   src/ui/assets/fonts/OFL.txt. Used for the wordmark and headers only;
+   body copy stays on the sans stack. */
+@font-face {
+  font-family: 'DC Display';
+  src: url('./ui/assets/fonts/display.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Design tokens (design brief v0.2). Green is the terminal chrome; the
+   hero's blue and magenta are state accents with meaning: blue = friendly
+   and defense, magenta = hostile and threat. Amber is for alerts. */
+@theme {
+  --color-base: #05060e;
+  --color-panel: #0a0d18;
+  --color-ink: #cfe0d6;
+  --color-ink-dim: #8fa89b;
+  --color-phosphor: #35f095;
+  --color-phosphor-dim: #1f9c63;
+  --color-hero-blue: #4db2ff;
+  --color-hero-magenta: #ff4d9d;
+  --color-alert-amber: #ffb84d;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'DC Display', 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* v1.2 board pass, section 3: "8-bit bones, Playbook finish". The tokens
+   land first and nothing adopts them yet; R1 onward repaints against these
+   names rather than against hex literals. They are declared on :root as
+   plain custom properties so non-Tailwind CSS in this file can read them,
+   and mirrored into @theme below so Tailwind emits utilities (bg-dc-panel,
+   text-dc-muted, border-dc-line and so on).
+
+   No colour above changes in this round. None of the v1.1 values is equal
+   to a v1.2 token, so there is nothing to replace one for one: the old
+   palette keeps painting the screen until a round repaints it. */
+:root {
+  --dc-ground: #0B0F14;
+  --dc-chrome: #0E141C;
+  --dc-panel: #121821;
+  --dc-line: #243041;
+  --dc-ink: #E6EDF3;
+  --dc-muted: #8B98A8;
+  --dc-go: #7CFF9B;
+  --dc-friendly: #5AA9FF;
+  --dc-hostile: #FF4FA3;
+  --dc-warn: #FFB547;
+  --dc-shadow: #05080C;
+}
+
+@theme {
+  --color-dc-ground: var(--dc-ground);
+  --color-dc-chrome: var(--dc-chrome);
+  --color-dc-panel: var(--dc-panel);
+  --color-dc-line: var(--dc-line);
+  --color-dc-ink: var(--dc-ink);
+  --color-dc-muted: var(--dc-muted);
+  --color-dc-go: var(--dc-go);
+  --color-dc-friendly: var(--dc-friendly);
+  --color-dc-hostile: var(--dc-hostile);
+  --color-dc-warn: var(--dc-warn);
+  --color-dc-shadow: var(--dc-shadow);
+}
+
+/* The hard offset shadows of brief v1.2 section 3: 4px on cards and
+   tiles, 3px under buttons, collapsing on press (active:shadow-none). */
+@utility shadow-hard {
+  box-shadow: 4px 4px 0 var(--dc-shadow);
+}
+@utility shadow-press {
+  box-shadow: 0 3px 0 var(--dc-shadow);
+}
+
+/* Safe-area padding for the notch and the home indicator, ready for the
+   board rounds. index.html carries viewport-fit=cover, without which every
+   env(safe-area-inset-*) resolves to zero and these are silently no-ops.
+   Utilities rather than bare classes so they take variants: sm:pb-safe. */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+@utility px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+@utility py-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html {
+  background-color: var(--color-base);
+}
+
+body {
+  background-color: var(--color-base);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Focus visibility on a dark terminal surface. */
+:focus-visible {
+  outline: 2px solid var(--color-phosphor);
+  outline-offset: 2px;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+/* Subtle CRT/scanline treatment (R3.5). Presentation only; a fixed overlay
+   above content, non-interactive. The faint flicker is motion, so it is
+   disabled under prefers-reduced-motion, leaving the static scanlines. */
+.crt-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(0, 0, 0, 0.16) 3px,
+    rgba(0, 0, 0, 0) 4px
+  );
+  mix-blend-mode: multiply;
+}
+
+.crt-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 60%, rgba(0, 0, 0, 0.35) 100%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .crt-overlay {
+    animation: crt-flicker 6s steps(60) infinite;
+  }
+  @keyframes crt-flicker {
+    0%,
+    97%,
+    100% {
+      opacity: 1;
+    }
+    98% {
+      opacity: 0.94;
+    }
+    99% {
+      opacity: 0.98;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------
+   The idle life (v1.2 R2, brief 5.3). Between turns the board breathes:
+   stars twinkle, beacons blink, sprites bob a pixel out of phase, rotors
+   flicker, sparks spit, smoke breathes, clouds drift across AIR, and two
+   satellites cross the ORBIT sky on an arc above the limb. CSS only, and
+   transform and opacity only, so none of it touches layout.
+
+   Every rule sits inside the no-preference guard, so under reduced motion
+   each piece rests where src/ui/sprites/backdrops.tsx and the tiles put
+   it. Durations and phase offsets that differ per element are set inline
+   there, which the shorthands below leave alone. The block sits ahead of
+   the cue layer's own guard, which tests/cues.spec.ts finds as the last
+   one in the file; the keyframes and the hidden-tab pause are at the end.
+   --------------------------------------------------------------------- */
+@media (prefers-reduced-motion: no-preference) {
+  .dc-twinkle {
+    animation: dc-twinkle 5.4s steps(1, end) infinite;
+  }
+
+  .dc-beacon {
+    animation: dc-blink 2.2s steps(1, end) infinite;
+  }
+
+  .dc-bob {
+    animation: dc-bob 2.8s steps(1, end) infinite;
+  }
+
+  /* 2.5 flickers a second on a few pixels, under the flash threshold. */
+  .dc-rotor {
+    animation: dc-blink 0.4s steps(1, end) infinite;
+  }
+
+  .dc-spark {
+    animation: dc-blink 0.9s steps(1, end) infinite;
+  }
+
+  .dc-smoke {
+    animation: dc-smoke 3.2s ease-in-out infinite;
+  }
+
+  .dc-drift {
+    animation: dc-drift 120s linear infinite;
+  }
+
+  .dc-orbit {
+    animation: dc-orbit 60s linear infinite;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   Cue vocabulary (game-feel brief v0.5 section 6, Round 3). CSS first, no
+   dependencies. Every motion rule lives inside a no-preference media
+   query, so reduced motion gets the same state changes with none of the
+   movement: badges still attach and clear, meters still read the right
+   number, nothing strobes or shakes. Colour-only cues (flash tones) stay
+   on in both modes because they carry meaning, but they do not animate.
+   --------------------------------------------------------------------- */
+
+/* Tile press: the control takes the press even without motion, via the
+   border and background; the scale is the motion-only half. */
+.dc-tile {
+  transition: background-color 120ms ease-out, border-color 120ms ease-out, transform 90ms ease-out;
+}
+
+/* The suggested next step on the action bar (v1.2 R2b): a brighter
+   border and a 3px ring in the go colour at 18 percent, over the button's
+   own 3px shadow. A plain rule outside Tailwind's layers, so it wins over
+   the border and shadow utilities it sits beside. It does not move, so it
+   is the same under reduced motion. */
+.dc-glow {
+  border-color: var(--dc-go);
+  box-shadow:
+    0 3px 0 var(--dc-shadow),
+    0 0 0 3px color-mix(in oklab, var(--dc-go) 18%, transparent);
+}
+
+/* Condition and layer badges. The attached state is structural, so it is
+   set in both modes; only the entrance and the pulse are motion. Opacity
+   is a fade, not movement, so it stays in both modes; the transform
+   transition is movement and lives under the guard below. */
+.dc-badge {
+  transition: opacity 180ms ease-out;
+}
+
+.dc-flash-bad {
+  color: var(--color-hero-magenta);
+}
+
+.dc-flash-good {
+  color: var(--color-hero-blue);
+}
+
+/* The bar's width is driven frame by frame by the count-up in
+   src/ui/cues/motion.ts, so it must not also transition here: a width
+   transition on top of an eased value made the bar a damped follower that
+   arrived about 400ms after its own digits had settled. What is left is
+   the tone colour, and the guard below drops that under reduce, where the
+   count-up snaps as well; a reduce user gets the right number and the
+   right colour with no movement at all. Keep the two in step: if the JS
+   snap goes, this goes. */
+.dc-meter-fill {
+  transition: background-color 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dc-meter-fill {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dc-badge {
+    transition: opacity 180ms ease-out, transform 180ms ease-out;
+  }
+
+  .dc-tile:active {
+    transform: scale(0.97);
+  }
+
+  /* A bottom sheet rises over the board (v1.2 R1). Under reduced motion it
+     is simply there. */
+  .dc-sheet-in {
+    animation: dc-sheet-in 180ms ease-out;
+  }
+
+  /* NEXT TURN breathes slowly in the aftermath (v1.2 R1b), so the way on
+     is the one thing moving. Off under reduced motion, and not applied
+     there either. */
+  .dc-next-pulse {
+    animation: dc-next-pulse 2.4s ease-in-out infinite;
+  }
+
+
+  .dc-shake {
+    animation: dc-shake 320ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  }
+
+  .dc-flash-bad {
+    animation: dc-flash-bad 520ms ease-out both;
+  }
+
+  .dc-flash-good {
+    animation: dc-flash-good 520ms ease-out both;
+  }
+
+  .dc-badge-attach {
+    animation: dc-badge-attach 420ms ease-out both;
+  }
+
+  .dc-badge-clear {
+    animation: dc-badge-clear 520ms ease-out both;
+  }
+
+  .dc-badge-tick {
+    animation: dc-pulse-soft 700ms ease-out both;
+  }
+
+  .dc-pulse-hostile {
+    animation: dc-pulse-hostile 620ms ease-out both;
+  }
+
+  .dc-pulse-friendly {
+    animation: dc-pulse-friendly 620ms ease-out both;
+  }
+
+  .dc-card-in {
+    animation: dc-card-in 260ms ease-out both;
+  }
+
+  .dc-transmission-in {
+    animation: dc-transmission-in 320ms ease-out both;
+  }
+
+  /* Round 7b: a turn where nothing attacked. A slow settle rather than an
+     entrance, so it reads as the opposite of a hit landing. */
+  .dc-all-clear {
+    animation: dc-all-clear 520ms ease-out both;
+  }
+
+  .dc-strobe {
+    animation: dc-strobe 1.6s ease-in-out infinite;
+  }
+
+  .dc-asset-light {
+    animation: dc-asset-light 900ms ease-out both;
+  }
+
+  .dc-token-burn {
+    animation: dc-token-burn 560ms ease-in both;
+  }
+
+  /* EXECUTE TURN's hold ring: the fill sweeps the control for as long as
+     the press has to be held. Its duration is set inline from the same
+     constant the timer uses, so the two cannot drift. */
+  /* Round 5 cinematics. Each scene's ENTRANCE lives here; the scene's
+     content is rendered in both modes by src/ui/cues/Scene.tsx, so the
+     reduced-motion form is the same information arriving at once rather
+     than this animation held at its first frame. */
+  .dc-scene-blackout {
+    animation: dc-scene-darken 900ms ease-out both;
+  }
+
+  .dc-scene-commendation {
+    animation: dc-scene-drop 420ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  }
+
+  .dc-scene-victory {
+    animation: dc-scene-rise 520ms ease-out both;
+  }
+
+  .dc-scene-defeat {
+    animation: dc-scene-darken 700ms ease-out both;
+  }
+
+  /* The drone and sensor glyphs going out, one after another. */
+  .dc-scene-die {
+    animation: dc-scene-flicker 900ms steps(1, end) both;
+  }
+
+  /* The static wash that resolves to LINK LOST. */
+  .dc-scene-wash {
+    animation: dc-scene-static 700ms steps(6, end) both;
+    background: repeating-linear-gradient(
+      0deg,
+      rgb(255 255 255 / 12%) 0px,
+      rgb(255 255 255 / 12%) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+
+  .dc-hold-fill {
+    animation: dc-hold-fill linear both;
+    transform-origin: left center;
+  }
+
+  /* A bought item sliding into the manifest. */
+  .dc-manifest-in {
+    animation: dc-manifest-in 320ms ease-out both;
+  }
+
+  /* The dim the adversary phase enters through. It plays on the way in and
+     blocks nothing: the engine has already resolved the turn by the time
+     this runs (principle 3, nothing waits on a cue). */
+  .dc-phase-dim {
+    animation: dc-phase-dim 420ms ease-out both;
+  }
+
+  .dc-ribbon-in {
+    animation: dc-ribbon-in 420ms cubic-bezier(0.22, 1.2, 0.36, 1) both;
+  }
+
+  .dc-blackout {
+    animation: dc-blackout 900ms ease-in-out both;
+  }
+
+  /* v1.2 R3: the hit lands on its tile (brief 4.5). Every duration is a
+     share of --dc-beat, the visible beat's dwell at the playback speed,
+     which Game sets on the board root: 1200ms at 1x, 600ms at 2x, and
+     INSTANT plays no beats. Transform and opacity only. The lock-on is
+     the first LOCK_SHARE of the beat (src/ui/board/strike.ts); the rest
+     starts when the hit lands. */
+  .dc-lock-on {
+    animation: dc-lock-on calc(var(--dc-beat, 1200ms) * 0.3) steps(3, end) both;
+  }
+
+  .dc-beam {
+    animation: dc-beam calc(var(--dc-beat, 1200ms) * 0.35) linear both;
+  }
+
+  .dc-hit-strobe {
+    animation: dc-hit-strobe calc(var(--dc-beat, 1200ms) * 0.45) steps(1, end) forwards;
+  }
+
+  .dc-burst {
+    animation: dc-burst calc(var(--dc-beat, 1200ms) * 0.12) steps(1, end) forwards;
+  }
+
+  .dc-burst-1 {
+    animation-delay: calc(var(--dc-beat, 1200ms) * 0.12);
+  }
+
+  .dc-burst-2 {
+    animation-delay: calc(var(--dc-beat, 1200ms) * 0.24);
+  }
+
+  .dc-pip-pop {
+    animation: dc-pip-pop calc(var(--dc-beat, 1200ms) * 0.4) ease-out forwards;
+  }
+
+  /* 4px for 200ms at 1x: a sixth of the beat. */
+  .dc-hit-shake {
+    animation: dc-hit-shake calc(var(--dc-beat, 1200ms) / 6) steps(4, end) both;
+  }
+
+  .dc-mai-float {
+    animation: dc-mai-float calc(var(--dc-beat, 1200ms) * 0.6) ease-out forwards;
+  }
+
+  .dc-odo {
+    animation: dc-odo calc(var(--dc-beat, 1200ms) * 0.08) ease-out both;
+  }
+
+  .dc-shield-flash {
+    animation: dc-shield-flash calc(var(--dc-beat, 1200ms) * 0.5) steps(1, end) both;
+  }
+
+  /* A condition's chip stamps onto its layer header. */
+  .dc-stamp {
+    animation: dc-stamp calc(var(--dc-beat, 1200ms) * 0.35) steps(4, end) both;
+  }
+}
+
+@keyframes dc-shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(3px); }
+  30%, 50%, 70% { transform: translateX(-5px); }
+  40%, 60% { transform: translateX(5px); }
+}
+
+@keyframes dc-hold-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes dc-manifest-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes dc-phase-dim {
+  from {
+    opacity: 0.15;
+    filter: brightness(0.35);
+  }
+  to {
+    opacity: 1;
+    filter: brightness(1);
+  }
+}
+
+@keyframes dc-flash-bad {
+  0% { color: var(--color-hero-magenta); text-shadow: 0 0 10px var(--color-hero-magenta); }
+  100% { color: var(--color-hero-magenta); text-shadow: none; }
+}
+
+@keyframes dc-flash-good {
+  0% { color: var(--color-hero-blue); text-shadow: 0 0 10px var(--color-hero-blue); }
+  100% { color: var(--color-hero-blue); text-shadow: none; }
+}
+
+@keyframes dc-badge-attach {
+  0% { opacity: 0; transform: scale(0.6) translateY(-6px); }
+  55% { opacity: 1; transform: scale(1.12); box-shadow: 0 0 14px var(--color-hero-magenta); }
+  100% { opacity: 1; transform: scale(1); box-shadow: none; }
+}
+
+@keyframes dc-badge-clear {
+  0% { opacity: 1; transform: scale(1); box-shadow: 0 0 14px var(--color-phosphor); }
+  100% { opacity: 0; transform: scale(0.8); box-shadow: none; }
+}
+
+@keyframes dc-pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@keyframes dc-pulse-hostile {
+  0% { transform: scale(1); filter: drop-shadow(0 0 0 var(--color-hero-magenta)); }
+  45% { transform: scale(1.18); filter: drop-shadow(0 0 8px var(--color-hero-magenta)); }
+  100% { transform: scale(1); filter: drop-shadow(0 0 0 var(--color-hero-magenta)); }
+}
+
+@keyframes dc-pulse-friendly {
+  0% { transform: scale(1); filter: drop-shadow(0 0 0 var(--color-hero-blue)); }
+  45% { transform: scale(1.14); filter: drop-shadow(0 0 8px var(--color-hero-blue)); }
+  100% { transform: scale(1); filter: drop-shadow(0 0 0 var(--color-hero-blue)); }
+}
+
+@keyframes dc-card-in {
+  0% { opacity: 0; transform: translateY(8px) scaleY(0.94); }
+  100% { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+@keyframes dc-transmission-in {
+  0% { opacity: 0; transform: translateX(-12px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes dc-all-clear {
+  0% { opacity: 0; transform: scale(0.98); }
+  60% { opacity: 1; transform: scale(1.01); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes dc-strobe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes dc-asset-light {
+  0% { filter: brightness(1); }
+  40% { filter: brightness(2.2) drop-shadow(0 0 10px var(--color-hero-blue)); }
+  100% { filter: brightness(1); }
+}
+
+@keyframes dc-token-burn {
+  0% { opacity: 1; transform: scale(1); }
+  40% { opacity: 1; transform: scale(1.25); filter: drop-shadow(0 0 10px var(--color-alert-amber)); }
+  100% { opacity: 0.25; transform: scale(0.85); }
+}
+
+@keyframes dc-ribbon-in {
+  0% { opacity: 0; transform: translateY(-14px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes dc-blackout {
+  0% { filter: none; }
+  35% { filter: brightness(0.25) saturate(0.4); }
+  70% { filter: brightness(0.5) saturate(0.6); }
+  100% { filter: none; }
+}
+
+@keyframes dc-scene-darken {
+  from {
+    opacity: 0;
+    filter: brightness(2.4);
+  }
+  to {
+    opacity: 1;
+    filter: brightness(1);
+  }
+}
+
+@keyframes dc-scene-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-1.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dc-scene-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dc-scene-flicker {
+  0%,
+  40% {
+    opacity: 0.9;
+    filter: none;
+  }
+  50%,
+  70% {
+    opacity: 0.35;
+  }
+  60% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0.25;
+    filter: grayscale(1);
+  }
+}
+
+@keyframes dc-scene-static {
+  from {
+    opacity: 0.9;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes dc-sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes dc-next-pulse {
+  0%,
+  100% {
+    box-shadow: 0 3px 0 var(--dc-shadow);
+  }
+  50% {
+    box-shadow: 0 3px 0 var(--dc-shadow), 0 0 0 3px color-mix(in oklab, var(--dc-go) 45%, transparent);
+  }
+}
+
+/* Hidden means paused (the policy in src/ui/cues/visibility.ts), for every
+   animation on the board, idle or cue: Game sets this class on the board
+   root from visibilitychange. !important because an animation shorthand
+   resets animation-play-state to running, so a later or more specific
+   shorthand would otherwise win over the pause. */
+.dc-board-hidden,
+.dc-board-hidden * {
+  animation-play-state: paused !important;
+}
+
+@keyframes dc-twinkle {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 0.5;
+  }
+  45% {
+    opacity: 0.15;
+  }
+  60% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes dc-blink {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes dc-bob {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes dc-smoke {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* A cloud's layer spans the panel, so 100% is the panel's width: the
+   cloud starts just off the left edge and leaves off the right. */
+@keyframes dc-drift {
+  from {
+    transform: translateX(-32px);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* The arm pivots at the limb's centre, so a satellite rises from behind
+   the limb on one side, arcs over and sets on the other. */
+@keyframes dc-orbit {
+  from {
+    transform: rotate(-16deg);
+  }
+  to {
+    transform: rotate(16deg);
+  }
+}
+
+/* The hit's effects rest invisible (v1.2 R3): the no-preference rules
+   above animate them in, so under reduced motion there is no strobe,
+   burst, pip pop, beam or falling "-n", and the tile, its pips and MAI
+   simply change. The lock-on brackets and HELD are not motion and stand
+   still in both modes. */
+.dc-beam,
+.dc-hit-strobe,
+.dc-burst,
+.dc-pip-pop,
+.dc-mai-float {
+  opacity: 0;
+}
+
+/* The beam is drawn from the emblem along --beam-angle, which Game sets
+   per hit; it grows out of the emblem and fades as the hit lands. */
+@keyframes dc-beam {
+  0% {
+    opacity: 1;
+    transform: rotate(var(--beam-angle)) scaleX(0);
+  }
+  70% {
+    opacity: 1;
+    transform: rotate(var(--beam-angle)) scaleX(1);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--beam-angle)) scaleX(1);
+  }
+}
+
+@keyframes dc-lock-on {
+  0% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Three magenta flashes. */
+@keyframes dc-hit-strobe {
+  0%,
+  33%,
+  66% {
+    opacity: 1;
+  }
+  16%,
+  50%,
+  83%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes dc-burst {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes dc-pip-pop {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px) scale(2);
+  }
+}
+
+@keyframes dc-hit-shake {
+  0% {
+    transform: translateX(-4px);
+  }
+  25% {
+    transform: translateX(4px);
+  }
+  50% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes dc-mai-float {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes dc-odo {
+  from {
+    opacity: 0.3;
+    transform: translateY(-45%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dc-shield-flash {
+  0%,
+  40%,
+  80% {
+    opacity: 1;
+  }
+  20%,
+  60% {
+    opacity: 0.2;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes dc-stamp {
+  from {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

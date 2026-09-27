@@ -1,0 +1,7 @@
+Copyright (c) 2026 Ken Connell. All rights reserved.
+
+This repository is published so the work can be read and reviewed. No license is granted to copy, modify, distribute, sublicense or otherwise use its code, artwork or written content, in whole or in part, except as the law allows without a license, or with Ken Connell's prior written permission. To ask, open an issue on this repository.
+
+Third-party material keeps its own terms, including the display font (SIL Open Font License 1.1, see the README) and the npm packages the build depends on.
+
+Earlier versions of this repository, including the v1.0.0 and v1.1.0 releases and every commit up to and including 26c9ed0, released their code under the MIT License. That grant still applies to copies of those versions; it does not apply to anything added or changed after them. The public history was restarted on 27 September 2026, so those commits no longer appear in it.

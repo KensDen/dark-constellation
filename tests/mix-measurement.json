@@ -1,0 +1,151 @@
+{
+  "what": "Rendered levels of every effect voice and of the music pad, from scripts/measure-mix.js run in Chromium (OfflineAudioContext, 48 kHz mono). The battery runs in node and cannot render audio; this file is what the instrument printed, and the instrument is in the tree so the figures can be re-run and audited.",
+  "measuredAt": "2026-09-18",
+  "instrument": "scripts/measure-mix.js",
+  "measuredAtLevels": {
+    "MUSIC_LEVEL": 0.35,
+    "EFFECTS_LEVEL": 1
+  },
+  "units": "dBFS. u unweighted RMS; a A-weighted (IEC 61672); k K-weighted (ITU-R BS.1770). Voices over their sounding samples; the pad over seconds 4 to 14 of a real AudioEngine render.",
+  "voices": {
+    "data-burst": {
+      "u": -28.5,
+      "a": -28.2,
+      "k": -27.8
+    },
+    "buy-click": {
+      "u": -28.5,
+      "a": -28.8,
+      "k": -28.2
+    },
+    "denied-buzz": {
+      "u": -31,
+      "a": -37.4,
+      "k": -32.3
+    },
+    "execute-sweep": {
+      "u": -30.3,
+      "a": -34.4,
+      "k": -31.1
+    },
+    "hit-stab": {
+      "u": -25.2,
+      "a": -28.9,
+      "k": -25.9
+    },
+    "alarm-gnss": {
+      "u": -26.3,
+      "a": -26.8,
+      "k": -26.2
+    },
+    "alarm-uplink": {
+      "u": -26.3,
+      "a": -27.1,
+      "k": -26.3
+    },
+    "alarm-spoof": {
+      "u": -26.4,
+      "a": -26.8,
+      "k": -26.2
+    },
+    "alarm-eavesdrop": {
+      "u": -26.4,
+      "a": -27.2,
+      "k": -26.3
+    },
+    "alarm-exfil": {
+      "u": -26.3,
+      "a": -26.9,
+      "k": -26.1
+    },
+    "alarm-ransom": {
+      "u": -26.4,
+      "a": -31.4,
+      "k": -27.4
+    },
+    "all-clear": {
+      "u": -33.5,
+      "a": -35.6,
+      "k": -34.3
+    },
+    "soft-tick": {
+      "u": -34.8,
+      "a": -33.9,
+      "k": -34
+    },
+    "resolve-chime": {
+      "u": -31.3,
+      "a": -31.5,
+      "k": -31.4
+    },
+    "tick-up": {
+      "u": -34.8,
+      "a": -34.4,
+      "k": -34.1
+    },
+    "tick-down": {
+      "u": -34.8,
+      "a": -35.7,
+      "k": -34.8
+    },
+    "warn-low": {
+      "u": -32,
+      "a": -36.8,
+      "k": -33
+    },
+    "relief-chime": {
+      "u": -31.5,
+      "a": -32.2,
+      "k": -31.8
+    },
+    "blackout-chain": {
+      "u": -27.7,
+      "a": -30.2,
+      "k": -27.2
+    },
+    "surge-burn": {
+      "u": -28.4,
+      "a": -33.9,
+      "k": -29.4
+    },
+    "commendation-fanfare": {
+      "u": -26.6,
+      "a": -27.8,
+      "k": -26.7
+    },
+    "arrive-chime": {
+      "u": -31.1,
+      "a": -32.7,
+      "k": -31.5
+    },
+    "victory-fanfare": {
+      "u": -25.1,
+      "a": -25.9,
+      "k": -25.1
+    },
+    "defeat-sting": {
+      "u": -31.2,
+      "a": -38.7,
+      "k": -33.9
+    }
+  },
+  "pad": {
+    "base": {
+      "u": -15.9,
+      "a": -44.3,
+      "k": -20.7
+    },
+    "full": {
+      "u": -14.3,
+      "a": -35.9,
+      "k": -18.6
+    }
+  },
+  "notMeasured": "The bed's pentatonic notes. They are scheduled on the wall clock, which never advances inside an offline render, so neither the pad figures nor any other here include them.",
+  "verdict": "UNSETTLED. Against the median effect voice the full pad measures about 14 dB OVER unweighted, 4 dB UNDER A-weighted and 10 dB OVER K-weighted. A models the ear at quiet listening levels and discounts a 55 Hz pad by about 30 dB; K discounts it by about 3 dB. Round 7 acted on the unweighted figure (a retune to 0.068), then on the A-weighted one (the revert), and each time chose the model that supported the conclusion in hand. The level stays at the brief's untuned 0.35 until an ear at a real listening level decides.",
+  "measuredSources": {
+    "src/audio/voices.ts": "2dc5fd27887517c2b660e281c3bf8ebc8ddf3bd6d260e4b563f46f5ec8c1cf1b",
+    "src/audio/music.ts": "5f52b8682c1b31b5bab96c5b67983dbd936258cf362afe0ec649b1aea0770039"
+  },
+  "sourcesNote": "sha256 of the two files whose output this record describes. tests/mix-staleness.spec.ts recomputes them and fails on any change, comments included, until the mix is re-measured with the instrument and this record updated."
+}
