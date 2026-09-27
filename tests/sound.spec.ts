@@ -297,9 +297,14 @@ describe('sound cue coverage (Round 4d)', () => {
     // them apart. Both are played from a real resolved campaign rather
     // than by calling soundFor with a boolean.
     const outcomes = new Map<string, string>()
+    // A seed the prepared line wins, found rather than pinned: which seeds
+    // it wins moved with the deck stream of v1.2 R5a.
+    const won = (seed: number) => [...playTurns(seed, WIN_SCRIPT)].at(-1)!.after.status === 'won'
+    const winSeed = Array.from({ length: 50 }, (_, i) => i + 1).find(won)
+    expect(winSeed, 'the prepared line wins none of the first fifty seeds').toBeDefined()
     for (const [seed, script] of [
-      [7, WIN_SCRIPT],
-      [7, LOSS_SCRIPT],
+      [winSeed!, WIN_SCRIPT],
+      [winSeed!, LOSS_SCRIPT],
     ] as const) {
       for (const { before, after } of playTurns(seed, script)) {
         for (const beat of deriveBeats(before, after)) {

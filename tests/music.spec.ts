@@ -926,9 +926,11 @@ describe('music: the RNG boundary', () => {
   // set-nobody-walked defect this pass has found.
   //
   // The entry is Game.tsx and NOT the reducer, which is the first thing
-  // this control taught its author: the reducer takes its Rng as an
-  // ARGUMENT and only type-imports the interface, so it has no value path
-  // to rng.ts at all. Game.tsx is the module that actually calls turnRng,
+  // this control taught its author: the reducer took its Rng as an
+  // ARGUMENT and only type-imported the interface. Since v1.2 R5a it also
+  // derives the adversary's deck stream itself, so it does reach rng.ts
+  // now, and so does anything that value-imports a reducer constant (the
+  // music bed must not). Game.tsx is still the module that calls turnRng,
   // and it is also the module that mounts the music, so this pair is the
   // one worth proving: the stream and the bed live in the same component
   // and the bed still cannot reach the stream.

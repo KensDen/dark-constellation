@@ -13,7 +13,7 @@ import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState, TurnActions } from '../src/engine/types'
 import { DEFAULT_SCENARIO } from '../src/content'
-import { LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
+import { LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT, a } from './scripts'
 
 const SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), 'determinism.snap.json')
 
@@ -26,13 +26,38 @@ const LOSS_SEED = 4041
 
 // Standard difficulty is pinned here (R5): its multipliers are exactly 1 on
 // every axis, so the snapshot must stay byte-identical to the pre-R5 hash.
-function playGame(seed: number, script: Record<number, TurnActions>): GameState {
+//
+// `deck` says where the adversary's draws come from (v1.2 R5a). 'deck' is
+// the engine's own deck stream, what every caller gets. 'legacy' hands the
+// main stream in as the deck, which is exactly how every version before the
+// split drew: one stream, a slot's pick and then its resolution, in order.
+type DeckRouting = 'deck' | 'legacy'
+function playGame(seed: number, script: Record<number, TurnActions>, deck: DeckRouting = 'deck'): GameState {
   let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
   while (state.status === 'playing') {
     const actions = script[state.turn] ?? NO_OP
-    state = resolveTurn(state, actions, turnRng(state.seed, state.turn))
+    const main = turnRng(state.seed, state.turn)
+    state = deck === 'deck' ? resolveTurn(state, actions, main) : resolveTurn(state, actions, main, main)
   }
   return state
+}
+
+// The prepared line as it stood before v1.2 R5a, frozen, so the proofs of
+// earlier snapshot moves replay the script they were proved against even
+// after WIN_SCRIPT itself changes.
+const WIN_SCRIPT_BEFORE_R5A: Record<number, TurnActions> = {
+  1: a({ buyCounters: ['sensorFusion', 'antiJam'], buyAssets: [{ kind: 'sat', tier: 'B' }], buyIntelLevel: true }),
+  2: a({ buyAssets: [{ kind: 'sat', tier: 'B' }] }),
+  3: a({ buyCounters: ['groundZeroTrust'] }),
+  4: a({ buyCounters: ['tierAAttestation'], buyIrRetainer: true }),
+  5: a({ buyCounters: ['ssaManeuver'] }),
+  6: a({ buyAssets: [{ kind: 'drone', tier: 'A' }] }),
+  7: a({ buyAssets: [{ kind: 'drone', tier: 'A' }] }),
+  8: a({ buyCounters: ['linkAuth'] }),
+  9: a({ buyAssets: [{ kind: 'sat', tier: 'A' }] }),
+  10: a({}),
+  11: a({ buyAssets: [{ kind: 'drone', tier: 'A' }] }),
+  12: a({}),
 }
 
 function gameLogHash(state: GameState): string {
@@ -60,6 +85,17 @@ const PRE_TARGET = {
 }
 const PRE_TARGET_FILE_SHA1 = '50eb22612dea4e4f5a03a6fa3d2fd174f3855134'
 const POST_TARGET_FILE_SHA1 = '5413e6332b09bc3be21cec6c4e2e39fcfff38f7e'
+
+// THE R5a MOVE (brief v0.9 section 7.1): the adversary draws from a deck
+// stream of its own. The snapshot after R3 held these two hashes, in the
+// file POST_TARGET_FILE_SHA1 names; the proof below replays both lines with
+// the deck routed back to the main stream and requires them, to the byte.
+// The snapshot after R5a is the committed file; its SHA-1 is POST_DECK_FILE_SHA1.
+const POST_TARGET = {
+  win: 'c99c56a6b731e236ee39b330d9c3c50c63e7b3466b06224030cd07d8310ec61c',
+  loss: 'd31a41e8aa638dc957cd891d225a3fadfeeebfbbc5951438e3485aec5d94b896',
+}
+const POST_DECK_FILE_SHA1 = '1baa3371d9d0bbb241c910801bc27fce25482f66'
 
 function withoutTargets(state: GameState): GameState {
   return {
@@ -97,17 +133,65 @@ describe('determinism', () => {
   })
 
   it('GUARD R3 (b): moves by targetAssetId alone; stripped, the replays rebuild the pre-R3 snapshot to the byte', () => {
-    const win = playGame(WIN_SEED, WIN_SCRIPT)
-    const loss = playGame(LOSS_SEED, LOSS_SCRIPT)
+    // Replayed as R3 drew them: the deck routed back to the main stream and
+    // the prepared line as it was (see GUARD R5a (a)).
+    const win = playGame(WIN_SEED, WIN_SCRIPT_BEFORE_R5A, 'legacy')
+    const loss = playGame(LOSS_SEED, LOSS_SCRIPT, 'legacy')
     const stripped = { win: gameLogHash(withoutTargets(win)), loss: gameLogHash(withoutTargets(loss)) }
     expect(stripped, 'stripping targetAssetId does not restore the pre-R3 hashes').toEqual(PRE_TARGET)
     expect(sha1(snapshotFile(stripped)), 'the rebuilt pre-R3 file is not 50eb2261').toBe(PRE_TARGET_FILE_SHA1)
     // And the field is really there: unstripped, both replays move.
     expect(gameLogHash(win)).not.toBe(PRE_TARGET.win)
     expect(gameLogHash(loss)).not.toBe(PRE_TARGET.loss)
+  })
+
+  it('GUARD R5a (a): moves by the deck stream alone; routed back to the main stream, the replays rebuild the post-R3 snapshot to the byte', () => {
+    const legacy = {
+      win: gameLogHash(playGame(WIN_SEED, WIN_SCRIPT_BEFORE_R5A, 'legacy')),
+      loss: gameLogHash(playGame(LOSS_SEED, LOSS_SCRIPT, 'legacy')),
+    }
+    expect(legacy, 'the deck routed to the main stream does not replay as R3 did').toEqual(POST_TARGET)
+    expect(sha1(snapshotFile(legacy)), 'the rebuilt post-R3 file is not 5413e633').toBe(POST_TARGET_FILE_SHA1)
+    // And the deck is really its own: on its own stream, both replays move.
+    expect(gameLogHash(playGame(WIN_SEED, WIN_SCRIPT_BEFORE_R5A))).not.toBe(POST_TARGET.win)
+    expect(gameLogHash(playGame(LOSS_SEED, LOSS_SCRIPT))).not.toBe(POST_TARGET.loss)
     // The committed snapshot is the one this build produces, and its file
     // hash is the one recorded above.
-    expect(sha1(readFileSync(SNAPSHOT_PATH, 'utf8')), 'the committed snapshot file changed').toBe(POST_TARGET_FILE_SHA1)
+    expect(sha1(readFileSync(SNAPSHOT_PATH, 'utf8')), 'the committed snapshot file changed').toBe(POST_DECK_FILE_SHA1)
+  })
+
+  it('GUARD R5a (b): every player on a seed meets the same threats, whatever they buy', () => {
+    // Before the adversary plays, a turn's asset buys draw their delivery
+    // and slip rolls from the main stream, so lines that buy different
+    // assets reach the deck with that stream in different places, and how
+    // each hit lands differs with what they own. The events each turn draws
+    // must not. The prepared line is paired with the do-nothing line and
+    // with the mixed line, which buys a different fleet and, unlike the
+    // do-nothing line (which collapses by turn nine), plays every turn to
+    // the end, so the last turns' draws are compared too.
+    const draws = (state: GameState) => state.history.map((r) => r.events.map((e) => e.eventId))
+    const differing = (deck: DeckRouting) => {
+      const out: string[] = []
+      const perTurn = new Array<number>(DEFAULT_SCENARIO.totalTurns).fill(0)
+      for (let seed = 1; seed <= 60; seed += 1) {
+        const prepared = draws(playGame(seed, WIN_SCRIPT, deck))
+        for (const other of [LOSS_SCRIPT, MIXED_SCRIPT]) {
+          const theirs = draws(playGame(seed, other, deck))
+          for (let t = 0; t < Math.min(prepared.length, theirs.length); t += 1) {
+            perTurn[t] += 1
+            if (JSON.stringify(prepared[t]) !== JSON.stringify(theirs[t])) out.push(`seed ${seed} turn ${t + 1}`)
+          }
+        }
+      }
+      return { out, perTurn }
+    }
+    const split = differing('deck')
+    // Every turn compared, the last ones included, on enough seeds to mean something.
+    expect(Math.min(...split.perTurn), `turns compared per turn: ${split.perTurn.join(', ')}`).toBeGreaterThanOrEqual(30)
+    expect(split.out.join('\n'), 'two players on one seed met different threats').toBe('')
+    // The positive control: the same comparison on the single stream every
+    // earlier version drew from does find the difference, so the check can see it.
+    expect(differing('legacy').out.length, 'the comparison cannot tell the two routings apart').toBeGreaterThan(0)
   })
 
   it('GUARD R3 (a), the engine half: every asset-damaging event names the asset it damaged, and only those do', () => {

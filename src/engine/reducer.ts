@@ -1,7 +1,8 @@
 // The turn resolver (spec Sections 4, 6, 9; dynamics per R3.25). Pure and
 // deterministic: resolveTurn(state, actions, rng) -> state. No Date, no
 // Math.random. Callers derive the rng with turnRng(state.seed, state.turn)
-// so replay and reload resolve identically.
+// so replay and reload resolve identically; the adversary's deck stream is
+// derived alongside it (v1.2 Round 5a).
 //
 // Turn order: income and recovery, pipeline arrivals, purchases and surge
 // spend, condition pressure, event resolution (threats may create or
@@ -21,7 +22,7 @@ import type {
   TurnActions,
   TurnRecord,
 } from './types'
-import type { Rng } from './rng'
+import { turnRng, type Rng } from './rng'
 import { METER_CAP, assetPrice, coverage, maiScore } from './scoring'
 
 const DEBRIS_LOSS_CHANCE_PER_SEVERITY = 0.35
@@ -450,7 +451,15 @@ function resolveOpportunity(state: GameState, ev: ThreatEvent): ResolvedEvent {
   }
 }
 
-export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng): GameState {
+// `rng` is the turn's main stream, from the caller as it always was.
+// `deck` is the adversary's draw (v1.2 Round 5a), derived here from the
+// same (seed, turn) unless a caller supplies one; see src/engine/rng.ts.
+export function resolveTurn(
+  state: GameState,
+  actions: TurnActions,
+  rng: Rng,
+  deck: Rng = turnRng(state.seed, state.turn, 'deck'),
+): GameState {
   if (state.status !== 'playing') throw new Error('game is over; cannot resolve further turns')
   const scenario = state.scenario
   // Structured clone keeps the reducer pure without a deep-merge library.
@@ -527,16 +536,22 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng): G
     notes.push('KESTREL remains in LiDAR-fallback navigation while GNSS denial persists.')
   }
 
-  // The adversary plays the deck, then the rare opportunity roll.
+  // The adversary plays the deck, then the rare opportunity roll, both from
+  // the deck stream: which events come is the same for every player on the
+  // seed, whatever they bought. How each one lands (targets, durations,
+  // debris) stays on the main stream, because that depends on what they own.
+  // The order is kept, a slot's pick and then its resolution, so a caller
+  // that hands the main stream in as the deck gets the draws of every
+  // version before the split; tests/engine.spec.ts proves the snapshot that way.
   const plan = scenario.campaign.find((p) => p.turn === next.turn)
   const resolved: ResolvedEvent[] = []
   for (const slot of plan?.slots ?? []) {
-    const id = slot.fixed ?? (slot.drawFrom && slot.drawFrom.length > 0 ? rng.pick(slot.drawFrom) : undefined)
+    const id = slot.fixed ?? (slot.drawFrom && slot.drawFrom.length > 0 ? deck.pick(slot.drawFrom) : undefined)
     if (!id) continue
     resolved.push(resolveThreat(next, eventById(scenario, id), rng, next.flags))
   }
-  if (plan?.opportunity && plan.opportunity.drawFrom.length > 0 && rng.chance(plan.opportunity.chance)) {
-    const id = rng.pick(plan.opportunity.drawFrom)
+  if (plan?.opportunity && plan.opportunity.drawFrom.length > 0 && deck.chance(plan.opportunity.chance)) {
+    const id = deck.pick(plan.opportunity.drawFrom)
     resolved.push(resolveOpportunity(next, eventById(scenario, id)))
   }
 

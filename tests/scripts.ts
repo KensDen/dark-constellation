@@ -12,7 +12,7 @@ export const NO_OP: TurnActions = {
   buyIrRetainer: false,
 }
 
-const a = (partial: Partial<TurnActions>): TurnActions => ({ ...NO_OP, ...partial })
+export const a = (partial: Partial<TurnActions>): TurnActions => ({ ...NO_OP, ...partial })
 
 // Keyed by turn number, 1..12.
 //

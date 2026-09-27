@@ -113,6 +113,19 @@ function gameAt(turn: number, seed = 20260712, script = WIN_SCRIPT): GameState {
   return state
 }
 
+// The first turn of the prepared line whose resolution, with the empty
+// cart the tests commit, shows what `wanted` looks for, found from the
+// engine's own beats rather than pinned. Pinning broke once already: the
+// deck stream of v1.2 R5a moved which events every turn draws.
+function firstTurnWhere(wanted: (beats: ReturnType<typeof deriveBeats>) => boolean): number {
+  for (let turn = 1; turn <= DEFAULT_SCENARIO.totalTurns; turn += 1) {
+    const state = gameAt(turn)
+    if (state.status !== 'playing' || state.turn !== turn) break
+    if (wanted(deriveBeats(state, resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))))) return turn
+  }
+  throw new Error('no turn of the prepared line shows what this test needs')
+}
+
 let mounts = 0
 function render(state: GameState) {
   mounts += 1
@@ -154,11 +167,15 @@ function hitsOf(state: GameState): string[] {
 
 describe('hits land on their tiles (v1.2 R3)', () => {
   it('GUARD R3 (a): the lock-on and the strobe land on the tile the engine named, and on no other', () => {
-    // Two turns of the prepared line, played with an empty cart: turn 6
-    // brings two hits in one playback, turn 11 a hit beside a held event
-    // and a new condition.
+    // Two turns of the prepared line, played with an empty cart, found from
+    // the engine rather than pinned (the deck stream of v1.2 R5a moved
+    // them): one with two hits in one playback, and one with a hit beside a
+    // held event, which must lock onto nothing.
+    const hitsIn = (beats: ReturnType<typeof deriveBeats>) => beats.filter((b) => b.kind === 'threat' && b.targetAssetId).length
+    const heldIn = (beats: ReturnType<typeof deriveBeats>) => beats.some((b) => b.kind === 'threat' && b.severity?.effective === 0)
+    const turns = [firstTurnWhere((beats) => hitsIn(beats) >= 2), firstTurnWhere((beats) => hitsIn(beats) >= 1 && heldIn(beats))]
     let checked = 0
-    for (const turn of [6, 11]) {
+    for (const turn of turns) {
       const state = gameAt(turn)
       const expected = hitsOf(state)
       expect(expected.length, `turn ${turn} has no hit to check`).toBeGreaterThan(0)
@@ -184,10 +201,11 @@ describe('hits land on their tiles (v1.2 R3)', () => {
   })
 
   it('flashes the shield and HELD on the headers of a held event, and nowhere else', () => {
-    const state = gameAt(11)
+    const isHeld = (b: ReturnType<typeof deriveBeats>[number]) => b.kind === 'threat' && b.severity?.effective === 0
+    const state = gameAt(firstTurnWhere((beats) => beats.some(isHeld)))
     const after = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
-    const held = deriveBeats(state, after).find((b) => b.kind === 'threat' && b.severity?.effective === 0)
-    expect(held, 'turn 11 no longer holds an event').toBeDefined()
+    const held = deriveBeats(state, after).find(isHeld)
+    expect(held, `turn ${state.turn} no longer holds an event`).toBeDefined()
     render(state)
     resolveNow()
     let seen: string[] = []
@@ -218,7 +236,15 @@ describe('a lost pip pops out of the row (v1.2 R3)', () => {
 
 describe('the REAL WORLD line on the event card (v1.2 R3)', () => {
   it('GUARD R3 (c): each card carries its own event technique and source, one tap from the card and its link', () => {
-    const state = gameAt(11)
+    // A turn with two different threat cards and a condition card among
+    // them, so the checks below have all three to read.
+    const state = gameAt(
+      firstTurnWhere(
+        (beats) =>
+          new Set(beats.filter((b) => b.kind === 'threat').map((b) => b.subjectId)).size >= 2 &&
+          beats.some((b) => b.kind === 'condition-applied'),
+      ),
+    )
     render(state)
     resolveNow()
     const seen = new Map<string, string>()

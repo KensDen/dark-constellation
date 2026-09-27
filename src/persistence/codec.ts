@@ -14,7 +14,14 @@ import type { GameState } from '../engine/types'
 //
 // v1 (R4): no difficulty field, all campaigns were the Standard tuning.
 // v2 (R5): adds difficulty. v1 saves migrate forward as Standard.
-export const SAVE_VERSION = 2
+// v3 (v1.2 R5a): the shape is unchanged, but the engine now draws each
+// turn's events from a deck stream of its own (src/engine/rng.ts). Saves
+// from before this change load as they are and resume under the new deck
+// stream: the turns already played keep their history, and every turn
+// after the save draws its events the new way. So a v2 save resumes with
+// different threats ahead than it would have met on the build that wrote
+// it.
+export const SAVE_VERSION = 3
 const OLDEST_MIGRATABLE = 1
 
 export type SavePhase = 'brief' | 'procure' | 'harden' | 'aftermath'

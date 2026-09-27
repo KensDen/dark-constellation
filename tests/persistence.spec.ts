@@ -95,6 +95,20 @@ describe('save robustness', () => {
     ).not.toThrow()
   })
 
+  it('loads a v2 save as it is, and resumes it under the deck stream (v1.2 R5a)', () => {
+    // v3 changed no field, only how the engine draws each turn's events, so
+    // a v2 save is a v3 save with an older number: it loads unchanged, keeps
+    // the turns it has played, and plays on from there.
+    expect(SAVE_VERSION).toBeGreaterThanOrEqual(3)
+    const mid = playTo(SEED, 5, WIN_SCRIPT)
+    const p = captureGame(mid, 'procure', '2026-09-27T00:00:00.000Z')
+    const restored = restoreGame({ ...p, version: 2 })
+    const { scenario: _a, ...midRest } = mid
+    const { scenario: _b, ...restoredRest } = restored.state
+    expect(restoredRest).toEqual(midRest)
+    expect(() => resolveTurn(restored.state, NO_OP, turnRng(restored.state.seed, restored.state.turn))).not.toThrow()
+  })
+
   it('rejects garbage and non-prefixed codes without throwing raw errors', () => {
     expect(() => decodeSaveCode('not a code')).toThrow(SaveError)
     expect(() => decodeSaveCode('DC1-@@@not-base64@@@')).toThrow(SaveError)
