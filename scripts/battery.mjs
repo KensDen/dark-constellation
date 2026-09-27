@@ -46,8 +46,10 @@ run('typecheck + production build', () => {
 })
 
 // Bundle budget (game-feel brief section 8): everything the build emits,
-// gzipped, under its thresholds. The INITIAL download is the entry script
-// plus the stylesheet; DEFERRED is every chunk Rollup splits out, gated one
+// gzipped, under its thresholds. The INITIAL download is the entry script,
+// the stylesheet and every chunk they load statically (since v1.2 Round
+// 4b, which counted the preloaded config chunk); DEFERRED is every chunk
+// Rollup splits out and only a dynamic import reaches, gated one
 // chunk at a time since Ken's ruling of 2026-09-26 (brief v0.3 section 8),
 // with the frame and its three.js under a ceiling of their own. The layer
 // counted the entry script alone from Round 2 until Round 6, so both the

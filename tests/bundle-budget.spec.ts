@@ -23,7 +23,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-import { FRAME_SOURCE, THREE_MARKER, frameSourceMarkers, headroomFor, measureBundle } from '../scripts/bundle-budget.mjs'
+import { FRAME_SOURCE, THREE_MARKER, frameSourceMarkers, headroomFor, measureBundle, staticImportsOf } from '../scripts/bundle-budget.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const budget = JSON.parse(readFileSync(join(ROOT, 'tests', 'bundle-budget.json'), 'utf8'))
@@ -350,6 +350,8 @@ describe('bundle budget', () => {
       gzipOf: (f) => (f.endsWith('.js') ? 100 : 20),
       rawOf: () => 5_000,
       mtimeOf: () => Date.now() + 1000,
+      // The entry's text is read too since R4b, for its static imports.
+      contentOf: () => '',
       startedAt: Date.now(),
     })
     expect(result.jsGz).toBe(100)
@@ -376,6 +378,9 @@ describe('bundle budget', () => {
       allChunks: ['index-abc.js', 'index-abc.css'], jsChunks: ['index-abc.js'], cssChunks: ['index-abc.css'],
       gzipOf: (c: string) => (c.endsWith('.css') ? 0 : 124237 + 58),
       mtimeOf: () => 1000,
+      // Its own build, whole: no page and no imports from the real dist.
+      html: '',
+      contentOf: () => '',
       startedAt: 0,
     })
     expect(grown.headroom, 'headroom followed the baseline rather than the chunk').toBe(155000 - (124237 + 58))
@@ -387,6 +392,8 @@ describe('bundle budget', () => {
       allChunks: ['index-abc.js', 'index-abc.css'], jsChunks: ['index-abc.js'], cssChunks: ['index-abc.css'],
       gzipOf: (c: string) => (c.endsWith('.css') ? 0 : 124237 - 100),
       mtimeOf: () => 1000,
+      html: '',
+      contentOf: () => '',
       startedAt: 0,
     })
     expect(shrunk.headroom).toBe(155000 - (124237 - 100))
@@ -396,7 +403,7 @@ describe('bundle budget', () => {
   it('refuses the conditions the battery exists to catch', () => {
     const budget = { baselineGzipBytes: 124237, budgetGzipBytes: 155000, frameBudgetGzipBytes: 1_000_000, deferredChunkBudgetGzipBytes: 1_000_000, staticBudgetBytes: 10_000_000 }
     const call = (over: Record<string, unknown>) =>
-      measureBundle({ budget, allChunks: ['index-abc.js', 'index-abc.css'], jsChunks: ['index-abc.js'], cssChunks: ['index-abc.css'], gzipOf: (c: string) => (c.endsWith('.css') ? 0 : 124237), mtimeOf: () => 1000, startedAt: 0, ...over })
+      measureBundle({ budget, allChunks: ['index-abc.js', 'index-abc.css'], jsChunks: ['index-abc.js'], cssChunks: ['index-abc.css'], gzipOf: (c: string) => (c.endsWith('.css') ? 0 : 124237), mtimeOf: () => 1000, html: '', contentOf: () => '', startedAt: 0, ...over })
     // A written headroom, the thing this round removed.
     expect(() => call({ budget: { ...budget, headroomGzipBytes: 30763 } })).toThrow(/records a headroom/)
     // A chunk older than the run measuring it.
@@ -496,7 +503,8 @@ describe('the deferred group, budgeted per chunk (Ken, 2026-09-26)', () => {
       dir: join(tmpdir(), 'dc-ruled-does-not-exist'),
       emitted: ['assets/index-r.js', 'assets/index-r.css', ...Object.keys(chunks)],
       gzipOf: (f: string) => chunks[f]?.gz ?? 100,
-      contentOf: (f: string) => chunks[f].text,
+      // The entry and its stylesheet carry no imports in these fixtures.
+      contentOf: (f: string) => chunks[f]?.text ?? '',
       mtimeOf: () => 1_000,
       startedAt: 0,
       ...extra,
@@ -646,5 +654,90 @@ describe('the deferred group, budgeted per chunk (Ken, 2026-09-26)', () => {
     // that dropped it fails here, before a build, not only in the battery.
     const core = readFileSync(join(ROOT, 'node_modules', 'three', 'build', 'three.core.js'), 'utf8')
     expect(core, 'three.js no longer sets __THREE__; recognise the frame another way').toContain(THREE_MARKER)
+  })
+})
+
+// THE INITIAL DOWNLOAD IS WHAT THE ENTRY LOADS STATICALLY (v1.2 Round 4b).
+// The layer counted index-*.js and index-*.css and nothing else, while
+// the build also emits shared chunks the entry pulls in with it: the real
+// one is config-*.js, which index.html modulepreloads and the entry
+// imports, and which sat under the 10,000 deferred cap instead. The fixture
+// is a real build directory read through the layer's own defaults, as the
+// battery reads dist: a page that preloads one chunk and links the
+// stylesheet, an entry that imports a shared chunk which imports another,
+// and a lazy chunk the entry reaches only through import().
+describe('the initial download is what the entry loads statically (v1.2 R4b)', () => {
+  const CAP = { baselineGzipBytes: 1, budgetGzipBytes: 10_000_000, frameBudgetGzipBytes: 10_000_000, deferredChunkBudgetGzipBytes: 10_000_000, staticBudgetBytes: 10_000_000 }
+  // Incompressible filler, so every file has a distinct, real gzip size.
+  const pad = (n: number) => randomBytes(n).toString('base64')
+
+  function build() {
+    const dir = mkdtempSync(join(tmpdir(), 'dc-initial-'))
+    mkdirSync(join(dir, 'assets'))
+    const files: Record<string, string> = {
+      // Written the way the build writes them: a static import in double
+      // quotes, a dynamic one in backquotes behind the preload helper.
+      'assets/index-e.js': `import{a as b}from"./shared-s.js";const L=()=>h(()=>import(\`./Lazy-l.js\`),[]);console.log(b,L,"${pad(3_000)}")`,
+      'assets/index-e.css': `body{color:red}/*${pad(800)}*/`,
+      'assets/shared-s.js': `import"./deep-d.js";export const a="${pad(1_500)}"`,
+      'assets/deep-d.js': `window.d="${pad(700)}"`,
+      'assets/pre-p.js': `window.p="${pad(500)}"`,
+      'assets/Lazy-l.js': `export default "${pad(2_000)}"`,
+      'index.html':
+        '<!doctype html><script type="module" crossorigin src="/base/assets/index-e.js"></script>' +
+        '<link rel="modulepreload" crossorigin href="/base/assets/pre-p.js">' +
+        '<link rel="stylesheet" crossorigin href="/base/assets/index-e.css">',
+    }
+    for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text)
+    const gz = (name: string) => gzipSync(Buffer.from(files[name])).length
+    return { dir, gz }
+  }
+
+  it('counts a statically imported shared chunk as initial, and leaves a lazily imported one deferred', () => {
+    const { dir, gz } = build()
+    const r = measureBundle({ budget: CAP, dir, startedAt: 0 })
+    const initial = ['assets/index-e.js', 'assets/index-e.css', 'assets/shared-s.js', 'assets/deep-d.js', 'assets/pre-p.js']
+    expect([...r.initialChunks].sort(), 'the initial group is not what the entry loads statically').toEqual([...initial].sort())
+    expect(r.deferred, 'only the lazy chunk is deferred').toEqual(['assets/Lazy-l.js'])
+    expect(r.gz, 'the initial figure is not the sum of what loads with the entry').toBe(initial.reduce((sum, f) => sum + gz(f), 0))
+    // Named in the battery's line, so a reader sees what was added.
+    expect(r.line).toContain('assets/shared-s.js')
+    expect(r.line).toContain('loaded alongside the entry')
+    // And the lazy chunk is still under the per-chunk rules, not dropped.
+    expect(r.deferredGz).toBe(gz('assets/Lazy-l.js'))
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('follows every form of static import and no dynamic one', () => {
+    // Each row: what a chunk says, and what it statically imports. The
+    // first rows are how Rollup writes imports; the last are shapes it does
+    // not write today, including the one a review found could swallow a
+    // real import (the word "import" in a string just before it).
+    const rows: [string, string[]][] = [
+      ['import{a as b}from"./a.js";', ['assets/a.js']],
+      ['import"./a.js";', ['assets/a.js']],
+      ['import*as n from"./a.js";', ['assets/a.js']],
+      ['export*from"./a.js";', ['assets/a.js']],
+      ['export{a}from"./a.js";', ['assets/a.js']],
+      ['import{a}from"./a.js";import"./b.js";', ['assets/a.js', 'assets/b.js']],
+      ['import{a}from"../vendor/a.js";', ['vendor/a.js']],
+      ['var s="import";import{a}from"./a.js"', ['assets/a.js']],
+      ['var s="export";import{a}from"./a.js"', ['assets/a.js']],
+      ['import/*c*/{a}from"./a.js"', ['assets/a.js']],
+      ['import{"a-b" as x}from"./a.js"', ['assets/a.js']],
+      ['const L=()=>import(`./a.js`)', []],
+      ['const L=()=>import("./a.js")', []],
+      ['new URL("./a.js",import.meta.url)', []],
+      ['export default "./a.js"', []],
+      ['import{a}from"react"', []],
+    ]
+    for (const [text, imports] of rows) expect(staticImportsOf('assets/index-e.js', text), text).toEqual(imports)
+  })
+
+  it('refuses a page that loads a file the build did not emit', () => {
+    const { dir } = build()
+    writeFileSync(join(dir, 'index.html'), '<link rel="modulepreload" href="/base/assets/gone-g.js">')
+    expect(() => measureBundle({ budget: CAP, dir, startedAt: 0 })).toThrow(/did not emit/)
+    rmSync(dir, { recursive: true, force: true })
   })
 })

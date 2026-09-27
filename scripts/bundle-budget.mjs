@@ -4,7 +4,8 @@
 // IT COUNTS EVERY EMITTED CHUNK, corrected at the opening of Round 6, and
 // it counts them in two groups because they are not the same kind of cost.
 //
-// INITIAL: the entry script and the stylesheet, which a visitor downloads
+// INITIAL: the entry script and the stylesheet, and since v1.2 Round 4b
+// every chunk they load statically (see below), which a visitor downloads
 // before anything is interactive. This measured the script alone from
 // Round 2 until now, so every visual round shipped into an unmetered
 // channel: Round 5 spent 834 gzipped of a 9,000 sub-budget while
@@ -70,6 +71,18 @@
 // the frame is many times the per-chunk cap, so mistaking it for a screen
 // fails.
 //
+// INITIAL IS WHAT THE ENTRY LOADS STATICALLY, corrected in v1.2 Round 4b.
+// The layer counted the two index-* files and nothing else, but the build
+// also splits out modules the entry shares with a lazy chunk: config-*.js
+// is one, index.html modulepreloads it and the entry imports it, so every
+// visitor downloads it up front, and it sat in the deferred group under
+// the 10,000 cap instead. So the initial group is the entry and its
+// stylesheet, plus every chunk index.html preloads or links, plus every
+// chunk the entry imports statically, followed transitively through the
+// chunks it reaches. A dynamic import() is not followed: that is what
+// deferred means. Anything left over is deferred, as before, and the frame
+// is still found by its contents.
+//
 // Headroom is DERIVED from the bundle that was just measured, never
 // written down. The battery used to print budget minus the recorded
 // BASELINE, which is a fact about last round rather than about this build:
@@ -81,7 +94,7 @@
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 
@@ -137,6 +150,47 @@ export function frameSourceMarkers(source) {
   return out
 }
 
+// The chunks a built chunk imports STATICALLY: `import ... from "x"`,
+// `import "x"` and `export ... from "x"`, as Rollup writes them. A dynamic
+// import() is left out on purpose, and the build writes those with
+// backquotes besides; the clause must end in a real quote, so `import(`
+// can never match. Every import or export keyword is tried where it
+// stands and on its own, so a keyword inside a string (the word "import"
+// in a literal) cannot run on and swallow the real import after it.
+// Comments and quoted names inside the clause are allowed for, though
+// Rollup writes neither today. Specifiers are resolved against the
+// importing chunk's own directory.
+const IMPORT_KEYWORD = /(?<![\w$.])(?:import|export)(?![\w$])/g
+const STATIC_CLAUSE = /(?:import|export)\s*(?:(?:[\w$*{}\s,]|\/\*[\s\S]*?\*\/|"[^"\n]*"|'[^'\n]*')*?\bfrom\s*)?(["'])([^"'`\n]+)\1/y
+
+export function staticImportsOf(chunk, text) {
+  const out = []
+  for (const { index } of text.matchAll(IMPORT_KEYWORD)) {
+    STATIC_CLAUSE.lastIndex = index
+    const spec = STATIC_CLAUSE.exec(text)?.[2]
+    if (!spec || !/^\.{1,2}\//.test(spec)) continue
+    out.push(posix.normalize(posix.join(posix.dirname(chunk), spec)))
+  }
+  return out
+}
+
+// The chunks index.html makes the browser fetch before the app runs:
+// modulepreload links and stylesheets. Hrefs carry the site's base path,
+// so each is matched to the emitted file it ends with.
+export function htmlLoadedChunks(html, chunks) {
+  const out = []
+  for (const [tag] of html.matchAll(/<link\b[^>]*>/gi)) {
+    if (!/\brel\s*=\s*["']?(modulepreload|stylesheet)\b/i.test(tag)) continue
+    const href = /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]
+    if (!href) continue
+    const path = href.split(/[?#]/)[0]
+    const chunk = chunks.find((c) => path === c || path.endsWith(`/${c}`))
+    if (!chunk) throw new Error(`index.html loads ${href}, which this build did not emit; dist is inconsistent, rebuild before measuring`)
+    out.push(chunk)
+  }
+  return out
+}
+
 // Every file the build emitted, as paths relative to `root`, directories
 // walked rather than listed. A build output is a tree and Round 6a treated
 // it as one flat directory, which is how the dist root's own files stayed
@@ -174,6 +228,9 @@ export function measureBundle({
   rawOf = (file) => statSync(join(dir, file)).size,
   mtimeOf = (chunk) => statSync(join(dir, chunk)).mtimeMs,
   contentOf = (chunk) => readFileSync(join(dir, chunk), 'utf8'),
+  // The built index.html, which says what the browser fetches first. A
+  // caller that lists the files itself and emits no index.html has none.
+  html: htmlIn,
   frameMarkers: frameMarkersIn,
   startedAt,
 }) {
@@ -213,12 +270,28 @@ export function measureBundle({
   if (cssChunks.length !== 1) throw new Error(`expected one main CSS chunk, found ${cssChunks.length}`)
   const js = jsChunks[0]
   const css = cssChunks[0]
+  // What the entry loads statically, which a visitor downloads with it:
+  // everything index.html preloads or links, and everything the entry
+  // imports, followed through each chunk reached.
+  const html = htmlIn ?? (emitted.includes('index.html') ? readFileSync(join(dir, 'index.html'), 'utf8') : '')
+  const initial = new Set([js, css])
+  const queue = [js, ...htmlLoadedChunks(html, allChunks)]
+  while (queue.length > 0) {
+    const chunk = queue.shift()
+    initial.add(chunk)
+    if (!chunk.endsWith('.js')) continue
+    for (const imported of staticImportsOf(chunk, contentOf(chunk))) {
+      if (!initial.has(imported) && allChunks.includes(imported) && !queue.includes(imported)) queue.push(imported)
+    }
+  }
+  // The shared chunks, beyond the entry and its stylesheet, in build order.
+  const shared = allChunks.filter((f) => initial.has(f) && f !== js && f !== css)
   // EVERY other script or stylesheet in the directory. Rollup splits the
   // lazily loaded frame out under its own name, so a pattern anchored to
   // the entry chunk's name cannot see it; enumerating and subtracting
   // means a chunk this layer has never heard of is counted rather than
   // ignored.
-  const deferred = allChunks.filter((f) => f !== js && f !== css)
+  const deferred = allChunks.filter((f) => !initial.has(f))
   // Everything else the build emitted. Defined by subtraction on purpose:
   // a list of extensions is a set someone declared, and declaring this set
   // is the exact mistake Round 6a made one level in.
@@ -230,13 +303,14 @@ export function measureBundle({
   // stylesheet measured against a fresh script was one mutation this
   // round's first version slept through; a stale deferred chunk is the
   // same defect one file further out.
-  for (const chunk of [js, css, ...deferred, ...staticFiles]) {
+  for (const chunk of [js, css, ...shared, ...deferred, ...staticFiles]) {
     if (mtimeOf(chunk) < startedAt) {
       throw new Error(`${chunk} predates this battery run; dist is stale, rebuild before measuring`)
     }
   }
-  const jsGz = gzipOf(js)
-  const cssGz = gzipOf(css)
+  const sum = (files) => files.reduce((total, f) => total + gzipOf(f), 0)
+  const jsGz = sum([js, ...shared.filter((f) => f.endsWith('.js'))])
+  const cssGz = sum([css, ...shared.filter((f) => f.endsWith('.css'))])
   const gz = jsGz + cssGz
   // Which deferred chunk is the frame, by content. The markers are derived
   // only when there is a deferred chunk to look in, so a caller with none
@@ -292,7 +366,9 @@ export function measureBundle({
   const otherHeadroom = largestOther ? headroomFor(largestOther.gz, budget.deferredChunkBudgetGzipBytes) : null
   const staticHeadroom = headroomFor(staticBytes, budget.staticBudgetBytes)
   const line =
-    `initial ${gz} (js ${jsGz} + css ${cssGz}; baseline ${budget.baselineGzipBytes}, ` +
+    `initial ${gz} (js ${jsGz} + css ${cssGz}` +
+    (shared.length > 0 ? `, with ${shared.join(', ')} loaded alongside the entry` : '') +
+    `; baseline ${budget.baselineGzipBytes}, ` +
     `${delta >= 0 ? '+' : ''}${delta}; budget ${budget.budgetGzipBytes}, headroom ${headroom}), ` +
     `deferred frame ${frame ? `${frame.chunk} ${frame.gz} (budget ${budget.frameBudgetGzipBytes}, headroom ${frameHeadroom})` : 'none'}, ` +
     `${others.length} other deferred chunk${others.length === 1 ? '' : 's'}` +
@@ -303,7 +379,9 @@ export function measureBundle({
     `static ${staticBytes} raw in ${staticFiles.length} file${staticFiles.length === 1 ? '' : 's'} ` +
     `(budget ${budget.staticBudgetBytes}, headroom ${staticHeadroom})`
   if (gz > budget.budgetGzipBytes) {
-    throw new Error(`the initial download is ${gz} bytes gzipped (js ${jsGz} + css ${cssGz}), over the ${budget.budgetGzipBytes} byte budget`)
+    throw new Error(
+      `the initial download is ${gz} bytes gzipped (js ${jsGz} + css ${cssGz}${shared.length > 0 ? `, ${shared.join(', ')} included` : ''}), over the ${budget.budgetGzipBytes} byte budget`,
+    )
   }
   // Both deferred ceilings must exist. Defaulting either to Infinity would
   // recreate the unmetered channel the moment a new split chunk appeared.
@@ -342,6 +420,8 @@ export function measureBundle({
     gz,
     jsGz,
     cssGz,
+    initialChunks: [js, css, ...shared],
+    shared,
     deferredGz,
     deferred,
     deferredChunks,
