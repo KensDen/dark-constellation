@@ -3,7 +3,9 @@
 // the same calls the UI makes. WIN_SCRIPT is a prepared architect;
 // LOSS_SCRIPT ignores every warning and buys nothing.
 
-import type { TurnActions } from '../src/engine/types'
+import { resolveTurn } from '../src/engine/reducer'
+import { mulberry32, turnRng } from '../src/engine/rng'
+import type { AssetKind, GameState, TurnActions } from '../src/engine/types'
 
 export const NO_OP: TurnActions = {
   buyAssets: [],
@@ -92,4 +94,48 @@ export const TOP_INTEL_SCRIPT: Record<number, TurnActions> = {
   ...MIXED_SCRIPT,
   2: a({ buyIntelLevel: true }),
   3: a({ buyIntelLevel: true }),
+}
+
+// THE RANDOM LINE (v1.2 R5a), for calibrating the grade (brief 7.2): a
+// seeded policy that plays legal, random turns rather than a plan. Each
+// turn it may buy intel, the IR retainer, up to two countermeasures it does
+// not own and up to two assets of any kind and tier, and may spend a surge
+// token on a random live condition. The engine is the judge of what is
+// affordable: a cart it refuses loses its last item until it is accepted,
+// so the line is legal by construction and restates no price.
+const KINDS: readonly AssetKind[] = ['sat', 'rpoSat', 'drone', 'groundStation']
+
+export function randomPolicy(policySeed: number): (state: GameState) => TurnActions {
+  return (state) => {
+    const r = mulberry32((Math.imul(policySeed ^ 0x51ed270b, 2654435761) ^ Math.imul(state.turn + 1, 40503)) >>> 0)
+    const buys: TurnActions[] = []
+    if (state.intelLevel < 3 && r.chance(0.3)) buys.push(a({ buyIntelLevel: true }))
+    if (!state.irRetainer && r.chance(0.2)) buys.push(a({ buyIrRetainer: true }))
+    const unowned = state.scenario.countermeasures
+      .map((c) => c.id)
+      .filter((id) => id !== 'irRetainer' && id !== 'intelInvestment' && !state.counters.includes(id) && !state.pendingCounters.some((p) => p.id === id))
+    for (let n = r.int(3); n > 0 && unowned.length > 0; n -= 1) buys.push(a({ buyCounters: [unowned.splice(r.int(unowned.length), 1)[0]] }))
+    for (let n = r.int(3); n > 0; n -= 1) {
+      const kind = r.pick(KINDS)
+      buys.push(a({ buyAssets: [{ kind, tier: kind === 'groundStation' || r.chance(0.5) ? 'B' : 'A' }] }))
+    }
+    const surge = state.surgeTokens > 0 && state.conditions.length > 0 && r.chance(0.5) ? r.pick(state.conditions).instanceId : undefined
+    const cart = (items: TurnActions[]): TurnActions => ({
+      buyAssets: items.flatMap((i) => i.buyAssets),
+      buyCounters: items.flatMap((i) => i.buyCounters),
+      buyIntelLevel: items.some((i) => i.buyIntelLevel),
+      buyIrRetainer: items.some((i) => i.buyIrRetainer),
+      spendSurgeOn: surge,
+    })
+    for (let kept = buys.length; kept >= 0; kept -= 1) {
+      const actions = cart(buys.slice(0, kept))
+      try {
+        resolveTurn(state, actions, turnRng(state.seed, state.turn))
+        return actions
+      } catch {
+        // Refused: drop the last item and ask again.
+      }
+    }
+    return { ...NO_OP, spendSurgeOn: surge }
+  }
 }
