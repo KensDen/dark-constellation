@@ -1,6 +1,6 @@
 {
   "what": "Rendered levels of every effect voice and of the music pad, from scripts/measure-mix.js run in Chromium (OfflineAudioContext, 48 kHz mono). The battery runs in node and cannot render audio; this file is what the instrument printed, and the instrument is in the tree so the figures can be re-run and audited.",
-  "measuredAt": "2026-09-18",
+  "measuredAt": "2026-09-27",
   "instrument": "scripts/measure-mix.js",
   "measuredAtLevels": {
     "MUSIC_LEVEL": 0.35,
@@ -145,7 +145,7 @@
   "verdict": "UNSETTLED. Against the median effect voice the full pad measures about 14 dB OVER unweighted, 4 dB UNDER A-weighted and 10 dB OVER K-weighted. A models the ear at quiet listening levels and discounts a 55 Hz pad by about 30 dB; K discounts it by about 3 dB. Round 7 acted on the unweighted figure (a retune to 0.068), then on the A-weighted one (the revert), and each time chose the model that supported the conclusion in hand. The level stays at the brief's untuned 0.35 until an ear at a real listening level decides.",
   "measuredSources": {
     "src/audio/voices.ts": "2dc5fd27887517c2b660e281c3bf8ebc8ddf3bd6d260e4b563f46f5ec8c1cf1b",
-    "src/audio/music.ts": "5f52b8682c1b31b5bab96c5b67983dbd936258cf362afe0ec649b1aea0770039"
+    "src/audio/music.ts": "d3165879dc391647fb8b0c34bb3f28eb6e791eb27c04a5019101c12c89c80a35"
   },
   "sourcesNote": "sha256 of the two files whose output this record describes. tests/mix-staleness.spec.ts recomputes them and fails on any change, comments included, until the mix is re-measured with the instrument and this record updated."
 }

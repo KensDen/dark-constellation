@@ -20,7 +20,7 @@ export default function Credits({ onBack }: { onBack: () => void }) {
         </p>
         <p className="font-mono text-phosphor">Artwork: AI-generated, human-directed.</p>
         <p className="text-ink-dim">
-          The key art, intro, and outcome backdrops were generated with AI tools under the author&apos;s direction and
+          The key art and outcome backdrops were generated with AI tools under the author&apos;s direction and
           selection. The interface art (wordmark, event icons, layer badges, constellation frame) was authored as
           original vector work for this project.
         </p>

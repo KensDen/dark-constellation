@@ -38,12 +38,14 @@ import {
   MENU_MUSIC_STATE,
   MUSIC_LAYERS,
   MusicBed,
+  coldOpenMusicState,
   musicStateFrom,
   shouldPlayMusic,
   type MusicScheduler,
   type MusicState,
 } from '../src/audio/music'
 import { xorshift32 } from '../src/audio/musicRng'
+import { SLIDES } from '../src/ui/coldOpenSlides'
 import { LOSS_SCRIPT, NO_OP } from './scripts'
 import { FakeAudioContext, FakeGain, FakeOscillator, type FakeNode } from './fakeAudio'
 
@@ -328,6 +330,57 @@ describe('music: the crossfade', () => {
     const after = MUSIC_LAYERS.map((l) => (bed.layerGain(l.name) as unknown as FakeGain).gain.events.length)
     expect(after, 'an unchanged state re-ramped a layer, which would restart every fade').toEqual(before)
     bed.stop()
+  })
+})
+
+describe('music: the cold open builds the bed and hands it to the menu (v1.2 R4)', () => {
+  // The intro variant (brief 6) is the same bed with its layers joining as
+  // the slides go by. Walked over the cold open's own SLIDES and over
+  // MUSIC_LAYERS, so neither the slide count nor the layer names are
+  // restated here (principle 17).
+  let ctx: FakeAudioContext
+  beforeEach(() => {
+    ctx = new FakeAudioContext()
+  })
+  const lit = (state: MusicState) => MUSIC_LAYERS.filter((l) => l.active(state)).map((l) => l.name)
+
+  it('opens on the menu bed, adds layers slide by slide and never drops one, and reaches all of them', () => {
+    const bySlide = SLIDES.map((_, i) => lit(coldOpenMusicState(i)))
+    expect(bySlide[0], 'the first slide is not the menu bed').toEqual(lit(MENU_MUSIC_STATE))
+    for (let i = 1; i < bySlide.length; i += 1) {
+      for (const name of bySlide[i - 1]) expect(bySlide[i], `slide ${i + 1} drops ${name}`).toContain(name)
+    }
+    const grows = bySlide.filter((set, i) => i > 0 && set.length > bySlide[i - 1].length).length
+    expect(grows, 'the bed does not build across the slides').toBeGreaterThanOrEqual(MUSIC_LAYERS.length - 1)
+    expect(bySlide[bySlide.length - 1], 'the last slide does not have the whole bed').toEqual(MUSIC_LAYERS.map((l) => l.name))
+  })
+
+  it('moves the same bed by crossfade, and back to the menu when the cold open ends', () => {
+    const { bed } = bedOn(ctx, coldOpenMusicState(0))
+    for (let i = 1; i < SLIDES.length; i += 1) bed.update(coldOpenMusicState(i))
+    const top = SLIDES.length - 1
+    for (const layer of MUSIC_LAYERS) {
+      expect(layerTarget(bed, layer.name), `${layer.name} on the last slide`).toBeCloseTo(layer.active(coldOpenMusicState(top)) ? layer.level : 0)
+    }
+    bed.update(MENU_MUSIC_STATE)
+    for (const layer of MUSIC_LAYERS) {
+      expect(layerTarget(bed, layer.name), `${layer.name} after the hand-over`).toBeCloseTo(layer.active(MENU_MUSIC_STATE) ? layer.level : 0)
+      // The hand-over is a ramp, never a cut.
+      const gain = bed.layerGain(layer.name) as unknown as FakeGain
+      const last = gain.gain.events[gain.gain.events.length - 1]
+      expect(last.kind, `${layer.name} was cut rather than faded`).toBe('linear')
+    }
+    bed.stop()
+  })
+
+  it("leaves a campaign's bed alone: no game state carries a cold open slide", () => {
+    let state = newGame(DEFAULT_SCENARIO, 11)
+    for (let turn = 0; turn < DEFAULT_SCENARIO.totalTurns && state.status === 'playing'; turn += 1) {
+      expect(musicStateFrom(state).coldOpenSlide).toBeUndefined()
+      state = resolveTurn(state, LOSS_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+    }
+    expect(MENU_MUSIC_STATE.coldOpenSlide).toBeUndefined()
+    expect(coldOpenMusicState.length, 'coldOpenMusicState grew an argument').toBe(1)
   })
 })
 

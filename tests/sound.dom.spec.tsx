@@ -142,6 +142,33 @@ describe('the first-gesture unlock is a document listener, not an intention', ()
     expect(ctx().resumeCalls, 'the unlock listener is still attached').toBe(resumes)
   })
 
+  it('stays armed through a gesture the browser does not count as activation (v1.2 R4)', () => {
+    // A touch's pointerdown, or Escape, builds the context 'suspended': it
+    // is not user activation. The same tap's pointerup is, and must reach
+    // unlock() to resume it. The fake starts every context running, so a
+    // context that starts suspended is made here, the way a phone makes it.
+    const Installed = (globalThis as unknown as { AudioContext: new () => FakeAudioContext }).AudioContext
+    ;(globalThis as { AudioContext?: unknown }).AudioContext = class extends Installed {
+      constructor() {
+        super()
+        this.state = 'suspended'
+      }
+    }
+    installGestureUnlock()
+    gesture('pointerdown')
+    expect(contexts.length).toBe(1)
+    expect(ctx().state, 'the fake did not start suspended').toBe('suspended')
+    const before = ctx().resumeCalls
+    gesture('pointerup')
+    expect(ctx().resumeCalls, "the tap's activation never reached the context").toBe(before + 1)
+    expect(ctx().state).toBe('running')
+    // Running now, so the listener is gone.
+    const after = ctx().resumeCalls
+    gesture('pointerdown')
+    gesture('click')
+    expect(ctx().resumeCalls, 'the unlock listener outlived the running context').toBe(after)
+  })
+
   it('leaves nothing attached when uninstalled before any gesture', () => {
     const uninstall = installGestureUnlock()
     uninstall()

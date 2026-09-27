@@ -183,3 +183,51 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     expect(gameSpecs).toContain('./board/IntelCard')
   })
 })
+
+describe("the cold open's own art stays in its chunk (v1.2 R4)", () => {
+  // The cold open reuses the board's backdrops and sprites, which the
+  // first download already carries, and adds only what the board never
+  // needed: the watch officer, the disaster zone, the four scenes and its
+  // stylesheet (brief 6 and section 8). Those arrive with the cold open or
+  // not at all. They are found by walking IntroSequence rather than listed
+  // here: every module it reaches whose name says it is the cold open's.
+  const INTRO = join(SRC, 'ui', 'IntroSequence.tsx')
+  const own = [...staticGraphFrom(INTRO).keys()].filter((f) => /cold ?open/i.test(f.slice(SRC.length)))
+
+  it('finds them through the cold open, the officer among them', () => {
+    // The positive control: the walk reaches the sprite data, so a pass
+    // below is not a walk that found nothing.
+    expect(own.map((f) => f.slice(SRC.length + 1))).toContain(join('ui', 'sprites', 'coldOpen.ts'))
+    expect(own.length, 'the cold open reaches fewer of its own modules than it has').toBeGreaterThanOrEqual(4)
+  })
+
+  it('never reaches one of them by static import from the entry point', () => {
+    const graph = staticGraphFrom(ENTRY)
+    const offenders = own
+      .filter((f) => graph.has(f))
+      .map((f) => `${f.slice(SRC.length + 1)} is reachable statically: ${[...graph.get(f)!.slice(1), f].map((x) => x.slice(SRC.length + 1)).join(' -> ')}`)
+    expect(offenders.join('\n'), "the cold open's art is in the initial chunk").toBe('')
+  })
+
+  it("never pulls the cold open's stylesheet into the initial one through a CSS @import", () => {
+    // The walk above reads JS imports. A stylesheet the entry loads can
+    // bring another in by @import, and that one then ships in the initial
+    // CSS whatever the JS graph says.
+    const sheets = [...staticGraphFrom(ENTRY).keys()].filter((f) => f.endsWith('.css'))
+    expect(sheets.length, 'the entry loads no stylesheet, so this walks nothing').toBeGreaterThan(0)
+    const seen = new Set<string>()
+    const offenders: string[] = []
+    const walk = (sheet: string) => {
+      if (seen.has(sheet)) return
+      seen.add(sheet)
+      for (const [, spec] of readFileSync(sheet, 'utf8').matchAll(/@import\s+(?:url\()?\s*['"]([^'"]+)['"]/g)) {
+        const target = resolveLocal(sheet, spec)
+        if (!target) continue
+        if (own.includes(target)) offenders.push(`${sheet.slice(SRC.length + 1)} @imports ${target.slice(SRC.length + 1)}`)
+        walk(target)
+      }
+    }
+    sheets.forEach(walk)
+    expect(offenders.join('\n'), "the cold open's stylesheet is in the initial CSS").toBe('')
+  })
+})

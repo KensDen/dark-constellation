@@ -11,7 +11,9 @@
 import { memo } from 'react'
 import { spriteRects, type Sprite } from './sprite'
 
-export type Scale = 1 | 2 | 3 | 4
+// 6 and 8 are the cold open's alone (v1.2 R4): the watch officer, and the
+// COLDVEIL emblem as the whole of a slide rather than a mark on a banner.
+export type Scale = 1 | 2 | 3 | 4 | 6 | 8
 
 export interface PixelSpriteProps {
   sprite: Sprite

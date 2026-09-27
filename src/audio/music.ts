@@ -92,7 +92,14 @@ export interface MusicState {
   conditions: number
   chainArmed: boolean
   resolvingLoss: boolean
+  // The cold open's slide, from 0, while the cold open is on screen, and
+  // absent everywhere else (v1.2 R4, brief 6). The intro variant of the
+  // bed is this bed with the layers joining slide by slide.
+  coldOpenSlide?: number
 }
+
+// True once the cold open has reached `slide`: a layer's cue to join it.
+const coldOpenFrom = (s: MusicState, slide: number) => (s.coldOpenSlide ?? -1) >= slide
 
 export interface MusicLayerDef {
   readonly name: MusicLayerName
@@ -132,8 +139,8 @@ export const MUSIC_LAYERS: readonly MusicLayerDef[] = [
   },
   {
     name: 'tension',
-    why: 'MAI below the scenario threshold, or any condition active',
-    active: (s) => s.mai < s.threshold || s.conditions > 0,
+    why: 'MAI below the scenario threshold, or any condition active; in the cold open, from the second slide',
+    active: (s) => s.mai < s.threshold || s.conditions > 0 || coldOpenFrom(s, 1),
     // A fifth above the base root, so it sits on the drone rather than
     // beside it.
     rootHz: 82.41,
@@ -147,8 +154,8 @@ export const MUSIC_LAYERS: readonly MusicLayerDef[] = [
   },
   {
     name: 'threat',
-    why: 'BLACKOUT CHAIN armed, or a loss resolving',
-    active: (s) => s.chainArmed || s.resolvingLoss,
+    why: 'BLACKOUT CHAIN armed, or a loss resolving; in the cold open, from the third slide, when COLDVEIL appears',
+    active: (s) => s.chainArmed || s.resolvingLoss || coldOpenFrom(s, 2),
     // A whole step below the base root: the one interval in here that is
     // meant to sound wrong.
     rootHz: 49,
@@ -173,6 +180,14 @@ export const MENU_MUSIC_STATE: MusicState = {
   conditions: 0,
   chainArmed: false,
   resolvingLoss: false,
+}
+
+// The intro variant (v1.2 R4): the menu's bed, with the layers joining
+// as the cold open goes on, so it builds from the base pad alone to all
+// three by the time COLDVEIL appears. Leaving the cold open sets
+// MENU_MUSIC_STATE again, and the ordinary crossfade is the hand-over.
+export function coldOpenMusicState(slide: number): MusicState {
+  return { ...MENU_MUSIC_STATE, coldOpenSlide: slide }
 }
 
 export function musicStateFrom(state: GameState): MusicState {

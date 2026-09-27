@@ -41,6 +41,7 @@ export {
   NOTE_LEVEL,
   NOTE_MS,
   PENTATONIC_HZ,
+  coldOpenMusicState,
   musicStateFrom,
   shouldPlayMusic,
   type MusicBedOptions,

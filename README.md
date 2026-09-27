@@ -62,7 +62,7 @@ values, and each beat carries its own visual cue and its own sound.
 - **A procedural music bed** with layers that follow the campaign: a base pad, a tension layer
   when the index falls below the win line or a condition is active, and a threat layer while a
   BLACKOUT CHAIN is armed or a lost campaign is resolving. It loops by construction, so there is
-  no seam.
+  no seam. The cold open builds the same bed slide by slide and hands it back to the menu.
 - **Two toggles, effects and music**, both remembered between visits. Nothing plays until your
   first tap or click.
 - **Playback speed** of 1x, 2x, or instant, where instant shows results only. Reduced motion is
@@ -101,8 +101,8 @@ Deliberately out of scope, recorded here as future work:
 
 Design, code, writing, and direction by Ken Connell.
 
-**Artwork: AI-generated, human-directed.** The key art, intro, and outcome backdrops were
-generated with AI tools under the author's direction and selection. The interface art (wordmark,
+**Artwork: AI-generated, human-directed.** The key art and outcome backdrops were generated
+with AI tools under the author's direction and selection. The interface art (wordmark,
 event icons, layer badges, constellation frame) was authored as original vector work for this
 project.
 

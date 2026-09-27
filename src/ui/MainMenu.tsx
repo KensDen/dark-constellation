@@ -5,7 +5,7 @@
 import { useEffect } from 'react'
 import Wordmark from './Wordmark'
 
-export type MenuTarget = 'resume' | 'game' | 'scoreboard' | 'howto' | 'manual' | 'glossary' | 'credits'
+export type MenuTarget = 'resume' | 'game' | 'scoreboard' | 'howto' | 'manual' | 'glossary' | 'briefing' | 'credits'
 
 const BASE_ITEMS: { label: string; target: MenuTarget }[] = [
   { label: 'NEW OPERATION', target: 'game' },
@@ -13,6 +13,9 @@ const BASE_ITEMS: { label: string; target: MenuTarget }[] = [
   { label: 'HOW TO PLAY', target: 'howto' },
   { label: 'FIELD MANUAL', target: 'manual' },
   { label: 'GLOSSARY', target: 'glossary' },
+  // The cold open again (v1.2 R4). A replay, so it leaves the seen-flag
+  // as it found it.
+  { label: 'BRIEFING', target: 'briefing' },
   { label: 'CREDITS', target: 'credits' },
 ]
 

@@ -18,9 +18,10 @@ import { describe, expect, it } from 'vitest'
 
 import { SPRITE_STATES } from '../src/ui/board/board'
 import { ASSET_SPRITES, TIER_A_CHEVRON } from '../src/ui/sprites/assets'
-import { BACKDROP_INKS, PANEL_FILL } from '../src/ui/sprites/scenery'
+import { BACKDROP_INKS, CLOUD, PANEL_FILL, SILHOUETTE } from '../src/ui/sprites/scenery'
 import { HIT_BURST, LOCK_ON, PART_SPARKLE, SHIELD_FLASH } from '../src/ui/sprites/effects'
 import { BOLT, COIN, COLDVEIL_EMBLEM, EYE } from '../src/ui/sprites/icons'
+import { DISASTER, FLOOD, WATCH_OFFICER } from '../src/ui/sprites/coldOpen'
 import { TRANSPARENT, type Sprite } from '../src/ui/sprites/sprite'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -95,6 +96,10 @@ describe('the sprite set (v1.2 R2)', () => {
       ['lock-on', LOCK_ON, 16],
       ['shield-flash', SHIELD_FLASH, 16],
       ['part-sparkle', PART_SPARKLE, 16],
+      // The cold open's own (v1.2 R4): the officer is the brief's other
+      // size, 26x26.
+      ...WATCH_OFFICER.map((s, i): [string, Sprite, number] => [`watch-officer.${i}`, s, 26]),
+      ...DISASTER.map((s, i): [string, Sprite, number] => [`disaster.${i}`, s, 16]),
     ]
     const faults: string[] = []
     for (const [name, sprite, size] of named) {
@@ -107,8 +112,27 @@ describe('the sprite set (v1.2 R2)', () => {
         if (!(ink.token in palette)) faults.push(`${name}: '${c}' paints ${ink.token}, which is not a section 3 token`)
       }
     }
+    // The bands and small scenery are not square, and are held to their
+    // own widths and heights the same way.
+    const banded: [string, Sprite, number, number][] = [
+      ['cloud', CLOUD, 16, 4],
+      ['silhouette', SILHOUETTE, 7, 3],
+      ['flood', FLOOD, 16, 10],
+    ]
+    for (const [name, sprite, w, h] of banded) {
+      if (sprite.rows.length !== h) faults.push(`${name}: ${sprite.rows.length} rows, not ${h}`)
+      sprite.rows.forEach((row, y) => {
+        if (row.length !== w) faults.push(`${name}: row ${y} is ${row.length} wide, not ${w}`)
+        for (const c of row) if (c !== TRANSPARENT && !sprite.palette[c]) faults.push(`${name}: '${c}' is not in its palette`)
+      })
+      for (const [c, ink] of Object.entries(sprite.palette)) {
+        if (!(ink.token in palette)) faults.push(`${name}: '${c}' paints ${ink.token}, which is not a section 3 token`)
+      }
+    }
     expect(faults).toEqual([])
     expect(HIT_BURST.length, 'the hit burst is three frames').toBe(3)
+    expect(WATCH_OFFICER.length, 'the watch officer loops on 2 to 4 frames (brief 6)').toBeGreaterThanOrEqual(2)
+    expect(WATCH_OFFICER.length).toBeLessThanOrEqual(4)
   })
 
   it('draws damage rather than darkening it, and keeps a lost asset on the board, greyed and crossed', () => {

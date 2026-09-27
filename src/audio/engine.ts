@@ -332,11 +332,23 @@ export function resetAudioEngineForTests(): void {
   shared = null
 }
 
-const GESTURES = ['pointerdown', 'keydown', 'touchend'] as const
+const GESTURES = ['pointerdown', 'pointerup', 'keydown', 'touchend', 'click'] as const
 
-// Listens once for the first real gesture anywhere in the document and
-// unlocks. Returns an uninstall, and uninstalls itself on the first
-// gesture, so the listeners are not carried for the life of the session.
+// Listens for the first real gesture anywhere in the document and
+// unlocks. Returns an uninstall, and uninstalls itself once the context is
+// running, so the listeners are not carried for the life of the session.
+//
+// ONCE RUNNING, NOT ONCE CALLED (v1.2 R4). Not every gesture is one the
+// browser counts as user activation: a touch's pointerdown is not (the
+// tap's activation is its pointerup and touchend), and neither is Escape.
+// A context built on one of those starts 'suspended', and the first
+// version, which uninstalled on whatever came first, was gone before the
+// same tap's pointerup could resume it. On a phone the music then waited
+// for the bed's first bell note, six to sixteen seconds later, and the
+// cold open's "music starts on the first tap" was false on every phone.
+// So the listener stays armed until a gesture has left the context
+// running, and unlock() resumes the one it built. Nothing starts any
+// earlier than before: resume() outside an activation does nothing.
 //
 // CAPTURE PHASE, and that is the whole point of the argument. A bubbling
 // listener runs after the event has reached its target, which means the
@@ -355,7 +367,9 @@ export function installGestureUnlock(engine: AudioEngine = getAudioEngine()): ()
   let removed = false
   const onGesture = () => {
     engine.unlock()
-    uninstall()
+    const ctx = engine.context
+    // No Web Audio at all is also the end of it: there is nothing to wait for.
+    if (!ctx || ctx.state === 'running') uninstall()
   }
   const uninstall = () => {
     if (removed) return

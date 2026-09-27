@@ -43,10 +43,11 @@ const IntroSequence = lazy(() => import('./ui/IntroSequence'))
 // board's marker rather than trusting this comment.
 const SoundBoard = import.meta.env.DEV ? lazy(() => import('./audio/SoundBoard')) : null
 
-type Screen = 'intro' | 'menu' | 'game' | 'scoreboard' | 'howto' | 'manual' | 'glossary' | 'credits' | 'soundboard'
+type Screen = 'intro' | 'briefing' | 'menu' | 'game' | 'scoreboard' | 'howto' | 'manual' | 'glossary' | 'credits' | 'soundboard'
 
 const STATUS: Record<Screen, string> = {
   intro: 'BOOT',
+  briefing: 'BRIEFING',
   menu: 'STANDBY',
   game: 'OPERATION ACTIVE',
   scoreboard: 'RECORDS',
@@ -110,9 +111,11 @@ function App() {
   return (
     <>
       <div className="crt-overlay" aria-hidden="true" />
-      {screen === 'intro' ? (
+      {screen === 'intro' || screen === 'briefing' ? (
         <Suspense fallback={<ScreenLoading />}>
-          <IntroSequence onDone={() => setScreen('menu')} />
+          {/* The menu's BRIEFING is the same cold open as a replay: it
+              leaves the seen-flag exactly as it found it. */}
+          <IntroSequence replay={screen === 'briefing'} onDone={() => setScreen('menu')} />
         </Suspense>
       ) : (
         <div className={`${screen === 'game' ? 'h-dvh' : 'min-h-screen'} flex flex-col`}>

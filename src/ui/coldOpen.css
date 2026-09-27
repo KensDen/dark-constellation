@@ -1,0 +1,208 @@
+/* The cold open's motion (v1.2 R4, brief 6). Imported by IntroSequence
+   alone, so Vite splits it into the cold open's chunk with the code and
+   the art, and the first download never carries it.
+
+   The rule of the board's idle life holds here too: transform and opacity
+   only, and every rule that moves sits inside the no-preference guard, so
+   under reduced motion nothing below runs except the crossfade, which is
+   what the brief gives reduced motion instead of the dissolve. The resting
+   state of every piece is set outside the guard, so the picture standing
+   still is the right picture: the emblem in place, the officer on the
+   first frame, no ghost. The board's hidden-tab pause (.dc-board-hidden in
+   index.css) applies here as well; IntroSequence sets it. */
+
+.dc-glitch-ghost,
+.dc-officer-1,
+.dc-officer-2 {
+  opacity: 0;
+}
+
+/* One loop a slide (brief 6). The board's backdrops and sprites come with
+   their idle life, which belongs to the board; in the cold open they
+   stand at the rest the board gives them under reduced motion, and only
+   the slide's own loop moves. Important, because it has to win over the
+   idle rules whatever order the two stylesheets load in. */
+.dc-still,
+.dc-still * {
+  animation: none !important;
+}
+
+/* The pixel dissolve: a grid of cells in the page colour, each switching
+   on (out) or off (in) at its own moment in a fixed shuffled order.
+   Opacity alone, one step per cell. */
+.dc-dissolve rect {
+  fill: var(--dc-ground);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dc-dissolve-out rect {
+    animation: dc-cell-cover 1ms steps(1, end) both;
+  }
+
+  .dc-dissolve-in rect {
+    animation: dc-cell-clear 1ms steps(1, end) both;
+  }
+
+  /* The emblem arrives in bursts, then holds, and every few seconds the
+     signal slips: a jolt, and a ghost of it offset beside it. */
+  .dc-glitch-in {
+    animation: dc-glitch-in 900ms steps(1, end) both;
+  }
+
+  .dc-glitch {
+    animation: dc-glitch 3.2s steps(1, end) 900ms infinite;
+  }
+
+  .dc-glitch-ghost {
+    animation: dc-glitch-ghost 3.2s steps(1, end) 900ms infinite;
+  }
+
+  /* The officer types, hand and hand, and blinks now and then: frames 1
+     and 2 over frame 0, shown in turn. */
+  .dc-officer-1 {
+    animation: dc-officer-type 0.5s steps(1, end) infinite;
+  }
+
+  .dc-officer-2 {
+    animation: dc-officer-blink 4.2s steps(1, end) infinite;
+  }
+}
+
+/* Reduced motion: the outgoing picture fades over the incoming one, the
+   first picture fades in, and the last fades out to the menu. */
+@media (prefers-reduced-motion: reduce) {
+  .dc-crossfade-out {
+    animation: dc-fade-out 300ms linear both;
+  }
+
+  .dc-crossfade-in {
+    animation: dc-fade-in 300ms linear both;
+  }
+}
+
+@keyframes dc-cell-cover {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dc-cell-clear {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes dc-glitch-in {
+  0% {
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+    transform: translateX(-4px);
+  }
+  25% {
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+    transform: translateX(3px);
+  }
+  55% {
+    opacity: 0.4;
+    transform: none;
+  }
+  70% {
+    opacity: 1;
+    transform: translateX(-2px);
+  }
+  85%,
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dc-glitch {
+  0%,
+  88% {
+    transform: none;
+  }
+  90% {
+    transform: translateX(4px);
+  }
+  92% {
+    transform: translateX(-3px);
+  }
+  94% {
+    transform: none;
+  }
+  96% {
+    transform: translateX(2px);
+  }
+  98% {
+    transform: none;
+  }
+}
+
+@keyframes dc-glitch-ghost {
+  0%,
+  88% {
+    opacity: 0;
+    transform: none;
+  }
+  90% {
+    opacity: 0.55;
+    transform: translateX(-8px);
+  }
+  92% {
+    opacity: 0.45;
+    transform: translateX(6px);
+  }
+  94%,
+  100% {
+    opacity: 0;
+    transform: none;
+  }
+}
+
+@keyframes dc-officer-type {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes dc-officer-blink {
+  0% {
+    opacity: 0;
+  }
+  95% {
+    opacity: 1;
+  }
+}
+
+@keyframes dc-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dc-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
