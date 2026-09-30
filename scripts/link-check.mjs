@@ -40,16 +40,16 @@ export const BOT_PROTECTED = [
     statuses: [403],
     reason:
       'Medium answers automated requests with a Cloudflare challenge page ("Attention Required!", HTTP 403), whatever the user agent.',
-    checked: '2026-09-29',
-    how: 'opened by Claude in a browser, not yet by Ken: title, author (PWNSAT) and date (3 Jan 2026) match the Field Library entry, which the draft fetched on 2026-09-26',
+    checked: '2026-09-30',
+    how: 'verified by Ken 2026-09-30: title, author (PWNSAT) and date (3 Jan 2026) match the Field Library entry, which the draft fetched on 2026-09-26',
   },
   {
     url: 'https://medium.com/@pwnsat/from-mitre-att-ck-to-sparta-a-unified-attack-flow-for-space-systems-00dd7ef26618',
     statuses: [403],
     reason:
       'Medium answers automated requests with a Cloudflare challenge page ("Attention Required!", HTTP 403), whatever the user agent.',
-    checked: '2026-09-29',
-    how: 'opened by Claude in a browser, not yet by Ken: title, author (PWNSAT) and date (17 Sep 2025) match the Field Library entry, which the draft fetched on 2026-09-26',
+    checked: '2026-09-30',
+    how: 'verified by Ken 2026-09-30: title, author (PWNSAT) and date (17 Sep 2025) match the Field Library entry, which the draft fetched on 2026-09-26',
   },
 ]
 
