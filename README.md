@@ -120,7 +120,7 @@ Deliberately out of scope, recorded here as future work:
 
 Design, code, writing, and direction by Ken Connell.
 
-**Artwork: AI-generated, human-directed.** The key art and outcome backdrops were generated
+**Artwork: AI-generated, human-commanded.** The key art and outcome backdrops were generated
 with AI tools under the author's direction and selection. The interface art (wordmark,
 event icons, layer badges, constellation frame) was authored as original vector work for this
 project.

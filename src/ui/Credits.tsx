@@ -18,7 +18,7 @@ export default function Credits({ onBack }: { onBack: () => void }) {
           {GAME_TITLE} is a personal portfolio project by Ken Connell. Design, code, writing, and direction by
           the author.
         </p>
-        <p className="font-mono text-phosphor">Artwork: AI-generated, human-directed.</p>
+        <p className="font-mono text-phosphor">Artwork: AI-generated, human-commanded.</p>
         <p className="text-ink-dim">
           The key art and outcome backdrops were generated with AI tools under the author&apos;s direction and
           selection. The interface art (wordmark, event icons, layer badges, constellation frame) was authored as
