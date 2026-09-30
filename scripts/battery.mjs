@@ -13,7 +13,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { measureBundle } from './bundle-budget.mjs'
-import { BOT_PROTECTED, isBotProtected, isExcused, runLinkCheck } from './link-check.mjs'
+import {
+  BOT_PROTECTED,
+  isBotProtected,
+  isExcused,
+  isRunnerBlocked,
+  runLinkCheck,
+  runnerBlockedWarning,
+} from './link-check.mjs'
 
 const failures = []
 // Stamped before anything builds, so the bundle layer can tell a chunk
@@ -264,7 +271,9 @@ async function checkUrlWithRetry(url) {
 
 // What the layer excuses (the ATLAS SPA's 404s, and the pages listed as
 // bot-protected) lives in scripts/link-check.mjs as isExcused, so the suite
-// tests the same predicate this passes.
+// tests the same predicate this passes. What it only WARNS about (a page
+// listed as blocking CI runners answering 403, timing out or refusing the
+// connection) is isRunnerBlocked, passed the same way.
 
 async function linkCheck() {
   const urls = contentUrls()
@@ -276,9 +285,13 @@ async function linkCheck() {
     check: checkUrl,
     concurrency: LINK_CONCURRENCY,
     isKnownSpaStatusArtifact: isExcused,
+    isWarnOnly: isRunnerBlocked,
     originPrefix: 'https://atlas.mitre.org/',
     originUrl: 'https://atlas.mitre.org/',
   })
+  // Printed on a pass AND on a failure, so a warning is never hidden
+  // behind a red line about something else.
+  const warnings = (outcome.warned ?? []).map((r) => `\n  ${runnerBlockedWarning(r)}`).join('')
   if (outcome.reason === 'no-urls') return 'FAIL: no URLs found in src/content; the deck should carry sources'
   if (outcome.reason === 'origin') {
     return `FAIL: atlas.mitre.org origin returned HTTP ${outcome.origin.status}; ATLAS links cannot be presumed alive`
@@ -290,7 +303,7 @@ async function linkCheck() {
       ...outcome.unreachable.map((r) => `  unreachable  ${r.url}`),
     ]
     const count = outcome.broken.length + outcome.unreachable.length
-    return `FAIL: ${count} of ${outcome.results.length} content link(s) did not resolve:\n${lines.join('\n')}`
+    return `FAIL: ${count} of ${outcome.results.length} content link(s) did not resolve:\n${lines.join('\n')}${warnings}`
   }
   // Name every page excused as bot-protected, and who checked it, so a
   // pass never hides one.
@@ -299,7 +312,7 @@ async function linkCheck() {
     const entry = BOT_PROTECTED.find((e) => e.url === r.url)
     return `\n  allow-listed as bot-protected, HTTP ${r.status}: ${r.url}\n    checked ${entry.checked}, ${entry.how}`
   })
-  return `OK (${outcome.results.length} links)${lines.join('')}`
+  return `OK (${outcome.results.length} links)${lines.join('')}${warnings}`
 }
 
 process.stdout.write('[battery] content link check (spec 11.4) ... ')

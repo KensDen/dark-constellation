@@ -25,6 +25,9 @@ import {
   isBotProtected,
   isExcused,
   isKnownSpaStatusArtifact,
+  RUNNER_BLOCKED,
+  isRunnerBlocked,
+  runnerBlockedWarning,
 } from '../scripts/link-check.mjs'
 
 const ok = (url: string) => ({ url, status: 200 })
@@ -363,6 +366,147 @@ describe("link check: the battery's excuses, end to end (v1.2 R5b)", () => {
     ] as const) {
       const out = await runLinkCheck({ urls: [url], check: scripted({ [url]: status }), wait: async () => {}, isKnownSpaStatusArtifact: isExcused })
       expect(out.outcome, `${url} answering ${status} passed`).toBe('fail')
+    }
+  })
+})
+
+describe('link check: pages that block CI runners (v1.2 R5b follow-up)', () => {
+  // The first deploy of R5b went RED because two hosts refuse the GitHub
+  // Actions runner (a 403 from one, no answer at all from the other) while
+  // serving the page to a person. A listed page answering that way is a
+  // WARNING, not a failure. Everything else a listed page answers, and
+  // everything any unlisted page answers, is judged exactly as before.
+  // Driven through runLinkCheck with the same two predicates
+  // scripts/battery.mjs passes it (isExcused and isRunnerBlocked), so the
+  // pipeline is exercised and not just the predicate. The suite does NOT
+  // read battery.mjs: its passing of isRunnerBlocked and its printing of the
+  // warning are exercised only by a live battery run, as for isExcused.
+  type Result = { url: string; status?: number; network?: boolean }
+  const listed = RUNNER_BLOCKED[0].url
+  const alsoListed = RUNNER_BLOCKED[1].url
+  const fine = 'https://example.org/fine'
+
+  // A scripted network: each url gets a queue of answers, one per attempt,
+  // and the last answer repeats. The same shape as the pipeline tests above.
+  function net(script: Record<string, Array<Record<string, unknown>>>) {
+    const attempts: string[] = []
+    return {
+      attempts,
+      check: async (url: string) => {
+        attempts.push(url)
+        const queue = script[url]
+        const next = queue.length > 1 ? queue.shift()! : queue[0]
+        return { url, ...next }
+      },
+    }
+  }
+  const battery = (urls: string[], n: ReturnType<typeof net>) =>
+    runLinkCheck({ urls, check: n.check, wait: async () => {}, isKnownSpaStatusArtifact: isExcused, isWarnOnly: isRunnerBlocked })
+
+  it('warns, and does not fail, when a listed page answers 403', async () => {
+    const n = net({ [listed]: [{ status: 403 }], [fine]: [{ status: 200 }] })
+    const out = await battery([listed, fine], n)
+    expect(out.outcome, 'a listed page answering 403 failed the battery').toBe('ok')
+    expect(out.warned.map((r: Result) => r.url), 'the 403 passed silently instead of warning').toEqual([listed])
+    expect(n.attempts, 'a listed page was not requested at all').toContain(listed)
+    const line = runnerBlockedWarning(out.warned[0])
+    expect(line.startsWith('WARNING: '), line).toBe(true)
+    expect(line, 'the warning does not name the page').toContain(listed)
+    expect(line, 'the warning does not give the verify date').toContain('2026-09-29')
+    expect(line).toContain('HTTP 403')
+  })
+
+  it('warns on a listed page that times out or refuses the connection, after the retry every page gets', async () => {
+    // A timeout and a refused connection both arrive as `network`.
+    const n = net({ [alsoListed]: [{ network: true }], [fine]: [{ status: 200 }] })
+    const out = await battery([alsoListed, fine], n)
+    expect(out.outcome, 'a listed page that never answered failed the battery').toBe('ok')
+    expect(out.warned.map((r: Result) => r.url)).toEqual([alsoListed])
+    expect(n.attempts.filter((u) => u === alsoListed), 'the listed page did not get its transport retry').toHaveLength(2)
+    expect(runnerBlockedWarning(out.warned[0])).toContain('a timeout or connection error')
+  })
+
+  it('keeps the warning when the run fails for another reason', async () => {
+    // The battery prints warnings on a red run too, which only works if the
+    // failing outcome still carries them, and does not count the listed
+    // page among the broken.
+    const gone = 'https://example.org/gone'
+    const out = await battery([listed, gone], net({ [listed]: [{ status: 403 }], [gone]: [{ status: 404 }] }))
+    expect(out.outcome).toBe('fail')
+    expect(out.broken.map((r: Result) => r.url), 'the listed 403 was counted as broken').toEqual([gone])
+    expect(out.warned.map((r: Result) => r.url), 'a failing run dropped the warning').toEqual([listed])
+  })
+
+  it('passes a listed page that answers on the retry, with no warning', async () => {
+    const n = net({ [alsoListed]: [{ network: true }, { status: 200 }], [fine]: [{ status: 200 }] })
+    const out = await battery([alsoListed, fine], n)
+    expect(out.outcome).toBe('ok')
+    expect(out.warned, 'a page that answered on its retry was still warned about').toHaveLength(0)
+  })
+
+  it('still fails a listed page that answers 404 or 410', async () => {
+    for (const status of [404, 410]) {
+      const out = await battery([listed], net({ [listed]: [{ status }] }))
+      expect(out.outcome, `a listed page answering ${status} passed`).toBe('fail')
+      expect(out.broken.map((r: Result) => r.url)).toEqual([listed])
+      expect(out.warned, `a listed ${status} was downgraded to a warning`).toHaveLength(0)
+    }
+  })
+
+  it('still fails every other error a listed page answers', async () => {
+    // 401 is not what a runner-blocking host sends; a 500 that is still a
+    // 500 after its inline retry is an outage, not a block.
+    for (const status of [401, 451, 500]) {
+      const out = await battery([listed], net({ [listed]: [{ status }] }))
+      expect(out.outcome, `a listed page answering ${status} passed`).toBe('fail')
+      expect(out.warned).toHaveLength(0)
+    }
+  })
+
+  it('still fails a 403 from a page that is not listed, including one on the same host', async () => {
+    const sibling = listed.replace(/uuid:[0-9a-f-]+$/, 'uuid:00000000-0000-0000-0000-000000000000')
+    expect(sibling).not.toBe(listed)
+    for (const url of [sibling, 'https://www.cisa.gov/stopransomware']) {
+      const out = await battery([url, fine], net({ [url]: [{ status: 403 }], [fine]: [{ status: 200 }] }))
+      expect(out.outcome, `${url}, not listed, answering 403 passed`).toBe('fail')
+      expect(out.broken.map((r: Result) => r.url)).toEqual([url])
+      expect(out.warned).toHaveLength(0)
+    }
+  })
+
+  it('still fails a page that is not listed and never answers', async () => {
+    const dead = 'https://example.org/dead'
+    const out = await battery([dead, fine], net({ [dead]: [{ network: true }], [fine]: [{ status: 200 }] }))
+    expect(out.outcome).toBe('fail')
+    expect(out.unreachable.map((r: Result) => r.url)).toEqual([dead])
+    expect(out.warned).toHaveLength(0)
+  })
+
+  it('changes nothing for a caller that passes no warn-only predicate', () => {
+    // classify and runLinkCheck default isWarnOnly to "excuse nothing", so
+    // every caller that predates it gets the old verdict.
+    const { broken, unreachable, warned } = classify([
+      { url: listed, status: 403 },
+      { url: alsoListed, network: true },
+    ])
+    expect(broken.map((r: Result) => r.url)).toEqual([listed])
+    expect(unreachable.map((r: Result) => r.url)).toEqual([alsoListed])
+    expect(warned).toHaveLength(0)
+  })
+
+  it('lists only pages the content still carries, each with its reason, who verified it, and the date', () => {
+    const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'content')
+    const walk = (d: string): string[] =>
+      readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith('.ts') ? [join(d, e.name)] : []))
+    const content = walk(dir).map((f) => readFileSync(f, 'utf8')).join('\n')
+    expect(RUNNER_BLOCKED.length).toBeGreaterThan(0)
+    for (const entry of RUNNER_BLOCKED) {
+      expect(content.includes(`'${entry.url}'`), `${entry.url} is no longer in the content`).toBe(true)
+      expect(entry.reason).toBe('host blocks CI runners; 403 or unreachable from GitHub Actions')
+      expect(entry.verified).toMatch(/^verified reachable by Ken \d{4}-\d{2}-\d{2}$/)
+      expect(entry.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+      expect(entry.verified.endsWith(entry.date), `${entry.url}: the verified line and the date disagree`).toBe(true)
+      expect(isRunnerBlocked({ url: entry.url, status: 403 })).toBe(true)
     }
   })
 })

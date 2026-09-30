@@ -58,6 +58,57 @@ export function isBotProtected(url, status, list = BOT_PROTECTED) {
   return list.some((entry) => entry.url === url && entry.statuses.includes(status))
 }
 
+// PAGES THAT BLOCK CI RUNNERS (v1.2 R5b follow-up). Some hosts refuse or
+// drop requests from CI runners while serving the same page to a person.
+// The first deploy of R5b went RED on two of them: ora.ox.ac.uk answered
+// the GitHub Actions runner with a 403 and media.defcon.org never answered
+// it, while both returned 200 from Ken's machine the same night. From the
+// runner such a link cannot be told apart from a broken one, so it is
+// listed here, exact URL by exact URL, with why, who verified it and when.
+//
+// A listed page is still requested on every run, retries included. If its
+// final answer is a 403, a timeout or a connection error, the battery
+// prints a WARNING naming the page and its verify date instead of failing.
+// Any other answer is judged exactly as before: a 404 or a 410 still
+// fails, and so does every other error status. Every page NOT listed here
+// is judged exactly as it was. The suite holds each entry to a URL the
+// content still carries, as it does for BOT_PROTECTED.
+export const RUNNER_BLOCKED = [
+  {
+    url: 'https://ora.ox.ac.uk/objects/uuid:92566006-9d2d-4696-b678-7125c802e36c',
+    reason: 'host blocks CI runners; 403 or unreachable from GitHub Actions',
+    verified: 'verified reachable by Ken 2026-09-29',
+    date: '2026-09-29',
+  },
+  {
+    url: 'https://media.defcon.org/DEF%20CON%2034/DEF%20CON%2034%20presentations/DEF%20CON%2034%20-%20Romel%20Marin%20-%20Lowering%20the%20Orbit%20Exploiting%20Satellite%20Protocols%20and%20communications%20via%20Software-Defined-Radio%20and%20GS%20-%20v2%20Pro.pdf',
+    reason: 'host blocks CI runners; 403 or unreachable from GitHub Actions',
+    verified: 'verified reachable by Ken 2026-09-29',
+    date: '2026-09-29',
+  },
+]
+
+// The one status a runner-blocking host answers with. A timeout or a
+// refused connection arrives as a transport-level result (`network`),
+// which carries no status, and is covered by the predicate below.
+export const RUNNER_BLOCKED_STATUSES = [403]
+
+// Whether a FINAL result is a listed page answering the way a host that
+// blocks runners does. Judged after the transport retry, so a listed page
+// that answers 200 on its second try is simply a pass, with no warning.
+export function isRunnerBlocked(result, list = RUNNER_BLOCKED) {
+  if (!list.some((entry) => entry.url === result.url)) return false
+  return result.network === true || RUNNER_BLOCKED_STATUSES.includes(result.status)
+}
+
+// The warning the battery prints for one such result. Kept here so the
+// suite pins its wording: it names the page and the date it was verified.
+export function runnerBlockedWarning(result, list = RUNNER_BLOCKED) {
+  const entry = list.find((e) => e.url === result.url)
+  const answer = result.network ? 'a timeout or connection error' : `HTTP ${result.status}`
+  return `WARNING: ${result.url} answered ${answer}; not failed: ${entry.reason} (${entry.verified}, date ${entry.date})`
+}
+
 // atlas.mitre.org serves its technique pages as a client-rendered SPA and
 // returns HTTP 404 status to non-browser fetchers for every deep link
 // (verified 2026-07-12: curl with any user agent gets 404 on /techniques/*
@@ -108,12 +159,17 @@ export function mergeRetries(results, retried) {
 
 // The verdict, given the final results. Kept here rather than in the
 // battery so the suite can assert the classification without a network.
-export function classify(results, isKnownSpaStatusArtifact = () => false) {
+// `isWarnOnly` takes a whole result, because a timeout has no status to
+// test. By default it excuses nothing, so a caller that does not pass it
+// gets the classification exactly as it was before it existed.
+export function classify(results, isKnownSpaStatusArtifact = () => false, isWarnOnly = () => false) {
+  const warned = results.filter((r) => isWarnOnly(r))
   const broken = results.filter(
-    (r) => !r.network && (r.status < 200 || r.status >= 400) && !isKnownSpaStatusArtifact(r.url, r.status),
+    (r) =>
+      !r.network && (r.status < 200 || r.status >= 400) && !isKnownSpaStatusArtifact(r.url, r.status) && !isWarnOnly(r),
   )
-  const unreachable = results.filter((r) => r.network)
-  return { broken, unreachable }
+  const unreachable = results.filter((r) => r.network && !isWarnOnly(r))
+  return { broken, unreachable, warned }
 }
 
 // THE WHOLE PIPELINE, not just the predicates it calls.
@@ -136,6 +192,7 @@ export async function runLinkCheck({
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   concurrency = 6,
   isKnownSpaStatusArtifact = () => false,
+  isWarnOnly = () => false,
   originPrefix = null,
   originUrl = null,
 }) {
@@ -196,9 +253,9 @@ export async function runLinkCheck({
   }
 
   if (isOffline(finalResults)) return { outcome: 'skip', reason: 'offline', results: finalResults }
-  const { broken, unreachable } = classify(finalResults, isKnownSpaStatusArtifact)
+  const { broken, unreachable, warned } = classify(finalResults, isKnownSpaStatusArtifact, isWarnOnly)
   if (broken.length || unreachable.length) {
-    return { outcome: 'fail', reason: 'links', broken, unreachable, results: finalResults }
+    return { outcome: 'fail', reason: 'links', broken, unreachable, warned, results: finalResults }
   }
-  return { outcome: 'ok', results: finalResults }
+  return { outcome: 'ok', warned, results: finalResults }
 }
