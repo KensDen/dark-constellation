@@ -25,6 +25,28 @@ export const vectorLabels: Record<Vector, string> = {
   environmental: 'environmental',
 }
 
+// What a sensor trust tier means, as the PROCURE sheet has always said it.
+// A constant since v1.2 R3 so a tile's intel card can say the same thing
+// rather than a second version of it.
+export const TIER_NOTE =
+  'Tier B sensor packages are cheap with a hidden supply-chain risk: only Tier B hardware can host the firmware implant. Tier A packages cost more on sats and drones, are immune to the implant, and an all Tier A drone fleet breaks the BLACKOUT CHAIN. Ground stations carry no sensor package.'
+
+// The frameworks as MITRE and the others spell them. The enum says ATTACK,
+// and it stays that way: the engine writes it into every turn's history
+// (firedTechniqueRefs), which the determinism snapshot hashes and every
+// save code carries. Only the player's copy changes, here. Keyed by the
+// TechniqueRef union, so the type checker refuses a framework added there
+// without a label; tests/technique-tag.spec.ts reads the schema's list for
+// one added only to the schema, which nothing joins to that union.
+export const frameworkLabels: Record<TechniqueRef['framework'], string> = {
+  SPARTA: 'SPARTA',
+  ATLAS: 'ATLAS',
+  ATTACK: 'ATT&CK',
+  ATTACK_ICS: 'ATT&CK for ICS',
+  NSA: 'NSA',
+  RESEARCH: 'RESEARCH',
+}
+
 // How a framework technique is named wherever the player sees one: the
 // brief's tag, the GLOSSARY term, the report card's recap, and the
 // countermeasure detail line.
@@ -41,12 +63,6 @@ export const vectorLabels: Record<Vector, string> = {
 // KEY. Two independent copies of the expression would make that a string
 // coincidence that happens to hold today; one function makes it true by
 // construction.
-// What a sensor trust tier means, as the PROCURE sheet has always said it.
-// A constant since v1.2 R3 so a tile's intel card can say the same thing
-// rather than a second version of it.
-export const TIER_NOTE =
-  'Tier B sensor packages are cheap with a hidden supply-chain risk: only Tier B hardware can host the firmware implant. Tier A packages cost more on sats and drones, are immune to the implant, and an all Tier A drone fleet breaks the BLACKOUT CHAIN. Ground stations carry no sensor package.'
-
 export function techniqueLabel(ref: Pick<TechniqueRef, 'framework' | 'id'>): string {
-  return `${ref.framework} ${ref.id}`
+  return `${frameworkLabels[ref.framework]} ${ref.id}`
 }

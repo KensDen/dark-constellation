@@ -46,7 +46,7 @@ import {
 import { METER_CAP, assetPrice, coverage, maiScore } from '../engine/scoring'
 import { LAYERS, type ActiveCondition, type Asset, type GameState, type Scenario, type ThreatEvent } from '../engine/types'
 import { applyPatch, cloneModeled, residualPatch } from './patch'
-import { kindLabels } from '../ui/labels'
+import { kindLabels, techniqueLabel } from '../ui/labels'
 import { METER_KEYS, type Beat, type BeatKind, type MeterKey, type Patch } from './types'
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T
@@ -100,7 +100,9 @@ function heal(state: GameState, key: MeterKey, amount: number): number {
   return Math.min(METER_CAP - state.meters[key], amount)
 }
 
-const techniques = (ev: ThreatEvent) => ev.techniqueRefs.map((r) => ({ tag: `${r.framework} ${r.id}`, url: r.url }))
+// The playback card's technique line: named as the brief and the GLOSSARY
+// name it, not by a sixth copy of the expression.
+const techniques = (ev: ThreatEvent) => ev.techniqueRefs.map((r) => ({ tag: techniqueLabel(r), url: r.url }))
 
 // The rideshare note names the pipeline id it expedited; asset ids are
 // stable engine strings (start-<kind>-<n>, t<turn>-<kind>-<n>).

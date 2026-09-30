@@ -18,11 +18,16 @@
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
+import { techniqueRefSchema } from '../src/content/schemas'
+import { deriveBeats } from '../src/director'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
+import type { GameState } from '../src/engine/types'
 import { briefCopy } from '../src/ui/brief'
-import { techniqueLabel } from '../src/ui/labels'
+import { frameworkLabels, techniqueLabel } from '../src/ui/labels'
+import { realWorldFor } from '../src/ui/realWorldLine'
 import { glossaryEntries } from '../src/ui/reference'
+import { shareText } from '../src/ui/reportCard'
 import { NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
 
 const DIFFICULTIES = ['easy', 'standard', 'expert'] as const
@@ -107,5 +112,75 @@ describe('the technique tag resolves to a glossary entry', () => {
   it('keys every entry uniquely', () => {
     const keys = entries.map((e) => e.key)
     expect(new Set(keys).size, 'two glossary entries share a key, so a tag could open the wrong one').toBe(keys.length)
+  })
+})
+
+// MITRE spells its framework ATT&CK. The enum is not renamed (the engine
+// writes it into history, which the determinism snapshot hashes), so the
+// spelling is a display mapping, and this block sweeps these surfaces for
+// the enum: the GLOSSARY term, body and link labels, the REAL WORLD line,
+// the playback card, and the share text. The intel brief's tag, the
+// debrief and the aftermath card render techniqueLabel, which the GLOSSARY
+// term already exercises, and are not swept here.
+describe('the frameworks are spelled as their owners spell them', () => {
+  const RAW = /\bATTACK(_ICS)?\b/
+  const attackRefs = DEFAULT_SCENARIO.events.flatMap((e) => e.techniqueRefs).filter((r) => r.framework === 'ATTACK')
+
+  it('labels every framework the schema allows, ATT&CK and ATT&CK for ICS as MITRE writes them', () => {
+    // Read from the schema. frameworkLabels is keyed by the TechniqueRef
+    // union, which the type checker holds to a label, but nothing joins that
+    // union to the schema, so a framework added to the schema alone fails
+    // only here.
+    for (const framework of techniqueRefSchema.shape.framework.options) {
+      expect(frameworkLabels[framework], `${framework} has no display label`).toBeTruthy()
+      expect(frameworkLabels[framework], `${framework} reaches the player as an identifier`).not.toMatch(/_/)
+    }
+    expect(frameworkLabels.ATTACK).toBe('ATT&CK')
+    expect(frameworkLabels.ATTACK_ICS).toBe('ATT&CK for ICS')
+  })
+
+  it('never shows the enum on the GLOSSARY or the REAL WORLD line', () => {
+    // The positive control: the deck cites ATT&CK, so each surface below
+    // has something to get wrong.
+    expect(attackRefs.length, 'the deck cites no ATT&CK technique, so nothing below asserts anything').toBeGreaterThan(0)
+    const techniques = glossaryEntries().filter((e) => e.category === 'Technique')
+    for (const ref of attackRefs) {
+      const entry = techniques.find((e) => e.key === techniqueLabel(ref))!
+      expect(entry.term.startsWith(`ATT&CK ${ref.id}: `), entry.term).toBe(true)
+      expect(entry.body.startsWith('ATT&CK framework technique. '), entry.body).toBe(true)
+    }
+    // Every entry's words and its link labels: a threat event's entry links
+    // each technique it cites by name.
+    const entries = glossaryEntries()
+    expect(
+      entries.some((e) => e.category !== 'Technique' && e.refs.some((r) => r.label.startsWith('ATT&CK '))),
+      'no GLOSSARY entry links an ATT&CK technique, so the link labels below assert nothing',
+    ).toBe(true)
+    for (const e of entries) {
+      expect([e.term, e.body, ...e.refs.map((r) => r.label)].join(' '), `the GLOSSARY entry ${e.key}`).not.toMatch(RAW)
+    }
+    const lines = DEFAULT_SCENARIO.events.map((ev) => realWorldFor(ev)).filter((l) => l !== null)
+    expect(lines.some((l) => l.technique.startsWith('ATT&CK ')), 'no REAL WORLD line leads with an ATT&CK technique').toBe(true)
+    for (const l of lines) expect(l.technique, `the REAL WORLD line for ${l.eventId}`).not.toMatch(RAW)
+  })
+
+  it('never shows the enum on the playback card or in the share text', () => {
+    // The prepared line on the snapshot's win seed, where two ATT&CK
+    // techniques land and one is resisted (tests/share-text.spec.ts).
+    let state: GameState = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
+    const tags: string[] = []
+    while (state.status === 'playing') {
+      const after = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+      for (const beat of deriveBeats(state, after)) tags.push(...(beat.techniques ?? []).map((t) => t.tag))
+      state = after
+    }
+    expect(tags.some((t) => t.startsWith('ATT&CK ')), 'no beat on this line carried an ATT&CK technique').toBe(true)
+    // Each tag is a label techniqueLabel gives some ref, so the card cannot
+    // keep a spelling of its own.
+    const labels = new Set(DEFAULT_SCENARIO.events.flatMap((e) => e.techniqueRefs).map(techniqueLabel))
+    for (const t of tags) expect(labels.has(t), `the playback card names "${t}", which techniqueLabel never produces`).toBe(true)
+    const text = shareText(state)
+    expect(text).toContain('ATT&CK ')
+    expect(text).not.toMatch(RAW)
   })
 })

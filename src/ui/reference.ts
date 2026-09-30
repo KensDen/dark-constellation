@@ -6,7 +6,7 @@
 
 import { DEFAULT_SCENARIO } from '../content'
 import type { TechniqueRef } from '../engine/types'
-import { techniqueLabel } from './labels'
+import { frameworkLabels, techniqueLabel } from './labels'
 
 export interface GlossaryEntry {
   // The stable key a caller can find this entry by. For a technique it is
@@ -40,7 +40,7 @@ function techniqueEntries(): GlossaryEntry[] {
       key: techniqueLabel(ref),
       term: `${techniqueLabel(ref)}: ${ref.name}`,
       category: 'Technique' as const,
-      body: `${ref.framework === 'NSA' ? 'NSA cybersecurity advisory' : `${ref.framework} framework technique`}. Appears in: ${[...events].join(', ')}.`,
+      body: `${ref.framework === 'NSA' ? 'NSA cybersecurity advisory' : `${frameworkLabels[ref.framework]} framework technique`}. Appears in: ${[...events].join(', ')}.`,
       refs: [{ label: 'Framework page', url: ref.url }],
     }))
     .sort((a, b) => a.term.localeCompare(b.term))
