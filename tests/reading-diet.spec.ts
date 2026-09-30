@@ -876,6 +876,17 @@ describe('reading diet: the intel brief', () => {
 })
 
 describe('reading diet: the fixtures themselves', () => {
+  // One resolve per turn: asserted not to throw, and its result is the
+  // state the loop advances with. Both tests below used to resolve every
+  // turn twice, once inside the assertion and again to advance.
+  const legalStep = (state: GameState, script: Record<number, TurnActions>, label: string): GameState => {
+    let next: GameState | undefined
+    expect(() => {
+      next = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+    }, label).not.toThrow()
+    return next as GameState
+  }
+
   it('keeps the top-intel line legal well past the seeds the suite sweeps', () => {
     // The line this round added is checked wider than the sweep, because
     // its failure mode was latent: legal on the seeds measured, illegal a
@@ -884,12 +895,7 @@ describe('reading diet: the fixtures themselves', () => {
       for (let seed = 1; seed <= 100; seed += 1) {
         let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
         while (state.status === 'playing') {
-          const turn = state.turn
-          expect(
-            () => resolveTurn(state, TOP_INTEL_SCRIPT[turn] ?? NO_OP, turnRng(state.seed, turn)),
-            `top intel, ${difficulty}, seed ${seed}, turn ${turn}`,
-          ).not.toThrow()
-          state = resolveTurn(state, TOP_INTEL_SCRIPT[turn] ?? NO_OP, turnRng(state.seed, turn))
+          state = legalStep(state, TOP_INTEL_SCRIPT, `top intel, ${difficulty}, seed ${seed}, turn ${state.turn}`)
         }
       }
     }
@@ -902,12 +908,7 @@ describe('reading diet: the fixtures themselves', () => {
       for (let seed = 1; seed <= 100; seed += 1) {
         let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
         while (state.status === 'playing') {
-          const turn = state.turn
-          expect(
-            () => resolveTurn(state, WIN_SCRIPT[turn] ?? NO_OP, turnRng(state.seed, turn)),
-            `prepared line, ${difficulty}, seed ${seed}, turn ${turn}`,
-          ).not.toThrow()
-          state = resolveTurn(state, WIN_SCRIPT[turn] ?? NO_OP, turnRng(state.seed, turn))
+          state = legalStep(state, WIN_SCRIPT, `prepared line, ${difficulty}, seed ${seed}, turn ${state.turn}`)
         }
       }
     }
