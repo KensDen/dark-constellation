@@ -20,6 +20,19 @@ export interface GlossaryEntry {
   refs: { label: string; url: string }[]
 }
 
+// Whether an entry answers the GLOSSARY filter: its term or body contains
+// the query, ignoring case, as the text reads on screen or with each
+// ampersand read as an a. ATT&CK is said and typed "attack", so "attack"
+// finds its techniques as "att&ck" does; dropping the ampersand instead
+// would leave "attck", which nobody types.
+export function glossaryMatches(entry: GlossaryEntry, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  return [entry.term, entry.body].some((text) => {
+    const lower = text.toLowerCase()
+    return lower.includes(q) || lower.replaceAll('&', 'a').includes(q)
+  })
+}
+
 const scenario = DEFAULT_SCENARIO
 
 

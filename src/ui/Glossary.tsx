@@ -2,7 +2,7 @@
 // category, filterable. No hand-maintained text lives here.
 
 import { useMemo, useState } from 'react'
-import { glossaryEntries, type GlossaryEntry } from './reference'
+import { glossaryEntries, glossaryMatches, type GlossaryEntry } from './reference'
 
 const CATEGORIES: GlossaryEntry['category'][] = ['Technique', 'Countermeasure', 'Threat event', 'Opportunity']
 
@@ -31,7 +31,7 @@ export default function Glossary({
   const focused = focus ? all.find((e) => e.key === focus) : undefined
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
-  const shown = q ? all.filter((e) => e.term.toLowerCase().includes(q) || e.body.toLowerCase().includes(q)) : all
+  const shown = q ? all.filter((e) => glossaryMatches(e, q)) : all
 
   return (
     <Root className="min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
