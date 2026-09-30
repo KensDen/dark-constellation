@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { BEAT_KINDS, deriveBeats } from '../src/director'
@@ -97,6 +97,31 @@ function* playTurns(seed: number, script: Record<number, TurnActions>, difficult
   }
 }
 
+type Campaign = {
+  name: string
+  difficulty: Difficulty
+  seed: number
+  turns: { before: GameState; after: GameState }[]
+}
+
+// Every line of play on every difficulty over EXTREME_SEEDS: 600 campaigns,
+// played once for both tests that sweep that wide. Each used to replay all
+// of them for itself, and the replay is nearly all of either test's time
+// (the copy it measures is cheap by comparison), so the slower of the two
+// crossed vitest's five-second default on a GitHub runner (5,013 and 5,884
+// ms, v1.2 R5b) while taking 1.8 s locally.
+function playExtremes(): Campaign[] {
+  const out: Campaign[] = []
+  for (const [name, script] of LINES) {
+    for (const difficulty of DIFFS) {
+      for (let seed = 1; seed <= EXTREME_SEEDS; seed += 1) {
+        out.push({ name, difficulty, seed, turns: [...playTurns(seed, script, difficulty)] })
+      }
+    }
+  }
+  return out
+}
+
 // Every intel level a player can reach, so the brief is measured at the
 // fidelity that produces the longest copy, not just the default.
 function statesAtEveryIntel(seed: number): GameState[] {
@@ -112,6 +137,14 @@ function statesAtEveryIntel(seed: number): GameState[] {
 }
 
 describe('reading diet: the intel brief', () => {
+  // Played in a hook rather than by the first test that needs them, so the
+  // shared cost is timed as setup and not charged to whichever test runs
+  // first (see playExtremes).
+  let extremes: Campaign[] = []
+  beforeAll(() => {
+    extremes = playExtremes()
+  })
+
   it('keeps the headline inside its word budget on every turn, intel level and difficulty', () => {
     let checked = 0
     for (const [name, script] of LINES) {
@@ -437,23 +470,20 @@ describe('reading diet: the intel brief', () => {
     const dead: string[] = []
     let worstNovel = Infinity
     let worstNovelAt = ''
-    for (const [name, script] of LINES) {
-      for (const difficulty of DIFFS) {
-        for (let seed = 1; seed <= EXTREME_SEEDS; seed += 1) {
-          for (const { before } of playTurns(seed, script, difficulty)) {
-            const copy = briefCopy(before)
-            const novel = novelTokens(copy)
-            if (novel.length < worstNovel) {
-              worstNovel = novel.length
-              worstNovelAt = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, intel ${effectiveIntel(before)}`
-            }
-            if (novel.length < DISCLOSURE_NOVEL_MIN) {
-              dead.push(
-                `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, intel ${effectiveIntel(before)}: ` +
-                  `${novel.length} novel tokens behind the tap`,
-              )
-            }
-          }
+    expect(extremes).toHaveLength(LINES.length * DIFFS.length * EXTREME_SEEDS)
+    for (const { name, difficulty, seed, turns } of extremes) {
+      for (const { before } of turns) {
+        const copy = briefCopy(before)
+        const novel = novelTokens(copy)
+        if (novel.length < worstNovel) {
+          worstNovel = novel.length
+          worstNovelAt = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, intel ${effectiveIntel(before)}`
+        }
+        if (novel.length < DISCLOSURE_NOVEL_MIN) {
+          dead.push(
+            `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, intel ${effectiveIntel(before)}: ` +
+              `${novel.length} novel tokens behind the tap`,
+          )
         }
       }
     }
@@ -670,27 +700,30 @@ describe('reading diet: the intel brief', () => {
         ? { ...base, spendSurgeOn: state.conditions[0].instanceId }
         : base
     }
-    const lines: [string, (s: GameState) => TurnActions][] = [
-      ...LINES.map(([name, script]) => [name, (st: GameState) => script[st.turn] ?? NO_OP] as [string, (s: GameState) => TurnActions]),
-      ['spends surge', surgeLine],
-    ]
-    for (const [name, pick] of lines) {
-      for (const difficulty of DIFFS) {
-        for (let seed = 1; seed <= EXTREME_SEEDS; seed += 1) {
-          let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
-          while (state.status === 'playing') {
-            const after = resolveTurn(state, pick(state), turnRng(state.seed, state.turn))
-            for (const beat of deriveBeats(state, after)) {
-              if (!beat.visible) continue
-              visibleKinds.add(beat.kind)
-              const words = countWords(beat.title)
-              if (words > worst) {
-                worst = words
-                worstAt = `${name}, ${beat.kind}, turn ${state.turn}, ${difficulty}, seed ${seed}: "${beat.title}"`
-              }
-            }
-            state = after
-          }
+    const measure = (name: string, difficulty: Difficulty, seed: number, before: GameState, after: GameState) => {
+      for (const beat of deriveBeats(before, after)) {
+        if (!beat.visible) continue
+        visibleKinds.add(beat.kind)
+        const words = countWords(beat.title)
+        if (words > worst) {
+          worst = words
+          worstAt = `${name}, ${beat.kind}, turn ${before.turn}, ${difficulty}, seed ${seed}: "${beat.title}"`
+        }
+      }
+    }
+    // The five lines of play, already played (see playExtremes), then the
+    // surge line, which only this test needs.
+    expect(extremes).toHaveLength(LINES.length * DIFFS.length * EXTREME_SEEDS)
+    for (const { name, difficulty, seed, turns } of extremes) {
+      for (const { before, after } of turns) measure(name, difficulty, seed, before, after)
+    }
+    for (const difficulty of DIFFS) {
+      for (let seed = 1; seed <= EXTREME_SEEDS; seed += 1) {
+        let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
+        while (state.status === 'playing') {
+          const after = resolveTurn(state, surgeLine(state), turnRng(state.seed, state.turn))
+          measure('spends surge', difficulty, seed, state, after)
+          state = after
         }
       }
     }
