@@ -172,6 +172,11 @@ export function conditionsOn<T extends Pick<ActiveCondition, 'eventId'>>(layer: 
   return conditions.filter((c) => layersOfEvent(scenario, c.eventId).includes(layer))
 }
 
+// Whether a condition cannot be picked for SURGE: no token left, unless it
+// is the one already queued, which stays open so it can be undone. The
+// sheet and the wide board's inspector (v1.2 R6) ask it the same way.
+export const surgePickDisabled = (tokens: number, instanceId: string, queuedId?: string) => tokens === 0 && instanceId !== queuedId
+
 // The vectors a countermeasure answers, derived from the events it
 // counters. Only the vector values are read, never an event's name: the
 // harden sheet shows a defense by its vector icons and its blurb and NOT

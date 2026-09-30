@@ -43,6 +43,10 @@ export const ACTIONS: readonly BoardAction[] = [
   { id: 'resolve', label: 'RESOLVE', number: 5, hotkey: '5', sheet: null },
 ]
 
+// The F key of an action (v1.2 R6, brief 4.6): F and its step number, so
+// the chip, the key and the badge it replaces on a wide screen agree.
+export const fKeyOf = (a: BoardAction) => `F${a.number}`
+
 // RESOLVE's label is the instruction (R2b), and it is also the control's
 // accessible name: the screen shows it in capitals through CSS, so a
 // screen reader hears the words and not the letters.

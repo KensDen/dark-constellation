@@ -132,6 +132,9 @@ export interface HoldButtonProps {
   // foot by default, the whole face of the full-width RESOLVE, in a colour
   // that shows against the button behind it.
   fillClassName?: string
+  // Its keyboard shortcuts, announced (v1.2 R6): the wide board's F5 and
+  // digit move focus here.
+  keyShortcuts?: string
   // React 19 passes ref as a prop: the board's digit hotkey moves focus
   // here rather than committing, because a keypress cannot hold.
   ref?: Ref<HTMLButtonElement>
@@ -146,6 +149,7 @@ export default function HoldButton({
   ref,
   className,
   fillClassName = 'inset-x-0 bottom-0 h-1.5 bg-dc-go',
+  keyShortcuts,
 }: HoldButtonProps) {
   const reduced = useReducedMotion()
   const timerRef = useRef(0)
@@ -194,6 +198,7 @@ export default function HoldButton({
       ref={ref}
       type="button"
       disabled={disabled}
+      aria-keyshortcuts={keyShortcuts}
       // The hold is 600ms, which is long enough that iOS would otherwise
       // offer a callout and a selection on the control being held.
       style={{ touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' }}

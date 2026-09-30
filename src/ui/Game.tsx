@@ -48,7 +48,7 @@ import {
   type Speed,
 } from '../director'
 import { useBadgePhases } from './cues/ConditionBadge'
-import { CUE_MS, useCueClass, usePageVisible, useReducedMotion } from './cues/motion'
+import { CUE_MS, WIDE_QUERY, useCueClass, useMediaQuery, usePageVisible, useReducedMotion } from './cues/motion'
 import { JOB_FRAMING_HEADING, jobFramingBlocks } from './brief'
 import Hud from './board/Hud'
 import ThreatBanner from './board/ThreatBanner'
@@ -60,7 +60,7 @@ import HardenSheet, { HARDEN_STEPS } from './board/HardenSheet'
 import IntelSheet, { INTEL_STEPS } from './board/IntelSheet'
 import SurgeSheet from './board/SurgeSheet'
 import type { SheetId, StepSheet } from './board/actions'
-import { ACTIONS, GUIDE, creditsTag, guideStage, resolveLabel, resolvingLabel, suggestNextStep, type Objective } from './board/actions'
+import { ACTIONS, GUIDE, creditsTag, fKeyOf, guideStage, resolveLabel, resolvingLabel, suggestNextStep, type Objective } from './board/actions'
 import ActionBar from './board/ActionBar'
 import SystemSheet from './board/SystemSheet'
 import { conditionsOn, defensesOn, tilesByLayer, turnBudget } from './board/board'
@@ -121,6 +121,12 @@ const IntelCard = lazy(() => import('./board/IntelCard').catch(() => ({ default:
 // from that threat's event card. The same module as the menu's FIELD
 // LIBRARY screen, so one chunk.
 const FieldLibrary = lazy(() => import('./FieldLibrary').catch(() => ({ default: BackOnly })))
+// The wide board's columns (v1.2 R6, brief 4.6), fetched only on a screen
+// 1024 wide and up. A failed fetch renders nothing and never reports
+// ready, so the board keeps its phone layout and its tiles still open
+// their intel cards.
+const WideUnavailable = () => <></>
+const WideBoard = lazy(() => import('./board/WideBoard').catch(() => ({ default: WideUnavailable })))
 
 // A dialog over the board (the intel card, the Glossary, the Field
 // Library): focus goes in and comes back to what opened it, Escape closes
@@ -375,6 +381,17 @@ export default function Game({
   // screen returns early below, and hook order cannot depend on whether a
   // campaign is in progress.
   const reducedMotion = useReducedMotion()
+  // The wide board (v1.2 R6): its columns load only while this holds, and
+  // lay out once their module has mounted, which is also when its
+  // stylesheet is in. Until then, and for good if the fetch fails, the
+  // board is the phone board: tiles open their cards and the F keys stay
+  // the browser's.
+  const wide = useMediaQuery(WIDE_QUERY)
+  const [wideReady, setWideReady] = useState(false)
+  const laidOut = wide && wideReady
+  // The tile the inspector shows. Not the intel card's state: selecting a
+  // tile leaves the board live, the playback running and the keys on.
+  const [inspected, setInspected] = useState<string | null>(null)
   // The board's idle life, and every other animation on it, pauses while
   // the tab is hidden (v1.2 R2, brief 5.3): one class on the board root,
   // which src/index.css turns into a pause for everything under it.
@@ -473,9 +490,13 @@ export default function Game({
   const intelOpener = useBoardDialog(
     intelOpen,
     intelRef,
+    // On the wide board a tile's card opens from the inspector's INTEL
+    // CARD, so focus goes back there rather than to the tile, where the
+    // next Enter would let the selection go (v1.2 R6).
     () =>
       intel?.kind === 'tile'
-        ? document.querySelector<HTMLElement>(`button[data-asset-id="${intel.assetId}"]`)
+        ? ((laidOut ? document.querySelector<HTMLElement>('[data-inspector-intel]') : null) ??
+          document.querySelector<HTMLElement>(`button[data-asset-id="${intel.assetId}"]`))
         : document.querySelector<HTMLElement>('button[aria-label="Threat intel"]'),
     () => setIntel(null),
   )
@@ -646,6 +667,22 @@ export default function Game({
     if (isStep(next)) setStepsDone((done) => (done.has(next) ? done : new Set(done).add(next)))
   }
   const toggleSheet = (next: Sheet) => openSheet(sheet === next ? null : next)
+  // A sheet opened from the wide board's inspector (v1.2 R6) covers the
+  // inspector, so focus moves into the sheet, and back to the inspector's
+  // button once the sheet closes and nothing else has taken it. A sheet
+  // opened from the action bar leaves focus on the bar, which stays live.
+  const sheetFrom = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    const from = sheetFrom.current
+    if (!from) return
+    if (sheet) {
+      bodyRef.current?.querySelector<HTMLElement>('[data-sheet] button')?.focus()
+      return
+    }
+    sheetFrom.current = null
+    const active = document.activeElement
+    if (from.isConnected && (!active || active === document.body)) from.focus()
+  }, [sheet])
 
   // The board's keys, on the one window listener the play screen has for
   // them, and not while the glossary is open: its own listener answers
@@ -653,8 +690,12 @@ export default function Game({
   // hotkeys (R1b), resolved through the one action array: a step's digit
   // opens or closes its sheet, and RESOLVE's moves focus to the hold
   // control rather than committing, because a keypress cannot hold and a
-  // turn should not end on a stray digit.
-  const decidingNow = state !== null && phase !== 'playback' && phase !== 'aftermath'
+  // turn should not end on a stray digit. On the wide board (v1.2 R6) the
+  // F keys do the same through the same array, except with Shift, so
+  // Shift+F5 still reloads, and they are taken from a checkbox a sheet
+  // left focused, since they type nothing. Not on the score screen, which
+  // is not the board.
+  const decidingNow = state?.status === 'playing' && phase !== 'playback' && phase !== 'aftermath'
   useEffect(() => {
     if (!state || glossaryFocus || intel || library) return
     const onKey = (e: KeyboardEvent) => {
@@ -664,10 +705,18 @@ export default function Game({
         openSheet(null)
         return
       }
-      if (!decidingNow || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return
-      const target = e.target as HTMLElement | null
-      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
-      const action = ACTIONS.find((a) => a.hotkey === e.key)
+      if (!decidingNow || e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target as HTMLInputElement | null
+      const byF = laidOut && !e.shiftKey ? ACTIONS.find((a) => fKeyOf(a) === e.key) : undefined
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) && !(byF && /^(checkbox|radio)$/.test(target.type))) return
+      // A held key acts once. A bound F key's repeats are still taken, or
+      // the browser's own F5 would reload the page a moment into a player
+      // holding it to resolve, and the cart would go with it.
+      if (e.repeat) {
+        if (byF) e.preventDefault()
+        return
+      }
+      const action = byF ?? ACTIONS.find((a) => a.hotkey === e.key)
       if (!action) return
       e.preventDefault()
       if (action.sheet) toggleSheet(action.sheet)
@@ -700,6 +749,7 @@ export default function Game({
     openSheet(arrival.sheet)
     setStepsDone(new Set(arrival.sheet ? [arrival.sheet] : []))
     setIntel(null)
+    setInspected(null)
     setLibrary(null)
     setNotice('')
   }
@@ -722,6 +772,7 @@ export default function Game({
     openSheet(null)
     setStepsDone(new Set())
     setIntel(null)
+    setInspected(null)
     setLibrary(null)
     setSlots(saveStore.list())
     setNotice('')
@@ -1250,6 +1301,7 @@ export default function Game({
           pageVisible ? '' : 'dc-board-hidden'
         } ${hitShake}`}
         style={{ '--dc-beat': `${beatMs}ms` } as CSSProperties}
+        data-wide={laidOut || undefined}
         {...(glossaryFocus || intelOpen || library ? { inert: true, 'aria-hidden': true } : {})}
       >
       <Hud
@@ -1275,6 +1327,18 @@ export default function Game({
             turn's transmission arrives and not again when the engine's
             turn advances under a playback that is still showing this one. */}
         <ThreatBanner shown={shown} cueKey={shown.turn} onTag={(tag) => setGlossaryFocus(tag)} onIntel={() => setIntel({ kind: 'banner' })} />
+        {/* THE WIDE BOARD'S COLUMNS (v1.2 R6, brief 4.6): the ops log under
+            the banner and the inspector on the right, each a conditional
+            child in a fixed place, so crossing 1024 remounts none of their
+            siblings and a playback carries on at its beat. Both read the
+            board the player sees (`shown`) for its assets, conditions and
+            history; a condition's age counts from the engine's turn, as the
+            chips do, and SURGE reads the engine's tokens. */}
+        {wide && (
+          <Suspense fallback={null}>
+            <WideBoard part="log" shown={shown} />
+          </Suspense>
+        )}
         {/* The dotted beam from the emblem to the struck tile, over
             everything in the body and taking no input. It draws while the
             hit locks on; the stylesheet shows it only when motion is
@@ -1316,8 +1380,9 @@ export default function Game({
               tiles={tiles[layer]}
               chips={chipsOn(layer)}
               defenses={defensesOn(layer, shown.counters, scenario)}
-              selectedKey={intel?.kind === 'tile' ? intel.assetId : null}
-              onSelect={(key) => setIntel(key ? { kind: 'tile', assetId: key } : null)}
+              selectedKey={laidOut ? inspected : intel?.kind === 'tile' ? intel.assetId : null}
+              onSelect={(key) => (laidOut ? setInspected(key) : setIntel(key ? { kind: 'tile', assetId: key } : null))}
+              inspect={laidOut}
               onRemoveQueued={removeAsset}
               hit={strike?.kind === 'hit' && strike.layer === layer ? strike : null}
               held={strike?.kind === 'held' && strike.layers.includes(layer) ? strike.id : null}
@@ -1330,6 +1395,37 @@ export default function Game({
               ends at the action bar. */}
           {notice && sheet !== 'system' && <p className="font-mono text-xs text-alert-amber">{notice}</p>}
         </div>
+        {wide && (
+          <Suspense fallback={null}>
+            <WideBoard
+              part="inspector"
+              shown={shown}
+              turn={state.turn}
+              assetId={inspected}
+              live={deciding}
+              tokens={state.surgeTokens}
+              queuedSurge={actions.spendSurgeOn}
+              onProcure={(kind) => {
+                sheetFrom.current = document.activeElement as HTMLElement | null
+                openSheet('procure')
+                setPick({ kind })
+                setStep(2)
+              }}
+              onSurge={(id) => {
+                sheetFrom.current = document.activeElement as HTMLElement | null
+                openSheet('surge')
+                // A queued condition opens where UNDO is; any other at
+                // its confirm.
+                if (id !== actions.spendSurgeOn) {
+                  setSurgePick(id)
+                  setStep(2)
+                }
+              }}
+              onIntel={(assetId) => setIntel({ kind: 'tile', assetId })}
+              onReady={setWideReady}
+            />
+          </Suspense>
+        )}
         {/* THE SHEETS (brief 4.4), over the dimmed board and under the
             action bar, which stays live so the next action is one tap
             away from inside any sheet. The backdrop closes the sheet. */}
@@ -1453,6 +1549,7 @@ export default function Game({
             ref={holdRef}
             className={look.className}
             fillClassName={look.fillClassName}
+            keyShortcuts={look.keyShortcuts}
             disabled={!affordable}
             onConfirm={resolve}
             onShortTap={shortTap}
@@ -1466,6 +1563,7 @@ export default function Game({
         )}
         nextLabel={phase === 'playback' ? 'PLAYBACK' : state.status === 'playing' ? 'NEXT TURN' : 'FINAL REPORT'}
         onNext={nextTurn}
+        keyChips={laidOut && !(glossaryFocus || intel || library)}
         pulseNext={phase === 'aftermath' && !reducedMotion}
         note={
           !affordable && deciding ? (

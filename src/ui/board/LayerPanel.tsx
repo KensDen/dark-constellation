@@ -120,12 +120,14 @@ function Tile({
   phase,
   selected,
   hit,
+  inspect,
   onSelect,
   onRemove,
 }: {
   tile: TileModel
   phase: number
   selected: boolean
+  inspect?: boolean
   hit?: TileHit | null
   onSelect: () => void
   onRemove: () => void
@@ -137,7 +139,9 @@ function Tile({
         type="button"
         data-asset-id={asset.id}
         data-struck={hit ? (hit.landed ? 'hit' : 'lock') : undefined}
-        aria-haspopup="dialog"
+        aria-haspopup={inspect ? undefined : 'dialog'}
+        aria-pressed={inspect ? selected : undefined}
+        aria-controls={inspect ? 'dc-inspector' : undefined}
         aria-label={`${callSign}, ${kindLabels[asset.kind]}, Tier ${asset.tier}, integrity ${asset.integrity}%${STATE_WORD[state]}`}
         onClick={onSelect}
         className={`${TILE} ${selected ? 'border-dc-go' : ''}`}
@@ -200,9 +204,12 @@ export interface LayerPanelProps {
   // when an event this layer was exposed to was held.
   hit?: Extract<Strike, { kind: 'hit' }> | null
   held?: string | null
+  // A wide screen's tap selects the tile for the inspector (v1.2 R6)
+  // rather than opening its intel card.
+  inspect?: boolean
 }
 
-export default function LayerPanel({ layer, tiles, chips, defenses, selectedKey, onSelect, onRemoveQueued, hit, held }: LayerPanelProps) {
+export default function LayerPanel({ layer, tiles, chips, defenses, selectedKey, onSelect, onRemoveQueued, hit, held, inspect }: LayerPanelProps) {
   const struck = hit ? hit.before.assets.find((a) => a.id === hit.assetId) : undefined
   const tileHit: TileHit | null = hit && struck ? { id: hit.id, landed: hit.landed, fromPips: pipsFor(struck.integrity) } : null
   const holding = tiles.filter((t) => t.kind === 'asset' && t.asset.integrity > 0).length
@@ -264,6 +271,7 @@ export default function LayerPanel({ layer, tiles, chips, defenses, selectedKey,
             tile={tile}
             phase={i}
             selected={tile.key === selectedKey}
+            inspect={inspect}
             hit={tile.kind === 'asset' && tile.key === hit?.assetId ? tileHit : null}
             onSelect={() => onSelect(tile.key === selectedKey ? null : tile.key)}
             onRemove={() => (tile.kind === 'queued' ? onRemoveQueued(tile.index) : undefined)}

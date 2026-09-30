@@ -11,27 +11,32 @@ import { useEffect, useRef, useState } from 'react'
 import { countUpMode, onVisibilityChange, pageVisible } from './visibility'
 
 const QUERY = '(prefers-reduced-motion: reduce)'
+// The layout's one breakpoint (v1.2 R6, brief 4.6): 1024 CSS pixels and
+// up is the three-column board. In px, as src/ui/board/wide.css writes it.
+export const WIDE_QUERY = '(min-width: 1024px)'
 
-export function prefersReducedMotionNow(): boolean {
+function matchesNow(query: string): boolean {
   if (typeof window === 'undefined' || !window.matchMedia) return false
   try {
-    return window.matchMedia(QUERY).matches
+    return window.matchMedia(query).matches
   } catch {
     return false
   }
 }
 
-export function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(prefersReducedMotionNow)
+export const prefersReducedMotionNow = (): boolean => matchesNow(QUERY)
+
+export function useMediaQuery(query: string): boolean {
+  const [on, setOn] = useState(() => matchesNow(query))
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return
     let mq: MediaQueryList
     try {
-      mq = window.matchMedia(QUERY)
+      mq = window.matchMedia(query)
     } catch {
       return
     }
-    const onChange = () => setReduced(mq.matches)
+    const onChange = () => setOn(mq.matches)
     onChange()
     // Safari below 14 only has the deprecated listener API.
     if (mq.addEventListener) {
@@ -40,9 +45,11 @@ export function useReducedMotion(): boolean {
     }
     mq.addListener(onChange)
     return () => mq.removeListener(onChange)
-  }, [])
-  return reduced
+  }, [query])
+  return on
 }
+
+export const useReducedMotion = (): boolean => useMediaQuery(QUERY)
 
 // Ease a displayed number toward a target. Returns the value to render.
 // Under reduced motion, or when the animation cannot run (no rAF), the

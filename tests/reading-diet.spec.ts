@@ -37,7 +37,8 @@ import {
   ACTION_BAR_LABELS,
   SYSTEM_GEAR_LABEL,
 } from '../src/ui/brief'
-import { ACTIONS, SKIP_TIPS, openingObjective, resolveLabel } from '../src/ui/board/actions'
+import { ACTIONS, SKIP_TIPS, fKeyOf, openingObjective, resolveLabel } from '../src/ui/board/actions'
+import { NOTHING, OPS_LOG_HEADING, OPS_LOG_TURNS, opsLogCopy, opsLogLine } from '../src/ui/board/wide'
 import { VERDICT_WORD_MAX, verdictFor } from '../src/ui/verdict'
 import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
 
@@ -57,6 +58,12 @@ const DISCLOSURE_NOVEL_MIN = 6
 // the measured worst plus room, and the message prints the new worst so
 // re-baselining forces a sentence about why.
 const BEAT_TITLE_WORD_BUDGET = 14
+
+// The wide board's ops log at its longest over the EXTREME_SEEDS sweep
+// (v1.2 R6), pinned so a change that moves it comes here and says so.
+// Measured at 54 against a structural bound of 71, the lazy line after
+// turn 11 on Easy, seed 20: three rows of long verdicts.
+const WORST_OPS_LOG = 54
 
 const tokensOf = (text: string) => new Set(text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
 
@@ -746,6 +753,55 @@ describe('reading diet: the intel brief', () => {
     expect(worst, `worst beat title measured: ${worst} words at ${worstAt}`).toBe(13)
   })
 
+  it('counts the wide board\'s chrome word for word: each step number becomes its F key (v1.2 R6)', () => {
+    // The chips replace the numbers one token for one, so the wide bar
+    // counts exactly what the phone bar counts; this holds the swap to
+    // that. The wide board's own columns are NOT in the chrome count: the
+    // ops log has its own bound below, and the inspector's heading and
+    // empty prompt are counted nowhere yet (raised for Ken in R6, since
+    // the phone chrome already sits at its budget). Read over the befores
+    // the EXTREME_SEEDS sweep already played.
+    expect(extremes).toHaveLength(LINES.length * DIFFS.length * EXTREME_SEEDS)
+    for (const { turns } of extremes) {
+      for (const { before } of turns) {
+        expect(chromeWords(before, true)).toBe(chromeWords(before))
+      }
+    }
+    const wide = chromeCopy(extremes[0].turns[0].before, true)
+    for (const a of ACTIONS) {
+      expect(wide).toContain(fKeyOf(a))
+      expect(wide).not.toContain(String(a.number))
+    }
+  })
+
+  it('bounds the ops log, the wide board\'s own reading, and pins the measured worst (v1.2 R6)', () => {
+    // Desktop-only copy that no phone budget counts, so it gets its own
+    // bound, derived rather than picked: the heading, then per row the
+    // turn and MAI line and a verdict at the verdict's own cap. The worst
+    // is read over every state the sweep reaches after a turn, which is
+    // the history the log shows.
+    const lineWords = countWords(opsLogLine({ turn: 12, mai: 100, verdict: '' }))
+    const bound = countWords(OPS_LOG_HEADING) + OPS_LOG_TURNS * (lineWords + VERDICT_WORD_MAX)
+    const words = (s: GameState) => opsLogCopy(s).reduce((n, l) => n + countWords(l), 0)
+    let worst = 0
+    let worstAt = ''
+    expect(extremes).toHaveLength(LINES.length * DIFFS.length * EXTREME_SEEDS)
+    for (const { name, difficulty, seed, turns } of extremes) {
+      for (const { after } of turns) {
+        const n = words(after)
+        if (n > worst) {
+          worst = n
+          worstAt = `${name}, after turn ${after.history[after.history.length - 1].turn}, ${difficulty}, seed ${seed}`
+        }
+      }
+    }
+    expect(worst, `worst ops log measured: ${worst} words at ${worstAt}`).toBeLessThanOrEqual(bound)
+    // Before any turn it says so, and nothing else.
+    expect(opsLogCopy(newGame(DEFAULT_SCENARIO, 1))).toEqual([OPS_LOG_HEADING, NOTHING])
+    // The exact figure, for the reason the pins above carry one.
+    expect(worst, `worst ops log measured: ${worst} words at ${worstAt}`).toBe(WORST_OPS_LOG)
+  })
+
   it('introduces the MAI abbreviation before the job framing uses it', () => {
     // Round 7b's move of the framing into this module dropped "(MAI)" from
     // line 1, so the abbreviation first appeared unintroduced in line 3,
@@ -1032,3 +1088,4 @@ describe('reading diet: the damage report verdict', () => {
     }
   })
 })
+

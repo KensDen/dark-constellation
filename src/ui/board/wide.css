@@ -1,0 +1,147 @@
+/* The wide board (v1.2 R6, brief 4.6), loaded only with its module on a
+   screen 1024 CSS pixels wide and up. Plain CSS rather than utilities:
+   Tailwind scans the whole project, so a class spelled only here would
+   still ship in the first download.
+
+   Every rule sits inside the one query the module is loaded by (its text
+   is WIDE_QUERY in src/ui/cues/motion.ts), so a tablet turned to
+   portrait, which keeps this sheet, gets the phone board back; and every
+   selector starts at the board Game marks data-wide once this module has
+   mounted, so nothing here applies before the columns exist, or after a
+   failed fetch. tests/wide-board.dom.spec.tsx holds both, and holds every
+   selector to something the rendered board has, so a renamed class or
+   attribute fails there rather than quietly unstyling the desktop. */
+
+@media (min-width: 1024px) {
+  /* 300 + 600 + 300: the centre column is never wider than the ORBIT
+     limb (LIMB.cols x PX), so its ends never show. */
+  main[data-board][data-wide] {
+    max-width: 1200px;
+  }
+
+  /* The body (Game's bodyRef, the board's one div child) becomes the
+     grid; the HUD above and the action bar below stay full width. The
+     second row keeps the ops log at least 6rem tall when the banner's
+     full brief is expanded above it. */
+  main[data-board][data-wide] > div {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr) 300px;
+    grid-template-rows: minmax(0, auto) minmax(6rem, 1fr);
+  }
+  main[data-board][data-wide] > div > section[aria-label='Threat forecast'] {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 0;
+    overflow-y: auto;
+    border-right: 2px solid var(--dc-line);
+  }
+  /* The banner scrolls in its own column here, and the beam a hit draws
+     is measured from the emblem, so the emblem stays in view: a beam from
+     an emblem scrolled away would start above the column, across the HUD. */
+  main[data-board][data-wide] section[aria-label='Threat forecast'] button[aria-label='Threat intel'] {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+  }
+  main[data-board][data-wide] > div > [data-ops-log] {
+    grid-column: 1;
+    grid-row: 2;
+    min-height: 0;
+    overflow-y: auto;
+    border-right: 2px solid var(--dc-line);
+  }
+  /* The scroll column: the event card, the three layers, the reference. */
+  main[data-board][data-wide] > div > div {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+  main[data-board][data-wide] > div > [data-inspector] {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    min-height: 0;
+    overflow-y: auto;
+    border-left: 2px solid var(--dc-line);
+  }
+
+  /* ORBIT four across, each tile's sprite over its call sign, so a
+     1024-wide screen's 94px tile still shows the whole call sign. */
+  main[data-board][data-wide] section[aria-labelledby='layer-ORBIT'] > .grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  main[data-board][data-wide] section[aria-labelledby='layer-ORBIT'] > .grid > * {
+    flex-direction: column;
+    align-items: flex-start;
+    padding-block: 6px;
+  }
+
+  /* The tile the inspector shows: a bar along its foot beside the green
+     border, so the selection is a shape and not a colour alone. Never the
+     magenta of a lock-on, which only a playback may draw (brief 4.3). */
+  main[data-board][data-wide] button[data-asset-id][aria-pressed='true'] {
+    box-shadow:
+      inset 0 -4px 0 var(--dc-go),
+      4px 4px 0 var(--dc-shadow);
+  }
+
+  /* The step sheets become a side panel over the dimmed board (brief
+     4.4), at the 375 the sheets were designed at, entering from the
+     side. Under reduced motion it is simply there, as on the phone. */
+  main[data-board][data-wide] [data-sheet] {
+    top: 0;
+    bottom: 0;
+    left: auto;
+    right: 0;
+    width: 375px;
+    max-height: none;
+    border-top-width: 0;
+    border-left: 2px solid var(--dc-line);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    main[data-board][data-wide] [data-sheet].dc-sheet-in {
+      animation-name: dc-wide-panel-in;
+    }
+  }
+  @keyframes dc-wide-panel-in {
+    from {
+      transform: translateX(24px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  /* The two columns' own skins. */
+  main[data-board][data-wide] [data-ops-log],
+  main[data-board][data-wide] [data-inspector] {
+    padding: 8px 12px;
+    background: var(--dc-ground);
+    color: var(--dc-ink);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  main[data-board][data-wide] [data-ops-log] h2,
+  main[data-board][data-wide] [data-inspector] h2 {
+    font-family: var(--font-display);
+    font-size: 10px;
+    color: var(--dc-muted);
+  }
+  main[data-board][data-wide] [data-ops-row],
+  main[data-board][data-wide] [data-inspector-condition] {
+    margin-top: 8px;
+  }
+  main[data-board][data-wide] [data-ops-line],
+  main[data-board][data-wide] [data-inspector-layer] {
+    color: var(--dc-muted);
+  }
+  /* In capitals, as the tile's intel card sets it: the display face has
+     no lowercase of its own. */
+  main[data-board][data-wide] [data-inspector-title] {
+    margin-top: 8px;
+    font-family: var(--font-display);
+    font-size: 10px;
+    text-transform: uppercase;
+  }
+}

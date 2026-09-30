@@ -27,13 +27,15 @@ import { Fragment, type ReactNode } from 'react'
 import PixelSprite from '../sprites/PixelSprite'
 import { BOLT, EYE } from '../sprites/icons'
 import { sprite } from '../sprites/sprite'
-import { SKIP_TIPS, type BoardAction, type Objective, type StepSheet } from './actions'
+import { SKIP_TIPS, fKeyOf, type BoardAction, type Objective, type StepSheet } from './actions'
 
 export type BarPhase = 'deciding' | 'playback' | 'aftermath'
 
 export interface ResolveLook {
   className: string
   fillClassName: string
+  // Its keys, for assistive tech, while the wide board's chips show them.
+  keyShortcuts?: string
 }
 
 export interface ActionBarProps {
@@ -58,6 +60,8 @@ export interface ActionBarProps {
   pulseNext: boolean
   // A line under the buttons, such as the cart warning.
   note?: ReactNode
+  // On a wide screen each badge shows its F key while the keys are live.
+  keyChips?: boolean
 }
 
 const ICONS = { eye: EYE, bolt: BOLT }
@@ -77,7 +81,7 @@ const FILL_SOLID = 'inset-0 bg-dc-ink/35'
 // sheet has been opened this turn. Decoration for sighted players; the
 // button's name is its label, and the check is announced through the
 // caption.
-export function StepMark({ number, done, className = 'absolute top-1 left-1' }: { number: number; done: boolean; className?: string }) {
+export function StepMark({ number, done, chip, className = 'absolute top-1 left-1' }: { number: number; done: boolean; chip?: string; className?: string }) {
   return (
     <span
       aria-hidden="true"
@@ -87,7 +91,7 @@ export function StepMark({ number, done, className = 'absolute top-1 left-1' }: 
         done ? 'border-dc-go bg-dc-go font-mono text-[10px] text-dc-ground' : 'border-dc-line bg-dc-chrome font-display text-[8px] text-dc-muted'
       }`}
     >
-      {done ? '✓' : number}
+      {chip ?? (done ? '✓' : number)}
     </span>
   )
 }
@@ -108,12 +112,16 @@ export default function ActionBar({
   onNext,
   pulseNext,
   note,
+  keyChips,
 }: ActionBarProps) {
   // In the array's order, whatever it is: the bar has no order of its own
   // (principle 17, and the guard that rotates the array).
   const steps = actions.filter((a) => a.sheet !== null)
   const commit = actions.find((a) => a.sheet === null)
   const deciding = phase === 'deciding'
+  const chip = (a: BoardAction) => (keyChips && deciding ? fKeyOf(a) : undefined)
+  // The chip is decoration; this is how a screen reader hears the keys.
+  const shortcuts = (a: BoardAction) => (chip(a) ? `${chip(a)} ${a.hotkey}` : undefined)
   const solid = done.size > 0 || objective.step === commit?.id
   const glows = (action: BoardAction, disabled: boolean) => deciding && objective.step === action.id && !disabled
   const stepClass = (action: BoardAction, sheet: StepSheet, disabled: boolean) => {
@@ -165,6 +173,7 @@ export default function ActionBar({
                 data-glow={glows(action, disabled) ? 'true' : undefined}
                 className={stepClass(action, sheet, disabled)}
                 aria-expanded={openSheet === sheet}
+                aria-keyshortcuts={shortcuts(action)}
                 disabled={disabled}
                 onClick={() => onToggle(sheet)}
               >
@@ -173,7 +182,7 @@ export default function ActionBar({
                   <span data-label>{action.label}</span>
                 </span>
                 <span className="font-mono text-[9px] text-dc-muted">{captionFor(action) || (done.has(action.id) ? 'done' : '')}</span>
-                <StepMark number={action.number} done={done.has(action.id)} />
+                <StepMark number={action.number} done={done.has(action.id)} chip={chip(action)} />
               </button>
             </Fragment>
           )
@@ -187,13 +196,13 @@ export default function ActionBar({
           data-glow={deciding && objective.step === commit.id ? 'true' : undefined}
         >
           {deciding ? (
-            resolve({ className: solid ? RESOLVE_SOLID : RESOLVE_OUTLINE, fillClassName: solid ? FILL_SOLID : FILL_OUTLINE })
+            resolve({ className: solid ? RESOLVE_SOLID : RESOLVE_OUTLINE, fillClassName: solid ? FILL_SOLID : FILL_OUTLINE, keyShortcuts: shortcuts(commit) })
           ) : (
             <button type="button" className={`${RESOLVE_SOLID} ${pulseNext ? 'dc-next-pulse' : ''}`} disabled={phase === 'playback'} onClick={onNext}>
               <span data-label>{nextLabel}</span>
             </button>
           )}
-          <StepMark number={commit.number} done={phase === 'aftermath'} className="absolute left-3.5 top-1/2 mt-0.5 -translate-y-1/2" />
+          <StepMark number={commit.number} done={phase === 'aftermath'} chip={chip(commit)} className="absolute left-3.5 top-1/2 mt-0.5 -translate-y-1/2" />
         </div>
       )}
       {note}

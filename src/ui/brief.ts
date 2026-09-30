@@ -12,7 +12,7 @@ import { coverage, maiScore } from '../engine/scoring'
 import type { GameState, ThreatEvent } from '../engine/types'
 import { kindLabels, techniqueLabel, vectorLabels } from './labels'
 import { LAYERS } from '../engine/types'
-import { ACTIONS, SKIP_TIPS, openingObjective, resolveLabel } from './board/actions'
+import { ACTIONS, SKIP_TIPS, fKeyOf, openingObjective, resolveLabel } from './board/actions'
 
 // The budget the brief is designed against (brief v0.7 section 5):
 // "Before first input on a normal turn: 60 words or fewer of reading
@@ -554,7 +554,7 @@ export function firstInputWords(state: GameState, difficultyLabel: string): numb
 export const ACTION_BAR_LABELS: readonly string[] = ACTIONS.filter((a) => a.sheet !== null).map((a) => a.label)
 export const SYSTEM_GEAR_LABEL = 'System'
 
-export function chromeCopy(state: GameState): string[] {
+export function chromeCopy(state: GameState, wide = false): string[] {
   const objective = (guided: boolean) => {
     const o = openingObjective(state, guided)
     return [o.tag, o.sentence, ...(guided ? [SKIP_TIPS] : [])]
@@ -565,7 +565,7 @@ export function chromeCopy(state: GameState): string[] {
   return [
     '> INCOMING TRANSMISSION_',
     'Expand full brief',
-    ...ACTIONS.map((a) => String(a.number)),
+    ...ACTIONS.map((a) => (wide ? fKeyOf(a) : String(a.number))),
     ...ACTION_BAR_LABELS,
     resolveLabel(state.turn),
     ...(words(walkthrough) > words(plain) ? walkthrough : plain),
@@ -575,6 +575,6 @@ export function chromeCopy(state: GameState): string[] {
   ]
 }
 
-export function chromeWords(state: GameState): number {
-  return chromeCopy(state).reduce((n, line) => n + countWords(line), 0)
+export function chromeWords(state: GameState, wide = false): number {
+  return chromeCopy(state, wide).reduce((n, line) => n + countWords(line), 0)
 }

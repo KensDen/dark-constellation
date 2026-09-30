@@ -179,7 +179,10 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     // Five since v1.2 R5b: the Field Library, which an event card's "learn
     // more" opens over the board at that threat's entries. The same module
     // as App's FIELD LIBRARY screen, so the same chunk.
-    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(5)
+    // Six since v1.2 R6: the wide board's columns, the ops log and the
+    // inspector, which only a screen 1024 wide and up fetches (brief 4.6
+    // and 8: "Round 6 loads its desktop layout only on wide screens").
+    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(6)
     const graph = staticGraphFrom(ENTRY)
     const offenders: string[] = []
     for (const spec of gameSpecs) {
@@ -192,6 +195,22 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     expect(gameSpecs).toContain('./board/IntelCard')
     expect(gameSpecs).toContain('./ScoreScreen')
     expect(gameSpecs).toContain('./FieldLibrary')
+    expect(gameSpecs).toContain('./board/WideBoard')
+  })
+})
+
+describe("the wide board's own modules stay out of the first download (v1.2 R6)", () => {
+  const WIDE = join(SRC, 'ui', 'board', 'WideBoard.tsx')
+  const own = ['ui/board/wide.ts', 'ui/board/wide.css'].map((f) => join(SRC, f))
+
+  it('reaches them from the wide board and never from the entry point', () => {
+    const fromWide = staticGraphFrom(WIDE)
+    for (const f of own) expect(fromWide.has(f), `the wide board no longer reaches ${f.slice(SRC.length + 1)}`).toBe(true)
+    const graph = staticGraphFrom(ENTRY)
+    const offenders = [WIDE, ...own]
+      .filter((f) => graph.has(f))
+      .map((f) => `${f.slice(SRC.length + 1)} is reachable statically: ${[...graph.get(f)!.slice(1), f].map((x) => x.slice(SRC.length + 1)).join(' -> ')}`)
+    expect(offenders.join('\n'), "the wide board is in the first download").toBe('')
   })
 })
 

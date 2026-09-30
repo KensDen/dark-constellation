@@ -5,6 +5,7 @@
 
 import type { ActiveCondition, Layer } from '../../engine/types'
 import Sheet, { SHEET_BUTTON, SHEET_PRIMARY } from './Sheet'
+import { surgePickDisabled } from './board'
 
 export const SURGE_STEPS = 2
 
@@ -54,7 +55,7 @@ export default function SurgeSheet({ options, tokens, queuedId, step, pickedId, 
                   <button
                     type="button"
                     data-surge-condition={o.condition.instanceId}
-                    disabled={tokens === 0 && o.condition.instanceId !== queuedId}
+                    disabled={surgePickDisabled(tokens, o.condition.instanceId, queuedId)}
                     className={`${SHEET_BUTTON} w-full flex items-center justify-between gap-2 py-2 border-dc-hostile/60`}
                     onClick={() => onPick(o.condition.instanceId)}
                   >
