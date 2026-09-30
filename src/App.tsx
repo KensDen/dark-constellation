@@ -34,6 +34,18 @@ const FieldManual = lazy(() => import('./ui/FieldManual'))
 const HowToPlay = lazy(() => import('./ui/HowToPlay'))
 const Credits = lazy(() => import('./ui/Credits'))
 const Scoreboard = lazy(() => import('./ui/Scoreboard'))
+// The FIELD LIBRARY (v1.2 R5b) validates its list as it loads. A list that
+// failed, or a chunk that never arrived, leaves a way back rather than a
+// blank app, which is what a throw inside this Suspense would otherwise do.
+const LibraryUnavailable = ({ onBack }: { onBack: () => void }) => (
+  <main className="max-w-3xl mx-auto px-4 py-10 font-mono text-sm">
+    <p className="text-phosphor">&gt; FIELD LIBRARY UNAVAILABLE_</p>
+    <button className="mt-4 min-h-11 border border-phosphor px-3 text-phosphor" onClick={onBack}>
+      Back to menu
+    </button>
+  </main>
+)
+const FieldLibrary = lazy(() => import('./ui/FieldLibrary').catch(() => ({ default: LibraryUnavailable })))
 const Glossary = lazy(() => import('./ui/Glossary'))
 const IntroSequence = lazy(() => import('./ui/IntroSequence'))
 
@@ -44,13 +56,25 @@ const IntroSequence = lazy(() => import('./ui/IntroSequence'))
 // board's marker rather than trusting this comment.
 const SoundBoard = import.meta.env.DEV ? lazy(() => import('./audio/SoundBoard')) : null
 
-type Screen = 'intro' | 'briefing' | 'menu' | 'game' | 'scoreboard' | 'howto' | 'manual' | 'glossary' | 'credits' | 'soundboard'
+type Screen =
+  | 'intro'
+  | 'briefing'
+  | 'menu'
+  | 'game'
+  | 'library'
+  | 'scoreboard'
+  | 'howto'
+  | 'manual'
+  | 'glossary'
+  | 'credits'
+  | 'soundboard'
 
 const STATUS: Record<Screen, string> = {
   intro: 'BOOT',
   briefing: 'BRIEFING',
   menu: 'STANDBY',
   game: 'OPERATION ACTIVE',
+  library: 'REFERENCE',
   scoreboard: 'RECORDS',
   howto: 'REFERENCE',
   manual: 'REFERENCE',
@@ -145,6 +169,7 @@ function App() {
                   }}
                 />
               )}
+              {screen === 'library' && <FieldLibrary onBack={toMenu} />}
               {screen === 'scoreboard' && <Scoreboard onBack={toMenu} />}
               {screen === 'howto' && <HowToPlay onBack={toMenu} />}
               {screen === 'manual' && <FieldManual onBack={toMenu} />}

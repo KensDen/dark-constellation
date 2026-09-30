@@ -125,8 +125,10 @@ describe('the split screens stay out of the initial chunk (v1.2 R0)', () => {
     // null in a production build. Seven since the Round 1 fix batch: the
     // Glossary joined the split once its overlay inside Game stopped
     // importing it statically, which is the trail this guard reported in
-    // R0 when the declaration was tried too early.
-    expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(7)
+    // R0 when the declaration was tried too early. Eight since v1.2 R5b:
+    // the FIELD LIBRARY, a reading room most sessions never enter, in the
+    // menu's INTEL ARCHIVE (brief 7.3: lazy-loaded, its own chunk).
+    expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(8)
     for (const spec of lazySpecs) {
       expect(resolveLocal(APP, spec), `lazy import ${spec} resolves to no file`).toBeTruthy()
     }
@@ -174,7 +176,10 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     // end-of-run report, which every finished campaign reaches and no turn
     // of play needs, so it arrives in its own chunk when a campaign ends
     // (brief 7.2); the save code and the ways out stay static in Game.
-    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(4)
+    // Five since v1.2 R5b: the Field Library, which an event card's "learn
+    // more" opens over the board at that threat's entries. The same module
+    // as App's FIELD LIBRARY screen, so the same chunk.
+    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(5)
     const graph = staticGraphFrom(ENTRY)
     const offenders: string[] = []
     for (const spec of gameSpecs) {
@@ -186,6 +191,36 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     expect(offenders.join('\n'), 'an overlay Game loads on demand is in the initial chunk anyway').toBe('')
     expect(gameSpecs).toContain('./board/IntelCard')
     expect(gameSpecs).toContain('./ScoreScreen')
+    expect(gameSpecs).toContain('./FieldLibrary')
+  })
+})
+
+describe("the Field Library's list and pairings stay out of the first download (v1.2 R5b)", () => {
+  // The event card's "learn more" shows for every threat without knowing
+  // the pairings (validation guarantees every threat has one), and the
+  // menu's FILED counter arrives by dynamic import. So the list, its
+  // schema and the FILED logic ride with the library: reachable from the
+  // library screen, never from the entry. The walk follows static imports
+  // only, which is what puts a module in the first download.
+  const LIBRARY = join(SRC, 'ui', 'FieldLibrary.tsx')
+  const own = ['content/fieldLibrary.ts', 'content/fieldLibraryData.ts', 'content/librarySchema.ts', 'ui/libraryProgress.ts', 'ui/library.css'].map((f) =>
+    join(SRC, f),
+  )
+
+  it('reaches them from the library screen and never from the entry point', () => {
+    const fromLibrary = staticGraphFrom(LIBRARY)
+    for (const f of own) expect(fromLibrary.has(f), `the library no longer reaches ${f.slice(SRC.length + 1)}`).toBe(true)
+    const graph = staticGraphFrom(ENTRY)
+    const offenders = own
+      .filter((f) => graph.has(f))
+      .map((f) => `${f.slice(SRC.length + 1)} is reachable statically: ${[...graph.get(f)!.slice(1), f].map((x) => x.slice(SRC.length + 1)).join(' -> ')}`)
+    expect(offenders.join('\n'), "the library's list is in the first download").toBe('')
+  })
+
+  it("fetches the menu's counter by dynamic import, not a static one", () => {
+    const menu = readFileSync(join(SRC, 'ui', 'MainMenu.tsx'), 'utf8')
+    expect(menu, 'the menu no longer fetches the counter').toMatch(/import\(\s*'\.\/libraryProgress'\s*\)/)
+    expect(staticImports(menu).some((spec) => /libraryProgress|fieldLibrary|FieldLibrary/.test(spec))).toBe(false)
   })
 })
 

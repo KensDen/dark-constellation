@@ -3,12 +3,21 @@
 // learn-more card with its sources and the technique's own page. Built by
 // realWorldFor from the event's content, so it cannot say anything the
 // content does not.
+//
+// Beside it, since v1.2 R5b, "learn more": the Field Library opened at this
+// threat's entries, wherever the game provides the way there (./learnMore.ts).
+// Every threat has entries (src/content/librarySchema.ts insists), so the
+// link needs no knowledge of them here, and none ships in the first
+// download. Its target is 44px tall and pulled into the line's own height.
 
+import { useContext } from 'react'
+import { LearnMore } from './learnMore'
 import type { RealWorldLine } from './realWorldLine'
 
 export default function RealWorld({ line }: { line: RealWorldLine }) {
-  return (
-    <details data-real-world className="mt-2 font-mono text-xs">
+  const learnMore = useContext(LearnMore)
+  const details = (
+    <details data-real-world className={learnMore && line.eventId ? 'min-w-0 flex-1 font-mono text-xs' : 'mt-2 font-mono text-xs'}>
       <summary className="min-h-6 cursor-pointer">
         <span className="font-display text-[9px] text-dc-go">REAL WORLD</span>{' '}
         <span data-real-world-line>
@@ -35,5 +44,21 @@ export default function RealWorld({ line }: { line: RealWorldLine }) {
         </ul>
       </div>
     </details>
+  )
+  if (!learnMore || !line.eventId) return details
+  const id = line.eventId
+  return (
+    <div className="mt-2 flex items-start gap-2">
+      {details}
+      <button
+        type="button"
+        data-learn-more={id}
+        aria-haspopup="dialog"
+        onClick={(e) => learnMore(id, e.currentTarget)}
+        className="-my-2.5 flex-none min-h-11 px-1 font-mono text-[10px] text-dc-go underline"
+      >
+        learn more<span className="sr-only"> in the Field Library: {line.technique}</span>
+      </button>
+    </div>
   )
 }

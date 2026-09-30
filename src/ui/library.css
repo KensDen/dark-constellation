@@ -1,0 +1,32 @@
+/* The Field Library's own styles (v1.2 R5b). Imported by FieldLibrary
+   alone, so it rides in the library's chunk. Nothing here moves. */
+
+/* The FILED stamp: a small inked mark in the entry's top right corner. */
+.dc-filed {
+  position: absolute;
+  top: 0.5rem;
+  right: 0;
+  padding: 2px 4px;
+  border: 2px solid var(--dc-go);
+  transform: rotate(-6deg);
+  line-height: 1;
+}
+
+/* An entry's title leaves the stamp its corner, and is a 44px target
+   (brief 4.7) without moving a line: the padding that makes it one is
+   taken back by the margin. */
+[data-library-entry] > a {
+  display: block;
+  padding: 12px 4rem 12px 0;
+  margin: -12px 0;
+}
+
+/* Words for assistive tech only: the marker says "new tab" to the eye. */
+.dc-offscreen {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

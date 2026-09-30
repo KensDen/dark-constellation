@@ -51,9 +51,12 @@ export interface DirectorViewProps {
   // the board can land a hit on the tile the beat names.
   onPresented: (state: GameState, chosenCredits: number, beat: Beat | null) => void
   onDone: () => void
+  // A dialog is open over the board (v1.2 R5b): playback holds, as it does
+  // on a hidden page, so no beat and no sound plays to nobody.
+  held?: boolean
 }
 
-export default function DirectorView({ before, after, beats, speed, onSpeedChange, onPresented, onDone }: DirectorViewProps) {
+export default function DirectorView({ before, after, beats, speed, onSpeedChange, onPresented, onDone, held = false }: DirectorViewProps) {
   const directorRef = useRef<Director | null>(null)
   const [snap, setSnap] = useState<DirectorSnapshot | null>(null)
   const reduced = useReducedMotion()
@@ -118,11 +121,13 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
     directorRef.current?.setSpeed(speed)
   }, [speed])
 
-  // Hidden means paused, for every channel (src/ui/cues/visibility.ts).
+  // Hidden means paused, for every channel (src/ui/cues/visibility.ts), and
+  // so does a dialog held open over the board.
   useEffect(() => {
-    directorRef.current?.setPaused(playbackPaused(pageVisible()))
-    return onVisibilityChange((visible) => directorRef.current?.setPaused(playbackPaused(visible)))
-  }, [before, after, beats])
+    const pause = (visible: boolean) => directorRef.current?.setPaused(held || playbackPaused(visible))
+    pause(pageVisible())
+    return onVisibilityChange(pause)
+  }, [before, after, beats, held])
 
   useLayoutEffect(() => {
     if (snap) onPresented(snap.presented, snap.chosenCredits, snap.beat)
@@ -150,9 +155,12 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
   // is focused, so buttons, the HUD's disclosure summary and links keep
   // their own keyboard behaviour. A held key repeats at the OS rate, which
   // would tear through the whole turn, so only discrete presses count.
+  // While a dialog holds the playback, its keys are the dialog's: focus can
+  // fall back to the page inside one, and a Space meant for the dialog must
+  // not step the turn behind it (v1.2 R5b).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.repeat) return
+      if (e.repeat || held) return
       if (e.key === 'Escape') {
         e.preventDefault()
         skip()
@@ -166,7 +174,7 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [advance, skip])
+  }, [advance, skip, held])
 
   const beat = snap && snap.status !== 'done' ? snap.beat : null
   const cueKey = beat?.cueKey ?? ''

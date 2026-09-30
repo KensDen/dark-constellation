@@ -26,6 +26,57 @@
 
 export const RETRY_DELAY_MS = 4000
 
+// BOT-PROTECTED PAGES (v1.2 R5b). Some hosts answer an automated request
+// with a challenge page and a 4xx where a browser gets the page. Such a
+// link is not broken, and dropping it would drop a source that a person
+// checked. So it is listed here, exact URL by exact URL: the status it is
+// excused, why, and when and how a person last opened it in a browser.
+// Any other status from it still fails, and so does every other URL on
+// the same host. tests/link-check.spec.ts holds each entry to a URL the
+// content still carries, so a stale entry fails rather than lingers.
+export const BOT_PROTECTED = [
+  {
+    url: 'https://medium.com/@pwnsat/interception-and-eavesdropping-of-satellite-communications-b7be24d91ff8',
+    statuses: [403],
+    reason:
+      'Medium answers automated requests with a Cloudflare challenge page ("Attention Required!", HTTP 403), whatever the user agent.',
+    checked: '2026-09-29',
+    how: 'opened by Claude in a browser, not yet by Ken: title, author (PWNSAT) and date (3 Jan 2026) match the Field Library entry, which the draft fetched on 2026-09-26',
+  },
+  {
+    url: 'https://medium.com/@pwnsat/from-mitre-att-ck-to-sparta-a-unified-attack-flow-for-space-systems-00dd7ef26618',
+    statuses: [403],
+    reason:
+      'Medium answers automated requests with a Cloudflare challenge page ("Attention Required!", HTTP 403), whatever the user agent.',
+    checked: '2026-09-29',
+    how: 'opened by Claude in a browser, not yet by Ken: title, author (PWNSAT) and date (17 Sep 2025) match the Field Library entry, which the draft fetched on 2026-09-26',
+  },
+]
+
+// Whether a status from a URL is a listed bot-protection answer.
+export function isBotProtected(url, status, list = BOT_PROTECTED) {
+  return list.some((entry) => entry.url === url && entry.statuses.includes(status))
+}
+
+// atlas.mitre.org serves its technique pages as a client-rendered SPA and
+// returns HTTP 404 status to non-browser fetchers for every deep link
+// (verified 2026-07-12: curl with any user agent gets 404 on /techniques/*
+// and even /matrices, while browsers render the real page; the site's own
+// navigation links to these exact paths). The deep URLs are canonical and
+// were content-verified by rendered fetch in the R3 verification round, so
+// for this host a 404 is the expected non-browser status: the check
+// instead requires the ATLAS origin itself to be reachable, and any
+// non-404 error status still fails. Moved here from the battery in v1.2
+// R5b, so the suite tests the predicate the battery uses.
+export function isKnownSpaStatusArtifact(url, status) {
+  return url.startsWith('https://atlas.mitre.org/') && status === 404
+}
+
+// Every status the layer excuses, as the battery passes it to runLinkCheck.
+export function isExcused(url, status) {
+  return isKnownSpaStatusArtifact(url, status) || isBotProtected(url, status)
+}
+
 // A status that means "ask again", as distinct from "this link is broken".
 export function isTransientStatus(result) {
   if (result.network) return false

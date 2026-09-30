@@ -8,6 +8,9 @@
 // this round because the logic lived inline in the battery and only ran
 // against a live network.
 
+import { readdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -18,6 +21,10 @@ import {
   mergeRetries,
   runLinkCheck,
   transportRetryTargets,
+  BOT_PROTECTED,
+  isBotProtected,
+  isExcused,
+  isKnownSpaStatusArtifact,
 } from '../scripts/link-check.mjs'
 
 const ok = (url: string) => ({ url, status: 200 })
@@ -108,7 +115,8 @@ describe('link check: classification', () => {
   })
 
   it('honours the known SPA artifact without honouring anything else', () => {
-    const isArtifact = (url: string, status: number) => url.startsWith('https://atlas.mitre.org/') && status === 404
+    // The battery's own predicate, since v1.2 R5b moved it here.
+    const isArtifact = isKnownSpaStatusArtifact
     const results = [
       { url: 'https://atlas.mitre.org/techniques/AML.T0051', status: 404 },
       { url: 'https://atlas.mitre.org/techniques/AML.T0052', status: 500 },
@@ -279,5 +287,82 @@ describe('link check: the pipeline the battery actually runs', () => {
     const out = await runLinkCheck({ urls: [], check: async () => ({ url: '', status: 200 }) })
     expect(out.outcome).toBe('fail')
     expect(out.reason).toBe('no-urls')
+  })
+})
+
+describe('link check: pages behind bot protection (v1.2 R5b)', () => {
+  // The allow-list excuses exactly what it lists: the URL, and the status
+  // the host's bot protection answers with. Anything else still fails.
+  const listed = BOT_PROTECTED[0]
+
+  it('excuses a listed page only for its listed status', () => {
+    expect(isBotProtected(listed.url, listed.statuses[0])).toBe(true)
+    for (const status of [404, 410, 500, 401]) expect(isBotProtected(listed.url, status), String(status)).toBe(false)
+  })
+
+  it('excuses no other page on the same host', () => {
+    const sibling = new URL(listed.url)
+    sibling.pathname = '/@pwnsat/some-other-article'
+    expect(isBotProtected(sibling.href, listed.statuses[0])).toBe(false)
+  })
+
+  it('classifies a listed 403 as passing and the same host\'s 404 as broken', () => {
+    const { broken } = classify(
+      [
+        { url: listed.url, status: 403 },
+        { url: listed.url.replace('b7be24d91ff8', 'deadbeef0000'), status: 403 },
+        { url: 'https://example.org/gone', status: 404 },
+      ],
+      (url: string, status: number) => isBotProtected(url, status),
+    )
+    expect(broken.map((r: { url: string }) => r.url)).toEqual([listed.url.replace('b7be24d91ff8', 'deadbeef0000'), 'https://example.org/gone'])
+  })
+
+  it('lists only pages the content still carries, each with its reason, its date and how it was checked', () => {
+    const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'content')
+    const walk = (d: string): string[] =>
+      readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith('.ts') ? [join(d, e.name)] : []))
+    const content = walk(dir).map((f) => readFileSync(f, 'utf8')).join('\n')
+    expect(BOT_PROTECTED.length).toBeGreaterThan(0)
+    for (const entry of BOT_PROTECTED) {
+      expect(content.includes(`'${entry.url}'`), `${entry.url} is no longer in the content`).toBe(true)
+      expect(entry.statuses.length).toBeGreaterThan(0)
+      for (const status of entry.statuses) expect(status >= 400 && status < 500, `${entry.url} excuses ${status}`).toBe(true)
+      expect(entry.reason.length).toBeGreaterThan(20)
+      expect(entry.how.length).toBeGreaterThan(20)
+      expect(entry.checked).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    }
+  })
+})
+
+describe("link check: the battery's excuses, end to end (v1.2 R5b)", () => {
+  // isExcused is exactly what scripts/battery.mjs hands runLinkCheck. Run it
+  // over a scripted network: a listed page's 403 passes, and nothing else
+  // does, not a sibling page on the same host and not a 403 from anyone else.
+  const listed = BOT_PROTECTED[0].url
+  const scripted = (answers: Record<string, number>) => async (url: string) => ({ url, status: answers[url] ?? 200 })
+
+  it('passes a listed page answering 403, and the ATLAS SPA answering 404 behind a live origin', async () => {
+    const out = await runLinkCheck({
+      urls: [listed, 'https://atlas.mitre.org/techniques/AML.T0043', 'https://example.org/fine'],
+      check: scripted({ [listed]: 403, 'https://atlas.mitre.org/techniques/AML.T0043': 404 }),
+      wait: async () => {},
+      isKnownSpaStatusArtifact: isExcused,
+      originPrefix: 'https://atlas.mitre.org/',
+      originUrl: 'https://atlas.mitre.org/',
+    })
+    expect(out.outcome).toBe('ok')
+  })
+
+  it('fails a 403 from a sibling page, from another host, and a 404 from the listed page', async () => {
+    const sibling = listed.replace(/-[0-9a-f]+$/, '-000000000000')
+    for (const [url, status] of [
+      [sibling, 403],
+      ['https://www.cisa.gov/stopransomware', 403],
+      [listed, 404],
+    ] as const) {
+      const out = await runLinkCheck({ urls: [url], check: scripted({ [url]: status }), wait: async () => {}, isKnownSpaStatusArtifact: isExcused })
+      expect(out.outcome, `${url} answering ${status} passed`).toBe('fail')
+    }
   })
 })

@@ -61,6 +61,12 @@ its SPARTA countermeasure controls with their published defense-in-depth tiers (
 SPARTA CMs**). The in-game GLOSSARY derives all **52 entries** directly from that content data,
 with no hand-maintained text.
 
+The **FIELD LIBRARY**, in the menu's INTEL ARCHIVE beside the Field Manual and the Glossary,
+shelves **36 readings** behind the threats: papers, advisories, standards and hands-on
+material, each checked against the live page. Every threat's event card links to its own
+readings. An entry is stamped FILED once you have met a threat it covers, and general reading
+once you have finished a campaign; every entry is open to read either way.
+
 All organizations, vendors, constellations, and threat actors in the fiction are invented. Where
 the scenario is inspired by real incidents, it cites institutional analysis rather than naming
 individuals or companies. Only public sources are used.

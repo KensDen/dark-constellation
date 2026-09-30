@@ -17,6 +17,7 @@ import {
   UNVERIFIED_REF_COUNT,
 } from '../src/content'
 import { glossaryEntries } from '../src/ui/reference'
+import { SHELVES_AS_DRAFTED } from '../src/content/fieldLibraryData'
 
 const README = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'README.md'), 'utf8')
 
@@ -33,6 +34,7 @@ describe('README counts match the content data', () => {
     ['countermeasures', `**${COUNTERMEASURE_COUNT} countermeasures**`],
     ['SPARTA CMs', `**${spartaCmCount} distinct\nSPARTA CMs**`],
     ['glossary entries', `all **${glossaryEntries().length} entries**`],
+    ['Field Library readings', `**${SHELVES_AS_DRAFTED.flatMap((s) => s.entries).length} readings**`],
   ]
 
   for (const [label, claim] of claims) {

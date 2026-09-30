@@ -13,7 +13,7 @@
 // reduced motion keeps the sequence and takes the static form of every
 // cue (brief v1.2 section 3).
 
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { getHaptics } from '../haptics'
 import { ADVERSARY } from '../config'
 import {
@@ -24,6 +24,7 @@ import {
   captureGame,
   decodeSaveCode,
   encodeSaveCode,
+  recordMet,
   type DailyOp,
   type DailyStanding,
   type RestoredGame,
@@ -31,6 +32,7 @@ import {
   type SavePhase,
 } from '../persistence'
 import { copyToClipboard } from './clipboard'
+import { LearnMore } from './learnMore'
 import { DC_BTN } from './buttons'
 import DirectorView from '../director/DirectorView'
 import HoldButton from './cues/HoldButton'
@@ -97,11 +99,10 @@ const Constellation = lazy(() =>
 // static and takes focus at once; only the entries arrive by chunk.
 // A failed fetch of either overlay's chunk (the same stale index.html or
 // flaky network as above) leaves the overlay with its own way out rather
-// than rejecting the tree: the Glossary's back button, the intel card's
-// CLOSE.
-type GlossaryProps = Parameters<(typeof import('./Glossary'))['default']>[0]
+// than rejecting the tree: the Glossary's and the Field Library's back
+// button, the intel card's CLOSE.
 type IntelCardProps = Parameters<(typeof import('./board/IntelCard'))['default']>[0]
-const GlossaryUnavailable = ({ backLabel, onBack }: GlossaryProps) => (
+const BackOnly = ({ backLabel, onBack }: { backLabel?: string; onBack: () => void }) => (
   <button type="button" onClick={onBack} className="m-4 min-h-11 border border-phosphor px-3 font-mono text-sm text-phosphor">
     {backLabel}
   </button>
@@ -111,11 +112,48 @@ const IntelUnavailable = ({ onClose }: IntelCardProps) => (
     CLOSE
   </button>
 )
-const Glossary = lazy(() => import('./Glossary').catch(() => ({ default: GlossaryUnavailable })))
+const Glossary = lazy(() => import('./Glossary').catch(() => ({ default: BackOnly })))
 // The intel card (v1.2 R3, brief 4.8), for a tile or the threat banner,
 // loaded on first open like the Glossary: it is an element of this
 // component, so the split unmounts nothing.
 const IntelCard = lazy(() => import('./board/IntelCard').catch(() => ({ default: IntelUnavailable })))
+// The Field Library (v1.2 R5b, brief 7.3), filtered to one threat, opened
+// from that threat's event card. The same module as the menu's FIELD
+// LIBRARY screen, so one chunk.
+const FieldLibrary = lazy(() => import('./FieldLibrary').catch(() => ({ default: BackOnly })))
+
+// A dialog over the board (the intel card, the Glossary, the Field
+// Library): focus goes in and comes back to what opened it, Escape closes
+// it, and the game behind is inert. What opened it is what `opener` names,
+// and only failing that whatever had focus: a tapped button is not focused
+// on every browser (Safari leaves focus on the page), and focus at the
+// moment a dialog opens can be anywhere another dialog left it. The Escape
+// listener runs in the capture
+// phase and stops there, so closing the dialog during playback does not
+// also skip the playback. Once per opening: a re-render of the same
+// dialog is not a new one. Returns where focus will go back to.
+function useBoardDialog(open: boolean, ref: RefObject<HTMLDivElement | null>, opener: () => HTMLElement | null, close: () => void) {
+  const back = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!open) return
+    const active = document.activeElement as HTMLElement | null
+    back.current = opener() ?? (active && active !== document.body ? active : null)
+    ref.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      close()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      back.current?.focus?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+  return back
+}
 
 // THE SCORE SCREEN (v1.2 R5, brief 7.2), in a chunk of its own. It holds
 // everything the end of a run shows except the save code and the ways
@@ -264,9 +302,6 @@ export default function Game({
   // navigational one.
   const [glossaryFocus, setGlossaryFocus] = useState<string | null>(null)
   const glossaryRef = useRef<HTMLDivElement | null>(null)
-  // Where focus was when the overlay opened, so closing it puts the player
-  // back on the tag they pressed rather than at the top of the document.
-  const focusBeforeGlossary = useRef<HTMLElement | null>(null)
   const [slots, setSlots] = useState<SaveMeta[]>(() => saveStore.list())
   // Whether this campaign's score has been posted. TRUE FROM THE START when
   // the campaign arrived already finished, because it was not played here.
@@ -430,41 +465,35 @@ export default function Game({
     // Measured when the beat changes, not when the hit lands.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [beatId])
-  // The intel card (v1.2 R3, brief 4.8): a tile's, or the threat banner's.
-  // A dialog like the Glossary's: focus goes in and comes back to what
-  // opened it, Escape closes it, and the game behind is inert. Its Escape
-  // listener runs in the capture phase and stops there, so closing the card
-  // during playback does not also skip the playback.
+  // The intel card (v1.2 R3, brief 4.8): a tile's, or the threat banner's,
+  // a board dialog (useBoardDialog).
   const [intel, setIntel] = useState<{ kind: 'tile'; assetId: string } | { kind: 'banner' } | null>(null)
   const intelRef = useRef<HTMLDivElement | null>(null)
-  const focusBeforeIntel = useRef<HTMLElement | null>(null)
   const intelOpen = intel !== null
-  useEffect(() => {
-    if (!intel) return
-    // What opened the card gets focus back. A tapped button is not focused
-    // on every browser (Safari leaves focus on the page), so the opener is
-    // found by what was opened when focus says nothing useful.
-    const active = document.activeElement as HTMLElement | null
-    const opener =
-      intel.kind === 'tile'
+  const intelOpener = useBoardDialog(
+    intelOpen,
+    intelRef,
+    () =>
+      intel?.kind === 'tile'
         ? document.querySelector<HTMLElement>(`button[data-asset-id="${intel.assetId}"]`)
-        : document.querySelector<HTMLElement>('button[aria-label="Threat intel"]')
-    focusBeforeIntel.current = active && active !== document.body ? active : opener
-    intelRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      e.stopPropagation()
-      setIntel(null)
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      window.removeEventListener('keydown', onKey, true)
-      focusBeforeIntel.current?.focus?.()
-    }
-    // Once per opening; a re-render of the same card is not a new one.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intelOpen])
+        : document.querySelector<HTMLElement>('button[aria-label="Threat intel"]'),
+    () => setIntel(null),
+  )
+  // The Field Library at one threat (v1.2 R5b), opened by a card's "learn
+  // more", a board dialog too. Focus comes back to the link that opened it,
+  // or, when that link was on the intel card, which closes as the library
+  // opens, to what opened the card. Decided when the link is used, never by
+  // looking the link up again: the same threat can have a second link on
+  // the board, inside a closed ledger where nothing can take focus.
+  const [library, setLibrary] = useState<string | null>(null)
+  const libraryRef = useRef<HTMLDivElement | null>(null)
+  const libraryReturn = useRef<HTMLElement | null>(null)
+  useBoardDialog(library !== null, libraryRef, () => libraryReturn.current, () => setLibrary(null))
+  const learnMore = (eventId: string, from: HTMLElement) => {
+    libraryReturn.current = intel ? intelOpener.current : from
+    setIntel(null)
+    setLibrary(eventId)
+  }
   // A refusal is a flash, not a state: it lifts on its own, and at once if
   // the cart or the phase changes, so a fixed cart never carries a stale
   // warning.
@@ -595,24 +624,17 @@ export default function Game({
   //
   // Declaring role="dialog" and aria-modal without moving focus is worse
   // than not declaring them: it promises a screen reader an inertness
-  // nothing implements. Focus goes in, comes back out, and the game behind
-  // is marked inert while it is open.
-  useEffect(() => {
-    if (!glossaryFocus) return
-    focusBeforeGlossary.current = document.activeElement as HTMLElement | null
-    glossaryRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setGlossaryFocus(null)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      focusBeforeGlossary.current?.focus?.()
-    }
-  }, [glossaryFocus])
+  // nothing implements. Focus goes in, comes back out to the tag that
+  // opened it, and the game behind is marked inert while it is open. Since
+  // v1.2 R5b it is a board dialog like the intel card's (useBoardDialog):
+  // playback holds while it is open, and its Escape stops in the capture
+  // phase, so closing it never skips the turn it paused.
+  useBoardDialog(
+    glossaryFocus !== null,
+    glossaryRef,
+    () => document.querySelector<HTMLElement>(`[data-technique-tag="${glossaryFocus}"]`),
+    () => setGlossaryFocus(null),
+  )
 
   // Opening a sheet starts it at step one with nothing picked; the same
   // button again closes it. The four sheets are exclusive.
@@ -634,7 +656,7 @@ export default function Game({
   // turn should not end on a stray digit.
   const decidingNow = state !== null && phase !== 'playback' && phase !== 'aftermath'
   useEffect(() => {
-    if (!state || glossaryFocus || intel) return
+    if (!state || glossaryFocus || intel || library) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (!sheet) return
@@ -678,6 +700,7 @@ export default function Game({
     openSheet(arrival.sheet)
     setStepsDone(new Set(arrival.sheet ? [arrival.sheet] : []))
     setIntel(null)
+    setLibrary(null)
     setNotice('')
   }
 
@@ -699,6 +722,7 @@ export default function Game({
     openSheet(null)
     setStepsDone(new Set())
     setIntel(null)
+    setLibrary(null)
     setSlots(saveStore.list())
     setNotice('')
   }
@@ -950,6 +974,9 @@ export default function Game({
       // The first completed resolve on this device ends the walkthrough
       // for good (R2b).
       markFirstTurnDone()
+      // Every event the turn drew, landed or held, is met on this device
+      // (v1.2 R5b): the Field Library's FILED stamps read it.
+      recordMet(next.history[next.history.length - 1].events.map((e) => e.eventId))
       setGuideOn(false)
       // A new turn declares its own spend; nothing carries over.
       setChosenSpend(0)
@@ -1212,7 +1239,7 @@ export default function Game({
         }
 
   return (
-    <>
+    <LearnMore.Provider value={learnMore}>
       {/* The game, marked inert while the overlay is open. aria-modal is a
           promise to a screen reader that nothing behind the dialog is
           reachable; inert is what keeps it. The pinned chrome and the
@@ -1223,7 +1250,7 @@ export default function Game({
           pageVisible ? '' : 'dc-board-hidden'
         } ${hitShake}`}
         style={{ '--dc-beat': `${beatMs}ms` } as CSSProperties}
-        {...(glossaryFocus || intelOpen ? { inert: true, 'aria-hidden': true } : {})}
+        {...(glossaryFocus || intelOpen || library ? { inert: true, 'aria-hidden': true } : {})}
       >
       <Hud
         shown={shown}
@@ -1275,6 +1302,7 @@ export default function Game({
             onSpeedChange={setSpeed}
             onPresented={showPresented}
             onDone={finishPlayback}
+            held={!!(glossaryFocus || intel || library)}
           />
         </div>
       )}
@@ -1489,6 +1517,21 @@ export default function Game({
           </Suspense>
         </div>
       )}
-    </>
+      {library && (
+        <div
+          ref={libraryRef}
+          tabIndex={-1}
+          className="fixed inset-0 z-50 overflow-y-auto bg-base/95 outline-none"
+          role="dialog"
+          aria-modal="true"
+          aria-label="field library"
+          data-library-overlay
+        >
+          <Suspense fallback={<OverlayLoading />}>
+            <FieldLibrary embedded focus={library} backLabel="Back to the game" onBack={() => setLibrary(null)} />
+          </Suspense>
+        </div>
+      )}
+    </LearnMore.Provider>
   )
 }

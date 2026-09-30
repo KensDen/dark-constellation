@@ -2,20 +2,51 @@
 // on desktop and taps on touch. A RESUME entry appears first when a game is
 // in progress (an autosave exists). DAILY OP #n follows NEW OPERATION since
 // v1.2 R5, from the first day there is one.
+//
+// THE INTEL ARCHIVE (v1.2 R5b, brief 4.8): the FIELD LIBRARY, the FIELD
+// MANUAL and the GLOSSARY grouped under one label after the entries that
+// play, with the library's FILED counter beside it. The three stay
+// entries in their own right, each with its function key, so the existing
+// screens keep a key of their own rather than one behind a fold. The
+// counter arrives with the library's chunk, fetched when the menu shows,
+// so the first download carries none of the library.
+//
+// Function keys run F1 to F9 at most, as they always have: F10 and F11
+// belong to the browser or the system on some machines, so a tenth entry
+// (RESUME and DAILY OP both showing) goes without one and is a tap.
 
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { dailyNumber, msUntilNextDaily } from '../engine/daily'
 import PixelHash from './PixelHash'
 import Wordmark from './Wordmark'
 
-export type MenuTarget = 'resume' | 'game' | 'daily' | 'scoreboard' | 'howto' | 'manual' | 'glossary' | 'briefing' | 'credits'
+export type MenuTarget =
+  | 'resume'
+  | 'game'
+  | 'daily'
+  | 'library'
+  | 'scoreboard'
+  | 'howto'
+  | 'manual'
+  | 'glossary'
+  | 'briefing'
+  | 'credits'
 
-const BASE_ITEMS: { label: ReactNode; target: MenuTarget }[] = [
-  { label: 'NEW OPERATION', target: 'game' },
-  { label: 'SCOREBOARD', target: 'scoreboard' },
-  { label: 'HOW TO PLAY', target: 'howto' },
+type Item = { label: ReactNode; target: MenuTarget }
+
+const ARCHIVE: Item[] = [
+  { label: 'FIELD LIBRARY', target: 'library' },
   { label: 'FIELD MANUAL', target: 'manual' },
   { label: 'GLOSSARY', target: 'glossary' },
+]
+
+const inArchive = (t: MenuTarget) => ARCHIVE.some((a) => a.target === t)
+
+const BASE_ITEMS: Item[] = [
+  { label: 'NEW OPERATION', target: 'game' },
+  ...ARCHIVE,
+  { label: 'SCOREBOARD', target: 'scoreboard' },
+  { label: 'HOW TO PLAY', target: 'howto' },
   // The cold open again (v1.2 R4). A replay, so it leaves the seen-flag
   // as it found it.
   { label: 'BRIEFING', target: 'briefing' },
@@ -48,7 +79,21 @@ export default function MainMenu({
     if (t === 'daily' && resumeAvailable && !confirmDaily) setConfirmDaily(true)
     else onSelect(t)
   }
-  const daily: { label: ReactNode; target: MenuTarget }[] =
+  // FILED n / total, once the library's chunk is here.
+  const [filed, setFiled] = useState('')
+  useEffect(() => {
+    let live = true
+    import('./libraryProgress')
+      .then(({ libraryProgress }) => {
+        const p = libraryProgress()
+        if (live) setFiled(`FILED ${p.count} / ${p.total}`)
+      })
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [])
+  const daily: Item[] =
     n >= 1
       ? [
           {
@@ -62,18 +107,18 @@ export default function MainMenu({
           },
         ]
       : []
-  const items = [
-    ...(resumeAvailable ? [{ label: 'RESUME OPERATION' as ReactNode, target: 'resume' as MenuTarget }] : []),
+  const items: Item[] = [
+    ...(resumeAvailable ? [{ label: 'RESUME OPERATION', target: 'resume' } as Item] : []),
     BASE_ITEMS[0],
     ...daily,
     ...BASE_ITEMS.slice(1),
   ]
-  // Function keys follow position: item i is bound to F(i+1).
-  const withKeys = items.map((item, i) => ({ ...item, key: `F${i + 1}` }))
+  // Function keys follow position: item i is bound to F(i+1), up to F9.
+  const withKeys = items.map((item, i) => ({ ...item, key: i < 9 ? `F${i + 1}` : '' }))
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const item = withKeys.find((i) => i.key === e.key)
+      const item = withKeys.find((i) => i.key && i.key === e.key)
       if (item) {
         e.preventDefault()
         choose(item.target)
@@ -94,15 +139,26 @@ export default function MainMenu({
       <nav className="mt-8 space-y-2 max-w-md w-full mx-auto">
         {withKeys.map((item) => (
           <Fragment key={item.target}>
-            <button
-              onClick={() => choose(item.target)}
-              className="w-full flex items-center gap-3 border border-phosphor/40 bg-panel hover:bg-phosphor/10 px-3 py-2 text-left"
-            >
-              <span className="font-mono text-xs text-alert-amber border border-alert-amber/50 px-1.5 py-0.5">
-                {item.key}
-              </span>
-              <span className="font-display text-sm text-phosphor">{item.label}</span>
-            </button>
+            {item.target === 'library' && (
+              <p id="intel-archive" data-intel-archive className="flex items-baseline justify-between gap-3 pt-2">
+                <span className="font-display text-[10px] text-phosphor">INTEL ARCHIVE</span>
+                <span data-filed-counter className="font-mono text-[10px] text-ink-dim">
+                  {filed}
+                </span>
+              </p>
+            )}
+            <div className={inArchive(item.target) ? 'ml-5' : undefined}>
+              <button
+                onClick={() => choose(item.target)}
+                aria-describedby={inArchive(item.target) ? 'intel-archive' : undefined}
+                className="flex w-full items-center gap-3 border border-phosphor/40 bg-panel hover:bg-phosphor/10 px-3 py-2 text-left"
+              >
+                {item.key && (
+                  <span className="font-mono text-xs text-alert-amber border border-alert-amber/50 px-1.5 py-0.5">{item.key}</span>
+                )}
+                <span className="font-display text-sm text-phosphor">{item.label}</span>
+              </button>
+            </div>
             {item.target === 'daily' && confirmDaily && (
               <div role="group" aria-label="Replace the operation in progress" data-confirm-daily className="border border-alert-amber/50 bg-panel p-3">
                 <p className="font-mono text-sm text-alert-amber">The Daily Op replaces the operation in progress.</p>
@@ -120,7 +176,7 @@ export default function MainMenu({
         ))}
       </nav>
       <p className="mt-8 text-center font-mono text-xs text-ink-dim">
-        <span className="hidden sm:inline">Press [F1] to [F{withKeys.length}], or select an option to continue.</span>
+        <span className="hidden sm:inline">Press [F1] to [F{Math.min(withKeys.length, 9)}], or select an option to continue.</span>
         <span className="sm:hidden">Tap an option to continue.</span>
       </p>
     </main>

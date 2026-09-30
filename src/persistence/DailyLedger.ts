@@ -30,6 +30,9 @@ export type DailyStanding = 'official' | 'practice'
 
 export interface DailyLedger {
   official(dateKey: string): DailyResult | null
+  // Whether any date has an official run, which is one record that this
+  // device has finished a campaign (the Field Library reads it, v1.2 R5b).
+  any(): boolean
   // Record a finished Daily Op if it is the date's first eligible finish,
   // and say which it was.
   claim(op: DailyOp, result: DailyResult): DailyStanding
@@ -50,6 +53,10 @@ export class LocalDailyLedger implements DailyLedger {
 
   official(dateKey: string): DailyResult | null {
     return this.read()[dateKey] ?? null
+  }
+
+  any(): boolean {
+    return Object.keys(this.read()).length > 0
   }
 
   claim(op: DailyOp, result: DailyResult): DailyStanding {

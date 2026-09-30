@@ -16,3 +16,4 @@ export {
 export { LocalStorageStore, type SaveStore, type SaveMeta, type RestoredGame } from './SaveStore'
 export { LocalScoreSink, type ScoreSink, type ScoreEntry } from './ScoreSink'
 export { LocalDailyLedger, type DailyLedger, type DailyResult, type DailyStanding } from './DailyLedger'
+export { metEvents, recordMet } from './metEvents'

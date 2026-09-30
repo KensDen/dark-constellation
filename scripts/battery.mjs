@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { measureBundle } from './bundle-budget.mjs'
-import { runLinkCheck } from './link-check.mjs'
+import { BOT_PROTECTED, isBotProtected, isExcused, runLinkCheck } from './link-check.mjs'
 
 const failures = []
 // Stamped before anything builds, so the bundle layer can tell a chunk
@@ -262,18 +262,9 @@ async function checkUrlWithRetry(url) {
   return checkUrl(url)
 }
 
-// atlas.mitre.org serves its technique pages as a client-rendered SPA and
-// returns HTTP 404 status to non-browser fetchers for every deep link
-// (verified 2026-07-12: curl with any user agent gets 404 on /techniques/*
-// and even /matrices, while browsers render the real page; the site's own
-// navigation links to these exact paths). The deep URLs are canonical and
-// were content-verified by rendered fetch in the R3 verification round, so
-// for this host a 404 is the expected non-browser status: the check
-// instead requires the ATLAS origin itself to be reachable, and any
-// non-404 error status still fails.
-function isKnownSpaStatusArtifact(url, status) {
-  return url.startsWith('https://atlas.mitre.org/') && status === 404
-}
+// What the layer excuses (the ATLAS SPA's 404s, and the pages listed as
+// bot-protected) lives in scripts/link-check.mjs as isExcused, so the suite
+// tests the same predicate this passes.
 
 async function linkCheck() {
   const urls = contentUrls()
@@ -284,7 +275,7 @@ async function linkCheck() {
     urls,
     check: checkUrl,
     concurrency: LINK_CONCURRENCY,
-    isKnownSpaStatusArtifact,
+    isKnownSpaStatusArtifact: isExcused,
     originPrefix: 'https://atlas.mitre.org/',
     originUrl: 'https://atlas.mitre.org/',
   })
@@ -301,7 +292,14 @@ async function linkCheck() {
     const count = outcome.broken.length + outcome.unreachable.length
     return `FAIL: ${count} of ${outcome.results.length} content link(s) did not resolve:\n${lines.join('\n')}`
   }
-  return `OK (${outcome.results.length} links)`
+  // Name every page excused as bot-protected, and who checked it, so a
+  // pass never hides one.
+  const excused = outcome.results.filter((r) => !r.network && isBotProtected(r.url, r.status))
+  const lines = excused.map((r) => {
+    const entry = BOT_PROTECTED.find((e) => e.url === r.url)
+    return `\n  allow-listed as bot-protected, HTTP ${r.status}: ${r.url}\n    checked ${entry.checked}, ${entry.how}`
+  })
+  return `OK (${outcome.results.length} links)${lines.join('')}`
 }
 
 process.stdout.write('[battery] content link check (spec 11.4) ... ')
