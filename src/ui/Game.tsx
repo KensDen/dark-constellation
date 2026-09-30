@@ -1235,7 +1235,7 @@ export default function Game({
         </div>
         <div className="relative z-10 mt-3 flex flex-wrap gap-2">
           <button className={DC_BTN} onClick={copyOutcomeCode}>
-            EXPORT SAVE CODE
+            COPY SAVE CODE
           </button>
           <button className={DC_BTN} onClick={newCampaign}>
             NEW CAMPAIGN

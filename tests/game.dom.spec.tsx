@@ -60,6 +60,7 @@ import { RECAP_MAX, recapTechniques } from '../src/ui/cues/Scene'
 import { turnRng } from '../src/engine/rng'
 import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
 import { glossaryEntries } from '../src/ui/reference'
+import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
 import { CHAIN_ARMED_LINE, DISCLOSURE_WORD_BUDGETS, JOB_FRAMING_HEADING, briefCopy, countWords, disclosureBlocks, jobFramingBlocks, postureDetailLines } from '../src/ui/brief'
 import type { AssetKind, GameState, TrustTier, TurnActions } from '../src/engine/types'
 import { PLAYBACK_SPEED_KEY, SECTION_6_ROWS, VISUAL_CLASS, deriveBeats, type Beat } from '../src/director'
@@ -1790,8 +1791,11 @@ describe('the save code is on the screen, not only on the clipboard', () => {
     vi.stubGlobal('navigator', {
       clipboard: { writeText: async (t: string) => { copied = t } },
     })
-    const exportButton = byText(/export save code/i)
-    expect(exportButton, 'the outcome screen has no export control').toBeDefined()
+    // Found by the name the SYSTEM sheet gives the same action, read from
+    // its list, so the two screens cannot call one control two things.
+    const copyName = SYSTEM_CONTROLS.find((c) => c.id === 'export')!.name
+    const exportButton = byText(new RegExp(`^${copyName}$`, 'i'))
+    expect(exportButton, `the outcome screen has no control named "${copyName}", as the SYSTEM sheet names it`).toBeDefined()
     await act(async () => {
       exportButton!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
     })
