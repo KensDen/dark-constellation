@@ -7,7 +7,7 @@
 import type { GameState, Scenario, TurnRecord } from '../../engine/types'
 import { layerBadges, vectorIcons } from '../cues/icons'
 import { techniqueLabel } from '../labels'
-import RealWorld from '../RealWorld'
+import RealWorld, { LearnMoreButton } from '../RealWorld'
 import { realWorldFor } from '../realWorldLine'
 import { verdictFor } from '../verdict'
 import * as wouldHaveHelped from '../wouldHaveHelped'
@@ -22,11 +22,11 @@ export interface AftermathCardProps {
 }
 
 export default function AftermathCard({ record, state, scenario, reducedMotion, ledgerOpen }: AftermathCardProps) {
+  const defOf = (id: string) => scenario.events.find((e) => e.id === id)
+  const threats = record.events.filter((ev) => (defOf(ev.eventId)?.kind ?? 'threat') === 'threat')
   // On a turn something landed, the verdict's second line names what would
   // have helped against the first threat that did (critique row M3).
-  const firstLanded = record.events.find(
-    (ev) => ev.effectiveSeverity > 0 && (scenario.events.find((e) => e.id === ev.eventId)?.kind ?? 'threat') === 'threat',
-  )
+  const firstLanded = threats.find((ev) => ev.effectiveSeverity > 0)
   const helped = firstLanded ? wouldHaveHelped.short(firstLanded, state, scenario) : ''
   return (
     <section aria-label={`Aftermath, turn ${record.turn}`} className="border-2 border-dc-line bg-dc-panel p-2 shadow-hard">
@@ -46,6 +46,23 @@ export default function AftermathCard({ record, state, scenario, reducedMotion, 
             </p>
           ))}
         </div>
+      )}
+      {/* The turn's threats, each one tap from its Field Library entries
+          (critique row M7), rather than three disclosures deep in the
+          ledger. Opportunities have no entries and are not listed. */}
+      {threats.length > 0 && (
+        <ul data-aftermath-threats className="mt-2 font-mono text-xs">
+          {threats.map((ev, i) => {
+            const ref = defOf(ev.eventId)?.techniqueRefs[0]
+            return (
+              <li key={i} className="mt-2">
+                <span className={ev.effectiveSeverity > 0 ? 'text-hero-magenta' : 'text-phosphor'}>{ev.name}</span>{' '}
+                {ev.effectiveSeverity > 0 ? 'landed' : 'held'}
+                {ref && <LearnMoreButton eventId={ev.eventId} technique={techniqueLabel(ref)} />}
+              </li>
+            )
+          })}
+        </ul>
       )}
       <details className="mt-2 border border-phosphor/20 bg-panel p-2" open={ledgerOpen}>
         <summary className="cursor-pointer font-mono text-xs text-phosphor">

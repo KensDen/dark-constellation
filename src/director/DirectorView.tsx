@@ -6,7 +6,7 @@
 // (brief v0.5 section 5). Tap the card, press Space or Enter with nothing
 // focused, or use NEXT to advance; SKIP or Escape ends playback.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { GameState } from '../engine/types'
 import { CARD_SAFE_VISUALS, VISUAL_CLASS, VISUAL_MS, resolveCue, soundFor, visualFor } from './cues'
 import { Director, beatCueMs, beatDwellMs, type DirectorSnapshot, type Speed } from './director'
@@ -19,6 +19,7 @@ import { layerBadges, vectorIcons } from '../ui/cues/icons'
 import Scene, { sceneFor } from '../ui/cues/Scene'
 import { beatIntensity, useSilenceSound, useSound } from '../audio'
 import { DEFAULT_SCENARIO } from '../content'
+import { LearnMore } from '../ui/learnMore'
 import RealWorld from '../ui/RealWorld'
 import { realWorldFor } from '../ui/realWorldLine'
 import * as wouldHaveHelped from '../ui/wouldHaveHelped'
@@ -141,6 +142,24 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
     finishedRef.current = true
     onDone()
   }, [done, onDone])
+
+  // PAUSE ON INTENT (critique row M7). LEARN MORE on the card holds the
+  // beat before the library opens, so the card the player asked about is
+  // the card on screen when they come back. The library is a board dialog,
+  // so `held` keeps the hold while it is open and lets go when it closes
+  // (the effect above). A speed change in between cannot happen, since the
+  // board is inert under the library; were it to, setSpeed would apply it
+  // and INSTANT would end the turn, so the resume never overrides it.
+  const learnMore = useContext(LearnMore)
+  const learnMoreHere = useMemo(
+    () =>
+      learnMore &&
+      ((eventId: string, from: HTMLElement) => {
+        directorRef.current?.setPaused(true)
+        learnMore(eventId, from)
+      }),
+    [learnMore],
+  )
 
   const advance = useCallback(() => directorRef.current?.advance(), [])
   const skip = useCallback(() => {
@@ -360,7 +379,11 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
                 the technique and its first source, one tap from the
                 learn-more card. It carries the first technique's link, so
                 the line below lists only the rest when there is one. */}
-            {realWorld && <RealWorld line={realWorld} />}
+            {realWorld && (
+              <LearnMore.Provider value={learnMoreHere}>
+                <RealWorld line={realWorld} />
+              </LearnMore.Provider>
+            )}
             {beat.techniques && beat.techniques.length > (realWorld ? 1 : 0) && (
               <p className="mt-2 font-mono text-xs text-ink">
                 Technique{beat.techniques.length - (realWorld ? 1 : 0) > 1 ? 's' : ''}:{' '}

@@ -477,6 +477,9 @@ describe("the event cards' learn more", () => {
     const aftermath = container.querySelector('section[aria-label^="Aftermath"]')
     expect(aftermath, 'no aftermath card').not.toBeNull()
     expect(aftermath!.querySelector('button[data-learn-more]'), 'the aftermath card has no learn more').not.toBeNull()
+    // The ledger's own REAL WORLD lines keep theirs too, now that the list
+    // above the ledger (critique row M7) carries one per threat as well.
+    expect(aftermath!.querySelector('details [data-real-world] + button[data-learn-more]'), 'the ledger lost its learn more').not.toBeNull()
   })
 
   it('shows no link on an opportunity, which has no entries', () => {

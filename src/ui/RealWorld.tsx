@@ -4,20 +4,40 @@
 // realWorldFor from the event's content, so it cannot say anything the
 // content does not.
 //
-// Beside it, since v1.2 R5b, "learn more": the Field Library opened at this
-// threat's entries, wherever the game provides the way there (./learnMore.ts).
-// Every threat has entries (src/content/librarySchema.ts insists), so the
-// link needs no knowledge of them here, and none ships in the first
-// download. Its target is 44px tall and pulled into the line's own height.
+// Under it, LEARN MORE: the Field Library opened at this threat's entries,
+// wherever the game provides the way there (./learnMore.ts). Every threat
+// has entries (src/content/librarySchema.ts insists), so the button needs
+// no knowledge of them here, and none ships in the first download. A
+// full-width 44px button since critique row M7: until then it was 10px of
+// underlined text beside a disclosure, on a card that moves on after 1.2
+// seconds, and the only way to the library from play.
 
 import { useContext } from 'react'
 import { LearnMore } from './learnMore'
 import type { RealWorldLine } from './realWorldLine'
 
+// The button itself, also listed per threat on the aftermath card. None
+// where the game provides no way to the library.
+export function LearnMoreButton({ eventId, technique }: { eventId: string; technique: string }) {
+  const learnMore = useContext(LearnMore)
+  if (!learnMore) return null
+  return (
+    <button
+      type="button"
+      data-learn-more={eventId}
+      aria-haspopup="dialog"
+      onClick={(e) => learnMore(eventId, e.currentTarget)}
+      className="mt-1 w-full min-h-11 border-2 border-dc-go bg-dc-go/10 font-mono text-xs text-dc-go"
+    >
+      LEARN MORE<span className="sr-only"> in the Field Library: {technique}</span>
+    </button>
+  )
+}
+
 export default function RealWorld({ line }: { line: RealWorldLine }) {
   const learnMore = useContext(LearnMore)
   const details = (
-    <details data-real-world className={learnMore && line.eventId ? 'min-w-0 flex-1 font-mono text-xs' : 'mt-2 font-mono text-xs'}>
+    <details data-real-world className={learnMore && line.eventId ? 'font-mono text-xs' : 'mt-2 font-mono text-xs'}>
       <summary className="min-h-6 cursor-pointer">
         <span className="font-display text-[9px] text-dc-go">REAL WORLD</span>{' '}
         <span data-real-world-line>
@@ -46,19 +66,10 @@ export default function RealWorld({ line }: { line: RealWorldLine }) {
     </details>
   )
   if (!learnMore || !line.eventId) return details
-  const id = line.eventId
   return (
-    <div className="mt-2 flex items-start gap-2">
+    <div className="mt-2">
       {details}
-      <button
-        type="button"
-        data-learn-more={id}
-        aria-haspopup="dialog"
-        onClick={(e) => learnMore(id, e.currentTarget)}
-        className="-my-2.5 flex-none min-h-11 px-1 font-mono text-[10px] text-dc-go underline"
-      >
-        learn more<span className="sr-only"> in the Field Library: {line.technique}</span>
-      </button>
+      <LearnMoreButton eventId={line.eventId} technique={line.technique} />
     </div>
   )
 }
