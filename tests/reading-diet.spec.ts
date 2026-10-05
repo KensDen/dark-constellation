@@ -15,7 +15,7 @@ import { BEAT_KINDS, deriveBeats } from '../src/director'
 import { DIFFICULTIES, effectiveIntel, newGame, resolveTurn } from '../src/engine/reducer'
 import { coverage, maiScore } from '../src/engine/scoring'
 import { turnRng } from '../src/engine/rng'
-import type { Difficulty, GameState, TurnActions, TurnRecord } from '../src/engine/types'
+import type { Difficulty, GameState, ResolvedEvent, TurnActions, TurnRecord } from '../src/engine/types'
 import {
   CHAIN_ARMED_LINE,
   CHROME_WORD_BUDGET,
@@ -40,6 +40,7 @@ import {
 import { ACTIONS, SKIP_TIPS, fKeyOf, openingObjective, resolveLabel } from '../src/ui/board/actions'
 import { NOTHING, OPS_LOG_HEADING, OPS_LOG_TURNS, opsLogCopy, opsLogLine } from '../src/ui/board/wide'
 import { VERDICT_WORD_MAX, verdictFor } from '../src/ui/verdict'
+import { short } from '../src/ui/wouldHaveHelped'
 import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
@@ -58,6 +59,15 @@ const DISCLOSURE_NOVEL_MIN = 6
 // the measured worst plus room, and the message prints the new worst so
 // re-baselining forces a sentence about why.
 const BEAT_TITLE_WORD_BUDGET = 14
+
+// The hit card's "Would have helped" line (critique row M3, FIX batch 1,
+// October 2026), measured over the EXTREME_SEEDS sweep the way Round 7b
+// measured the title: the line alone at 14 words, which is also its
+// structural maximum (two long defense names), and the card's title and
+// line together at 21. Pinned, so a change that moves either comes here
+// and says so.
+const WORST_HELPED_LINE = 14
+const WORST_HIT_CARD_TITLE_AND_LINE = 21
 
 // The wide board's ops log at its longest over the EXTREME_SEEDS sweep
 // (v1.2 R6), pinned so a change that moves it comes here and says so.
@@ -751,6 +761,51 @@ describe('reading diet: the intel brief', () => {
     // in Round 7 against visible beats only and a surge-spending line.
     // Swept over EXTREME_SEEDS since v1.2 R5a (see the constant).
     expect(worst, `worst beat title measured: ${worst} words at ${worstAt}`).toBe(13)
+  })
+
+  it('bounds the hit card\'s would-have-helped line, and pins what the card reads with it (critique row M3)', () => {
+    // M3 gave the hit card a line under its severity line naming the
+    // defense that was missing, and made it part of the card's reading.
+    // BEAT_TITLE_WORD_BUDGET bounds the title alone and cannot take the
+    // line as well: the line by itself reaches 14 words at its structural
+    // maximum, so a card bound of 14 could only be met by dropping it,
+    // which the critique rules out, and no other words on the card's
+    // headline are there to shorten. So the line is bounded on its own, at
+    // the structural maximum read off the deck (every threat against a
+    // state that owns nothing), and both worsts are pinned. The verdict's
+    // second line is the same function, so the same bound holds there.
+    const nothing = { ...newGame(DEFAULT_SCENARIO, 1), counters: [] }
+    const threats = DEFAULT_SCENARIO.events.filter((e) => e.kind !== 'opportunity')
+    const structural = Math.max(...threats.map((e) => countWords(short({ eventId: e.id } as ResolvedEvent, nothing, DEFAULT_SCENARIO))))
+    let landed = 0
+    let worstLine = 0
+    let worstLineAt = ''
+    let worstCard = 0
+    let worstCardAt = ''
+    expect(extremes).toHaveLength(LINES.length * DIFFS.length * EXTREME_SEEDS)
+    for (const { name, difficulty, seed, turns } of extremes) {
+      for (const { before, after } of turns) {
+        for (const beat of deriveBeats(before, after)) {
+          if (!beat.visible || beat.kind !== 'threat' || (beat.severity?.effective ?? 0) <= 0) continue
+          landed += 1
+          const ev = after.history[after.history.length - 1].events.find((e) => e.eventId === beat.subjectId)!
+          const line = short(ev, after, after.scenario)
+          const at = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}: "${beat.title}" / "${line}"`
+          if (countWords(line) > worstLine) {
+            worstLine = countWords(line)
+            worstLineAt = at
+          }
+          if (countWords(beat.title) + countWords(line) > worstCard) {
+            worstCard = countWords(beat.title) + countWords(line)
+            worstCardAt = at
+          }
+        }
+      }
+    }
+    expect(landed, 'no threat landed in the sweep, so nothing was measured').toBeGreaterThan(0)
+    expect(worstLine, `worst line ${worstLine} words at ${worstLineAt}`).toBeLessThanOrEqual(structural)
+    expect(worstLine, `worst line measured: ${worstLine} words at ${worstLineAt}`).toBe(WORST_HELPED_LINE)
+    expect(worstCard, `worst title and line measured: ${worstCard} words at ${worstCardAt}`).toBe(WORST_HIT_CARD_TITLE_AND_LINE)
   })
 
   it('counts the wide board\'s chrome word for word: each step number becomes its F key (v1.2 R6)', () => {

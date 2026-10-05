@@ -4,65 +4,13 @@
 // that lands beats on tiles; until then it is the v1.1 aftermath section
 // moved onto the board, with the next-turn control in the action bar.
 
-import {
-  CHAIN_BONUS,
-  MITIGATION_PER_COUNTER,
-  SSA_MITIGATION_BONUS,
-  TIER_A_FLEET_SHARE,
-} from '../../engine/reducer'
-import type { CountermeasureId, GameState, ResolvedEvent, Scenario, TurnRecord } from '../../engine/types'
+import type { GameState, Scenario, TurnRecord } from '../../engine/types'
 import { layerBadges, vectorIcons } from '../cues/icons'
 import { techniqueLabel } from '../labels'
 import RealWorld from '../RealWorld'
 import { realWorldFor } from '../realWorldLine'
 import { verdictFor } from '../verdict'
-
-// Say in plain words why damage landed and what was missing, with each
-// counter's real worth. When everything applicable was owned, name the
-// gate that made an owned defense inert rather than blaming base
-// severity. state.counters after resolution reflects what was active.
-export function whatWouldHaveHelped(ev: ResolvedEvent, state: GameState, scenario: Scenario): string {
-  const def = scenario.events.find((e) => e.id === ev.eventId)
-  if (!def) return ''
-  const missing = def.counters.filter((c) => !state.counters.includes(c))
-  if (missing.length > 0) {
-    const worth = (c: CountermeasureId): string => {
-      if (c === 'ssaManeuver' && def.effect.special === 'debrisStrike') {
-        return `cuts severity by ${MITIGATION_PER_COUNTER + SSA_MITIGATION_BONUS} when the maneuver budget is funded`
-      }
-      if (c === 'sensorFusion' && ev.chainBonus > 0) {
-        return `cuts severity by ${MITIGATION_PER_COUNTER} and removes the +${CHAIN_BONUS} chain bonus`
-      }
-      if (c === 'tierAAttestation') {
-        return `cuts severity by ${MITIGATION_PER_COUNTER} once at least a third of the sensored fleet flies Tier A`
-      }
-      return `cuts severity by ${MITIGATION_PER_COUNTER}`
-    }
-    const names = missing.map((c) => `${scenario.countermeasures.find((x) => x.id === c)?.name ?? c} (${worth(c)})`)
-    return `What would have helped: ${names.join('; ')}.`
-  }
-  const sensored = state.assets.filter((a) => a.integrity > 0 && a.kind !== 'groundStation')
-  const tierAShare = sensored.length > 0 ? sensored.filter((a) => a.tier === 'A').length / sensored.length : 0
-  if (def.counters.includes('tierAAttestation') && tierAShare < TIER_A_FLEET_SHARE) {
-    return 'Firmware attestation was owned but inert: it bites once at least a third of the sensored fleet flies Tier A.'
-  }
-  if (def.effect.special === 'debrisStrike' && ev.mitigation < MITIGATION_PER_COUNTER + SSA_MITIGATION_BONUS) {
-    return 'SSA was owned but the maneuver budget could not cover the avoidance burn.'
-  }
-  // Critique row M8: with every defense owned, the one purchase left is
-  // the retainer, so name it. How much faster is read off the scenario,
-  // and said as a plain "faster" when it is not a whole number of times;
-  // a retune that left it no faster than base would make no claim at all.
-  const { base, withIrRetainer } = scenario.recovery
-  if (!state.irRetainer && withIrRetainer > base) {
-    const times = withIrRetainer / base
-    const pace = Number.isInteger(times) ? `${TIMES[times] ?? times} times faster` : 'faster'
-    return `Every applicable defense was active. The incident response retainer would have recovered the damage ${pace}.`
-  }
-  return 'Every applicable defense was active. What landed is what the attack buys through them.'
-}
-
-const TIMES = ['', '', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
+import * as wouldHaveHelped from '../wouldHaveHelped'
 
 export interface AftermathCardProps {
   record: TurnRecord
@@ -74,10 +22,21 @@ export interface AftermathCardProps {
 }
 
 export default function AftermathCard({ record, state, scenario, reducedMotion, ledgerOpen }: AftermathCardProps) {
+  // On a turn something landed, the verdict's second line names what would
+  // have helped against the first threat that did (critique row M3).
+  const firstLanded = record.events.find(
+    (ev) => ev.effectiveSeverity > 0 && (scenario.events.find((e) => e.id === ev.eventId)?.kind ?? 'threat') === 'threat',
+  )
+  const helped = firstLanded ? wouldHaveHelped.short(firstLanded, state, scenario) : ''
   return (
     <section aria-label={`Aftermath, turn ${record.turn}`} className="border-2 border-dc-line bg-dc-panel p-2 shadow-hard">
       <p className="font-display text-[10px] text-dc-muted">AFTERMATH · TURN {record.turn}</p>
       <p className="mt-1 text-sm text-dc-ink">{verdictFor(record, scenario)}</p>
+      {helped && (
+        <p data-would-have-helped className="mt-1 text-sm font-bold text-alert-amber">
+          {helped}
+        </p>
+      )}
       {record.commendations.length > 0 && (
         <div className={`mt-2 border border-hero-blue/50 bg-hero-blue/5 p-2 ${reducedMotion ? '' : 'dc-ribbon-in'}`}>
           <p className="text-xs font-bold text-hero-blue uppercase tracking-widest">Commendations</p>
@@ -140,7 +99,7 @@ export default function AftermathCard({ record, state, scenario, reducedMotion, 
                   {n}
                 </p>
               ))}
-              {landed && <p className="text-sm mt-1 font-bold text-alert-amber">{whatWouldHaveHelped(ev, state, scenario)}</p>}
+              {landed && <p className="text-sm mt-1 font-bold text-alert-amber">{wouldHaveHelped.full(ev, state, scenario)}</p>}
               {ev.firedTechniqueRefs.length > 0 && (
                 <p className="text-sm mt-1">
                   Techniques:{' '}

@@ -451,6 +451,23 @@ describe('the debrief (brief 4.8)', () => {
       rec.events.some((ev) => ev.effectiveSeverity === 0 && facedIds.includes(ev.eventId)),
     )
     expect(heldThreat, 'no threat was held, so held is never shown').toBe(true)
+    // ANSWERED BY (critique row M3): each threat's defenses, from the
+    // content, each owned or not at the end of the run. Naming them here is
+    // the answer key the player earned by meeting the threat (ruling R1,
+    // 4 October 2026); the HARDEN sheet still names no threat.
+    const marks: string[] = []
+    for (const li of items) {
+      const def = DEFAULT_SCENARIO.events.find((e) => e.id === li.getAttribute('data-debrief-threat'))!
+      const answers = [...li.querySelectorAll('[data-debrief-answer]')]
+      expect(answers.map((a) => a.getAttribute('data-debrief-answer')), def.id).toEqual(def.counters)
+      for (const a of answers) {
+        const id = a.getAttribute('data-debrief-answer')!
+        const mark = state.counters.includes(id as (typeof state.counters)[number]) ? 'owned' : 'not owned'
+        expect(a.textContent, `${def.id}: ${id}`).toBe(`${DEFAULT_SCENARIO.countermeasures.find((c) => c.id === id)!.name} ${mark}`)
+        marks.push(mark)
+      }
+    }
+    expect(new Set(marks), 'the run shows only one of owned and not owned, so the other is untested').toEqual(new Set(['owned', 'not owned']))
     // An opportunity is not a threat, and this run met one.
     const opportunities = state.history.flatMap((rec) => rec.events).filter((ev) => DEFAULT_SCENARIO.events.find((e) => e.id === ev.eventId)?.kind === 'opportunity')
     expect(opportunities.length, 'this run met no opportunity, so the filter is untested').toBeGreaterThan(0)

@@ -2,7 +2,10 @@
 // met, each with its technique IDs and its sources, as a study guide
 // built from the player's own run. Loaded when the score screen's DEBRIEF
 // is opened, in a chunk of its own. Built from content only, through
-// threatsFaced: no new text about any threat.
+// threatsFaced: no new text about any threat. ANSWERED BY (critique row
+// M3) maps each threat to the defenses that answer it, owned or not at
+// the end of the run: the answer key the player earned by meeting the
+// threat (ruling R1, 4 October 2026), still kept off the HARDEN sheet.
 
 import type { GameState } from '../engine/types'
 import { techniqueLabel } from './labels'
@@ -33,6 +36,15 @@ export default function Debrief({ state }: { state: GameState }) {
                 </span>
               ))}
             </p>
+            <p className={LABEL}>ANSWERED BY</p>
+            <ul className="mt-1 font-mono text-xs">
+              {def.counters.map((id) => (
+                <li key={id} data-debrief-answer={id}>
+                  {state.scenario.countermeasures.find((cm) => cm.id === id)?.name ?? id}{' '}
+                  {state.counters.includes(id) ? <span className="text-dc-friendly">owned</span> : <span className="text-dc-muted">not owned</span>}
+                </li>
+              ))}
+            </ul>
             <p className={LABEL}>TECHNIQUE</p>
             <ul className="mt-1 font-mono text-xs">
               {def.techniqueRefs.map((ref) => (

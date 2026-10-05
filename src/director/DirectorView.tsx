@@ -21,6 +21,7 @@ import { beatIntensity, useSilenceSound, useSound } from '../audio'
 import { DEFAULT_SCENARIO } from '../content'
 import RealWorld from '../ui/RealWorld'
 import { realWorldFor } from '../ui/realWorldLine'
+import * as wouldHaveHelped from '../ui/wouldHaveHelped'
 import { LOCK_SHARE } from '../ui/board/strike'
 
 // 44px minimum hit boxes (brief principle 5: designed for a thumb at 375px).
@@ -198,6 +199,10 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
   const deltas = beat && snap ? describePatch(beat.patch, snap.presented, beat.kind) : []
   const def = beat?.subjectId ? DEFAULT_SCENARIO.events.find((e) => e.id === beat.subjectId) : undefined
   const realWorld = beat && REAL_WORLD_KINDS.has(beat.kind) ? realWorldFor(def) : null
+  // A threat that landed names what would have helped, under its severity
+  // (critique row M3), read against the turn's end state as the ledger is.
+  const landed = beat?.kind === 'threat' && (beat.severity?.effective ?? 0) > 0 ? after.history.at(-1)?.events.find((e) => e.eventId === beat.subjectId) : undefined
+  const helped = landed ? wouldHaveHelped.short(landed, after, after.scenario) : ''
   // Finding 3.10: the beat says whether it is a loss. Derived from the
   // title until Round 5, which is the round that gives the outcomes their
   // scenes and would therefore be the round to edit those titles; the win
@@ -374,6 +379,11 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
                 Severity {beat.severity.base} base{beat.severity.chain > 0 ? ` + ${beat.severity.chain} chain` : ''}
                 {beat.severity.mitigation > 0 ? ` - ${beat.severity.mitigation} mitigated` : ''} ={' '}
                 {beat.severity.effective} effective
+              </p>
+            )}
+            {helped && (
+              <p data-would-have-helped className="font-mono text-xs font-bold text-alert-amber">
+                {helped}
               </p>
             )}
             {deltas.length > 0 && (
