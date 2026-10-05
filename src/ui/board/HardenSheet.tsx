@@ -4,13 +4,16 @@
 // ledger after a turn, where a defense that held says what it stopped.
 // The board suite renders this sheet and checks no countered event's name
 // appears in it; the vectors come from board.ts's vectorsOf, which reads
-// nothing but the vector values.
+// nothing but the vector values. The IR retainer is offered here too
+// (critique row M8); it answers no threat, so its tile says what it does
+// to recovery instead, and it rides the turn's buyIrRetainer flag rather
+// than the countermeasure list.
 
 import type { ReactNode } from 'react'
 import type { CountermeasureId, GameState, Scenario } from '../../engine/types'
 import { vectorIcons } from '../cues/icons'
 import { vectorLabels } from '../labels'
-import { hardenOffers, vectorsOf } from './board'
+import { hardenOffers, retainerLine, vectorsOf } from './board'
 import Sheet, { SHEET_PRIMARY } from './Sheet'
 
 export const HARDEN_STEPS = 2
@@ -59,7 +62,7 @@ export default function HardenSheet({ scenario, state, queued, step, onToggle, o
                           <img key={v} src={vectorIcons[v]} alt={vectorLabels[v]} className="h-4 w-4" />
                         ))}
                       </span>
-                      <span className="mt-1 block text-xs text-dc-muted">{cm.blurb}</span>
+                      <span className="mt-1 block text-xs text-dc-muted">{cm.id === 'irRetainer' ? retainerLine(scenario) : cm.blurb}</span>
                       {cm.spartaCms.length > 0 && (
                         <span className="mt-1 block font-mono text-[10px] text-dc-muted">
                           SPARTA:{' '}

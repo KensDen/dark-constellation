@@ -217,12 +217,19 @@ export function defensesOn(layer: Layer, counters: readonly Countermeasure['id']
   return out
 }
 
-// The countermeasures the HARDEN sheet offers: every one but the two that
-// live on the INTEL sheet (the intel investment and the IR retainer). One
-// definition, read by the sheet and by the next-step suggestion alike.
+// The countermeasures the HARDEN sheet offers: every one but the intel
+// investment, which is the INTEL sheet. The IR retainer moved here from
+// INTEL's second step (critique row M8): it decides more games than any
+// other purchase, and a player who hardens fully never opened that step.
+// One definition, read by the sheet and by the next-step suggestion alike.
 export function hardenOffers(scenario: Scenario): Scenario['countermeasures'] {
-  return scenario.countermeasures.filter((cm) => cm.id !== 'intelInvestment' && cm.id !== 'irRetainer')
+  return scenario.countermeasures.filter((cm) => cm.id !== 'intelInvestment')
 }
+
+// The retainer's line on its HARDEN tile, read off the scenario so it
+// stays true if recovery is retuned.
+export const retainerLine = (scenario: Scenario) =>
+  `Recovers ${scenario.recovery.withIrRetainer} a turn on every meter instead of ${scenario.recovery.base}. Does not stop anything; shortens everything.`
 
 // What the turn has to spend before anything is bought: the balance plus
 // this turn's income and any SLA bonus, which the engine credits before

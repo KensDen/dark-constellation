@@ -49,8 +49,20 @@ export function whatWouldHaveHelped(ev: ResolvedEvent, state: GameState, scenari
   if (def.effect.special === 'debrisStrike' && ev.mitigation < MITIGATION_PER_COUNTER + SSA_MITIGATION_BONUS) {
     return 'SSA was owned but the maneuver budget could not cover the avoidance burn.'
   }
+  // Critique row M8: with every defense owned, the one purchase left is
+  // the retainer, so name it. How much faster is read off the scenario,
+  // and said as a plain "faster" when it is not a whole number of times;
+  // a retune that left it no faster than base would make no claim at all.
+  const { base, withIrRetainer } = scenario.recovery
+  if (!state.irRetainer && withIrRetainer > base) {
+    const times = withIrRetainer / base
+    const pace = Number.isInteger(times) ? `${TIMES[times] ?? times} times faster` : 'faster'
+    return `Every applicable defense was active. The incident response retainer would have recovered the damage ${pace}.`
+  }
   return 'Every applicable defense was active. What landed is what the attack buys through them.'
 }
+
+const TIMES = ['', '', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
 
 export interface AftermathCardProps {
   record: TurnRecord

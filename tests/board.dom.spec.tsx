@@ -21,13 +21,13 @@ import { LAYERS, type GameState } from '../src/engine/types'
 import { callSigns } from '../src/ui/board/board'
 import { ACTIONS } from '../src/ui/board/actions'
 import { PROCURE_STEPS } from '../src/ui/board/ProcureSheet'
-import { HARDEN_STEPS } from '../src/ui/board/HardenSheet'
-import { INTEL_STEPS } from '../src/ui/board/IntelSheet'
+import HardenSheet, { HARDEN_STEPS } from '../src/ui/board/HardenSheet'
 import { SURGE_STEPS } from '../src/ui/board/SurgeSheet'
 import { vectorLabels } from '../src/ui/labels'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 import { NO_OP, WIN_SCRIPT } from './scripts'
+import { PLAYBACK_SPEED_KEY } from '../src/director'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -147,6 +147,48 @@ describe('the board (v1.2 R1)', () => {
     expect(leaked.join('\n'), 'the HARDEN sheet names the threats a defense answers').toBe('')
   })
 
+  it('offers the IR retainer on HARDEN, says what it does to recovery, and buys it (critique row M8)', () => {
+    // The retainer decides more games than any other purchase and sat on
+    // INTEL's second step, where a player who hardens fully never looked.
+    // On HARDEN its tile reads the scenario's two recovery rates, and the
+    // tick queues the turn's own retainer flag: the engine skips the
+    // retainer in the countermeasure list, so a tile that queued it there
+    // would charge the cart and buy nothing.
+    localStorage.setItem(PLAYBACK_SPEED_KEY, 'instant')
+    const state = gameAt(3)
+    expect(state.irRetainer, 'the fixture already owns the retainer').toBe(false)
+    render(state, 'harden')
+    const { base, withIrRetainer } = DEFAULT_SCENARIO.recovery
+    const box = [...sheet('harden')!.querySelectorAll('input[type="checkbox"]')].find((b) =>
+      /Incident response retainer/.test(b.closest('label')?.textContent ?? ''),
+    ) as HTMLInputElement | undefined
+    expect(box, 'the retainer is not on HARDEN').toBeDefined()
+    expect(box!.closest('label')!.textContent).toContain(
+      `Recovers ${withIrRetainer} a turn on every meter instead of ${base}. Does not stop anything; shortens everything.`,
+    )
+    act(() => {
+      box!.click()
+    })
+    expect(box!.checked, 'the retainer did not queue').toBe(true)
+    expect(byText(/^HARDEN/)!.textContent, 'HARDEN does not count the queued retainer').toContain('1 queued')
+    expect(byText(/^INTEL/)!.textContent, 'INTEL still claims the retainer').not.toContain('queued')
+    act(() => {
+      byText(/Hold to resolve/i)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    const saved = JSON.parse(localStorage.getItem('dc-autosave') ?? 'null')
+    expect(saved?.state.turn, 'the turn did not resolve').toBe(state.turn + 1)
+    expect(saved.state.irRetainer, 'the retainer ticked on HARDEN was not bought').toBe(true)
+    // Read off the scenario, not written out: the sheet on a retuned
+    // scenario says the retuned rates.
+    const retuned = { ...DEFAULT_SCENARIO, recovery: { base: 3, withIrRetainer: 9 } }
+    act(() => {
+      root.render(
+        <HardenSheet scenario={retuned} state={state} queued={[]} step={1} onToggle={() => {}} onNext={() => {}} onBack={() => {}} onClose={() => {}} deniedClassFor={() => ''} spendLine={null} />,
+      )
+    })
+    expect(sheet('harden')!.textContent).toContain('Recovers 9 a turn on every meter instead of 3.')
+  })
+
   it('renders one tile per asset on its layer, with the call sign and the exact integrity in its name', async () => {
     const state = gameAt(5)
     render(state, 'brief')
@@ -200,11 +242,19 @@ describe('the board (v1.2 R1)', () => {
     for (const [label, id, steps] of [
       ['PROCURE', 'procure', PROCURE_STEPS],
       ['HARDEN', 'harden', HARDEN_STEPS],
-      ['INTEL', 'intel', INTEL_STEPS],
     ] as const) {
       click(byText(new RegExp(`^${label}`))!)
       expect(stepHeader(id), `${label} has no step header`).toEqual([1, steps])
     }
+    // INTEL is one step since critique row M8 moved the IR retainer, its
+    // second step, onto HARDEN, so it has its title and no step header, as
+    // SYSTEM does. The retainer is on HARDEN, not here.
+    click(byText(/^INTEL/)!)
+    expect(sheet('intel'), 'the INTEL sheet is not open').not.toBeNull()
+    expect(stepHeader('intel'), 'INTEL still counts steps').toBeUndefined()
+    expect(sheet('intel')!.textContent, 'the retainer is still on INTEL').not.toMatch(/Incident response retainer/)
+    click(byText(/^HARDEN/)!)
+    expect(sheet('harden')!.textContent, 'the retainer is not on HARDEN').toMatch(/Incident response retainer/)
     // SURGE opens only when there is something to surge on; the bar says
     // why otherwise.
     const surge = byText(/^SURGE/)!

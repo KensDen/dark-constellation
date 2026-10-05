@@ -57,7 +57,7 @@ import BoardReference from './board/BoardReference'
 import AftermathCard from './board/AftermathCard'
 import ProcureSheet, { type ProcurePick } from './board/ProcureSheet'
 import HardenSheet, { HARDEN_STEPS } from './board/HardenSheet'
-import IntelSheet, { INTEL_STEPS } from './board/IntelSheet'
+import IntelSheet from './board/IntelSheet'
 import SurgeSheet from './board/SurgeSheet'
 import type { SheetId, StepSheet } from './board/actions'
 import { ACTIONS, GUIDE, creditsTag, fKeyOf, guideStage, resolveLabel, resolvingLabel, suggestNextStep, type Objective } from './board/actions'
@@ -1111,17 +1111,21 @@ export default function Game({
     setArrived(null)
     setActions({ ...actions, buyAssets: actions.buyAssets.filter((_, i) => i !== index) })
   }
+  // The IR retainer sits on HARDEN with the countermeasures (critique row
+  // M8) but is still bought through its own flag, which the engine reads.
   const toggleCounter = (id: (typeof scenario.countermeasures)[number]['id']) => {
-    const already = actions.buyCounters.includes(id)
+    const retainer = id === 'irRetainer'
+    const already = retainer ? actions.buyIrRetainer : actions.buyCounters.includes(id)
     if (!already) {
       const price = scenario.countermeasures.find((c) => c.id === id)?.cost ?? 0
       if (!afford(price, `cm-${id}`)) return
     }
     play('buy-click')
-    setActions({
-      ...actions,
-      buyCounters: already ? actions.buyCounters.filter((c) => c !== id) : [...actions.buyCounters, id],
-    })
+    setActions(
+      retainer
+        ? { ...actions, buyIrRetainer: !already }
+        : { ...actions, buyCounters: already ? actions.buyCounters.filter((c) => c !== id) : [...actions.buyCounters, id] },
+    )
   }
 
   // Surge authority (item 4): queue one live condition to be cleared when
@@ -1261,8 +1265,8 @@ export default function Game({
   const queued = (n: number) => (n > 0 ? `${n} queued` : '')
   const captions: Record<string, string> = {
     procure: queued(actions.buyAssets.length),
-    harden: queued(actions.buyCounters.length),
-    intel: actions.buyIntelLevel || actions.buyIrRetainer ? 'queued' : '',
+    harden: queued(actions.buyCounters.length + (actions.buyIrRetainer ? 1 : 0)),
+    intel: actions.buyIntelLevel ? 'queued' : '',
     surge: actions.spendSurgeOn ? 'queued' : surgeReason || `${state.surgeTokens} token${state.surgeTokens === 1 ? '' : 's'}`,
   }
   const sheetOpen = sheet !== null
@@ -1276,7 +1280,7 @@ export default function Game({
   // with the credits the HUD shows; after that it says how to move on.
   const creditsLeft = available - cost
   const guided = guideOn && deciding && state.turn === 1
-  const hardenedOrSkipped = actions.buyCounters.length > 0 || (stepsDone.has('harden') && sheet !== 'harden')
+  const hardenedOrSkipped = actions.buyCounters.length > 0 || actions.buyIrRetainer || (stepsDone.has('harden') && sheet !== 'harden')
   const objective: Objective = deciding
     ? guided
       ? GUIDE[guideStage(actions.buyAssets.length > 0, hardenedOrSkipped)]
@@ -1454,7 +1458,7 @@ export default function Game({
           <HardenSheet
             scenario={scenario}
             state={state}
-            queued={actions.buyCounters}
+            queued={actions.buyIrRetainer ? [...actions.buyCounters, 'irRetainer'] : actions.buyCounters}
             step={step}
             onToggle={toggleCounter}
             onNext={() => setStep(Math.min(HARDEN_STEPS, step + 1))}
@@ -1469,24 +1473,14 @@ export default function Game({
             scenario={scenario}
             state={state}
             actions={actions}
-            step={step}
             onIntel={(checked) => {
               const intelPrice = state.intelLevel !== 3 ? scenario.prices.intelLevels[state.intelLevel] : 0
               if (checked && !afford(intelPrice, 'intel')) return
               play('buy-click')
               setActions({ ...actions, buyIntelLevel: checked })
             }}
-            onRetainer={(checked) => {
-              const price = scenario.countermeasures.find((c) => c.id === 'irRetainer')?.cost ?? 0
-              if (checked && !afford(price, 'cm-irRetainer')) return
-              play('buy-click')
-              setActions({ ...actions, buyIrRetainer: checked })
-            }}
-            onNext={() => setStep(Math.min(INTEL_STEPS, step + 1))}
-            onBack={() => setStep((n) => Math.max(1, n - 1))}
             onClose={() => openSheet(null)}
             intelClass={deniedTile('intel')}
-            retainerClass={deniedTile('cm-irRetainer')}
             spendLine={spendLine}
           />
         )}

@@ -575,8 +575,9 @@ describe('the procurement sounds, asserted by execution', () => {
     // first render never reached. Two of the five were therefore still
     // covered only by the source text pin the fixture was written to
     // replace, so deleting the sound from toggleCounter silenced every
-    // countermeasure purchase with the suite green. On the board they are
-    // the HARDEN sheet and the INTEL sheet's second step.
+    // countermeasure purchase with the suite green. On the board both are
+    // the HARDEN sheet: the IR retainer was the INTEL sheet's second step
+    // until critique row M8 moved it there.
     openSheet('HARDEN')
     const hardenBoxes = () => [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
     const counter = hardenBoxes().find(
@@ -593,11 +594,11 @@ describe('the procurement sounds, asserted by execution', () => {
     ).toEqual(buyVoice)
     pressed.push('countermeasure')
 
-    openSheet('INTEL')
-    click(container.querySelector('[data-intel-next]')!)
     const retainer = hardenBoxes().find((b) =>
       /Incident response retainer/i.test(b.closest('label')?.textContent ?? ''),
     )
+    expect(retainer, 'the retainer is not on HARDEN').toBeDefined()
+    expect(retainer!.disabled, 'the fixture already owns the retainer, so its voice goes unheard').toBe(false)
     if (retainer && !retainer.disabled && !retainer.checked) {
       ctx().reset()
       act(() => {
@@ -720,21 +721,21 @@ describe('every refusable control answers for its own refusal', () => {
     // The IR retainer is the fourth refusable id and the only one that
     // lived in the hardening phase. Guarding the intel tile alone left
     // this one's fix unguarded, which a mutation showed. On the board it
-    // is the INTEL sheet's second step; the budget is filled through the
-    // HARDEN sheet first, as it was through the hardening phase.
+    // is a HARDEN tile since critique row M8 (it was the INTEL sheet's
+    // second step); the budget is filled with the other countermeasures on
+    // the same sheet first, as it was through the hardening phase.
     render(gameAt(3), 'harden')
     const boxes = () => [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
-    // Fill the budget with the countermeasures on offer until one refuses.
+    const isRetainer = (b: HTMLInputElement) => /Incident response retainer/i.test(b.closest('label')?.textContent ?? '')
+    // Fill the budget with the other countermeasures until one refuses.
     for (const box of boxes()) {
-      if (box.disabled || box.checked) continue
+      if (box.disabled || box.checked || isRetainer(box)) continue
       act(() => {
         box.click()
       })
       if (container.querySelector('.dc-shake')) break
     }
-    openSheet('INTEL')
-    click(container.querySelector('[data-intel-next]')!)
-    const retainer = boxes().find((b) => /Incident response retainer/i.test(b.closest('label')?.textContent ?? ''))
+    const retainer = boxes().find(isRetainer)
     expect(retainer, 'the retainer is not on screen').toBeDefined()
     expect(retainer!.disabled, 'the retainer is already active, so it cannot be refused').toBe(false)
     const before = retainer!.closest('.dc-tile')
