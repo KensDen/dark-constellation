@@ -120,9 +120,12 @@ describe('the board (v1.2 R1)', () => {
     // read the DEFENSES section, and every countered event's name, short
     // and full, is checked against the whole sheet's text, so a line in
     // ASSETS, INTEL or a footnote would fail it the same as the old
-    // "Answers:" line did. (Ruling R1's earned answer key rewrites this
-    // guard in a later step.) A saved 'procure' phase opens PROCURE (the
-    // 'harden' phase left the save format with its sheet in v1.3 Round 0).
+    // "Answers:" line did. Ruling R1 rewrote the rule: a defense may name a
+    // threat the player has met or tonight's brief named, never another
+    // (tests/answer-key.spec.ts holds the engine's key to that). The board
+    // renders no key yet, so here it still names none. A saved
+    // 'procure' phase opens PROCURE (the 'harden' phase left the save
+    // format with its sheet in v1.3 Round 0).
     render(gameAt(3), 'procure')
     const procure = sheet('procure')
     expect(procure, 'the PROCURE sheet is not open').not.toBeNull()
