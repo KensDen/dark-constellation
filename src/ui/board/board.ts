@@ -5,8 +5,6 @@
 // of their own.
 
 import { SQUADRON } from '../../config'
-import { incomeFor } from '../../engine/reducer'
-import { coverage } from '../../engine/scoring'
 import {
   LAYERS,
   type ActiveCondition,
@@ -212,14 +210,15 @@ export function defensesOn(layer: Layer, counters: readonly Countermeasure['id']
   return out
 }
 
-// The countermeasures PROCURE offers as DEFENSES: every one but the intel
-// investment, which is the sheet's INTEL row. The IR retainer moved here
-// from INTEL's second step (critique row M8): it decides more games than
-// any other purchase, and a player who hardens fully never opened that
-// step. HARDEN itself merged into PROCURE in v1.3 Round 0. One definition,
-// read by the sheet and by the next-step suggestion alike.
+// The countermeasures PROCURE offers as DEFENSES: every one, the IR
+// retainer among them. The retainer moved here from INTEL's second step
+// (critique row M8): it decides more games than any other purchase, and a
+// player who hardens fully never opened that step. HARDEN itself merged
+// into PROCURE, and the intel investment left with the intel levels, in
+// v1.3 Round 0. One definition, read by the sheet and by the next-step
+// suggestion alike.
 export function hardenOffers(scenario: Scenario): Scenario['countermeasures'] {
-  return scenario.countermeasures.filter((cm) => cm.id !== 'intelInvestment')
+  return scenario.countermeasures
 }
 
 // The retainer's line on its DEFENSES tile, read off the scenario so it
@@ -227,12 +226,11 @@ export function hardenOffers(scenario: Scenario): Scenario['countermeasures'] {
 export const retainerLine = (scenario: Scenario) =>
   `Recovers ${scenario.recovery.withIrRetainer} a turn on every meter instead of ${scenario.recovery.base}. Does not stop anything; shortens everything.`
 
-// What the turn has to spend before anything is bought: the balance plus
-// this turn's income and any SLA bonus, which the engine credits before
-// purchases. It is the credits figure the HUD shows at the start of a
+// What the turn has to spend before anything is bought: the balance. Since
+// v1.3 Round 0 mission funding and the coverage bonus arrive at the turn
+// close, after repairs and upkeep (brief 6.1), so nothing is credited
+// before the orders. It is the budget the HUD shows at the start of a
 // turn, and the budget the cart is checked against.
-export function turnBudget(state: Pick<GameState, 'credits' | 'difficulty' | 'assets' | 'scenario'>): number {
-  const { scenario } = state
-  const bonus = coverage(state.assets) >= scenario.slaBonus.coverageMin ? scenario.slaBonus.credits : 0
-  return state.credits + incomeFor(state.difficulty, scenario.incomePerTurn) + bonus
+export function turnBudget(state: Pick<GameState, 'credits'>): number {
+  return state.credits
 }

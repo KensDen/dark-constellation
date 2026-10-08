@@ -32,7 +32,6 @@ export function verdictFor(record: TurnRecord, scenario: Scenario): string {
 
   const landed = threats.filter((ev) => ev.effectiveSeverity > 0)
   const heldAll = landed.length === 0
-  const resilience = record.commendations.some((c) => c.startsWith('Resilience commendation'))
 
   if (heldAll) {
     const countered = threats.filter((ev) => ev.mitigation > 0).length
@@ -50,11 +49,9 @@ export function verdictFor(record: TurnRecord, scenario: Scenario): string {
   const name = shortName(worst.name)
 
   // The count belongs in every branch: a turn where three events landed
-  // and a commendation was earned still had three events land.
+  // still had three events land. (The resilience commendation that had a
+  // branch of its own left with the commendations in v1.3 Round 0.)
   const also = landed.length > 1 ? ` and ${landed.length - 1} more` : ''
-  if (resilience) {
-    return `${name}${also} landed; you held the line under pressure.`
-  }
   if (also) {
     return `${name}${also} landed; ${where.toLowerCase()} took the worst.`
   }

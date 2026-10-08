@@ -51,12 +51,14 @@ import {
   type SoundCue,
   type VisualCue,
 } from '../src/director'
-import { DIFFICULTIES, newGame, resolveTurn } from '../src/engine/reducer'
+import { DIFFICULTIES, briefFree, candidatesTonight, newGame, orderCost, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
-import { coverage, maiScore } from '../src/engine/scoring'
-import { LAYERS, type Difficulty, type GameState, type TurnActions } from '../src/engine/types'
-import { firstInputWords } from '../src/ui/brief'
-import { NO_OP } from './scripts'
+import { planFor } from '../src/engine/rules'
+import { METER_CAP, coverage, maiScore } from '../src/engine/scoring'
+import { LAYERS, type AssetKind, type Difficulty, type GameState, type TurnActions } from '../src/engine/types'
+import { briefCopy, firstInputWords } from '../src/ui/brief'
+import { coverageFigure } from '../src/ui/labels'
+import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT, a } from './scripts'
 
 // The window the round is about. Three turns is the point at which a
 // player has decided whether the game is any different from the one they
@@ -152,21 +154,43 @@ export function collectOpening(
   return out
 }
 
-const DIFFS: Difficulty[] = ['easy', 'standard', 'expert']
+// EASY and STANDARD since v1.3 Round 0, which retired Expert (brief 5.1).
+const DIFFS: Difficulty[] = ['easy', 'standard']
 const SEEDS = 24
+
+// A careful new player: order the intel brief on every night it is not
+// free, and the primary defense of every move it names, while the budget
+// allows. It is how a v1.3 night is held outright (a move with nothing
+// through), which the quiet beat and the defense streak both need: in
+// v1.2 the quiet beat came free on turn 1, which scripted no move at all,
+// and in v1.3 it has to be earned (brief 6.2, M2: "a hit lands on turn 1
+// unless the player blocks both").
+function defendsEveryNamedMove(s: GameState): TurnActions {
+  let actions: TurnActions = { ...NO_OP }
+  if (!briefFree(s) && orderCost(s, { ...actions, intelBrief: true }) <= s.credits) actions = { ...actions, intelBrief: true }
+  for (const id of candidatesTonight(s)) {
+    const primary = s.scenario.events.find((e) => e.id === id)?.counters[0]
+    if (!primary || s.counters.includes(primary) || actions.buyCounters.includes(primary)) continue
+    const next = { ...actions, buyCounters: [...actions.buyCounters, primary] }
+    if (orderCost(s, next) <= s.credits) actions = next
+  }
+  return actions
+}
 
 // Four lines a new player might plausibly take through their first turns.
 // The point is that the claim is about a NEW PLAYER, not about a fixture:
 // if the opening only works for someone who buys the right thing, it does
 // not work.
+//
+// v1.3 Round 0: the intel levels and SURGE left. "Buys intel first" became
+// ordering the intel brief (free on turn 1, 8 CR after), and the surge
+// line, whose subject is gone, became the careful player above, the one
+// line that can hold a night outright.
 const LINES: [string, (s: GameState) => TurnActions][] = [
   ['does nothing', () => NO_OP],
-  ['buys a drone first', (s) => (s.turn === 1 ? { ...NO_OP, buyAssets: [{ kind: 'drone', tier: 'B' }] } : NO_OP)],
-  ['buys intel first', (s) => (s.turn === 1 ? { ...NO_OP, buyIntelLevel: true } : NO_OP)],
-  [
-    'spends surge when it can',
-    (s) => (s.surgeTokens > 0 && s.conditions.length > 0 ? { ...NO_OP, spendSurgeOn: s.conditions[0].instanceId } : NO_OP),
-  ],
+  ['buys a drone first', (s) => (s.turn === 1 ? { ...NO_OP, buyAssets: [{ kind: 'drone' }] } : NO_OP)],
+  ['orders the intel brief', () => ({ ...NO_OP, intelBrief: true })],
+  ['defends every named move', defendsEveryNamedMove],
 ]
 
 function scriptFor(line: (s: GameState) => TurnActions, seed: number, difficulty: Difficulty) {
@@ -255,23 +279,42 @@ describe('the opening: breadth across seeds (Round 7b)', () => {
 // engine: an excuse that stops being true fails the suite rather than
 // quietly widening. A hand-written excuse list with nothing checking it
 // would be principle 17 for the fourth time in this pass.
+//
+// 'BLACKOUT CHAIN fires' left this list in v1.3 Round 0, because the test
+// that withdraws a lying excuse (below) found it met: the six-turn plan
+// makes PNT jamming a turn-2 candidate, and GNSS denial live entering
+// turn 3 plays the chain-armed beat, whose pair (blackout, blackout-chain)
+// is the row's own. The chain EVENT is still scripted past the opening;
+// what the player sees and hears is not.
 const NOT_IN_OPENING = new Set<string>([
-  'BLACKOUT CHAIN fires',
   'MAI crosses below the win line',
   'Campaign won',
   'Campaign lost',
 ])
 
 describe('the opening: the excuses are computed, not granted (Round 7b)', () => {
-  it('excuses the chain rows only while the deck scripts them past the opening', () => {
-    const chainTurns = DEFAULT_SCENARIO.campaign
-      .filter((p) => p.slots.some((s) => s.fixed === 'blackout-chain' || (s.drawFrom ?? []).includes('blackout-chain')))
-      .map((p) => p.turn)
+  it('excuses the chain row only while nothing in the opening can arm it or fire it', () => {
+    // Computed both ways from the deck, so the excuse follows the plan
+    // rather than a memory of it. The chain EVENT fires the row, and so
+    // does the chain-armed beat (the same pair), which plays on any turn
+    // GNSS denial is live: a jam landing on turn t with a clock of 2 or
+    // more is still live on turn t + 1.
+    const idsOf = (p: (typeof DEFAULT_SCENARIO.campaign)[number]) => p.slots.flatMap((s) => (s.fixed ? [s.fixed] : (s.drawFrom ?? [])))
+    const turnsWith = (pred: (id: string) => boolean) => DEFAULT_SCENARIO.campaign.filter((p) => idsOf(p).some(pred)).map((p) => p.turn)
+    const chainTurns = turnsWith((id) => id === 'blackout-chain')
+    const armingTurns = turnsWith((id) => {
+      const ev = DEFAULT_SCENARIO.events.find((e) => e.id === id)
+      return ev?.effect.special === 'jamsGnss' && (ev.condition?.turns ?? 0) >= 2
+    })
     expect(chainTurns.length, 'the deck no longer scripts a BLACKOUT CHAIN at all').toBeGreaterThan(0)
+    expect(armingTurns.length, 'the deck no longer scripts anything that denies GNSS').toBeGreaterThan(0)
+    const reachable = Math.min(...chainTurns) <= OPENING_TURNS || Math.min(...armingTurns) < OPENING_TURNS
     expect(
-      Math.min(...chainTurns) > OPENING_TURNS,
-      `BLACKOUT CHAIN is now reachable in the opening (turns ${chainTurns.join(', ')}); it is no longer excused`,
-    ).toBe(true)
+      NOT_IN_OPENING.has('BLACKOUT CHAIN fires'),
+      reachable
+        ? `the chain row is reachable in the opening (chain on turns ${chainTurns.join(', ')}, GNSS denial from turns ${armingTurns.join(', ')}) and is still excused`
+        : 'the chain row is out of the opening\'s reach and is required anyway',
+    ).toBe(!reachable)
   })
 
   it('excuses the MAI row only while MAI cannot reach the win line in three turns', () => {
@@ -369,55 +412,72 @@ describe('the opening: the join itself (Round 7b)', () => {
   })
 })
 
+// The orders that hold turn 1 outright: both of its candidates' primary
+// defenses (brief 6.2, M2), as the prepared script places them. Read off
+// the script rather than spelled, and checked where it is used.
+const HOLDS_TURN_1: TurnActions = a({ buyCounters: WIN_SCRIPT[1].buyCounters })
+
+// The beats of a turn whose patches raise a meter: the recovery, wherever
+// the director puts it.
+const healingBeats = (beats: ReturnType<typeof deriveBeats>) =>
+  beats.filter((b) => METER_KEYS.some((k) => (b.patch.meters?.[k] ?? 0) > 0))
+
 describe('the opening: the turn-1 card tells the truth (Round 7b)', () => {
-  it('claims a recovery only on a turn where a meter actually moved', () => {
+  it('claims no recovery on the turn card, on turns that healed and turns that did not', () => {
     // Principle 16's product form, found inside the beat this round is
     // about: the turn-start title interpolated `recovery +N` on every
     // turn, and on turn 1 every meter sits at the cap, so the first card a
     // new player ever saw asserted a change that did not happen and that
     // no cue accompanied.
+    //
+    // RE-READ FOR v1.3 Round 0. Recovery left the turn start for the close
+    // (brief 5.5 item 6 and 6.1), where it rides the invisible end-of-turn
+    // ticks and the meter readouts count it. The turn card says only
+    // "Turn n: COLDVEIL is moving" and the watch officer's line, so the
+    // truth it must keep is to claim no recovery at all and to move no
+    // meter, on a turn the close healed as much as on one it did not. The
+    // v1.2 title's three arms (the uniform figure, the uneven total and
+    // "Link, Data and Sensor at cap") went with it.
     let sawFull = false
     let sawHealed = false
-    let sawUneven = false
-    for (const difficulty of DIFFS) {
-      for (let seed = 1; seed <= SEEDS; seed += 1) {
-        let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
-        for (let t = 0; t < 6 && state.status === 'playing'; t += 1) {
-          const before = state
-          const after = resolveTurn(before, NO_OP, turnRng(before.seed, before.turn))
-          const start = deriveBeats(before, after).find((b) => b.kind === 'turn-start')!
-          const healed = Object.values(start.patch.meters ?? {}).reduce((n, d) => n + d, 0)
-          if (healed > 0) {
-            sawHealed = true
-            // THE NUMBER, not the label. The first version asserted only
-            // `toContain('recovery +')` while holding the true figure in
-            // its own hand, so the card could claim any recovery at all as
-            // long as some meter moved, and a mutation printing the
-            // scenario constant instead of the applied amount slept.
-            const deltas = METER_KEYS.map((k) => start.patch.meters?.[k] ?? 0).filter((d) => d > 0)
-            const uniform = deltas.every((d) => d === deltas[0])
-            const expected = uniform
-              ? `recovery +${deltas[0]}`
-              : `recovery +${healed} across ${deltas.length} meters`
-            expect(
-              start.title,
-              `turn ${before.turn}: meters moved ${JSON.stringify(deltas)} and the card says "${start.title}"`,
-            ).toContain(expected)
-            if (!uniform) sawUneven = true
-          } else {
-            sawFull = true
-            expect(start.title, `turn ${before.turn}: nothing healed but the card claims recovery`).not.toContain(
-              'recovery +',
+    const lines: [string, Record<number, TurnActions>][] = [
+      ['passive', LOSS_SCRIPT],
+      // The passive line never leaves every meter at the cap: each of its
+      // nights lands a move on a meter. The prepared script holds turn 1
+      // outright, so its close has nothing to heal.
+      ['prepared', WIN_SCRIPT],
+    ]
+    for (const [name, script] of lines) {
+      for (const difficulty of DIFFS) {
+        for (let seed = 1; seed <= SEEDS; seed += 1) {
+          let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
+          while (state.status === 'playing') {
+            const before = state
+            const after = resolveTurn(before, script[before.turn] ?? NO_OP, turnRng(before.seed, before.turn))
+            const beats = deriveBeats(before, after)
+            const start = beats.find((b) => b.kind === 'turn-start')!
+            const at = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}`
+            const said = [start.title, ...start.lines].join(' ')
+            expect(start.patch.meters, `${at}: the turn card moves a meter`).toBeUndefined()
+            expect(said, `${at}: the turn card says "${said}"`).not.toMatch(/recover/i)
+            // The POSITIVE half. Without it the card could be restored to
+            // anything that avoids the word, including the ", meters at
+            // full" that contradicted the HUD's Posture grid, and nothing
+            // failed.
+            expect(start.title, `${at}: the card says "${start.title}"`).toBe(`Turn ${before.turn}: COLDVEIL is moving`)
+            expect(start.lines[0], `${at}: the card does not open on the watch officer's line`).toBe(
+              planFor(DEFAULT_SCENARIO, before.turn)?.intro,
             )
-            // The POSITIVE half. Without it the clause could be restored to
-            // anything, including the ", meters at full" that contradicted
-            // the HUD's Posture grid or the ", no damage to recover" that
-            // was false whenever an asset was damaged, and nothing failed.
-            expect(start.title, `turn ${before.turn}: the card says "${start.title}"`).toContain(
-              'Link, Data and Sensor at cap',
-            )
+            // Where the recovery went: the close, which no card presents.
+            const healing = healingBeats(beats)
+            for (const b of healing) {
+              expect(b.kind, `${at}: a ${b.kind} beat heals a meter`).toBe('end-of-turn-tick')
+              expect(b.visible, `${at}: the close's recovery reached a card as "${b.title}"`).toBe(false)
+            }
+            if (healing.length > 0) sawHealed = true
+            else sawFull = true
+            state = after
           }
-          state = after
         }
       }
     }
@@ -425,23 +485,18 @@ describe('the opening: the turn-1 card tells the truth (Round 7b)', () => {
     // never fires reads as covered because the other one did.
     expect(sawFull, 'no turn in the sweep left every meter at the cap').toBe(true)
     expect(sawHealed, 'no turn in the sweep healed a meter').toBe(true)
-    // The uneven branch is not reached on the PASSIVE line in 72
-    // campaigns, which is why this test alone could not cover it. It is
-    // reached in real play on the prepared line, which
-    // tests/reading-diet.spec.ts's title sweep found once that sweep was
-    // widened past NO_OP, and it is also covered directly below. Recorded
-    // as false here so that if the passive line ever reaches it, this says
-    // so rather than quietly becoming redundant.
-    expect(sawUneven, 'the passive sweep now reaches the uneven branch; fold it into this test').toBe(false)
   })
 
-  it('reports what the clamp allowed, not what the scenario offered', () => {
+  it('heals by what the clamp allowed, not what the scenario offered, and no card claims either', () => {
     // The discriminating case, and the one the sweep almost never reaches:
-    // every meter ONE below the cap while the scenario offers two. The
-    // uniform branch then prints a number that is not the constant, so a
-    // card interpolating `recovery` instead of the applied amount fails
-    // here and nowhere else. Without this the guard reads as verified
-    // because deltas[0] and recovery agree on almost every real turn.
+    // every meter ONE below the cap while the scenario offers two. A
+    // ledger interpolating `recovery` instead of the applied amount fails
+    // here and nowhere else.
+    //
+    // RE-READ FOR v1.3 Round 0: the clamp is applied at the close, and
+    // the patch it builds is what the meter readouts count up by, so the
+    // patch is the report. Turn 1's two moves are held, so nothing lands
+    // on a meter before the close.
     const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
     const offered = DEFAULT_SCENARIO.recovery.base
     expect(offered, 'the scenario now offers 1, so the clamp cannot be observed this way').toBeGreaterThan(1)
@@ -449,43 +504,59 @@ describe('the opening: the turn-1 card tells the truth (Round 7b)', () => {
       ...base,
       meters: { linkAvailability: 99, dataIntegrity: 99, sensorIntegrity: 99 },
     }
-    const after = resolveTurn(nearCap, NO_OP, turnRng(nearCap.seed, nearCap.turn))
-    const start = deriveBeats(nearCap, after).find((b) => b.kind === 'turn-start')!
-    const deltas = METER_KEYS.map((k) => start.patch.meters?.[k] ?? 0).filter((d) => d > 0)
-    expect(new Set(deltas), 'the three meters did not heal by the same clipped amount').toEqual(new Set([1]))
-    expect(start.title, `the card says "${start.title}" while each meter moved 1`).toContain('recovery +1')
-    expect(start.title, 'the card reports the amount the scenario offered rather than the amount applied').not.toContain(
-      `recovery +${offered}`,
-    )
+    const after = resolveTurn(nearCap, HOLDS_TURN_1, turnRng(nearCap.seed, nearCap.turn))
+    const record = after.history[after.history.length - 1]
+    expect(record.events.map((e) => e.outcome), 'turn 1 was not held outright').toEqual(record.events.map(() => 'held'))
+    const beats = deriveBeats(nearCap, after)
+    const deltas = METER_KEYS.map((k) => healingBeats(beats).reduce((n, b) => n + (b.patch.meters?.[k] ?? 0), 0))
+    expect(deltas, 'the three meters did not heal by the same clipped amount').toEqual([1, 1, 1])
+    expect(after.meters, 'the clamp let a meter past the cap').toEqual({ linkAvailability: METER_CAP, dataIntegrity: METER_CAP, sensorIntegrity: METER_CAP })
+    for (const b of beats.filter((x) => x.visible)) {
+      expect([b.title, ...b.lines].join(' '), `the ${b.kind} card claims a recovery`).not.toMatch(/recovery \+/)
+    }
   })
 
-  it('reports a total when two meters heal by different amounts, which real play does not reach', () => {
-    // One meter two below the cap and one meter ten below, so a single
+  it('heals two meters by different amounts at the close, each by its own clamp', () => {
+    // One meter one below the cap and one meter ten below, so a single
     // recovery constant clamps differently on each. Without this the
-    // uneven arm of the title is dead code that reads as covered.
+    // uneven case is a branch of the clamp that reads as covered.
+    //
+    // RE-READ FOR v1.3 Round 0: the v1.2 card reported the total "across n
+    // meters"; v1.3 reports recovery on no card (see above), so what is
+    // held is that each meter moves by its own clamped amount. Unlike
+    // v1.2, real play now reaches it, mostly under the IR retainer's 6 (the
+    // top-intel line's turn 6 on Standard, seed 1, heals 2, 6 and 6); this
+    // is the case at the base recovery, built by hand.
     const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
     const uneven: GameState = {
       ...base,
       meters: { linkAvailability: 99, dataIntegrity: 90, sensorIntegrity: 100 },
     }
-    const after = resolveTurn(uneven, NO_OP, turnRng(uneven.seed, uneven.turn))
-    const start = deriveBeats(uneven, after).find((b) => b.kind === 'turn-start')!
-    const deltas = METER_KEYS.map((k) => start.patch.meters?.[k] ?? 0).filter((d) => d > 0)
-    expect(deltas.length, 'the hand-built state did not heal two meters').toBeGreaterThan(1)
-    expect(new Set(deltas).size, 'the hand-built state healed them by the same amount').toBeGreaterThan(1)
-    const healed = deltas.reduce((n, d) => n + d, 0)
-    expect(start.title, `the card says "${start.title}"`).toContain(
-      `recovery +${healed} across ${deltas.length} meters`,
+    const after = resolveTurn(uneven, HOLDS_TURN_1, turnRng(uneven.seed, uneven.turn))
+    const beats = deriveBeats(uneven, after)
+    const deltas = METER_KEYS.map((k) => healingBeats(beats).reduce((n, b) => n + (b.patch.meters?.[k] ?? 0), 0))
+    expect(deltas.filter((d) => d > 0).length, 'the hand-built state did not heal two meters').toBeGreaterThan(1)
+    expect(new Set(deltas.filter((d) => d > 0)).size, 'the hand-built state healed them by the same amount').toBeGreaterThan(1)
+    expect(deltas, 'a meter did not heal by its own clamped amount').toEqual(
+      METER_KEYS.map((k) => Math.min(METER_CAP - uneven.meters[k], DEFAULT_SCENARIO.recovery.base)),
     )
+    for (const b of beats.filter((x) => x.visible)) {
+      expect([b.title, ...b.lines].join(' '), `the ${b.kind} card claims a recovery`).not.toMatch(/recovery \+/)
+    }
   })
 
   it('tells a player below the coverage minimum that the SLA exists', () => {
-    // A new player starts at 44 against a minimum of 60 and loses the
-    // bonus every turn until they notice. The title interpolated the SLA
-    // only when it was EARNED, so the miss was silent.
+    // A new player starts at 58 against a minimum of 60 (44 before v1.3)
+    // and loses the bonus every turn until they notice. The title
+    // interpolated the SLA only when it was EARNED, so the miss was
+    // silent. Since v1.3 Round 0 the bonus is paid at the close, after
+    // tonight's arrivals, and the turn card says nothing when the fleet
+    // stands at the minimum; the miss line is the one it owes.
     const { slaBonus } = DEFAULT_SCENARIO
     let sawMiss = false
     let sawPaid = false
+    let sawFractional = false
+    let sawRoundedDown = false
     for (const difficulty of DIFFS) {
       for (let seed = 1; seed <= SEEDS; seed += 1) {
         let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
@@ -494,24 +565,56 @@ describe('the opening: the turn-1 card tells the truth (Round 7b)', () => {
           const after = resolveTurn(before, NO_OP, turnRng(before.seed, before.turn))
           const start = deriveBeats(before, after).find((b) => b.kind === 'turn-start')!
           const said = [start.title, ...start.lines].join(' ')
-          if (coverage(before.assets) >= slaBonus.coverageMin) {
+          const cov = coverage(before.assets)
+          const at = `turn ${before.turn}, ${difficulty}, seed ${seed}`
+          if (cov >= slaBonus.coverageMin) {
             sawPaid = true
-            expect(said, `turn ${before.turn}: SLA earned and not named`).toContain(`SLA +${slaBonus.credits}`)
+            expect(said, `${at}: at the minimum and told it is under`).not.toContain('is under the')
           } else {
             sawMiss = true
             // THE WHOLE SENTENCE, built from the same three constants the
             // product builds it from. Asserting the digits "60" alone was
             // satisfied by any copy containing that substring, including
             // copy telling the player the opposite of the truth.
-            expect(said, `turn ${before.turn}: below the SLA minimum and never told`).toContain(
-              `Coverage ${coverage(before.assets)} misses the ${slaBonus.coverageMin} the SLA pays ${slaBonus.credits} at.`,
+            //
+            // THE FIGURE, exactly as the product prints it: coverageFigure,
+            // one decimal rounded DOWN (src/ui/labels.ts), the one figure
+            // every coverage readout prints. The first pass accepted any
+            // figure within a rounding tolerance of the raw coverage, which
+            // also accepted 59.96 printed as "60" beside "is under the 60".
+            const figure = coverageFigure(cov)
+            const line = start.lines.find((l) => l.startsWith('Coverage '))
+            expect(line, `${at}: below the SLA minimum and never told`).toBeDefined()
+            expect(line, `${at}: coverage ${cov} misreported`).toBe(
+              `Coverage ${figure} is under the ${slaBonus.coverageMin} the SLA pays ${slaBonus.credits} at.`,
             )
+            // What a player reads, checked without the helper, so a change
+            // to coverageFigure itself cannot carry the line with it: a
+            // readout (whole, or one decimal), never above the coverage
+            // (a figure rounded up can read 60 on a fleet under 60), less
+            // than a tenth below it, and so under the minimum the sentence
+            // says it is under.
+            const shown = line!.split(' ')[1]
+            expect(shown, `${at}: coverage ${cov} printed as "${shown}"`).toMatch(/^\d+(\.\d)?$/)
+            expect(Number(shown), `${at}: coverage ${cov} printed above itself as "${shown}"`).toBeLessThanOrEqual(cov)
+            expect(cov - Number(shown), `${at}: coverage ${cov} printed as "${shown}"`).toBeLessThan(0.1)
+            expect(Number(shown), `${at}: "${line}" prints a figure at the minimum it says it is under`).toBeLessThan(
+              slaBonus.coverageMin,
+            )
+            if (!Number.isInteger(cov)) sawFractional = true
+            if (Math.round(cov * 10) / 10 !== figure) sawRoundedDown = true
           }
           state = after
         }
       }
     }
     expect(sawMiss, 'no opening turn sat below the coverage minimum').toBe(true)
+    // The exact join is only measured on a coverage the printing changes:
+    // a fractional one, and one where rounding to the nearest tenth would
+    // print a different figure from rounding down (56.96 on turn 2 of a
+    // passive opening: "57" against "56.9").
+    expect(sawFractional, 'no opening miss had a fractional coverage, so the printed figure was never measured').toBe(true)
+    expect(sawRoundedDown, 'no opening miss told rounding down from rounding to nearest').toBe(true)
     // The real claim behind the fix, rather than the tautology that stood
     // here first and that oxlint was right to flag: a player who does
     // nothing NEVER earns the SLA inside the opening. That is why the miss
@@ -523,13 +626,95 @@ describe('the opening: the turn-1 card tells the truth (Round 7b)', () => {
     ).toBe(false)
   })
 
+  it('never prints 60 on a fleet a hair under the coverage minimum, and prints 60 at it', () => {
+    // Built by hand, because no swept opening lands in the band the
+    // rounding decides: [59.95, 60), where a figure rounded to the nearest
+    // tenth reads "60" (Math.round(59.95 * 10) / 10 is 60) beside "is
+    // under the 60". The branch is taken on the exact coverage and the
+    // figure is rounded down, so both surfaces that print coverage at the
+    // SLA line (the turn-start card and the brief's posture panel) say
+    // 59.9 and the under branch there, and 60 and the clear branch at 60.
+    // The starter fleet covers 58 (5800 hundredths: sats 13, RPO sat 8,
+    // drones 9, ground station 6, times integrity); each case adds to it.
+    const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
+    const { coverageMin, credits } = DEFAULT_SCENARIO.slaBonus
+    const layerOf = (kind: AssetKind) => base.assets.find((x) => x.kind === kind)!.layer
+    const rpo = base.assets.find((x) => x.kind === 'rpoSat')!.id
+    const fleet = (extra: [AssetKind, number][], rpoIntegrity = 100): GameState => ({
+      ...base,
+      assets: [
+        ...base.assets.map((x) => (x.id === rpo ? { ...x, integrity: rpoIntegrity } : x)),
+        // start-<kind>-<n> past the starter six, so procurement does not
+        // read them as tonight's orders.
+        ...extra.map(([kind, integrity], i) => ({
+          id: `start-${kind}-${base.assets.length + i + 1}`,
+          kind,
+          layer: layerOf(kind),
+          integrity,
+        })),
+      ],
+    })
+    const cases: { hundredths: number; state: GameState; printed: string; clear: boolean }[] = [
+      // 5800 + drone 9 x 15 + ground station 6 x 10
+      { hundredths: 5995, state: fleet([['drone', 15], ['groundStation', 10]]), printed: '59.9', clear: false },
+      // 5800 - RPO sat 8 x 7 + drone 9 x 28
+      { hundredths: 5996, state: fleet([['drone', 28]], 93), printed: '59.9', clear: false },
+      // 5800 - RPO sat 8 x 10 + drone 9 x 31
+      { hundredths: 5999, state: fleet([['drone', 31]], 90), printed: '59.9', clear: false },
+      // 5800 + RPO sat 8 x 25
+      { hundredths: 6000, state: fleet([['rpoSat', 25]]), printed: '60', clear: true },
+    ]
+    for (const { hundredths, state, printed, clear } of cases) {
+      const cov = coverage(state.assets)
+      const at = `coverage ${hundredths / 100}`
+      // The construction, exactly: no float noise either side of the line.
+      expect(cov, `${at}: the hand-built fleet covers ${cov}`).toBe(hundredths / 100)
+      expect(cov >= coverageMin, `${at}: the case sits on the wrong side of the minimum`).toBe(clear)
+      expect(String(coverageFigure(cov)), `${at}: coverageFigure prints ${coverageFigure(cov)}`).toBe(printed)
+
+      const after = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
+      const start = deriveBeats(state, after).find((b) => b.kind === 'turn-start')!
+      const said = [start.title, ...start.lines].join(' ')
+      const posture = briefCopy(state).full.join(' ')
+      if (clear) {
+        expect(said, `${at}: the turn-start card calls a fleet at the minimum under it`).not.toContain('is under the')
+        expect(start.lines.some((l) => l.startsWith('Coverage ')), `${at}: the turn-start card prints a coverage line`).toBe(
+          false,
+        )
+        expect(posture, `${at}: the posture panel says "${posture}"`).toContain(
+          `Coverage ${printed}, clear of the ${coverageMin} the SLA pays at.`,
+        )
+        expect(posture, `${at}: the posture panel takes the under branch`).not.toContain(`The SLA pays ${credits} a turn from`)
+      } else {
+        expect(start.lines, `${at}: the turn-start card says "${said}"`).toContain(
+          `Coverage ${printed} is under the ${coverageMin} the SLA pays ${credits} at.`,
+        )
+        expect(posture, `${at}: the posture panel says "${posture}"`).toContain(
+          `Coverage ${printed}. The SLA pays ${credits} a turn from ${coverageMin}.`,
+        )
+        expect(posture, `${at}: the posture panel calls a fleet under the minimum clear of it`).not.toContain('clear of the')
+        for (const text of [said, posture]) {
+          expect(text, `${at}: a surface prints the minimum as the fleet's coverage: "${text}"`).not.toContain(
+            `Coverage ${coverageMin}`,
+          )
+        }
+      }
+    }
+  })
+
   it('gives a quiet turn a beat that says what held, not just that nothing came', () => {
+    // v1.3 Round 0: turn 1 scripts a move, so it is quiet only when it is
+    // held outright (the quiet beat is "nothing reached you", not "nothing
+    // came"). Turn 1 under the prepared script's orders is that turn.
+    const before = newGame(DEFAULT_SCENARIO, 1, 'standard')
     const quiet = (() => {
-      const before = newGame(DEFAULT_SCENARIO, 1, 'standard')
-      const after = resolveTurn(before, NO_OP, turnRng(before.seed, before.turn))
+      const after = resolveTurn(before, HOLDS_TURN_1, turnRng(before.seed, before.turn))
+      const record = after.history[after.history.length - 1]
+      expect(record.events.length, 'turn 1 scripted no move, so nothing was held').toBeGreaterThan(0)
+      expect(record.events.map((e) => e.outcome), 'turn 1 was not held outright').toEqual(record.events.map(() => 'held'))
       return deriveBeats(before, after).find((b) => b.kind === 'quiet')
     })()
-    expect(quiet, 'turn 1 no longer produces a quiet beat').toBeDefined()
+    expect(quiet, 'a turn held outright produced no quiet beat').toBeDefined()
     // The layers are what DirectorView pulses, so this is the assertion
     // that the layer-badge vocabulary reaches turn 1 at all.
     expect(quiet!.layers?.length, 'the quiet beat carries no layers, so no badge pulses').toBeGreaterThan(0)
@@ -542,7 +727,7 @@ describe('the opening: the turn-1 card tells the truth (Round 7b)', () => {
       `${quiet!.layers!.length} of ${LAYERS.length} layers holding`,
     )
     expect(quiet!.layers, 'the badges that pulse are not the layers the title counts').toEqual(
-      LAYERS.filter((l) => newGame(DEFAULT_SCENARIO, 1, 'standard').assets.some((a) => a.layer === l && a.integrity > 0)),
+      LAYERS.filter((l) => before.assets.some((a) => a.layer === l && a.integrity > 0)),
     )
   })
 
@@ -555,7 +740,8 @@ describe('the opening: the turn-1 card tells the truth (Round 7b)', () => {
       ...base,
       assets: base.assets.map((a) => (a.layer === 'GROUND' ? { ...a, integrity: 0 } : a)),
     }
-    const after = resolveTurn(wiped, NO_OP, turnRng(wiped.seed, wiped.turn))
+    // Held outright, so the night is quiet (v1.3 Round 0; see above).
+    const after = resolveTurn(wiped, HOLDS_TURN_1, turnRng(wiped.seed, wiped.turn))
     const quiet = deriveBeats(wiped, after).find((b) => b.kind === 'quiet')
     expect(quiet, 'the wiped fleet produced no quiet beat').toBeDefined()
     expect(quiet!.title, `with GROUND down the beat says "${quiet!.title}"`).toContain(
@@ -593,6 +779,13 @@ describe('the opening: the reading diet has a floor as well as a ceiling (Round 
         }
       }
     }
-    expect(shortest, `shortest opening screen: ${shortest} words at ${at}`).toBe(35)
+    // 35 in v1.2, on a turn 1 that scripted no move ("No adversary
+    // activity forecast"). 37 since v1.3 Round 0, still on turn 1: the
+    // night now has a move, and the free intel brief states its shape
+    // ("One of 2 on ORBIT, AIR" over "2 candidates on ORBIT, AIR; RF
+    // signature."), 13 words above the HUD's 24. The dark turns after it
+    // run longer, because their vector line also says what the brief
+    // would add.
+    expect(shortest, `shortest opening screen: ${shortest} words at ${at}`).toBe(37)
   })
 })

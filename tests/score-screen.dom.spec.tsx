@@ -97,7 +97,9 @@ function play(seed: number, script: Record<number, TurnActions>): GameState {
   while (state.status === 'playing') state = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
   return state
 }
-// A won campaign and a lost one, both with hits and a mixed strip.
+// A won campaign and a lost one, both with hits and a mixed strip (the
+// six-turn WIN_SCRIPT run on this seed is S with 4 hits; the LOSS_SCRIPT
+// run is D with 9).
 const WON = () => play(20260712, WIN_SCRIPT)
 const LOST = () => play(20260712, LOSS_SCRIPT)
 const TODAY: DailyOp = { dateKey: '20260927', n: 1 }
@@ -175,8 +177,13 @@ describe('the reveal (brief 7.2)', () => {
       played.push(cue)
       return true
     })
-    const state = WON()
+    // The lost line: halfway through a stat's turn its count has eased
+    // about 90 percent of the way, so a stat under 5 already shows its
+    // final whole number there. The six-turn won line takes 4 hits; the
+    // lost line takes 9, so every stat is visibly on its way.
+    const state = LOST()
     const finals = expected(state)
+    expect(finals[1], 'too few hits to see the count mid-way').toBeGreaterThanOrEqual(5)
     show(state)
     const blips = () => played.filter((c) => c === 'tick-up').length
 
@@ -412,7 +419,13 @@ describe('the debrief (brief 4.8)', () => {
   it('lists every threat the run faced, with its techniques and sources, once it is opened', async () => {
     setReducedMotion(true)
     // The won line: it took hits, held a threat and met an opportunity.
-    const state = WON()
+    // Since v1.3 an opportunity comes only on a 0.2 chance on turns 2 to 5,
+    // and the WIN_SEED run meets none, so the line is played from the first
+    // seed whose run does.
+    let state = WON()
+    const metOpportunity = (s: GameState) =>
+      s.history.some((rec) => rec.events.some((ev) => DEFAULT_SCENARIO.events.find((e) => e.id === ev.eventId)?.kind === 'opportunity'))
+    for (let seed = 1; seed <= 50 && !metOpportunity(state); seed += 1) state = play(seed, WIN_SCRIPT)
     show(state)
     expect(container.querySelector('[data-debrief]'), 'the debrief rendered before it was opened').toBeNull()
     const open = byText(/^DEBRIEF$/)!
@@ -454,7 +467,7 @@ describe('the debrief (brief 4.8)', () => {
     // ANSWERED BY (critique row M3): each threat's defenses, from the
     // content, each owned or not at the end of the run. Naming them here is
     // the answer key the player earned by meeting the threat (ruling R1,
-    // 4 October 2026); the HARDEN sheet still names no threat.
+    // 4 October 2026; the rule is src/engine/learning.ts answerKey).
     const marks: string[] = []
     for (const li of items) {
       const def = DEFAULT_SCENARIO.events.find((e) => e.id === li.getAttribute('data-debrief-threat'))!

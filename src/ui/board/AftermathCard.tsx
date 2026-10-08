@@ -37,14 +37,11 @@ export default function AftermathCard({ record, state, scenario, reducedMotion, 
           {helped}
         </p>
       )}
-      {record.commendations.length > 0 && (
+      {/* The defense streak (v1.3 brief 6.8), where the commendations'
+          ribbon was: shown once it reaches two. */}
+      {record.streak >= 2 && (
         <div className={`mt-2 border border-hero-blue/50 bg-hero-blue/5 p-2 ${reducedMotion ? '' : 'dc-ribbon-in'}`}>
-          <p className="text-xs font-bold text-hero-blue uppercase tracking-widest">Commendations</p>
-          {record.commendations.map((c, i) => (
-            <p key={i} className="text-sm mt-1 text-hero-blue">
-              {c}
-            </p>
-          ))}
+          <p className="text-xs font-bold text-hero-blue uppercase tracking-widest">Defense streak ×{record.streak}</p>
         </div>
       )}
       {/* The turn's threats, each one tap from its Field Library entries
@@ -69,6 +66,16 @@ export default function AftermathCard({ record, state, scenario, reducedMotion, 
           Details: turn ledger ({record.events.length} event{record.events.length === 1 ? '' : 's'}, {record.notes.length} note
           {record.notes.length === 1 ? '' : 's'})
         </summary>
+        {/* Every line that made the budget (brief 5.5 item 6, rule 5):
+            Round 3 gives this its own END OF TURN card. */}
+        <p className="mt-1 font-mono text-sm" data-turn-ledger>
+          Left after tonight's orders {record.ledger.afterNight}; repairs -{record.ledger.repairs}; keeping{' '}
+          {record.ledger.defensesKept} defenses -{record.ledger.upkeep};{' '}
+          {record.ledger.insolvent
+            ? 'funding frozen'
+            : `funding +${record.ledger.funding}; coverage bonus ${record.ledger.coverageBonus ? `+${record.ledger.coverageBonus}` : 'missed'}`}
+          ; budget {record.ledger.after}.
+        </p>
         {record.notes.map((n, i) => (
           <p key={i} className="mt-1 font-mono text-sm">
             {n}
@@ -109,7 +116,7 @@ export default function AftermathCard({ record, state, scenario, reducedMotion, 
               <p className={`text-sm font-mono mt-1 ${landed ? 'text-hero-magenta' : 'text-ink-dim'}`}>
                 Severity {ev.baseSeverity} base {ev.chainBonus > 0 ? `+ ${ev.chainBonus} chain ` : ''}
                 {ev.mitigation > 0 ? `- ${ev.mitigation} mitigated ` : ''}= {ev.effectiveSeverity} effective.
-                {ev.repairCost > 0 ? ` Repairs: ${ev.repairCost} credits.` : ''}
+                {ev.repairCost > 0 ? ` Repairs, due at the turn close: ${ev.repairCost} credits.` : ''}
               </p>
               {ev.notes.map((n, j) => (
                 <p key={j} className="text-sm mt-1">

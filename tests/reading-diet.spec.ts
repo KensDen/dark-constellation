@@ -12,10 +12,10 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { BEAT_KINDS, deriveBeats } from '../src/director'
-import { DIFFICULTIES, effectiveIntel, newGame, resolveTurn } from '../src/engine/reducer'
+import { DIFFICULTIES, briefFree, gnssDenied, newGame, resolveTurn } from '../src/engine/reducer'
 import { coverage, maiScore } from '../src/engine/scoring'
 import { turnRng } from '../src/engine/rng'
-import type { Difficulty, GameState, ResolvedEvent, TurnActions, TurnRecord } from '../src/engine/types'
+import type { AssetKind, Difficulty, GameState, ResolvedEvent, TurnActions, TurnRecord } from '../src/engine/types'
 import {
   CHAIN_ARMED_LINE,
   CHROME_WORD_BUDGET,
@@ -39,8 +39,10 @@ import {
 } from '../src/ui/brief'
 import { ACTIONS, SKIP_TIPS, fKeyOf, openingObjective, resolveLabel } from '../src/ui/board/actions'
 import { NOTHING, OPS_LOG_HEADING, OPS_LOG_TURNS, opsLogCopy, opsLogLine } from '../src/ui/board/wide'
+import { coverageFigure } from '../src/ui/labels'
 import { VERDICT_WORD_MAX, verdictFor } from '../src/ui/verdict'
 import { short } from '../src/ui/wouldHaveHelped'
+import { buyEverything } from './policies'
 import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
@@ -66,14 +68,25 @@ const BEAT_TITLE_WORD_BUDGET = 14
 // structural maximum (two long defense names), and the card's title and
 // line together at 21. Pinned, so a change that moves either comes here
 // and says so.
+//
+// 20 since v1.3 Round 0. The 21 was "Docking LiDAR dazzle on the RPO sat"
+// over a line naming "Tier A sensor procurement and firmware attestation";
+// brief 6.6 renamed that defense "Firmware attestation and assured
+// sourcing", two words shorter, and the worst card is now the rogue
+// ground station's (6 words of title over the 14-word line, the passive
+// line on turn 5 on Easy, seed 2). The line's own worst stays at 14.
 const WORST_HELPED_LINE = 14
-const WORST_HIT_CARD_TITLE_AND_LINE = 21
+const WORST_HIT_CARD_TITLE_AND_LINE = 20
 
 // The wide board's ops log at its longest over the EXTREME_SEEDS sweep
 // (v1.2 R6), pinned so a change that moves it comes here and says so.
 // Measured at 54 against a structural bound of 71, the lazy line after
-// turn 11 on Easy, seed 20: three rows of long verdicts.
-const WORST_OPS_LOG = 54
+// turn 11 on Easy, seed 20: three rows of long verdicts. 50 since v1.3
+// Round 0, on the six-turn plan: the passive line after turn 5 on Easy,
+// seed 2, whose last three verdicts are the rogue ground station "and 1
+// more", the LiDAR dazzle alone (the debris call held its orbit) and
+// uplink jamming "and 1 more".
+const WORST_OPS_LOG = 50
 
 const tokensOf = (text: string) => new Set(text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
 
@@ -91,12 +104,14 @@ const SEEDS = 12
 // up at seeds 15 and 24): a 12-seed sweep re-pinned to what it could see
 // would have let the real extreme outgrow its budget unseen.
 const EXTREME_SEEDS = 40
-const DIFFS: Difficulty[] = ['easy', 'standard', 'expert']
+// EASY and STANDARD since v1.3 Round 0, which retired Expert (brief 5.1).
+const DIFFS: Difficulty[] = ['easy', 'standard']
 // Five lines of play, so the copy is measured against the deck as a lazy
 // player meets it as well as a prepared one. The top-intel line is the one
-// that matters most to the budget and was missing until Round 3.5: the
-// other four never reach effective intel 3, so the longest brief the game
-// can produce was never measured at all.
+// that mattered most to the budget and was missing until Round 3.5: the
+// other four never reached effective intel 3, so the longest brief the game
+// could produce was never measured at all. Since v1.3 Round 0 it orders the
+// intel brief every night (D2 a), the only intel there is.
 const LINES: [string, Record<number, TurnActions>][] = [
   ['prepared', WIN_SCRIPT],
   ['top intel', TOP_INTEL_SCRIPT],
@@ -139,19 +154,21 @@ function playExtremes(): Campaign[] {
   return out
 }
 
-// Every intel level a player can reach, so the brief is measured at the
-// fidelity that produces the longest copy, not just the default.
-function statesAtEveryIntel(seed: number): GameState[] {
-  const out: GameState[] = []
-  for (let level = 0; level <= 3; level += 1) {
-    let state = newGame(DEFAULT_SCENARIO, seed)
-    for (let i = 0; i < level; i += 1) {
-      state = resolveTurn(state, { ...NO_OP, buyIntelLevel: true }, turnRng(state.seed, state.turn))
-    }
-    out.push(state)
-  }
-  return out
-}
+// Every fidelity the brief can show on a turn, so it is measured at the one
+// that produces the longest copy, not just the default. The intel levels 0
+// to 3 left in v1.3 Round 0 (D2 a): the brief now NAMES tonight's moves or
+// leaves them DARK. It names them on a night it is free (turn 1, and the
+// turns an allied data share covers) and on any night it is ordered, which
+// the banner shows at once (ThreatBanner's `briefed`), so a turn that is
+// not free can show either and a free one only the named copy.
+const fidelities = (state: GameState): boolean[] => (briefFree(state) ? [true] : [false, true])
+const fidelityLabel = (briefed: boolean) => (briefed ? 'brief named' : 'brief dark')
+
+// The same turn with the brief free on it, as an allied data share makes a
+// later turn (benefit.briefTurns): the first screen then carries the named
+// copy before any input, which is the only way the named copy reaches
+// firstInputCopy after turn 1.
+const freeTonight = (state: GameState): GameState => ({ ...state, briefFreeThrough: Math.max(state.briefFreeThrough, state.turn) })
 
 describe('reading diet: the intel brief', () => {
   // Played in a hook rather than by the first test that needs them, so the
@@ -162,18 +179,20 @@ describe('reading diet: the intel brief', () => {
     extremes = playExtremes()
   })
 
-  it('keeps the headline inside its word budget on every turn, intel level and difficulty', () => {
+  it('keeps the headline inside its word budget on every turn, brief fidelity and difficulty', () => {
     let checked = 0
     for (const [name, script] of LINES) {
       for (const difficulty of DIFFS) {
         for (let seed = 1; seed <= SEEDS; seed += 1) {
           for (const { before } of playTurns(seed, script, difficulty)) {
-            const copy = briefCopy(before)
-            checked += 1
-            expect(
-              countWords(copy.headline),
-              `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}: "${copy.headline}"`,
-            ).toBeLessThanOrEqual(HEADLINE_WORD_MAX)
+            for (const briefed of fidelities(before)) {
+              const copy = briefCopy(before, briefed)
+              checked += 1
+              expect(
+                countWords(copy.headline),
+                `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, ${fidelityLabel(briefed)}: "${copy.headline}"`,
+              ).toBeLessThanOrEqual(HEADLINE_WORD_MAX)
+            }
           }
         }
       }
@@ -181,15 +200,25 @@ describe('reading diet: the intel brief', () => {
     expect(checked).toBeGreaterThan(SEEDS * DIFFS.length * LINES.length * 4)
   })
 
-  it('keeps every intel level inside the headline budget, including the named-event level', () => {
+  it('keeps both brief fidelities inside the headline budget, including the named-event headline', () => {
+    // v1.3 Round 0: the two fidelities on every turn of a campaign stand in
+    // for the four intel levels a player could buy up to. The named-event
+    // headline is the briefed one on a turn with a CONFIRMED move, which
+    // carries the technique tag; counted, so the sweep cannot quietly stop
+    // reaching it.
+    let named = 0
     for (let seed = 1; seed <= SEEDS; seed += 1) {
-      for (const state of statesAtEveryIntel(seed)) {
-        const copy = briefCopy(state)
-        expect(countWords(copy.headline), `${copy.headline}`).toBeLessThanOrEqual(HEADLINE_WORD_MAX)
-        expect(copy.headline.length).toBeGreaterThan(0)
-        expect(copy.vector.length).toBeGreaterThan(0)
+      for (const { before } of playTurns(seed, LOSS_SCRIPT)) {
+        for (const briefed of [false, true]) {
+          const copy = briefCopy(before, briefed)
+          if (copy.tag) named += 1
+          expect(countWords(copy.headline), `${copy.headline}`).toBeLessThanOrEqual(HEADLINE_WORD_MAX)
+          expect(copy.headline.length).toBeGreaterThan(0)
+          expect(copy.vector.length).toBeGreaterThan(0)
+        }
       }
     }
+    expect(named, 'no state named a confirmed move, so the named-event headline was not measured').toBeGreaterThan(0)
   })
 
   it('stays inside sixty words before the first input on every turn of a campaign', () => {
@@ -214,16 +243,20 @@ describe('reading diet: the intel brief', () => {
     expect(overruns.join('\n')).toBe('')
   })
 
-  it('stays inside the budget at every intel level the opening can reach', () => {
-    // Named for what it measures: these are turn-4 states, because the
-    // helper buys intel on consecutive turns from turn 1 and stops. The
-    // mid-campaign top-intel copy is measured by the sweep above, through
-    // the top-intel line of play.
+  it('stays inside the budget with the brief free on any turn, as an allied data share makes it', () => {
+    // v1.3 Round 0. The intel levels the opening could reach left with the
+    // intel investment; what puts the named copy on the first screen now is
+    // a free brief, which an allied data share extends to later turns. The
+    // sweep above meets those turns only where a seed draws the share, so
+    // every turn of a campaign is measured here with the brief free, which
+    // is a superset of what play reaches (no share can free turn 2).
     for (let seed = 1; seed <= SEEDS; seed += 1) {
-      for (const state of statesAtEveryIntel(seed)) {
+      for (const { before } of playTurns(seed, LOSS_SCRIPT)) {
+        const state = freeTonight(before)
+        expect(briefFree(state), `turn ${state.turn}: the fixture did not free the brief`).toBe(true)
         expect(
           firstInputWords(state, DIFFICULTIES.standard.label),
-          `intel ${state.intelLevel}, seed ${seed}`,
+          `turn ${state.turn}, seed ${seed}, brief free: ${firstInputCopy(state, DIFFICULTIES.standard.label).join(' / ')}`,
         ).toBeLessThanOrEqual(FIRST_INPUT_WORD_BUDGET)
       }
     }
@@ -240,35 +273,52 @@ describe('reading diet: the intel brief', () => {
     // campaign sweep's own worst was 46: between them they implied far
     // more headroom than the game actually has, which is six words. This
     // fails if that coverage goes.
-    const levels = new Set<number>()
+    //
+    // v1.3 Round 0: the fidelities are the brief NAMED or DARK (see
+    // `fidelities`), and the expensive branches the sweep must reach are
+    // the named copy with a confirmed move (the lead, "plus N more" and the
+    // technique tag at once), which the first screen carries only where an
+    // allied data share frees the brief on turn 4 or 6, and the dark copy
+    // under the BLACKOUT CHAIN banner. Each is required separately.
+    const reached = new Set<string>()
     let worst = 0
     let worstAt = ''
     for (const [name, script] of LINES) {
       for (const difficulty of DIFFS) {
         for (let seed = 1; seed <= SEEDS; seed += 1) {
           for (const { before } of playTurns(seed, script, difficulty)) {
-            levels.add(effectiveIntel(before))
+            const named = briefFree(before)
+            reached.add(fidelityLabel(named))
+            if (named && briefCopy(before).tag) reached.add('named lead with its tag')
+            if (!named && gnssDenied(before.conditions, before.scenario)) reached.add('dark under the chain banner')
             const words = firstInputWords(before, DIFFICULTIES[difficulty].label)
             if (words > worst) {
               worst = words
-              worstAt = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}`
+              worstAt = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, ${fidelityLabel(named)}`
             }
           }
         }
       }
     }
-    expect([...levels].sort(), 'the sweep never reaches top intel').toContain(3)
+    for (const branch of ['brief named', 'brief dark', 'named lead with its tag', 'dark under the chain banner']) {
+      expect([...reached], `the sweep never reaches the ${branch} branch`).toContain(branch)
+    }
     // Two-sided on purpose. The ceiling is the budget; the floor is the
     // reason the coverage matters, because a sweep that stopped producing
-    // long copy would pass the budget while measuring nothing. 54 is the
-    // figure the brief's six words of headroom rest on, so a change that
-    // moves it should have to say so here.
+    // long copy would pass the budget while measuring nothing.
     expect(worst, `worst brief measured: ${worst} words at ${worstAt}`).toBeLessThanOrEqual(FIRST_INPUT_WORD_BUDGET)
-    // The exact figure, because it is the one src/ui/brief.ts and the
-    // brief's section 5 both quote as the reason headroom is six words and
-    // not twenty. The message prints the new worst, so re-baselining is a
-    // one-line edit that forces those two to be updated with it.
-    expect(worst, `worst brief measured: ${worst} words at ${worstAt}`).toBe(54)
+    // The exact figure, because src/ui/brief.ts and the brief's section 5
+    // quote it as the reason the headroom is what it is. The message prints
+    // the new worst, so re-baselining is a one-line edit that forces those
+    // two to be updated with it.
+    //
+    // 54 through v1.2, at top intel. 56 since v1.3 Round 0, and on a DARK
+    // turn: the passive line on turn 4 on Easy, seed 3, where the vector
+    // line names four signatures over two layers and adds "Order an intel
+    // brief to name the moves.", under the BLACKOUT CHAIN banner that a
+    // turn-3 PNT jam left live. Four words of headroom, not six; the
+    // comment in src/ui/brief.ts still quotes 54.
+    expect(worst, `worst brief measured: ${worst} words at ${worstAt}`).toBe(56)
   })
 
   it('counts every line the brief is built from, so none can be dropped from the budget', () => {
@@ -277,6 +327,7 @@ describe('reading diet: the intel brief', () => {
     // measured set and every budget test would still pass, quieter and
     // wrong. So the enumeration is checked against the pieces the brief is
     // actually built from rather than trusted to list them.
+    let sawRawDiffers = false
     for (const [name, script] of LINES) {
       for (let seed = 1; seed <= SEEDS; seed += 1) {
         for (const { before } of playTurns(seed, script)) {
@@ -288,7 +339,9 @@ describe('reading diet: the intel brief', () => {
           expect(measured, `${where}: headline missing`).toContain(copy.headline)
           expect(measured, `${where}: vector line missing`).toContain(copy.vector)
           if (copy.tag) expect(measured, `${where}: technique tag missing`).toContain(`Technique: ${copy.tag}`)
-          if (before.flags.lidarFallback) {
+          // The banner renders while GNSS denial is live (the lidarFallback
+          // flag until v1.3 Round 0).
+          if (gnssDenied(before.conditions, before.scenario)) {
             expect(measured, `${where}: chain banner missing`).toContain(CHAIN_ARMED_LINE)
           }
           for (const hudLabel of Object.values(labels)) {
@@ -299,10 +352,15 @@ describe('reading diet: the intel brief', () => {
           // enumeration would measure every turn a word light. Counted
           // rather than merely found, so two meters showing the same value
           // cannot cover for each other.
+          //
+          // Coverage as the HUD prints it: coverageFigure, one decimal
+          // rounded down (src/ui/labels.ts), since v1.3 weighs it by
+          // integrity and the raw figure carries two decimals.
+          const cov = coverage(before.assets)
           const values = [
             String(maiScore(before)),
             String(before.credits),
-            String(coverage(before.assets)),
+            String(coverageFigure(cov)),
             String(before.meters.linkAvailability),
             String(before.meters.dataIntegrity),
             String(before.meters.sensorIntegrity),
@@ -313,11 +371,24 @@ describe('reading diet: the intel brief', () => {
             const found = measured.filter((line) => line === v).length
             expect(found, `${where}: HUD value ${v} appears ${found} times, expected ${n}`).toBe(n)
           }
+          // And never the raw coverage where it differs from the figure:
+          // the enumeration must measure the words the HUD shows, not the
+          // float behind them.
+          if (!counts.has(String(cov))) {
+            sawRawDiffers = true
+            expect(
+              measured.filter((line) => line === String(cov)).length,
+              `${where}: the raw coverage ${cov} is measured instead of the figure ${coverageFigure(cov)}`,
+            ).toBe(0)
+          }
           const turn = Math.min(before.turn, DEFAULT_SCENARIO.totalTurns)
           expect(measured, `${where}: status line missing`).toContain(hudStatusLine(before, label, turn))
         }
       }
     }
+    expect(sawRawDiffers, 'coverage never printed differently from its raw value, so the figure was never told apart').toBe(
+      true,
+    )
   })
 
   it('counts every control the chrome bound claims to cover', () => {
@@ -474,7 +545,7 @@ describe('reading diet: the intel brief', () => {
   //
   // What is bounded instead is what the disclosure ADDS.
 
-  it('expands into something the summary does not already say, at every intel level', () => {
+  it('expands into something the summary does not already say, at every brief fidelity', () => {
     // The dead control, measured at every level before this round: 0 novel
     // tokens at intel 0 turn 1 (the expansion was the summary concatenated
     // verbatim), 6 at intel 0 afterwards and all six of them function
@@ -483,23 +554,24 @@ describe('reading diet: the intel brief', () => {
     // intel 2. At intel 1 and 2 the expansion was also SHORTER than the
     // summary, so a player tapped "Expand full brief" and received less
     // than was already on screen. Only intel 3 earned its tap.
+    //
+    // Since v1.3 Round 0 the levels are the two fidelities (`fidelities`),
+    // each measured on every turn that can show it.
     const dead: string[] = []
     let worstNovel = Infinity
     let worstNovelAt = ''
     expect(extremes).toHaveLength(LINES.length * DIFFS.length * EXTREME_SEEDS)
     for (const { name, difficulty, seed, turns } of extremes) {
       for (const { before } of turns) {
-        const copy = briefCopy(before)
-        const novel = novelTokens(copy)
-        if (novel.length < worstNovel) {
-          worstNovel = novel.length
-          worstNovelAt = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, intel ${effectiveIntel(before)}`
-        }
-        if (novel.length < DISCLOSURE_NOVEL_MIN) {
-          dead.push(
-            `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, intel ${effectiveIntel(before)}: ` +
-              `${novel.length} novel tokens behind the tap`,
-          )
+        for (const briefed of fidelities(before)) {
+          const copy = briefCopy(before, briefed)
+          const novel = novelTokens(copy)
+          const at = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, ${fidelityLabel(briefed)}`
+          if (novel.length < worstNovel) {
+            worstNovel = novel.length
+            worstNovelAt = at
+          }
+          if (novel.length < DISCLOSURE_NOVEL_MIN) dead.push(`${at}: ${novel.length} novel tokens behind the tap`)
         }
       }
     }
@@ -511,7 +583,14 @@ describe('reading diet: the intel brief', () => {
     // exactly that and slept. Pinning the floor's real distance from the
     // bar makes both directions have to come here and say so. Swept over
     // EXTREME_SEEDS since v1.2 R5a (see the constant).
-    expect(worstNovel, `thinnest disclosure measured: ${worstNovel} novel tokens at ${worstNovelAt}`).toBe(31)
+    //
+    // 31 through v1.2. 25 since v1.3 Round 0, on a dark night with the
+    // fleet whole and nothing in transit (the prepared line, turn 2 on
+    // Easy, seed 1): the dark summary already says "Order an intel brief to
+    // name the moves" and names the layers, so the panel's last line, "An
+    // intel brief costs 8 and names tonight's moves.", adds little more
+    // than its price. Still four times the floor.
+    expect(worstNovel, `thinnest disclosure measured: ${worstNovel} novel tokens at ${worstNovelAt}`).toBe(25)
   })
 
   it('varies the expansion with the state it describes, so a frozen string fails', () => {
@@ -523,7 +602,7 @@ describe('reading diet: the intel brief', () => {
       const fresh = newGame(DEFAULT_SCENARIO, seed)
       const bought = resolveTurn(
         fresh,
-        { ...NO_OP, buyAssets: [{ kind: 'drone', tier: 'B' }] },
+        { ...NO_OP, buyAssets: [{ kind: 'drone' }] },
         turnRng(fresh.seed, fresh.turn),
       )
       const plain = resolveTurn(fresh, NO_OP, turnRng(fresh.seed, fresh.turn))
@@ -535,10 +614,16 @@ describe('reading diet: the intel brief', () => {
       // the coverage figure to the literal 44 slept, because the in-transit
       // line varied instead and covered for it. Each fact the panel claims
       // to report is joined to the function that owns it.
+      //
+      // The surge authority this joined until v1.3 Round 0 left with SURGE;
+      // the panel's line about the intel brief took its place, joined to
+      // briefFree and the deck's price (free on turn 1, priced after it).
       for (const st of [fresh, bought, plain]) {
         const body = briefCopy(st).full.join(' ')
-        expect(body, `seed ${seed}: the panel does not report the real surge authority`).toContain(
-          String(st.surgeTokens),
+        expect(body, `seed ${seed}, turn ${st.turn}: the panel does not report whether tonight's brief is free`).toContain(
+          briefFree(st)
+            ? "Tonight's intel brief is free"
+            : `An intel brief costs ${st.scenario.prices.intelBrief}`,
         )
       }
     }
@@ -608,36 +693,141 @@ describe('reading diet: the intel brief', () => {
     // structures only join where they can disagree, so this walks real
     // campaigns until coverage has actually moved off its starting value
     // and fails if it never does.
+    //
+    // v1.3 Round 0 weighs coverage by integrity (brief 6.1), so it is
+    // fractional once a tile is damaged, and `String(cov)` stopped being a
+    // figure a player reads. The join is now to the EXACT figure every
+    // coverage readout prints, coverageFigure (one decimal rounded down,
+    // src/ui/labels.ts). The first pass accepted any figure within a
+    // rounding tolerance, which also accepted 59.96 printed as "60" beside
+    // a line saying the SLA pays from 60.
     let sawMoved = false
+    let sawFractional = false
+    let sawRoundedDown = false
+    let sawClear = false
+    let sawUnder = false
     const start = coverage(newGame(DEFAULT_SCENARIO, 1).assets)
     for (const [name, script] of LINES) {
       for (let seed = 1; seed <= SEEDS; seed += 1) {
         for (const { before } of playTurns(seed, script)) {
           const cov = coverage(before.assets)
+          const { coverageMin, credits } = before.scenario.slaBonus
+          const figure = coverageFigure(cov)
           if (cov !== start) sawMoved = true
-          expect(
-            briefCopy(before).full.join(' '),
-            `${name}, turn ${before.turn}, seed ${seed}: the panel does not report coverage ${cov}`,
-          ).toContain(String(cov))
+          if (!Number.isInteger(cov)) sawFractional = true
+          if (Math.round(cov * 10) / 10 !== figure) sawRoundedDown = true
+          const body = briefCopy(before).full.join(' ')
+          const at = `${name}, turn ${before.turn}, seed ${seed}`
+          const shown = /\bCoverage (\S+?)[.,](?:\s|$)/.exec(body)?.[1]
+          expect(shown, `${at}: the panel does not report coverage ${cov}: "${body}"`).toBeDefined()
+          expect(shown, `${at}: coverage ${cov} printed as "${shown}", not as ${figure}`).toBe(String(figure))
+          // What a player reads, checked without the helper, so a change
+          // to coverageFigure itself cannot carry the panel with it: a
+          // readout (whole, or one decimal), never above the coverage, and
+          // less than a tenth below it.
+          expect(shown, `${at}: coverage ${cov} printed as "${shown}"`).toMatch(/^\d+(\.\d)?$/)
+          expect(Number(shown), `${at}: coverage ${cov} printed above itself as "${shown}"`).toBeLessThanOrEqual(cov)
+          expect(cov - Number(shown), `${at}: coverage ${cov} printed as "${shown}"`).toBeLessThan(0.1)
+          // THE BRANCH AGREES WITH THE FIGURE: chosen on the exact
+          // coverage, and with the figure rounded down a fleet under the
+          // minimum can never print the minimum beside the under line.
+          const clear = cov >= coverageMin
+          expect(body.includes('clear of the'), `${at}: coverage ${cov} and the panel says "${body}"`).toBe(clear)
+          if (clear) {
+            sawClear = true
+            expect(body, `${at}: coverage ${cov}`).toContain(`Coverage ${figure}, clear of the ${coverageMin} the SLA pays at.`)
+          } else {
+            sawUnder = true
+            expect(body, `${at}: coverage ${cov}`).toContain(`Coverage ${figure}. The SLA pays ${credits} a turn from ${coverageMin}.`)
+            expect(Number(shown), `${at}: coverage ${cov} under the minimum printed as "${shown}"`).toBeLessThan(coverageMin)
+          }
         }
       }
     }
     expect(sawMoved, 'coverage never left its starting value, so the join could not disagree').toBe(true)
+    expect(sawFractional, 'coverage was never fractional, so the rounding was not measured').toBe(true)
+    expect(sawRoundedDown, 'no coverage told rounding down from rounding to nearest, so the direction was not measured').toBe(
+      true,
+    )
+    expect(sawClear, 'no state in the sweep cleared the coverage minimum, so the clear branch was not measured').toBe(true)
+    expect(sawUnder, 'no state in the sweep sat under the coverage minimum, so the under branch was not measured').toBe(true)
   })
 
-  it('leaks nothing about the deck ahead below top intel, so the purchase keeps its value', () => {
+  it('prints 59.9 and the under branch a hair under the coverage minimum, and 60 and the clear branch at it', () => {
+    // Built by hand: no swept state lands in [59.95, 60), the band where a
+    // figure rounded to the nearest tenth reads "60" (Math.round(59.95 *
+    // 10) / 10 is 60) and the panel would print the minimum it says the
+    // fleet has not reached. Both readouts on the brief screen are held
+    // here: the posture panel and the HUD's coverage value (firstInputCopy
+    // mirrors the HUD's Readout). The turn-start card's line is held on
+    // the same states in tests/opening.spec.ts. The starter fleet covers
+    // 58 (5800 hundredths: sats 13, RPO sat 8, drones 9, ground station 6,
+    // times integrity); each case adds to it.
+    const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
+    const { coverageMin, credits } = DEFAULT_SCENARIO.slaBonus
+    const label = DIFFICULTIES[base.difficulty].label
+    const layerOf = (kind: AssetKind) => base.assets.find((x) => x.kind === kind)!.layer
+    const rpo = base.assets.find((x) => x.kind === 'rpoSat')!.id
+    const fleet = (extra: [AssetKind, number][], rpoIntegrity = 100): GameState => ({
+      ...base,
+      assets: [
+        ...base.assets.map((x) => (x.id === rpo ? { ...x, integrity: rpoIntegrity } : x)),
+        ...extra.map(([kind, integrity], i) => ({
+          id: `start-${kind}-${base.assets.length + i + 1}`,
+          kind,
+          layer: layerOf(kind),
+          integrity,
+        })),
+      ],
+    })
+    const cases: { hundredths: number; state: GameState; printed: string; clear: boolean }[] = [
+      // 5800 + drone 9 x 15 + ground station 6 x 10
+      { hundredths: 5995, state: fleet([['drone', 15], ['groundStation', 10]]), printed: '59.9', clear: false },
+      // 5800 - RPO sat 8 x 7 + drone 9 x 28
+      { hundredths: 5996, state: fleet([['drone', 28]], 93), printed: '59.9', clear: false },
+      // 5800 - RPO sat 8 x 10 + drone 9 x 31
+      { hundredths: 5999, state: fleet([['drone', 31]], 90), printed: '59.9', clear: false },
+      // 5800 + RPO sat 8 x 25
+      { hundredths: 6000, state: fleet([['rpoSat', 25]]), printed: '60', clear: true },
+    ]
+    for (const { hundredths, state, printed, clear } of cases) {
+      const cov = coverage(state.assets)
+      const at = `coverage ${hundredths / 100}`
+      expect(cov, `${at}: the hand-built fleet covers ${cov}`).toBe(hundredths / 100)
+      expect(cov >= coverageMin, `${at}: the case sits on the wrong side of the minimum`).toBe(clear)
+
+      const body = briefCopy(state).full.join(' ')
+      expect(body.includes('clear of the'), `${at}: the posture panel says "${body}"`).toBe(clear)
+      expect(body, `${at}: the posture panel says "${body}"`).toContain(
+        clear
+          ? `Coverage ${printed}, clear of the ${coverageMin} the SLA pays at.`
+          : `Coverage ${printed}. The SLA pays ${credits} a turn from ${coverageMin}.`,
+      )
+      if (!clear) {
+        expect(body, `${at}: the posture panel prints the minimum as the coverage`).not.toContain(`Coverage ${coverageMin}`)
+      }
+
+      // The HUD's value, exactly once: the measured copy is the HUD's
+      // mirror, and a fleet under the minimum must not read as the minimum
+      // in it either. (No other HUD value on these states is 59.9 or 60:
+      // MAI is in the eighties, credits and the meters at 100.)
+      const measured = firstInputCopy(state, label)
+      expect(measured.filter((line) => line === printed).length, `${at}: the HUD prints ${printed} ${measured}`).toBe(1)
+      if (!clear) {
+        expect(measured, `${at}: the HUD prints the minimum for a fleet under it`).not.toContain(String(coverageMin))
+      }
+    }
+  })
+
+  it('leaks nothing about the deck ahead without the brief, so the purchase keeps its value', () => {
     // The other direction, and the one that would be a design defect
-    // rather than a dull screen. Everything the expansion says below intel
-    // 3 is the player's own public state, so two states differing ONLY in
-    // the campaign slots ahead of them must expand identically. If a
-    // forecast ever leaks in, this fails.
+    // rather than a dull screen. Everything the expansion says without the
+    // brief (below top intel until v1.3 Round 0) is the player's own public
+    // state, so two states differing ONLY in the campaign slots ahead of
+    // them must expand identically. If a forecast ever leaks in, this
+    // fails. Every turn of a campaign, read dark.
     for (let seed = 1; seed <= SEEDS; seed += 1) {
-      const base = newGame(DEFAULT_SCENARIO, seed)
-      for (let level = 0; level <= 2; level += 1) {
-        let state = base
-        for (let i = 0; i < level; i += 1) {
-          state = resolveTurn(state, { ...NO_OP, buyIntelLevel: true }, turnRng(state.seed, state.turn))
-        }
+      for (const { before: state } of playTurns(seed, LOSS_SCRIPT)) {
         // The same state, told a different turn is coming. Only the deck
         // ahead differs; the player's posture is identical.
         const elsewhere: GameState = {
@@ -650,9 +840,9 @@ describe('reading diet: the intel brief', () => {
           },
         }
         expect(
-          briefCopy(elsewhere).full.join(' '),
-          `seed ${seed}, intel ${level}: the expansion changed when only the deck ahead changed`,
-        ).toBe(briefCopy(state).full.join(' '))
+          briefCopy(elsewhere, false).full.join(' '),
+          `seed ${seed}, turn ${state.turn}, brief dark: the expansion changed when only the deck ahead changed`,
+        ).toBe(briefCopy(state, false).full.join(' '))
       }
     }
   })
@@ -670,10 +860,12 @@ describe('reading diet: the intel brief', () => {
       for (const difficulty of DIFFS) {
         for (let seed = 1; seed <= SEEDS; seed += 1) {
           for (const { before } of playTurns(seed, script, difficulty)) {
-            const words = countWords(disclosureBlocks(briefCopy(before)).join(' '))
-            if (words > worst) {
-              worst = words
-              worstAt = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, intel ${effectiveIntel(before)}`
+            for (const briefed of fidelities(before)) {
+              const words = countWords(disclosureBlocks(briefCopy(before, briefed)).join(' '))
+              if (words > worst) {
+                worst = words
+                worstAt = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, ${fidelityLabel(briefed)}`
+              }
             }
           }
         }
@@ -691,7 +883,13 @@ describe('reading diet: the intel brief', () => {
     // job framing got its heading and numbering back and line 1 regained
     // the "(MAI)" that introduces the abbreviation the HUD uses everywhere.
     // Measured through disclosureBlocks, the function the panel renders.
-    expect(worst, `worst disclosure measured: ${worst} words at ${worstAt}`).toBe(115)
+    //
+    // 119 since v1.3 Round 0, and on turn 1 (every line, both
+    // difficulties): the job framing (now with the upkeep sentence) above
+    // the free brief's one named slot and the five posture lines. One word
+    // under the cap of 120. countWords counts the " / " between the two
+    // candidates as a word, which is how the DOM test counts it too.
+    expect(worst, `worst disclosure measured: ${worst} words at ${worstAt}`).toBe(119)
   })
 
   it('bounds the beat title, the other channel no budget measured', () => {
@@ -706,16 +904,11 @@ describe('reading diet: the intel brief', () => {
     // is principle 17 inside the guard written under it. Round 7 measures
     // what the player reads (visible beats only), adds a line that spends
     // surge authority so `surge-spent` is reached at all, and derives the
-    // required set from BEAT_KINDS.
+    // required set from BEAT_KINDS. (`surge-spent` and its line left with
+    // SURGE in v1.3 Round 0; the five lines reach every visible kind.)
     let worst = 0
     let worstAt = ''
     const visibleKinds = new Set<string>()
-    const surgeLine = (state: GameState): TurnActions => {
-      const base = WIN_SCRIPT[state.turn] ?? NO_OP
-      return state.surgeTokens > 0 && state.conditions.length > 0
-        ? { ...base, spendSurgeOn: state.conditions[0].instanceId }
-        : base
-    }
     const measure = (name: string, difficulty: Difficulty, seed: number, before: GameState, after: GameState) => {
       for (const beat of deriveBeats(before, after)) {
         if (!beat.visible) continue
@@ -727,21 +920,10 @@ describe('reading diet: the intel brief', () => {
         }
       }
     }
-    // The five lines of play, already played (see playExtremes), then the
-    // surge line, which only this test needs.
+    // The five lines of play, already played (see playExtremes).
     expect(extremes).toHaveLength(LINES.length * DIFFS.length * EXTREME_SEEDS)
     for (const { name, difficulty, seed, turns } of extremes) {
       for (const { before, after } of turns) measure(name, difficulty, seed, before, after)
-    }
-    for (const difficulty of DIFFS) {
-      for (let seed = 1; seed <= EXTREME_SEEDS; seed += 1) {
-        let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
-        while (state.status === 'playing') {
-          const after = resolveTurn(state, surgeLine(state), turnRng(state.seed, state.turn))
-          measure('spends surge', difficulty, seed, state, after)
-          state = after
-        }
-      }
     }
     // THE REQUIRED SET IS DERIVED, and the exceptions are checked both
     // ways. Every beat kind must be seen on the card somewhere in the sweep
@@ -759,7 +941,13 @@ describe('reading diet: the intel brief', () => {
     // zero-recovery clause went back to naming the three meters. Re-pinned
     // in Round 7 against visible beats only and a surge-spending line.
     // Swept over EXTREME_SEEDS since v1.2 R5a (see the constant).
-    expect(worst, `worst beat title measured: ${worst} words at ${worstAt}`).toBe(13)
+    //
+    // 12 since v1.3 Round 0. The 13 was the turn-start title and its
+    // income, SLA and recovery clauses; the v1.3 turn card reads "Turn n:
+    // COLDVEIL is moving", and the longest title on a card is now the
+    // outcome below the line, "MISSION FAILED: below the win line at the
+    // end of the operation".
+    expect(worst, `worst beat title measured: ${worst} words at ${worstAt}`).toBe(12)
   })
 
   it('bounds the hit card\'s would-have-helped line, and pins what the card reads with it (critique row M3)', () => {
@@ -834,7 +1022,7 @@ describe('reading diet: the intel brief', () => {
     // turn and MAI line and a verdict at the verdict's own cap. The worst
     // is read over every state the sweep reaches after a turn, which is
     // the history the log shows.
-    const lineWords = countWords(opsLogLine({ turn: 12, mai: 100, verdict: '' }))
+    const lineWords = countWords(opsLogLine({ turn: DEFAULT_SCENARIO.totalTurns, mai: 100, verdict: '' }))
     const bound = countWords(OPS_LOG_HEADING) + OPS_LOG_TURNS * (lineWords + VERDICT_WORD_MAX)
     const words = (s: GameState) => opsLogCopy(s).reduce((n, l) => n + countWords(l), 0)
     let worst = 0
@@ -877,17 +1065,23 @@ describe('reading diet: the intel brief', () => {
     // deployed and in transit, the one retrofit pending, surge full and the
     // allied boost running. With the fleet and transit grouped by kind and
     // tier, no legal state can say more than this one.
+    //
+    // v1.3 Round 0 took the tiers, the retrofit, SURGE and the intel
+    // investment out of the deck, and added the upkeep line. The structure
+    // is now: every defense owned (the IR retainer among them), every kind
+    // deployed and in transit, and an allied data share running (the free
+    // brief for its full span), which is every line the panel can print.
     const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
-    const pairs = [['sat', 'A'], ['sat', 'B'], ['rpoSat', 'A'], ['rpoSat', 'B'], ['drone', 'A'], ['drone', 'B'], ['groundStation', 'B']] as const
+    const kinds = ['sat', 'rpoSat', 'drone', 'groundStation'] as const
     const layerOf = (k: string) => (k === 'drone' ? 'AIR' : k === 'groundStation' ? 'GROUND' : 'ORBIT')
+    const allied = DEFAULT_SCENARIO.events.find((e) => e.benefit?.briefTurns)?.benefit?.briefTurns
+    expect(allied, 'the deck no longer frees the brief for later turns').toBeGreaterThan(0)
     const worst: GameState = {
       ...base,
-      counters: DEFAULT_SCENARIO.countermeasures.map((c) => c.id).filter((id) => id !== 'intelInvestment'),
-      assets: pairs.map(([kind, tier], i) => ({ id: `max-${i}`, kind, tier, layer: layerOf(kind), integrity: 100 })) as GameState['assets'],
-      pipeline: pairs.map(([kind, tier], i) => ({ id: `pipe-${i}`, kind, tier, etaTurns: 3 })) as GameState['pipeline'],
-      pendingCounters: [{ id: 'sensorFusion', etaTurns: 1 }],
-      surgeTokens: 3,
-      intelBoostTurns: 2,
+      counters: DEFAULT_SCENARIO.countermeasures.map((c) => c.id),
+      assets: kinds.map((kind, i) => ({ id: `max-${i}`, kind, layer: layerOf(kind), integrity: 100 })) as GameState['assets'],
+      pipeline: kinds.map((kind, i) => ({ id: `pipe-${i}`, kind, etaTurns: 2 })),
+      briefFreeThrough: base.turn + allied!,
     }
     const words = countWords(postureDetailLines(worst).map((l) => l.text).join(' '))
     expect(words, `structural maximum: ${words} words`).toBeLessThanOrEqual(DISCLOSURE_WORD_BUDGETS['Posture detail'])
@@ -896,27 +1090,40 @@ describe('reading diet: the intel brief', () => {
     // in Round 7 (the budget rose from 110 to 170) rather than trimmed,
     // because cutting that list to a count removes information a player
     // might want and is copy the author has not seen.
-    expect(words, `structural maximum: ${words} words`).toBe(164)
+    //
+    // 164 through v1.2. 111 since v1.3 Round 0: the fleet and transit lines
+    // group by four kinds where they grouped by seven kind and tier pairs,
+    // the retrofit and surge lines are gone, and the firmware attestation
+    // defense's name is two words shorter (brief 6.6); the upkeep line is
+    // the one addition (fleet 15, defenses 48, transit 29, upkeep 9, allied
+    // brief 10).
+    expect(words, `structural maximum: ${words} words`).toBe(111)
   })
 
-  it('groups the fleet by kind and tier, and says surge is spent in a decision phase', () => {
+  it('groups the fleet by kind, and says what keeping the defenses costs', () => {
+    // v1.3 Round 0: the tiers left, so the fleet groups by kind alone, and
+    // the amber rule line is the upkeep (brief 6.1) where it was the surge
+    // rule, the line that can end the operation.
     const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
     const st: GameState = {
       ...base,
+      counters: ['antiJam', 'pntAuth'],
       assets: [
-        { id: 'a', kind: 'drone', tier: 'B', layer: 'AIR', integrity: 100 },
-        { id: 'b', kind: 'drone', tier: 'B', layer: 'AIR', integrity: 60 },
-        { id: 'c', kind: 'drone', tier: 'A', layer: 'AIR', integrity: 100 },
-        { id: 'd', kind: 'sat', tier: 'B', layer: 'ORBIT', integrity: 0 },
+        { id: 'a', kind: 'drone', layer: 'AIR', integrity: 100 },
+        { id: 'b', kind: 'drone', layer: 'AIR', integrity: 60 },
+        { id: 'c', kind: 'groundStation', layer: 'GROUND', integrity: 100 },
+        { id: 'd', kind: 'sat', layer: 'ORBIT', integrity: 0 },
       ],
     }
-    const text = postureDetailLines(st).map((l) => l.text)
-    // Two Tier B drones grouped, the Tier A one apart, the destroyed sat not
-    // counted as operational.
-    expect(text[0]).toBe('Fleet: 3 operational: 2 Drone B, 1 Drone A.')
-    const surge = text.find((l) => l.startsWith('Surge authority'))!
-    expect(surge).toContain('a decision phase')
-    expect(surge).not.toMatch(/any phase/)
+    const lines = postureDetailLines(st)
+    const text = lines.map((l) => l.text)
+    // The two drones grouped, the damaged one counted as operational, the
+    // destroyed sat not.
+    expect(text[0]).toBe('Fleet: 3 operational: 2 Drone, 1 Ground station.')
+    const upkeep = lines.find((l) => l.text.startsWith('Keeping '))
+    expect(upkeep, 'the panel does not say what the defenses cost to keep').toBeDefined()
+    expect(upkeep!.text).toBe(`Keeping 2 defenses costs ${2 * DEFAULT_SCENARIO.upkeepPerDefense} at every turn close.`)
+    expect(upkeep!.tone).toBe('amber')
   })
 
   it('bounds Posture detail over every state, including a player who buys everything', () => {
@@ -924,23 +1131,13 @@ describe('reading diet: the intel brief', () => {
     // test happened to name, and three lenses broke it in legal play at up
     // to 139 words against 110. The set is swept here instead: every line
     // of play, every difficulty, and a line that buys as much as each turn
-    // allows, which is the state the named seven never reached.
-    const buyAll = (st: GameState): TurnActions => {
-      const avail = st.credits + st.scenario.incomePerTurn
-      const counters: TurnActions['buyCounters'] = []
-      let spend = 0
-      for (const cm of [...st.scenario.countermeasures].sort((a, b) => a.cost - b.cost)) {
-        if (cm.id === 'intelInvestment' || cm.id === 'irRetainer' || st.counters.includes(cm.id)) continue
-        if (st.pendingCounters.some((p) => p.id === cm.id) || spend + cm.cost > avail) continue
-        counters.push(cm.id)
-        spend += cm.cost
-      }
-      const drones = Math.max(0, Math.floor((avail - spend) / st.scenario.prices.drone))
-      return { ...NO_OP, buyCounters: counters, buyAssets: Array.from({ length: drones }, () => ({ kind: 'drone' as const, tier: 'B' as const })) }
-    }
+    // allows, which is the state the named seven never reached. Since v1.3
+    // Round 0 that line is the sweep gate's own BUY EVERYTHING policy
+    // (tests/policies.ts): every defense and the IR retainer as soon as
+    // affordable, then assets until nothing more fits.
     const pickers: [string, (st: GameState) => TurnActions][] = [
       ...LINES.map(([n, sc]) => [n, (st: GameState) => sc[st.turn] ?? NO_OP] as [string, (st: GameState) => TurnActions]),
-      ['buys everything', buyAll],
+      ['buys everything', buyEverything],
     ]
     let worst = 0
     let worstAt = ''
@@ -1096,21 +1293,43 @@ describe('reading diet: the damage report verdict', () => {
     // countermeasure in play. The scenario schema allows both, so they are
     // correct totality over the type rather than dead code, and they are
     // covered here with synthetic records rather than deleted.
+    // The v1.3 record (Round 0): the ledger, the brief and the streak
+    // joined it, and the flags, commendations and surge count left.
     const base: TurnRecord = {
       turn: 4,
-      creditsAfter: 100,
       purchases: [],
+      briefed: false,
+      named: [],
       events: [],
-      meters: { linkAvailability: 100, dataIntegrity: 100, sensorIntegrity: 100 },
-      coverage: 44,
-      maiScore: 83,
-      flags: { lidarFallback: false },
       conditionsActive: [],
-      commendations: [],
-      surgeTokensAfter: 0,
+      ledger: {
+        start: 100,
+        ordered: 0,
+        fuel: 0,
+        windfall: 0,
+        afterNight: 100,
+        repairs: 0,
+        repaired: [],
+        upkeep: 0,
+        defensesKept: 0,
+        funding: 20,
+        coverageBonus: 0,
+        bonusCoverage: 58,
+        arrivals: [],
+        recovery: 2,
+        after: 120,
+        insolvent: false,
+      },
+      creditsAfter: 120,
+      meters: { linkAvailability: 100, dataIntegrity: 100, sensorIntegrity: 100 },
+      coverage: 58,
+      maiScore: 87.4,
+      streak: 0,
+      bestStreak: 0,
+      saved: 0,
       notes: [],
     }
-    const resolved = (id: string, name: string, over: Partial<TurnRecord['events'][number]> = {}) => ({
+    const resolved = (id: string, name: string, over: Partial<TurnRecord['events'][number]> = {}): TurnRecord['events'][number] => ({
       eventId: id,
       name,
       baseSeverity: 2,
@@ -1120,6 +1339,7 @@ describe('reading diet: the damage report verdict', () => {
       repairCost: 0,
       notes: [],
       firedTechniqueRefs: [],
+      saved: 0,
       ...over,
     })
 

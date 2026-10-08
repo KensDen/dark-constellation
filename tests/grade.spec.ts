@@ -1,5 +1,5 @@
 // The score screen's grade, stats and turn strip (v1.2 Rounds 5a and 5,
-// brief 7.2).
+// brief 7.2; the six-turn game and the defense bonus since v1.3 Round 0).
 // Every threshold is read from the constants in src/engine/grade.ts and
 // none is written here (principle 17), so moving one cannot leave a test
 // asserting the old number.
@@ -8,11 +8,14 @@ import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { GRADE_THRESHOLDS, TURN_STRIP, gradeFor, gradeOf, hitsTaken, knockoutsByTurn, stripColour, turnStrip, type Grade } from '../src/engine/grade'
+import { defenseBonus } from '../src/engine/learning'
 import { newGame, resolveTurn } from '../src/engine/reducer'
+import { ASSET_DAMAGE_PER_SEVERITY } from '../src/engine/rules'
 import { maiScore } from '../src/engine/scoring'
 import { turnRng } from '../src/engine/rng'
 import type { Difficulty, GameState, TurnActions } from '../src/engine/types'
-import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT, randomPolicy } from './scripts'
+import { POLICIES } from './policies'
+import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT, randomPolicy } from './scripts'
 
 // The smallest step the MAI takes: it is shown to one decimal place.
 const STEP = 0.1
@@ -44,21 +47,43 @@ describe('the grade', () => {
     expect(() => gradeFor({ status: 'playing', finalMai })).toThrow()
   })
 
-  it('reads a finished game the same way, from its last turn', () => {
-    // Real campaigns, one of each ending: a win, a loss at the line, a collapse.
-    const cases: [number, Record<number, TurnActions>, 'won' | 'belowThreshold' | 'maiCollapse'][] = []
+  it('reads a finished game the same way, from its last turn, with its defense bonus', () => {
+    // Real campaigns, one of each ending real play reaches: a win, a loss
+    // at the line, and insolvency (v1.3: repairs and upkeep can now break
+    // the budget). The win is one whose defense bonus moves its grade, so a
+    // reading that dropped the bonus (brief 6.8) would fail here.
+    type Ending = 'won' | 'belowThreshold' | 'insolvency' | 'maiCollapse'
+    const lines: ((seed: number) => (s: GameState) => TurnActions)[] = [
+      () => (s) => WIN_SCRIPT[s.turn] ?? NO_OP,
+      () => (s) => MIXED_SCRIPT[s.turn] ?? NO_OP,
+      () => (s) => LOSS_SCRIPT[s.turn] ?? NO_OP,
+      (seed) => randomPolicy(seed),
+    ]
+    const cases: [GameState, Ending][] = []
     for (let seed = 1; seed <= 40 && cases.length < 3; seed += 1) {
-      for (const script of [WIN_SCRIPT, LOSS_SCRIPT]) {
-        const end = play(seed, (s) => script[s.turn] ?? NO_OP)
-        const how = end.status === 'won' ? 'won' : end.lossReason!
-        if ((how === 'won' || how === 'belowThreshold' || how === 'maiCollapse') && !cases.some((c) => c[2] === how)) cases.push([seed, script, how])
+      for (const line of lines) {
+        const end = play(seed, line(seed))
+        const how: Ending = end.status === 'won' ? 'won' : end.lossReason!
+        const finalMai = end.history[end.history.length - 1].maiScore
+        const bonusMoves = gradeFor({ status: end.status, finalMai }) !== gradeFor({ status: end.status, finalMai, bonus: defenseBonus(end.bestStreak, end.saved) })
+        if (how === 'won' && !bonusMoves) continue
+        if (how !== 'maiCollapse' && !cases.some((c) => c[1] === how)) cases.push([end, how])
       }
     }
-    expect(cases.map((c) => c[2]).sort()).toEqual(['belowThreshold', 'maiCollapse', 'won'])
-    for (const [seed, script] of cases) {
-      const end = play(seed, (s) => script[s.turn] ?? NO_OP)
+    // A collapse: no script, sweep policy or seed reaches one in six turns
+    // (from 87.4 the score cannot fall under 35 that fast in real play), so
+    // the campaign is built by hand: the trust meters worn down before
+    // turn 1, then a real turn played on them.
+    const worn: GameState = { ...newGame(DEFAULT_SCENARIO, 1, 'standard'), meters: { linkAvailability: 20, dataIntegrity: 20, sensorIntegrity: 20 } }
+    const collapsed = resolveTurn(worn, NO_OP, turnRng(worn.seed, worn.turn))
+    expect(collapsed.lossReason, 'the hand-built campaign did not collapse').toBe('maiCollapse')
+    cases.push([collapsed, 'maiCollapse'])
+
+    expect(cases.map((c) => c[1]).sort()).toEqual(['belowThreshold', 'insolvency', 'maiCollapse', 'won'])
+    for (const [end] of cases) {
       const finalMai = end.history[end.history.length - 1].maiScore
-      expect(gradeOf(end)).toBe(gradeFor({ status: end.status, lossReason: end.lossReason, finalMai }))
+      const bonus = defenseBonus(end.bestStreak, end.saved)
+      expect(gradeOf(end)).toBe(gradeFor({ status: end.status, lossReason: end.lossReason, finalMai, bonus }))
     }
   })
 })
@@ -93,24 +118,39 @@ describe('the turn strip', () => {
 })
 
 describe('the grade is calibrated (brief 7.2)', () => {
-  // The sweep the thresholds were set from: every scripted line and the
-  // seeded random line, 500 seeds on Standard. S should be roughly the top
-  // 5 percent of wins and A roughly the next 20 percent.
+  // The sweep the thresholds were set from (src/engine/grade.ts, brief
+  // 6.8): every policy of the sweep gate (tests/policies.ts), 500 seeds
+  // each on Standard, driven as tests/sweep.spec.ts drives them, and every
+  // win graded on its final score plus its defense bonus. S should be
+  // roughly the top 5 percent of wins and A roughly the next 20. Measured
+  // when the thresholds were set: 664 wins (Prepared 394, Novice 270; the
+  // other three policies win none on Standard), S 4.5 percent, A 18.7.
+  //
+  // Why the policies, and not the lines v1.2 calibrated on. Brief 6.8 asks
+  // for the thresholds to be recalibrated "the way R5a did (S about the top
+  // 5 percent of wins, A the next 20), with the bonus included", and R5a's
+  // population was every scripted line of tests/scripts.ts plus the seeded
+  // random line. Measured on v1.3 (Standard, 500 seeds a line, these
+  // thresholds), that population gives 1706 wins with S 39.9 percent and A
+  // 26.3, far outside both bands. The reason is that the scripts are
+  // hand-picked lines, fixed orders written against this deck, and in six
+  // turns the three planned ones win almost every seed: WIN_SCRIPT 500 of
+  // 500, every one an S; MIXED_SCRIPT and TOP_INTEL_SCRIPT 485 each
+  // (LAZY_SCRIPT wins 188, LOSS_SCRIPT none). So 1658 of the 1706 wins are
+  // scripts replayed 500 times, 1470 of them from those three, and the
+  // random line adds only 48: the shares describe those lines, not
+  // players. The policies are the brief's section 7 model of players (buy
+  // everything, prepared, novice, random legal, nothing), each choosing its
+  // orders from the state a player sees, so they are the population, and
+  // what is kept from R5a is the method: S the top 5 percent of wins and A
+  // the next 20, bonus included.
   it(
     'gives S to about the top 5 percent of wins and A to about the next 20',
     () => {
-      const lines: ((seed: number) => (s: GameState) => TurnActions)[] = [
-        () => (s) => WIN_SCRIPT[s.turn] ?? NO_OP,
-        () => (s) => MIXED_SCRIPT[s.turn] ?? NO_OP,
-        () => (s) => TOP_INTEL_SCRIPT[s.turn] ?? NO_OP,
-        () => (s) => LAZY_SCRIPT[s.turn] ?? NO_OP,
-        () => (s) => LOSS_SCRIPT[s.turn] ?? NO_OP,
-        (seed) => randomPolicy(seed),
-      ]
       const grades: Grade[] = []
-      for (const line of lines) {
+      for (const { policy } of POLICIES) {
         for (let seed = 1; seed <= 500; seed += 1) {
-          const end = play(seed, line(seed))
+          const end = play(seed, policy)
           if (end.status === 'won') grades.push(gradeOf(end))
         }
       }
@@ -121,7 +161,7 @@ describe('the grade is calibrated (brief 7.2)', () => {
       expect(share('A'), 'A is not roughly the next 20 percent of wins').toBeGreaterThanOrEqual(0.17)
       expect(share('A')).toBeLessThanOrEqual(0.23)
     },
-    // Three thousand campaigns: about seven seconds on a laptop.
+    // 2500 six-turn campaigns: about a second on a laptop.
     60_000,
   )
 })
@@ -138,9 +178,12 @@ describe("a run's knockouts, hits and strip, derived from its history (v1.2 Roun
       ['LAZY_SCRIPT', () => (s) => LAZY_SCRIPT[s.turn] ?? NO_OP],
       ['random', (seed) => randomPolicy(seed)],
     ]
-    for (const difficulty of ['easy', 'standard', 'expert'] as Difficulty[]) {
+    // Expert was retired in v1.3, so the sweep plays the two difficulties
+    // left over 100 seeds rather than three over 60: about 5700 turns, so
+    // the bounds below hold as they were set.
+    for (const difficulty of ['easy', 'standard'] as Difficulty[]) {
       for (const [name, line] of lines) {
-        for (let seed = 1; seed <= 60; seed += 1) {
+        for (let seed = 1; seed <= 100; seed += 1) {
           const policy = line(seed)
           let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
           while (state.status === 'playing') {
@@ -158,24 +201,78 @@ describe("a run's knockouts, hits and strip, derived from its history (v1.2 Roun
   const engineKnockouts = (before: GameState, after: GameState) =>
     after.assets.filter((a) => a.integrity === 0 && (before.assets.find((b) => b.id === a.id)?.integrity ?? 100) > 0).length
 
+  // THE v1.2 DERIVATION, as src/engine/grade.ts had it before v1.3: replay
+  // every hit an event named from 100, a debris strike to 0 and any other
+  // hit effectiveSeverity * ASSET_DAMAGE_PER_SEVERITY off, floored at 0,
+  // and count a knockout wherever a replayed asset reaches 0 from above.
+  function v12Knockouts(state: GameState): number[] {
+    const integrity = new Map<string, number>()
+    return state.history.map((rec) => {
+      let knocked = 0
+      for (const ev of rec.events) {
+        const id = ev.targetAssetId
+        if (id === undefined) continue
+        const before = integrity.get(id) ?? 100
+        const def = state.scenario.events.find((e) => e.id === ev.eventId)
+        const after = def?.effect.special === 'debrisStrike' ? 0 : Math.max(0, before - ev.effectiveSeverity * ASSET_DAMAGE_PER_SEVERITY)
+        integrity.set(id, after)
+        if (before > 0 && after === 0) knocked += 1
+      }
+      return knocked
+    })
+  }
+  // The same replay from 100, fed instead the damage each hit really did
+  // (its recorded integrity either side). It sees every hit exactly, so
+  // the one thing it misses is integrity that changed between hits:
+  // healing at a solvent close.
+  function replayedKnockouts(state: GameState): number[] {
+    const integrity = new Map<string, number>()
+    return state.history.map((rec) => {
+      let knocked = 0
+      for (const ev of rec.events) {
+        if (ev.targetAssetId === undefined || ev.integrityBefore === undefined || ev.integrityAfter === undefined) continue
+        const before = integrity.get(ev.targetAssetId) ?? 100
+        const after = Math.max(0, before - (ev.integrityBefore - ev.integrityAfter))
+        integrity.set(ev.targetAssetId, after)
+        if (before > 0 && after === 0) knocked += 1
+      }
+      return knocked
+    })
+  }
+
   it("counts every turn's knockouts exactly as the engine's own assets show them", () => {
     let turnsSeen = 0
     let knockoutTurns = 0
-    let arrivalsKnockedOut = 0
+    let v12Wrong = 0
+    let healingWrong = 0
     for (const { label, before, after } of turns()) {
       const derived = knockoutsByTurn(after)
       const engine = engineKnockouts(before, after)
       expect(derived[derived.length - 1], label).toBe(engine)
       turnsSeen += 1
       if (engine > 0) knockoutTurns += 1
-      arrivalsKnockedOut += after.assets.filter((a) => a.integrity === 0 && !before.assets.some((b) => b.id === a.id)).length
+      if (v12Knockouts(after).at(-1) !== engine) v12Wrong += 1
+      if (replayedKnockouts(after).at(-1) !== engine) healingWrong += 1
     }
     // The positive controls: the sweep is large, knockouts happen in it,
-    // and so does the case a naive replay gets wrong, an asset that arrives
-    // and is knocked out in the same turn.
+    // and it holds turns where a replay from 100 gets the count wrong, so
+    // the assertion above would catch the v1.2 derivation coming back.
+    // Measured on this sweep (5728 turns, 277 with a knockout): the v1.2
+    // derivation disagrees with the engine on 741 turns. Most of those come
+    // from what the v1.3 record names rather than from healing (a debris
+    // burn or a near miss names its satellite, which the v1.2 rule zeroes;
+    // an event names the tile it was aimed at even when it did that tile no
+    // damage; Easy scales the damage), but 15 come from healing alone: the
+    // replay fed each hit's recorded damage still disagrees on 15 turns,
+    // every one a turn where an asset that had healed survived a hit the
+    // replay says knocked it out. In v1.2 the case a replay got wrong was
+    // an asset that arrived and was knocked out in the same turn; arrivals
+    // now land at the close, after the night's events, so that cannot
+    // happen.
     expect(turnsSeen).toBeGreaterThan(5000)
     expect(knockoutTurns, 'no turn knocked anything out, so the sweep proves nothing').toBeGreaterThan(200)
-    expect(arrivalsKnockedOut, 'no asset was knocked out on the turn it arrived').toBeGreaterThan(0)
+    expect(v12Wrong, 'the v1.2 derivation agrees with the engine on every turn, so the sweep cannot tell it from this one').toBeGreaterThan(0)
+    expect(healingWrong, 'no turn where healing makes a replay of the recorded hits disagree with the engine').toBeGreaterThan(0)
   }, 60_000)
 
   it("colours each turn from the MAI the engine's states show before and after it", () => {

@@ -110,7 +110,7 @@ function gameAt(turn: number, seed = 20260712): GameState {
 }
 
 let mounts = 0
-function render(state: GameState, phase: 'brief' | 'procure' | 'harden' | 'aftermath' = 'brief') {
+function render(state: GameState, phase: 'brief' | 'procure' | 'aftermath' = 'brief') {
   mounts += 1
   act(() => {
     root.render(<Game key={`m${mounts}`} initial={{ state, phase }} onExit={() => {}} />)
@@ -374,10 +374,14 @@ describe('EXECUTE says what it does (v1.2 R2b, a tap since v1.3 Round 0)', () =>
 describe('the guided first turn (v1.2 R2b)', () => {
   const procure = () => bar().querySelector('[data-action="procure"]')!
   const procureSheet = () => container.querySelector('[data-sheet="procure"]')
-  // The three kinds of order PROCURE takes, one from each of its
-  // sections, and whether placing it closes the sheet. A buy does; a
-  // checkbox leaves the sheet open, so the walkthrough moving on there is
-  // the order and not a skip.
+  // The kinds of order PROCURE takes on turn 1, one from each section that
+  // sells anything that night, and whether placing it closes the sheet. A
+  // buy does; a checkbox leaves the sheet open, so the walkthrough moving
+  // on there is the order and not a skip. INTEL sells nothing on turn 1
+  // since v1.3 Round 0: the intel brief is free that night (brief D2 a,
+  // src/ui/board/ProcureSheet.tsx ticks and locks its row), and the
+  // walkthrough runs on turn 1 only, so the brief is never an order it
+  // could move on. The test below pins that the free brief does not count.
   const ORDERS: [string, () => void, boolean][] = [
     [
       'an asset',
@@ -398,19 +402,25 @@ describe('the guided first turn (v1.2 R2b)', () => {
       },
       false,
     ],
-    [
-      'intel',
-      () => {
-        click(procure())
-        click(container.querySelector('[data-procure-intel] input[type="checkbox"]')!)
-      },
-      false,
-    ],
   ]
   const line = () => [objectiveTag(), objectiveSentence()]
   const skipTips = () => byText(new RegExp(`^${SKIP_TIPS}$`))
 
   it('GUARD R2b (d): advances on an order of any kind, ends on execute, and never shows again', () => {
+    // The free brief first: ticked and locked on turn 1, and not an order,
+    // so tapping its row leaves the walkthrough where it was.
+    render(gameAt(1), 'brief')
+    expect(line(), 'the walkthrough did not start').toEqual([GUIDE.start.tag, GUIDE.start.sentence])
+    click(procure())
+    const intelRow = container.querySelector('[data-procure-intel]')
+    expect(intelRow, 'PROCURE has no INTEL row').not.toBeNull()
+    expect(intelRow!.textContent, 'the INTEL row does not say the brief is free tonight').toMatch(/free tonight/)
+    const brief = intelRow!.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+    expect([brief.checked, brief.disabled], 'the free brief is not ticked and locked on turn 1').toEqual([true, true])
+    click(brief)
+    expect(brief.checked, 'tapping the free brief unticked it').toBe(true)
+    expect(procureSheet(), 'tapping the free brief closed the sheet').not.toBeNull()
+    expect(line(), 'the free brief moved the walkthrough on as if it were an order').toEqual([GUIDE.start.tag, GUIDE.start.sentence])
     for (const [what, order, closes] of ORDERS) {
       render(gameAt(1), 'brief')
       expect(line(), `${what}: the walkthrough did not start`).toEqual([GUIDE.start.tag, GUIDE.start.sentence])

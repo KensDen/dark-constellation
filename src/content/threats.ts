@@ -24,7 +24,7 @@ export const THREATS: ThreatEvent[] = [
     counters: ['antiJam'],
     chainsWith: ['blackout-chain'],
     effect: { meters: ['linkAvailability'], special: 'jamsGnss', repairCostPerSeverity: 2 },
-    duration: { min: 2, max: 3 },
+    condition: { name: 'GNSS DENIED', turns: 2 },
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -61,7 +61,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 2,
     counters: ['antiJam', 'linkAuth'],
     effect: { meters: ['linkAvailability'], repairCostPerSeverity: 2 },
-    duration: { min: 2, max: 3 },
+    condition: { name: 'JAMMED', turns: 2 },
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -98,7 +98,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 2,
     counters: ['pntAuth'],
     effect: { meters: ['sensorIntegrity'], repairCostPerSeverity: 3 },
-    duration: { min: 2, max: 3 },
+    condition: { name: 'SPOOFED', turns: 2 },
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -345,12 +345,12 @@ export const THREATS: ThreatEvent[] = [
   // 8
   {
     id: 'supply-chain-implant',
-    name: 'Sensor supply-chain firmware implant (Tier B)',
+    name: 'Sensor supply-chain firmware implant',
     layers: ['AIR', 'ORBIT'],
     vector: 'supplyChain',
     baseSeverity: 3,
     counters: ['tierAAttestation'],
-    effect: { meters: ['sensorIntegrity', 'dataIntegrity'], special: 'implantTierB', repairCostPerSeverity: 4 },
+    effect: { meters: ['sensorIntegrity', 'dataIntegrity'], repairCostPerSeverity: 4 },
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -369,7 +369,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'Firmware altered at manufacture or in transit, dormant until activation. The commodity sensor package saved thirty percent up front; the invoice arrives later. Only Tier B hardware is eligible.',
+      'Firmware altered at manufacture or in transit, dormant until activation. The commodity sensor package saved thirty percent up front; the invoice arrives later. Only hardware without firmware attestation is eligible.',
     learnMoreCards: [
       {
         title: 'The supply chain is the attack surface',
@@ -465,9 +465,9 @@ export const THREATS: ThreatEvent[] = [
     layers: ['ORBIT', 'GROUND'],
     vector: 'rf',
     baseSeverity: 1,
-    counters: ['linkAuth', 'encryptedBackhaul'],
+    counters: ['encryptedBackhaul', 'linkAuth'],
     effect: { meters: ['dataIntegrity'], assetDamage: false, repairCostPerSeverity: 1 },
-    duration: { min: 2, max: 3 },
+    condition: { name: 'TAPPED', turns: 2 },
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -517,9 +517,9 @@ export const THREATS: ThreatEvent[] = [
     layers: ['ORBIT', 'GROUND'],
     vector: 'rf',
     baseSeverity: 2,
-    counters: ['linkAuth', 'encryptedBackhaul'],
+    counters: ['encryptedBackhaul', 'linkAuth'],
     effect: { meters: ['dataIntegrity'], assetDamage: false, repairCostPerSeverity: 2 },
-    duration: { min: 2, max: 3 },
+    condition: { name: 'LEAKING', turns: 2 },
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -571,7 +571,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 3,
     counters: ['groundZeroTrust'],
     effect: { meters: ['dataIntegrity'], repairCostPerSeverity: 5 },
-    duration: { min: 2, max: 3 },
+    condition: { name: 'RANSOMED', turns: 2 },
     techniqueRefs: [
       {
         framework: 'ATTACK',

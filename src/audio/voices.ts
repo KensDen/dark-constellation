@@ -216,12 +216,6 @@ export const VOICES: Record<SoundCue, Voice> = {
     })
   },
 
-  'surge-burn': (ctx, out, at) => {
-    const ms = SOUND_MS['surge-burn']
-    noise(ctx, out, at, { ms: ms * 0.6, peak: 0.16, filter: { type: 'bandpass', frequency: 1800, q: 0.7 } })
-    tone(ctx, out, at, { type: 'square', from: 240, to: 60, ms: ms * 0.34, peak: 0.24, delayMs: ms * 0.62 })
-  },
-
   'commendation-fanfare': (ctx, out, at) => {
     const ms = SOUND_MS['commendation-fanfare']
     const notes = [523, 659, 784]

@@ -4,18 +4,18 @@
 //
 // A TILE: what the asset is and does, its exact integrity, and the
 // conditions pressing on its layer, each with its REAL WORLD line
-// (technique, source, the learn-more card and its links). The remaining
-// span of a condition shows only at top intel, as on the chips.
+// (technique, source, the learn-more card and its links). A condition's
+// turns left show with it, as on the chips (v1.3 brief 6.5).
 //
-// THE BANNER: only what the forecast already shows at the current intel
-// level, from briefCopy, which is the banner's own copy. At intel 0 the
-// card says the forecast is dark and nothing more: not the posture lines
+// THE BANNER: only what the forecast already shows tonight, from
+// briefCopy, which is the banner's own copy. Without the intel brief the
+// card says the moves are unnamed and nothing more: not the posture lines
 // (they name live conditions), not the chain line, and not a quiet turn's
 // "no activity", which would itself be intel the player has not bought.
-// At top intel, the event the banner names brings its REAL WORLD line.
+// Under the brief, the event the banner names brings its REAL WORLD line.
 
 import type { GameState } from '../../engine/types'
-import { effectiveIntel } from '../../engine/reducer'
+import { briefFree } from '../../engine/reducer'
 import { FORECAST_DARK, briefCopy, forecastLead } from '../brief'
 import { kindLabels } from '../labels'
 import RealWorld from '../RealWorld'
@@ -33,6 +33,10 @@ export interface IntelCardProps {
   // on the layer headers do (the state a playback shows keeps the turn it
   // started on).
   turn: number
+  // Whether tonight's moves are named, as the banner reads it: the brief
+  // ordered in the cart, or the record of the night being played back.
+  // Without it the card reads the free brief alone.
+  briefed?: boolean
   onClose: () => void
 }
 
@@ -43,7 +47,6 @@ function TileIntel({ state, turn, assetId }: { state: GameState; turn: number; a
   const asset = state.assets.find((a) => a.id === assetId)
   if (!asset) return null
   const conditions = conditionsOn(asset.layer, state.conditions, state.scenario)
-  const topIntel = effectiveIntel(state) >= 3
   return (
     <>
       <h2 id="intel-title" className={`${HEAD} uppercase`}>
@@ -66,8 +69,7 @@ function TileIntel({ state, turn, assetId }: { state: GameState; turn: number; a
             return (
               <li key={c.instanceId} data-intel-condition={c.eventId} className="mt-2">
                 <p>
-                  {c.name} T+{turn - c.startedTurn}
-                  {topIntel ? ` ~${c.remainingTurns} left` : ''}
+                  {c.name} T+{turn - c.startedTurn} {c.remainingTurns} left
                 </p>
                 {line && <RealWorld line={line} />}
               </li>
@@ -79,15 +81,14 @@ function TileIntel({ state, turn, assetId }: { state: GameState; turn: number; a
   )
 }
 
-function BannerIntel({ state }: { state: GameState }) {
-  const intel = effectiveIntel(state)
-  const copy = intel === 0 ? FORECAST_DARK : briefCopy(state)
-  const lead = intel === 0 ? undefined : forecastLead(state)
+function BannerIntel({ state, briefed = briefFree(state) }: { state: GameState; briefed?: boolean }) {
+  const copy = briefed ? briefCopy(state, true) : FORECAST_DARK
+  const lead = forecastLead(state, briefed)
   const line = lead ? realWorldFor(lead) : null
   return (
     <>
       <h2 id="intel-title" className={HEAD}>
-        THREAT INTEL · INTEL {intel}
+        THREAT INTEL · {briefed ? 'BRIEFED' : 'NO BRIEF'}
       </h2>
       <p className="mt-2 text-phosphor">{copy.headline}</p>
       <p className="mt-1">{copy.vector}</p>
@@ -96,7 +97,7 @@ function BannerIntel({ state }: { state: GameState }) {
   )
 }
 
-export default function IntelCard({ subject, state, turn, onClose }: IntelCardProps) {
+export default function IntelCard({ subject, state, turn, briefed, onClose }: IntelCardProps) {
   return (
     <section aria-labelledby="intel-title" data-intel-card={subject.kind} className="mx-auto max-w-[560px] px-4 py-4 font-mono text-sm text-dc-ink">
       <div className="mb-2 flex justify-end">
@@ -105,7 +106,7 @@ export default function IntelCard({ subject, state, turn, onClose }: IntelCardPr
         </button>
       </div>
       <div className="border-2 border-dc-line bg-dc-panel p-3 shadow-hard">
-        {subject.kind === 'tile' ? <TileIntel state={state} turn={turn} assetId={subject.assetId} /> : <BannerIntel state={state} />}
+        {subject.kind === 'tile' ? <TileIntel state={state} turn={turn} assetId={subject.assetId} /> : <BannerIntel state={state} briefed={briefed} />}
       </div>
     </section>
   )

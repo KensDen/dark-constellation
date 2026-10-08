@@ -4,7 +4,7 @@
 
 **A turn-based space and drone cybersecurity strategy sim.** You are the mission assurance
 architect for a smallsat constellation and a drone squadron. Design, procure, and harden the
-architecture under budget while an adversary campaign escalates across 12 turns.
+architecture under budget while an adversary campaign escalates across 6 turns.
 
 Play it: https://kensden.github.io/dark-constellation/
 
@@ -12,12 +12,12 @@ Status: v1.1.0 released. The sound and feel pass described below shipped in it.
 
 ## How to play
 
-Each turn you read an intel brief, spend credits on fleet and countermeasures, then watch the
-adversary play its hand and see what your posture absorbed. Finish turn 12 with the Mission
-Assurance Index at 70 or higher to win; let it collapse, or run the budget below zero, and the
-campaign ends early. There is no dominant strategy: coverage, trust, and redundancy trade off
-against each other, and the cheap sensor package that saved credits in turn 2 is the one the
-supply-chain implant is looking for in turn 5.
+Each turn you read what COLDVEIL could hit tonight, order fleet and defenses, then EXECUTE and
+see what your posture absorbed. The adversary reacts: it takes the move you have covered least.
+Finish turn 6 with mission assurance at 70 or higher to win; let it collapse, or run the budget
+below zero at a turn close, and the operation ends early. There is no dominant strategy: every
+defense costs upkeep, repairs come due at the turn close, and coverage, trust, and redundancy
+trade off against each other.
 
 ## Daily Op and the score screen
 
@@ -38,27 +38,30 @@ supply-chain implant is looking for in turn 5.
 - **Mission Assurance Index.** A weighted blend of Coverage, Link availability, Data integrity,
   and Sensor integrity. It is the score and the loss condition at once.
 - **Active conditions.** Jamming, spoofing, eavesdropping, and ransomware do not resolve and
-  vanish. They persist for a hidden span, press the meters every turn, and stack.
+  vanish. They persist for a set number of turns, shown on the board, press the meters every
+  turn, and stack.
 - **The BLACKOUT CHAIN.** The signature move: deny GNSS so the drones fall back to LiDAR
   odometry, then attack the only sensor they have left. Layered sensing breaks it. Single-sensor
   dependence is a vulnerability an adversary can manufacture on demand.
-- **Trust tiers.** Commodity sensor packages are cheap and can host a firmware implant. Assured
-  packages cost more and cannot.
-- **Deployment lead time.** Satellites take turns to reach orbit and can slip. Buy ahead of the
-  threat, not into it.
-- **Surge authority and commendations.** Spend a token to clear a condition outright; hold the
-  win line under sustained pressure to earn credits, meter recovery, and more authority.
-- **Difficulty.** Easy, Standard, and Expert apply documented multipliers to condition pressure
-  and the economy. Standard is the tuned campaign.
+- **The intel brief.** Free on the first night, then a cost each turn: without it the moves
+  COLDVEIL is choosing between stay unnamed.
+- **Deployment lead time.** Satellites take two turns to reach orbit. Buy ahead of the threat,
+  not into it.
+- **Upkeep and the worst case.** Every defense costs credits a turn to keep, and repairs are paid
+  at the turn close before funding arrives. The worst case says, before you commit, whether a bad
+  night could end the operation.
+- **Defense streak.** Moves blocked in a row and the points your defenses saved add a small bonus
+  to the grade.
+- **Difficulty.** Easy scales damage and repair bills by 0.75. Standard is the tuned campaign.
 
 ## The sourcing promise
 
 Every threat in the deck maps to a published framework technique, and every reference was
 verified against the live framework site rather than recalled: **18 threat events**, **19
 distinct framework techniques** across SPARTA, MITRE ATT&CK, MITRE ATLAS, and an NSA advisory,
-**14 cited sources**, and **0 unverified references**. Each of the **12 countermeasures** maps to
-its SPARTA countermeasure controls with their published defense-in-depth tiers (**20 distinct
-SPARTA CMs**). The in-game GLOSSARY derives all **52 entries** directly from that content data,
+**14 cited sources**, and **0 unverified references**. Each of the **11 countermeasures** maps to
+its SPARTA countermeasure controls with their published defense-in-depth tiers (**19 distinct
+SPARTA CMs**). The in-game GLOSSARY derives all **51 entries** directly from that content data,
 with no hand-maintained text.
 
 The **FIELD LIBRARY**, in the menu's INTEL ARCHIVE beside the Glossary,

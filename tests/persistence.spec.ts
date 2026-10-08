@@ -1,7 +1,9 @@
 // Persistence battery (R4). Proves the acceptance guarantee: a game saved
 // mid-run and reloaded (through the real save-code path) resolves
 // identically to the original, per the deterministic engine. Also covers
-// codec round-trips, version rejection, and bad-code handling.
+// codec round-trips, version rejection, and bad-code handling. Since v1.3
+// Round 0 (brief 6.10) a save from an earlier version is refused as stale,
+// never migrated.
 
 import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,13 +16,16 @@ import {
   LocalDailyLedger,
   LocalStorageStore,
   SAVE_VERSION,
+  STALE_SAVE_MESSAGE,
   SaveError,
+  StaleSaveError,
   captureGame,
   decodeSaveCode,
   encodeSaveCode,
   restoreGame,
   type DailyOp,
   type DailyResult,
+  type SavePhase,
 } from '../src/persistence'
 import { NO_OP, WIN_SCRIPT } from './scripts'
 
@@ -42,6 +47,20 @@ function playOut(from: GameState, script: Record<number, TurnActions>): GameStat
   return state
 }
 
+function memoryStorage(): Storage {
+  const map = new Map<string, string>()
+  return {
+    get length() {
+      return map.size
+    },
+    key: (i: number) => [...map.keys()][i] ?? null,
+    getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+    setItem: (k: string, v: string) => void map.set(String(k), String(v)),
+    removeItem: (k: string) => void map.delete(k),
+    clear: () => map.clear(),
+  } as Storage
+}
+
 function logHash(state: GameState): string {
   return createHash('sha256')
     .update(JSON.stringify({ status: state.status, lossReason: state.lossReason ?? null, history: state.history }))
@@ -50,7 +69,8 @@ function logHash(state: GameState): string {
 
 describe('save code determinism', () => {
   it('a game saved mid-run and reloaded resolves identically', () => {
-    const mid = playTo(SEED, 6, WIN_SCRIPT)
+    // Halfway through the six-turn campaign: three turns played, three to go.
+    const mid = playTo(SEED, 3, WIN_SCRIPT)
     expect(mid.status).toBe('playing')
 
     const code = encodeSaveCode(captureGame(mid, 'brief', '2026-07-22T00:00:00.000Z'))
@@ -67,11 +87,15 @@ describe('save code determinism', () => {
 
   it('the codec round-trips the exact dynamic state', () => {
     const mid = playTo(SEED, 4, WIN_SCRIPT)
-    const back = decodeSaveCode(encodeSaveCode(captureGame(mid, 'harden', '2026-07-22T00:00:00.000Z')))
-    expect(back.phase).toBe('harden')
-    const { scenario: _a, ...midRest } = mid
-    const { scenario: _b, ...backRest } = back.state
-    expect(backRest).toEqual(midRest)
+    expect(mid.status).toBe('playing')
+    // Every phase a save can be taken in (HARDEN merged into PROCURE in v1.3).
+    for (const phase of ['brief', 'procure', 'aftermath'] as SavePhase[]) {
+      const back = decodeSaveCode(encodeSaveCode(captureGame(mid, phase, '2026-07-22T00:00:00.000Z')))
+      expect(back.phase).toBe(phase)
+      const { scenario: _a, ...midRest } = mid
+      const { scenario: _b, ...backRest } = back.state
+      expect(backRest).toEqual(midRest)
+    }
   })
 })
 
@@ -82,35 +106,49 @@ describe('save robustness', () => {
     expect(() => restoreGame({ ...p, version: SAVE_VERSION + 99 })).toThrow(SaveError)
   })
 
-  it('migrates a v1 save forward as Standard rather than rejecting it', () => {
-    // A v1 save is exactly a v2 save minus the difficulty field.
-    const mid = playTo(SEED, 5, WIN_SCRIPT)
-    const p = captureGame(mid, 'harden', '2026-07-22T00:00:00.000Z')
+  it('refuses a v1 save as stale, with the message, rather than migrating it as Standard (v1.3 brief 6.10)', () => {
+    // A v1 save is exactly a later save minus the difficulty field. v1.2
+    // migrated it forward as Standard; a twelve-turn campaign cannot resume
+    // under the six-turn rules, so v1.3 refuses it, by decision.
+    const mid = playTo(SEED, 3, WIN_SCRIPT)
+    const p = captureGame(mid, 'procure', '2026-07-22T00:00:00.000Z')
     const legacyState = { ...p.state } as Record<string, unknown>
     delete legacyState.difficulty
     const legacy = { ...p, version: 1, state: legacyState }
 
-    const restored = restoreGame(legacy)
-    expect(restored.state.difficulty).toBe('standard')
-    expect(restored.phase).toBe('harden')
-    // And it still resolves: a migrated save is a playable save.
-    expect(() =>
-      resolveTurn(restored.state, NO_OP, turnRng(restored.state.seed, restored.state.turn)),
-    ).not.toThrow()
+    expect(() => restoreGame(legacy)).toThrow(StaleSaveError)
+    expect(() => restoreGame(legacy)).toThrow(STALE_SAVE_MESSAGE)
+    expect(STALE_SAVE_MESSAGE).toBe('This save is from an earlier version and cannot be resumed')
+    // A pasted code is refused the same way.
+    expect(() => decodeSaveCode(encodeSaveCode(legacy as unknown as typeof p))).toThrow(StaleSaveError)
+    // The positive control: the same campaign at this version loads and plays.
+    const restored = restoreGame(p).state
+    expect(() => resolveTurn(restored, NO_OP, turnRng(restored.seed, restored.turn))).not.toThrow()
   })
 
-  it('loads a v2 save as it is, and resumes it under the deck stream (v1.2 R5a)', () => {
-    // v3 changed no field, only how the engine draws each turn's events, so
-    // a v2 save is a v3 save with an older number: it loads unchanged, keeps
-    // the turns it has played, and plays on from there.
-    expect(SAVE_VERSION).toBeGreaterThanOrEqual(3)
-    const mid = playTo(SEED, 5, WIN_SCRIPT)
+  it('refuses v2 and v3 saves as stale too, though their shape once loaded as it was (v1.3 brief 6.10)', () => {
+    // v1.2 loaded a v2 save unchanged and resumed it under the deck stream.
+    // Every version before this one is now refused, whatever its shape, and
+    // the store says so for its autosave, so the shell can offer PLAY.
+    expect(SAVE_VERSION).toBeGreaterThanOrEqual(4)
+    const mid = playTo(SEED, 3, WIN_SCRIPT)
     const p = captureGame(mid, 'procure', '2026-09-27T00:00:00.000Z')
-    const restored = restoreGame({ ...p, version: 2 })
-    const { scenario: _a, ...midRest } = mid
-    const { scenario: _b, ...restoredRest } = restored.state
-    expect(restoredRest).toEqual(midRest)
-    expect(() => resolveTurn(restored.state, NO_OP, turnRng(restored.state.seed, restored.state.turn))).not.toThrow()
+    for (let version = 1; version < SAVE_VERSION; version += 1) {
+      expect(() => restoreGame({ ...p, version }), `version ${version}`).toThrow(StaleSaveError)
+      expect(() => restoreGame({ ...p, version }), `version ${version}`).toThrow(STALE_SAVE_MESSAGE)
+    }
+    vi.stubGlobal('localStorage', memoryStorage())
+    try {
+      const store = new LocalStorageStore()
+      store.autosave(mid, 'procure')
+      expect(store.autosaveIsStale(), 'a current autosave read as stale').toBe(false)
+      expect(store.loadAutosave()?.state.seed).toBe(mid.seed)
+      localStorage.setItem('dc-autosave', JSON.stringify({ ...p, version: SAVE_VERSION - 1 }))
+      expect(store.autosaveIsStale(), 'a stale autosave was not reported').toBe(true)
+      expect(store.loadAutosave()).toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('rejects garbage and non-prefixed codes without throwing raw errors', () => {
@@ -124,13 +162,18 @@ describe('save robustness', () => {
   it('rejects partial-but-parseable saves instead of loading a state the engine would crash on', () => {
     const mid = playTo(SEED, 3, WIN_SCRIPT)
     const good = captureGame(mid, 'brief', '2026-07-22T00:00:00.000Z')
-    // Each of these fields is dereferenced by resolveTurn; dropping any one
-    // must be caught at load time, not at the next turn.
-    for (const drop of ['pipeline', 'pendingCounters', 'counters', 'flags', 'forecast'] as const) {
+    // Each of these fields is read by resolveTurn (the arrays and the
+    // difficulty's profile dereferenced, points saved summed into the
+    // defense bonus, which goes NaN without it); dropping any one must be
+    // caught at load time, not at the next turn. v1.2's pendingCounters,
+    // flags and forecast are gone from the state.
+    for (const drop of ['pipeline', 'counters', 'conditions', 'learned', 'difficulty', 'saved'] as const) {
       const broken = { ...good, state: { ...good.state } as Record<string, unknown> }
       delete broken.state[drop]
       expect(() => restoreGame(broken), `dropping ${drop}`).toThrow(SaveError)
     }
+    // Expert was retired in v1.3 and has no profile for the engine to read.
+    expect(() => restoreGame({ ...good, state: { ...good.state, difficulty: 'expert' } }), 'a retired difficulty').toThrow(SaveError)
     // Empty meters (no numeric keys) would produce NaN scores; reject it.
     const badMeters = { ...good, state: { ...good.state, meters: {} } }
     expect(() => restoreGame(badMeters)).toThrow(SaveError)
@@ -144,19 +187,6 @@ describe('the Daily Op identity rides beside the state (v1.2 R5, brief 7.1)', ()
   const AT = '2026-09-27T20:00:00.000Z'
   const OP: DailyOp = { dateKey: '20260927', n: 1 }
 
-  function memoryStorage(): Storage {
-    const map = new Map<string, string>()
-    return {
-      get length() {
-        return map.size
-      },
-      key: (i: number) => [...map.keys()][i] ?? null,
-      getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
-      setItem: (k: string, v: string) => void map.set(String(k), String(v)),
-      removeItem: (k: string) => void map.delete(k),
-      clear: () => map.clear(),
-    } as Storage
-  }
   beforeEach(() => {
     vi.stubGlobal('localStorage', memoryStorage())
   })
@@ -230,13 +260,13 @@ describe('the Daily Op identity rides beside the state (v1.2 R5, brief 7.1)', ()
     const ledger = new LocalDailyLedger()
     const result = (turns: number): DailyResult => ({ n: 1, seed: 289227389, outcome: 'lost', lossReason: 'belowThreshold', mai: 66, turns, recordedAt: AT })
     expect(ledger.official(OP.dateKey)).toBeNull()
-    expect(ledger.claim({ ...OP, pasted: true }, result(12)), 'a pasted Daily Op claimed the date').toBe('practice')
+    expect(ledger.claim({ ...OP, pasted: true }, result(6)), 'a pasted Daily Op claimed the date').toBe('practice')
     expect(ledger.official(OP.dateKey), 'a pasted Daily Op was recorded').toBeNull()
-    expect(ledger.claim(OP, result(12))).toBe('official')
-    expect(ledger.claim(OP, result(8))).toBe('practice')
-    expect(ledger.official(OP.dateKey)?.turns, 'a later finish replaced the official one').toBe(12)
+    expect(ledger.claim(OP, result(6))).toBe('official')
+    expect(ledger.claim(OP, result(4))).toBe('practice')
+    expect(ledger.official(OP.dateKey)?.turns, 'a later finish replaced the official one').toBe(6)
     // Another date is its own.
-    expect(ledger.claim({ dateKey: '20260928', n: 2 }, { ...result(10), n: 2 })).toBe('official')
+    expect(ledger.claim({ dateKey: '20260928', n: 2 }, { ...result(5), n: 2 })).toBe('official')
   })
 
   it('does not call a finish official when it cannot be recorded', () => {
@@ -247,6 +277,6 @@ describe('the Daily Op identity rides beside the state (v1.2 R5, brief 7.1)', ()
       },
     })
     const ledger = new LocalDailyLedger()
-    expect(ledger.claim(OP, { n: 1, seed: 1, outcome: 'won', mai: 80, turns: 12, recordedAt: AT })).toBe('practice')
+    expect(ledger.claim(OP, { n: 1, seed: 1, outcome: 'won', mai: 80, turns: 6, recordedAt: AT })).toBe('practice')
   })
 })

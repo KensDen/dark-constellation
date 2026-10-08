@@ -1,14 +1,15 @@
 // The threat banner (v1.2 R1, brief 4.1): the adversary's emblem beside
 // the current forecast, obeying today's intel rules exactly because the
-// copy is briefCopy's and nothing else. At intel 0 the headline says the
-// forecast is dark; nothing is revealed that src/ui/brief.ts would not.
+// copy is briefCopy's and nothing else. Without the intel brief the
+// headline says the moves are unnamed; nothing is revealed that
+// src/ui/brief.ts would not.
 //
 // The full brief stays one tap away under 'Expand full brief', which is
 // the disclosure the reading diet budgets, with the turn-1 job framing
 // first and then the forecast lines, in that order, because the
 // disclosure budget test reads them back in that order.
 
-import { CHAIN_BONUS } from '../../engine/reducer'
+import { CHAIN_BONUS, briefFree, gnssDenied } from '../../engine/reducer'
 import type { GameState } from '../../engine/types'
 import { CHAIN_ARMED_LINE, JOB_FRAMING_HEADING, briefCopy } from '../brief'
 import Teletype, { TransmissionBar } from '../cues/Teletype'
@@ -22,10 +23,13 @@ export interface ThreatBannerProps {
   onTag: (tag: string) => void
   // Opens the banner's intel card (v1.2 R3, brief 4.8).
   onIntel: () => void
+  // Whether tonight's intel brief names the moves: free tonight, or
+  // ordered in the cart (D2 a).
+  briefed?: boolean
 }
 
-export default function ThreatBanner({ shown, cueKey, onTag, onIntel }: ThreatBannerProps) {
-  const brief = briefCopy(shown)
+export default function ThreatBanner({ shown, cueKey, onTag, onIntel, briefed = briefFree(shown) }: ThreatBannerProps) {
+  const brief = briefCopy(shown, briefed)
   return (
     <section aria-label="Threat forecast" className="flex-none px-3 py-2 border-b-2 border-dc-line bg-dc-ground">
       <div className="flex gap-2">
@@ -82,12 +86,12 @@ export default function ThreatBanner({ shown, cueKey, onTag, onIntel }: ThreatBa
               ))}
             </ul>
           </details>
-          {shown.flags.lidarFallback && (
+          {gnssDenied(shown.conditions, shown.scenario) && (
             <details className="mt-1 border border-hero-magenta/60 bg-hero-magenta/10 p-1.5">
               <summary className="cursor-pointer font-mono text-xs font-bold text-hero-magenta">{CHAIN_ARMED_LINE}</summary>
               <p className="mt-1 text-xs text-hero-magenta">
-                GNSS is jammed, so the next LiDAR attack lands harder (+{CHAIN_BONUS} severity) unless sensor fusion
-                cross-checks are in place or every drone flies Tier A sensors.
+                GNSS is jammed, so the next LiDAR attack lands harder (+{CHAIN_BONUS} severity) before any defense
+                takes its share. Sensor fusion takes the most.
               </p>
             </details>
           )}

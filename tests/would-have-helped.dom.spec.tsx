@@ -17,10 +17,11 @@ import { deriveBeats, type Beat } from '../src/director'
 import DirectorView from '../src/director/DirectorView'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
-import type { GameState, TurnRecord } from '../src/engine/types'
+import type { GameState, TurnActions, TurnRecord } from '../src/engine/types'
 import AftermathCard from '../src/ui/board/AftermathCard'
 import { verdictFor } from '../src/ui/verdict'
 import { full, short } from '../src/ui/wouldHaveHelped'
+import { POLICIES } from './policies'
 import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
 
 declare global {
@@ -49,13 +50,21 @@ const line = () => container.querySelector('[data-would-have-helped]')
 const isThreat = (id: string) => (DEFAULT_SCENARIO.events.find((e) => e.id === id)?.kind ?? 'threat') === 'threat'
 
 // The first turn of real play, over a few seeds and both scripted lines,
-// with a visible beat or a record that has the shape a test needs.
+// then the sweep gate's policies (tests/policies.ts), with a visible beat
+// or a record that has the shape a test needs. The policies come after
+// the scripts, so a shape the scripts reach is found where it always was;
+// they were added in v1.3 Round 0 because the six-turn game's scripts
+// never land a fully defended threat ahead of one with a defense missing
+// (the verdict test below), and the NOVICE line does, on turn 6, where
+// the BLACKOUT CHAIN gets through sensor fusion ahead of the drawn move.
+const scripted = (script: Record<number, TurnActions>) => (state: GameState) => script[state.turn] ?? NO_OP
+const LINES: ((state: GameState) => TurnActions)[] = [scripted(LOSS_SCRIPT), scripted(WIN_SCRIPT), ...POLICIES.map((p) => p.policy)]
 function find<T>(pick: (before: GameState, after: GameState) => T | undefined): T {
-  for (const script of [LOSS_SCRIPT, WIN_SCRIPT]) {
+  for (const play of LINES) {
     for (const seed of [20260712, 4041, 1, 2, 3, 7]) {
       let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
       while (state.status === 'playing') {
-        const after = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+        const after = resolveTurn(state, play(state), turnRng(state.seed, state.turn))
         const found = pick(state, after)
         if (found) return found
         state = after
@@ -74,7 +83,7 @@ const beatWhere = (match: (b: Beat, after: GameState) => boolean) =>
 function renderBeat(f: { before: GameState; after: GameState; beat: Beat }) {
   act(() => {
     root.render(
-      <DirectorView before={f.before} after={f.after} beats={[f.beat]} speed="1x" onSpeedChange={() => {}} onPresented={() => {}} onDone={() => {}} />,
+      <DirectorView before={f.before} after={f.after} beats={[f.beat]} onPresented={() => {}} onDone={() => {}} />,
     )
   })
 }

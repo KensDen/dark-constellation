@@ -25,6 +25,7 @@ import {
   decodeSaveCode,
   encodeSaveCode,
   recordMet,
+  recordNamed,
   type DailyOp,
   type DailyStanding,
   type RestoredGame,
@@ -46,7 +47,7 @@ import ThreatBanner from './board/ThreatBanner'
 import LayerPanel, { type ChipModel } from './board/LayerPanel'
 import BoardReference from './board/BoardReference'
 import AftermathCard from './board/AftermathCard'
-import ProcureSheet, { ORDER_TIER, type ProcurePick } from './board/ProcureSheet'
+import ProcureSheet, { type ProcurePick } from './board/ProcureSheet'
 import type { SheetId, StepSheet } from './board/actions'
 import { ACTIONS, GUIDE, creditsTag, fKeyOf, guideStage, resolveLabel, suggestNextStep, type Objective } from './board/actions'
 import ActionBar from './board/ActionBar'
@@ -62,7 +63,8 @@ import {
   THREAT_EVENT_COUNT,
   UNVERIFIED_REF_COUNT,
 } from '../content'
-import { DIFFICULTIES, effectiveIntel, newGame, resolveTurn } from '../engine/reducer'
+import { DIFFICULTIES, briefActive, briefFree, newGame, orderCost, resolveTurn } from '../engine/reducer'
+import { defenseBonus } from '../engine/learning'
 import { turnRng } from '../engine/rng'
 import { assetPrice, maiScore } from '../engine/scoring'
 import { LAYERS, type AssetKind, type Difficulty, type GameState, type TurnActions } from '../engine/types'
@@ -178,8 +180,7 @@ const DEFAULT_SEED = 20260711
 const EMPTY_ACTIONS: TurnActions = {
   buyAssets: [],
   buyCounters: [],
-  buyIntelLevel: false,
-  buyIrRetainer: false,
+  intelBrief: false,
 }
 
 // A stable empty list, so the badge hook's dependency does not change
@@ -215,12 +216,13 @@ const buyBtnDenied = 'dc-tile font-display uppercase text-[10px] border-2 border
 const isStep = (id: Sheet | null): id is StepSheet => id !== null && id !== 'system'
 
 // Which sheet is open. The sheet is presentation state, not a phase: the
-// v1.1 phases 'procure' and 'harden' still arrive from older autosaves and
-// save codes, and they open PROCURE on a board at 'brief', since HARDEN
-// merged into it in v1.3 Round 0.
+// v1.1 phase 'procure' still arrives in a save, and it opens PROCURE on a
+// board at 'brief'. ('harden', which opened HARDEN, left the save format
+// with the sheet in v1.3 Round 0, when saves from before it stopped
+// loading at all.)
 type Sheet = SheetId
 function arrive(phase: Phase | undefined): { phase: Phase; sheet: Sheet | null } {
-  if (phase === 'procure' || phase === 'harden') return { phase: 'brief', sheet: 'procure' }
+  if (phase === 'procure') return { phase: 'brief', sheet: 'procure' }
   return { phase: phase ?? 'brief', sheet: null }
 }
 
@@ -231,18 +233,15 @@ const saveStore = new LocalStorageStore()
 const scoreSink = new LocalScoreSink()
 const dailyLedger = new LocalDailyLedger()
 
-function plannedCost(state: GameState, actions: TurnActions): number {
-  const s = state.scenario
-  let total = 0
-  if (actions.buyIntelLevel && state.intelLevel !== 3) total += s.prices.intelLevels[state.intelLevel]
-  if (actions.buyIrRetainer && !state.irRetainer) {
-    total += s.countermeasures.find((c) => c.id === 'irRetainer')?.cost ?? 0
-  }
-  for (const id of actions.buyCounters) {
-    total += s.countermeasures.find((c) => c.id === id)?.cost ?? 0
-  }
-  for (const buy of actions.buyAssets) total += assetPrice(s, buy.kind, buy.tier)
-  return total
+// THE DEBRIS CALL, interim (v1.3 Round 0). The engine takes BURN or HOLD
+// with the night's orders (TurnActions.debris); Round 3 builds the call
+// itself (brief 5.5 item 5). Until then a night with the conjunction
+// burns when the subscription makes the burn free and holds otherwise,
+// which spends nothing the player did not choose to spend.
+function withDebrisCall(state: GameState, actions: TurnActions): TurnActions {
+  if (actions.debris) return actions
+  const ssa = state.counters.includes('ssaManeuver') || actions.buyCounters.includes('ssaManeuver')
+  return { ...actions, debris: ssa ? 'burn' : 'hold' }
 }
 
 export default function Game({
@@ -553,6 +552,7 @@ export default function Game({
         totalTurns: scenario.totalTurns,
         scenarioId: scenario.id,
         difficulty: state.difficulty,
+        bonus: defenseBonus(state.bestStreak, state.saved),
         recordedAt,
       })
       if (daily) {
@@ -563,6 +563,7 @@ export default function Game({
             outcome: state.status,
             lossReason: state.lossReason,
             mai: last?.maiScore ?? 0,
+            bonus: defenseBonus(state.bestStreak, state.saved),
             turns: state.history.length,
             recordedAt,
           }),
@@ -581,11 +582,14 @@ export default function Game({
 
   const flash = (msg: string) => setNotice(msg)
 
-  // Derived from content so the help text tracks any duration retune.
-  const durations = scenario.events.flatMap((e) => (e.duration ? [e.duration.min, e.duration.max] : []))
-  const conditionDurationRange = durations.length
-    ? `${Math.min(...durations)} to ${Math.max(...durations)} turns`
-    : 'a few turns'
+  // Derived from content so the help text tracks any clock retune.
+  const durations = [...new Set(scenario.events.flatMap((e) => (e.condition ? [e.condition.turns] : [])))].sort((x, y) => x - y)
+  const conditionDurationRange =
+    durations.length === 0
+      ? 'a few turns'
+      : durations.length === 1
+        ? `${durations[0]} turns`
+        : `${durations[0]} to ${durations[durations.length - 1]} turns`
 
   // Item 1: the job framing (three numbered lines and a line of context), shown on the start screen and again
   // in the turn 1 brief so a skimming player can state the objective.
@@ -900,10 +904,7 @@ export default function Game({
             ))}
           </div>
           <p className="mt-2 text-sm text-ink-dim">{DIFFICULTIES[difficulty].blurb}</p>
-          <p className="mt-1 font-mono text-xs text-ink-dim">
-            Condition pressure x{DIFFICULTIES[difficulty].conditionPressure}, income x
-            {DIFFICULTIES[difficulty].income}, starting credits x{DIFFICULTIES[difficulty].startCredits}.
-          </p>
+          <p className="mt-1 font-mono text-xs text-ink-dim">Damage and repair bills x{DIFFICULTIES[difficulty].damage}.</p>
         </fieldset>
 
         <details className="mt-4 border border-phosphor/20 bg-panel p-3">
@@ -968,11 +969,11 @@ export default function Game({
     )
   }
 
-  // The engine credits income (and any SLA bonus) before purchases, so the
-  // budget gate mirrors that: this turn's spendable total, not last turn's
-  // ending balance.
+  // Funding and the coverage bonus arrive at the turn close since v1.3
+  // Round 0 (brief 6.1), so this turn's spendable total is the balance,
+  // and the orders are priced by the engine's own rule.
   const available = turnBudget(state)
-  const cost = plannedCost(state, actions)
+  const cost = orderCost(state, actions)
   const affordable = cost <= available
   const lastRecord = state.history[state.history.length - 1]
   const displayTurn =
@@ -985,13 +986,17 @@ export default function Game({
     // engine ever disagree, surface the reason instead of dying silently:
     // a throw inside an event handler never reaches an error boundary.
     try {
-      const next = resolveTurn(state, actions, turnRng(state.seed, state.turn))
+      const next = resolveTurn(state, withDebrisCall(state, actions), turnRng(state.seed, state.turn))
       // The first completed resolve on this device ends the walkthrough
       // for good (R2b).
       markFirstTurnDone()
       // Every event the turn drew, landed or held, is met on this device
-      // (v1.2 R5b): the Field Library's FILED stamps read it.
-      recordMet(next.history[next.history.length - 1].events.map((e) => e.eventId))
+      // (v1.2 R5b): the Field Library's FILED stamps read it. The threats
+      // the intel brief named are met too (brief 6.9), in a key of their
+      // own so FILED keeps meaning faced; the answer key reads both.
+      const record = next.history[next.history.length - 1]
+      recordMet(record.events.map((e) => e.eventId))
+      recordNamed(record.named)
       setGuideOn(false)
       // A new turn declares its own spend; nothing carries over.
       setChosenSpend(0)
@@ -1038,8 +1043,7 @@ export default function Game({
 
   // The engine is the authority on affordability; this keeps the cart
   // inside the same budget so the gate never has to refuse at resolve time.
-  // Every asset is ordered at the one price there is (ORDER_TIER).
-  const afforded = (kind: AssetKind): boolean => cost + assetPrice(scenario, kind, ORDER_TIER) <= available
+  const afforded = (kind: AssetKind): boolean => cost + assetPrice(scenario, kind) <= available
   const afford = (price: number, tileId: string): boolean => {
     if (cost + price <= available) return true
     // Every refusal in the phase comes through here, so the buzz does too:
@@ -1050,13 +1054,13 @@ export default function Game({
   }
 
   const addAsset = (kind: AssetKind) => {
-    const price = assetPrice(scenario, kind, ORDER_TIER)
+    const price = assetPrice(scenario, kind)
     if (!afford(price, kind)) return
     play('buy-click')
     // The new entry is the last one, and the nonce restarts the cue when
     // the same kind is bought twice in a row.
     setArrived({ index: actions.buyAssets.length, nonce: (arrived?.nonce ?? 0) + 1 })
-    setActions({ ...actions, buyAssets: [...actions.buyAssets, { kind, tier: ORDER_TIER }] })
+    setActions({ ...actions, buyAssets: [...actions.buyAssets, { kind }] })
   }
   const removeAsset = (index: number) => {
     // Taking an item back out is the same control as putting it in. The
@@ -1067,28 +1071,28 @@ export default function Game({
     setArrived(null)
     setActions({ ...actions, buyAssets: actions.buyAssets.filter((_, i) => i !== index) })
   }
-  // The IR retainer sits in PROCURE with the defenses (critique row M8)
-  // but is still bought through its own flag, which the engine reads.
+  // The IR retainer sits in PROCURE with the defenses (critique row M8),
+  // and since v1.3 Round 0 it is ordered like one.
   const toggleCounter = (id: (typeof scenario.countermeasures)[number]['id']) => {
-    const retainer = id === 'irRetainer'
-    const already = retainer ? actions.buyIrRetainer : actions.buyCounters.includes(id)
+    const already = actions.buyCounters.includes(id)
     if (!already) {
       const price = scenario.countermeasures.find((c) => c.id === id)?.cost ?? 0
       if (!afford(price, `cm-${id}`)) return
     }
     play('buy-click')
-    setActions(
-      retainer
-        ? { ...actions, buyIrRetainer: !already }
-        : { ...actions, buyCounters: already ? actions.buyCounters.filter((c) => c !== id) : [...actions.buyCounters, id] },
-    )
+    setActions({ ...actions, buyCounters: already ? actions.buyCounters.filter((c) => c !== id) : [...actions.buyCounters, id] })
   }
 
   // THE BOARD'S STATE, derived. During playback the panels follow the
   // director's presented state, like the HUD, so a hit lands on the beat
   // that applies it rather than at the engine's end state.
   const deciding = phase !== 'playback' && phase !== 'aftermath'
-  const showsDurationEstimate = effectiveIntel(shown) >= 3
+  // Whether tonight's moves are named: the cart while deciding (a brief
+  // ordered there names them before EXECUTE), and the record of the night
+  // the playback is showing after it.
+  const briefedTonight = deciding
+    ? briefActive(state, actions)
+    : (state.history.find((h) => h.turn === shown.turn)?.briefed ?? briefFree(shown))
   const tiles = tilesByLayer(shown, actions.buyAssets)
   // The queued tile that just slid in carries the manifest cue (brief
   // section 4: "item slides into the manifest"); the manifest is the
@@ -1103,20 +1107,21 @@ export default function Game({
   }
   // Condition chips per layer (brief 4.3), from the one badge hook above,
   // with elapsed time counted from the engine's turn so the number does
-  // not jump when playback hands over to the aftermath.
+  // not jump when playback hands over to the aftermath, and the turns left
+  // since v1.3 Round 0 (brief 6.5: the player plans around the clock).
   const chipsOn = (layer: (typeof LAYERS)[number]): ChipModel[] =>
     conditionsOn(layer, badges, scenario).map((c) => ({
       condition: c,
       phase: phases[c.instanceId] ?? 'attached',
       elapsed: state.turn - c.startedTurn,
-      remainingEstimate: showsDurationEstimate ? c.remainingTurns : undefined,
+      remaining: c.remainingTurns,
     }))
 
   // The spend line every decision sheet carries. It is the element the
   // cannot-afford flash lands on (brief v0.5 section 6).
   const spendLine = (
     <p className={`text-xs font-mono text-dc-muted ${denialFlash}`}>
-      Planned spend: {cost} of {available} credits available (current {state.credits} plus {available - state.credits} turn income).
+      Planned spend: {cost} of {available} credits available. Funding arrives at the turn close.
     </p>
   )
   // The colour channel of a refusal, which survives reduced motion; the
@@ -1205,7 +1210,7 @@ export default function Game({
 
   const displayRecord = phase === 'aftermath' && lastRecord ? lastRecord : null
   // What PROCURE says under its label: how many orders are queued.
-  const orders = actions.buyAssets.length + actions.buyCounters.length + (actions.buyIrRetainer ? 1 : 0) + (actions.buyIntelLevel ? 1 : 0)
+  const orders = actions.buyAssets.length + actions.buyCounters.length + (actions.intelBrief && !briefFree(state) ? 1 : 0)
   const captions: Record<string, string> = {
     procure: orders > 0 ? `${orders} queued` : '',
   }
@@ -1270,7 +1275,13 @@ export default function Game({
         {/* Keyed on the PRESENTED turn, so the teletype runs once when a
             turn's transmission arrives and not again when the engine's
             turn advances under a playback that is still showing this one. */}
-        <ThreatBanner shown={shown} cueKey={shown.turn} onTag={(tag) => setGlossaryFocus(tag)} onIntel={() => setIntel({ kind: 'banner' })} />
+        <ThreatBanner
+          shown={shown}
+          cueKey={shown.turn}
+          onTag={(tag) => setGlossaryFocus(tag)}
+          onIntel={() => setIntel({ kind: 'banner' })}
+          briefed={briefedTonight}
+        />
         {/* THE WIDE BOARD'S COLUMNS (v1.2 R6, brief 4.6): the ops log under
             the banner and the inspector on the right, each a conditional
             child in a fixed place, so crossing 1024 remounts none of their
@@ -1375,15 +1386,14 @@ export default function Game({
             onClose={() => openSheet(null)}
             buyClass={buyClass}
             spendLine={spendLine}
-            queuedCounters={actions.buyIrRetainer ? [...actions.buyCounters, 'irRetainer'] : actions.buyCounters}
+            queuedCounters={actions.buyCounters}
             onToggleCounter={toggleCounter}
             deniedClassFor={(id) => deniedTile(`cm-${id}`)}
-            intelChecked={actions.buyIntelLevel}
+            intelChecked={actions.intelBrief}
             onIntel={(checked) => {
-              const intelPrice = state.intelLevel !== 3 ? scenario.prices.intelLevels[state.intelLevel] : 0
-              if (checked && !afford(intelPrice, 'intel')) return
+              if (checked && !afford(scenario.prices.intelBrief, 'intel')) return
               play('buy-click')
-              setActions({ ...actions, buyIntelLevel: checked })
+              setActions({ ...actions, intelBrief: checked })
             }}
             intelClass={deniedTile('intel')}
           />
@@ -1464,7 +1474,7 @@ export default function Game({
           data-intel-overlay
         >
           <Suspense fallback={<OverlayLoading />}>
-            <IntelCard subject={intel} state={shown} turn={state.turn} onClose={() => setIntel(null)} />
+            <IntelCard subject={intel} state={shown} turn={state.turn} briefed={briefedTonight} onClose={() => setIntel(null)} />
           </Suspense>
         </div>
       )}

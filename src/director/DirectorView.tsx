@@ -36,11 +36,11 @@ const toneClass: Record<DeltaTone, string> = {
 }
 
 const HOSTILE_KINDS = new Set(['threat', 'condition-applied', 'condition-renewed', 'condition-pressure', 'chain-armed'])
-const FRIENDLY_KINDS = new Set(['commendation', 'opportunity', 'deploy-arrived', 'condition-cleared', 'surge-spent'])
+const FRIENDLY_KINDS = new Set(['commendation', 'opportunity', 'deploy-arrived', 'condition-cleared'])
 
 // The beats whose subject is a threat event: the event itself, landed or
-// held, and the condition it leaves. Commendations name one too, but say
-// what the player did, not what the adversary did.
+// held, and the condition it leaves. The defense streak says what the
+// player did, not what the adversary did.
 const REAL_WORLD_KINDS: ReadonlySet<Beat['kind']> = new Set(['threat', 'condition-applied', 'condition-renewed', 'condition-pressure'])
 
 export interface DirectorViewProps {
@@ -156,7 +156,7 @@ export default function DirectorView({ before, after, beats, onPresented, onDone
   const cardCue = useCueClass(beat?.id ?? null, cardClass, reduced, onCard && visual ? VISUAL_MS[visual] : 260)
   const markerClass = !onCard && visual ? VISUAL_CLASS[visual] : ''
   // The marker holds its end state rather than clearing: badge-clear
-  // finishes at opacity zero and token-burn at a quarter, so dropping the
+  // finishes at opacity zero, so dropping the
   // class would snap the marker back to full strength as the cue ended.
   const markerCue = useCueClass(markerClass ? (beat?.id ?? null) : null, markerClass, reduced, 0)
 

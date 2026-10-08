@@ -1,7 +1,17 @@
-// Engine battery (spec Section 11.2): determinism, purity, and win/loss
-// reachability by real play. The determinism hash must match the
-// committed snapshot; regenerate deliberately with UPDATE_SNAPSHOTS=1
-// after an intentional engine or content change.
+// Engine battery (spec Section 11.2): determinism, purity, the v1.3 rules
+// (brief section 6) and win/loss reachability by real play. The
+// determinism hash must match the committed snapshot; regenerate
+// deliberately with UPDATE_SNAPSHOTS=1 after an intentional engine or
+// content change, and record the new hash and why in the commit.
+//
+// THE SNAPSHOT MOVED ONCE IN v1.3 ROUND 0 (brief 6.10), for the loop pass:
+// six turns, the reacting adversary, the new mitigation, coverage and
+// economy, the debris call, fixed condition clocks, the intel brief, no
+// tiers and no surge. Coverage is summed in whole hundredths in the same
+// move, so the ledger's coverage figures carry no float noise. The v1.2
+// proofs that rebuilt earlier snapshots from this engine (GUARD R3 (b),
+// GUARD R5a (a) and the prepared line's second move) replayed v1.2 rules,
+// which no longer exist, and left with them.
 
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -9,234 +19,116 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-import { newGame, resolveTurn } from '../src/engine/reducer'
-import { turnRng } from '../src/engine/rng'
-import type { GameState, TurnActions } from '../src/engine/types'
 import { DEFAULT_SCENARIO } from '../src/content'
-import { LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT, a } from './scripts'
+import { adversaryPicks } from '../src/engine/adversary'
+import {
+  ASSET_DAMAGE_PER_SEVERITY,
+  BURN_FUEL_CREDITS,
+  CHAIN_BONUS,
+  METER_DAMAGE_PER_SEVERITY,
+  PRIMARY_MITIGATION,
+  SECONDARY_MITIGATION,
+  countersAfter,
+  debrisTarget,
+  mitigationOf,
+  newGame,
+  resolveTurn,
+} from '../src/engine/reducer'
+import { turnRng } from '../src/engine/rng'
+import { worstCase } from '../src/engine/worstCase'
+import { COVERAGE_PER_KIND, coverage, maiScore } from '../src/engine/scoring'
+import type { GameState, TurnActions } from '../src/engine/types'
+import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT, a } from './scripts'
 
 const SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), 'determinism.snap.json')
 
-// With the R3.25 dynamics, prepared play no longer wins on every seed
-// (target ~75 to 85 percent). WIN_SEED is a confirmed win for the prepared
-// line; LOSS_SEED a confirmed loss for the do-nothing line. Both anchor the
-// determinism snapshot.
+// WIN_SEED is a confirmed win for the prepared line; LOSS_SEED a confirmed
+// loss for the do-nothing line. Both anchor the determinism snapshot.
 const WIN_SEED = 20260712
 const LOSS_SEED = 4041
 
-// Standard difficulty is pinned here (R5): its multipliers are exactly 1 on
-// every axis, so the snapshot must stay byte-identical to the pre-R5 hash.
-//
-// `deck` says where the adversary's draws come from (v1.2 R5a). 'deck' is
-// the engine's own deck stream, what every caller gets. 'legacy' hands the
-// main stream in as the deck, which is exactly how every version before the
-// split drew: one stream, a slot's pick and then its resolution, in order.
-type DeckRouting = 'deck' | 'legacy'
-function playGame(seed: number, script: Record<number, TurnActions>, deck: DeckRouting = 'deck'): GameState {
-  let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
-  while (state.status === 'playing') {
-    const actions = script[state.turn] ?? NO_OP
-    const main = turnRng(state.seed, state.turn)
-    state = deck === 'deck' ? resolveTurn(state, actions, main) : resolveTurn(state, actions, main, main)
-  }
+function playGame(seed: number, script: Record<number, TurnActions>, difficulty: GameState['difficulty'] = 'standard'): GameState {
+  let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
+  while (state.status === 'playing') state = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
   return state
 }
 
-// The prepared line as it stood before v1.2 R5a, frozen, so the proofs of
-// earlier snapshot moves replay the script they were proved against even
-// after WIN_SCRIPT itself changes.
-const WIN_SCRIPT_BEFORE_R5A: Record<number, TurnActions> = {
-  1: a({ buyCounters: ['sensorFusion', 'antiJam'], buyAssets: [{ kind: 'sat', tier: 'B' }], buyIntelLevel: true }),
-  2: a({ buyAssets: [{ kind: 'sat', tier: 'B' }] }),
-  3: a({ buyCounters: ['groundZeroTrust'] }),
-  4: a({ buyCounters: ['tierAAttestation'], buyIrRetainer: true }),
-  5: a({ buyCounters: ['ssaManeuver'] }),
-  6: a({ buyAssets: [{ kind: 'drone', tier: 'A' }] }),
-  7: a({ buyAssets: [{ kind: 'drone', tier: 'A' }] }),
-  8: a({ buyCounters: ['linkAuth'] }),
-  9: a({ buyAssets: [{ kind: 'sat', tier: 'A' }] }),
-  10: a({}),
-  11: a({ buyAssets: [{ kind: 'drone', tier: 'A' }] }),
-  12: a({}),
-}
-
 function gameLogHash(state: GameState): string {
-  const log = {
-    seed: state.seed,
-    status: state.status,
-    lossReason: state.lossReason ?? null,
-    history: state.history,
-  }
+  const log = { seed: state.seed, status: state.status, lossReason: state.lossReason ?? null, history: state.history }
   return createHash('sha256').update(JSON.stringify(log)).digest('hex')
 }
 
-// THE R3 MOVE, PROVED (brief v0.8 section 4.5). ResolvedEvent gained
-// targetAssetId in v1.2 Round 3, which moves the snapshot. The move has to
-// be that field and nothing else, so the proof strips it from every event
-// of both replays, rebuilds the snapshot file's bytes exactly as
-// UPDATE_SNAPSHOTS writes them, and requires the file's SHA-1 to be the
-// one the brief records for the snapshot before the field existed,
-// 50eb2261. The two hashes that file held are kept here, so the proof
-// does not lean on the file it replaced. The snapshot after R3 is the
-// committed tests/determinism.snap.json; its file SHA-1 is POST_TARGET_FILE_SHA1.
-const PRE_TARGET = {
-  win: 'c31e68e4ec8c7fd626bc02ae29be940158f0b487e9ecad759ba6d2d5f1d4ad58',
-  loss: '0ca1aebab66b5b0d6791ea0f7b4dce86e9670a0ff9af3823dcb214a0920c3919',
-}
-const PRE_TARGET_FILE_SHA1 = '50eb22612dea4e4f5a03a6fa3d2fd174f3855134'
-const POST_TARGET_FILE_SHA1 = '5413e6332b09bc3be21cec6c4e2e39fcfff38f7e'
-
-// THE R5a MOVE (brief v0.9 section 7.1): the adversary draws from a deck
-// stream of its own. The snapshot after R3 held these two hashes, in the
-// file POST_TARGET_FILE_SHA1 names; the proof below replays both lines with
-// the deck routed back to the main stream and requires them, to the byte.
-// The deck move alone gave the file POST_DECK_FILE_SHA1 names.
-const POST_TARGET = {
-  win: 'c99c56a6b731e236ee39b330d9c3c50c63e7b3466b06224030cd07d8310ec61c',
-  loss: 'd31a41e8aa638dc957cd891d225a3fadfeeebfbbc5951438e3485aec5d94b896',
-}
-const POST_DECK = {
-  win: 'faf9ad331dacc6429c3485d41e6c8f432f3686dd0aedf667c895b53af39c0685',
-  loss: '9734c6503c8442d85535e19c5e03ab50c1c167dd7db0efa4fa30c545d4794e32',
-}
-const POST_DECK_FILE_SHA1 = '1baa3371d9d0bbb241c910801bc27fce25482f66'
-// THE SECOND R5a MOVE: the prepared line buys its turn 9 sat at Tier B
-// (tests/scripts.ts). The committed snapshot is the one after both moves.
-const SNAPSHOT_FILE_SHA1 = '795ec81875056aa2c0c814c34902bc1d95457fef'
-
-function withoutTargets(state: GameState): GameState {
-  return {
-    ...state,
-    history: state.history.map((record) => ({
-      ...record,
-      events: record.events.map((ev) => {
-        const { targetAssetId: _dropped, ...rest } = ev
-        return rest
-      }),
-    })),
-  }
-}
-
-const snapshotFile = (snap: { win: string; loss: string }) => JSON.stringify(snap, null, 2) + '\n'
-const sha1 = (text: string) => createHash('sha1').update(text).digest('hex')
+const step = (state: GameState, actions: TurnActions = NO_OP) => resolveTurn(state, actions, turnRng(state.seed, state.turn))
+const event = (id: string) => DEFAULT_SCENARIO.events.find((e) => e.id === id)!
 
 describe('determinism', () => {
   it('same seed and actions produce the identical log hash', () => {
-    const first = playGame(WIN_SEED, WIN_SCRIPT)
-    const second = playGame(WIN_SEED, WIN_SCRIPT)
-    expect(gameLogHash(first)).toBe(gameLogHash(second))
+    expect(gameLogHash(playGame(WIN_SEED, WIN_SCRIPT))).toBe(gameLogHash(playGame(WIN_SEED, WIN_SCRIPT)))
   })
 
   it('fixed-seed full-game replays match the committed snapshot', () => {
-    const actual = {
-      win: gameLogHash(playGame(WIN_SEED, WIN_SCRIPT)),
-      loss: gameLogHash(playGame(LOSS_SEED, LOSS_SCRIPT)),
-    }
-    if (process.env.UPDATE_SNAPSHOTS) {
-      writeFileSync(SNAPSHOT_PATH, JSON.stringify(actual, null, 2) + '\n')
-    }
-    const committed = JSON.parse(readFileSync(SNAPSHOT_PATH, 'utf8'))
-    expect(actual).toEqual(committed)
+    const actual = { win: gameLogHash(playGame(WIN_SEED, WIN_SCRIPT)), loss: gameLogHash(playGame(LOSS_SEED, LOSS_SCRIPT)) }
+    if (process.env.UPDATE_SNAPSHOTS) writeFileSync(SNAPSHOT_PATH, JSON.stringify(actual, null, 2) + '\n')
+    expect(actual).toEqual(JSON.parse(readFileSync(SNAPSHOT_PATH, 'utf8')))
+    // The committed file, pinned, so a regenerated snapshot is an edit to
+    // this line as well as to the file: the snapshot moves deliberately or
+    // not at all. be6509e3 is the v1.3 Round 0 move (see the header).
+    expect(createHash('sha1').update(readFileSync(SNAPSHOT_PATH, 'utf8')).digest('hex'), 'the committed snapshot file changed').toBe(
+      'be6509e378fad32093941207caa84e632b8a30da',
+    )
   })
 
-  it('GUARD R3 (b): moves by targetAssetId alone; stripped, the replays rebuild the pre-R3 snapshot to the byte', () => {
-    // Replayed as R3 drew them: the deck routed back to the main stream and
-    // the prepared line as it was (see GUARD R5a (a)).
-    const win = playGame(WIN_SEED, WIN_SCRIPT_BEFORE_R5A, 'legacy')
-    const loss = playGame(LOSS_SEED, LOSS_SCRIPT, 'legacy')
-    const stripped = { win: gameLogHash(withoutTargets(win)), loss: gameLogHash(withoutTargets(loss)) }
-    expect(stripped, 'stripping targetAssetId does not restore the pre-R3 hashes').toEqual(PRE_TARGET)
-    expect(sha1(snapshotFile(stripped)), 'the rebuilt pre-R3 file is not 50eb2261').toBe(PRE_TARGET_FILE_SHA1)
-    // And the field is really there: unstripped, both replays move.
-    expect(gameLogHash(win)).not.toBe(PRE_TARGET.win)
-    expect(gameLogHash(loss)).not.toBe(PRE_TARGET.loss)
-  })
-
-  it('GUARD R5a (a): moves by the deck stream alone; routed back to the main stream, the replays rebuild the post-R3 snapshot to the byte', () => {
-    const legacy = {
-      win: gameLogHash(playGame(WIN_SEED, WIN_SCRIPT_BEFORE_R5A, 'legacy')),
-      loss: gameLogHash(playGame(LOSS_SEED, LOSS_SCRIPT, 'legacy')),
-    }
-    expect(legacy, 'the deck routed to the main stream does not replay as R3 did').toEqual(POST_TARGET)
-    expect(sha1(snapshotFile(legacy)), 'the rebuilt post-R3 file is not 5413e633').toBe(POST_TARGET_FILE_SHA1)
-    // And the deck is really its own: on its own stream, both replays move.
-    expect(gameLogHash(playGame(WIN_SEED, WIN_SCRIPT_BEFORE_R5A))).not.toBe(POST_TARGET.win)
-    expect(gameLogHash(playGame(LOSS_SEED, LOSS_SCRIPT))).not.toBe(POST_TARGET.loss)
-  })
-
-  it('moves a second time by the prepared line alone; its old script on the deck stream rebuilds the deck snapshot to the byte', () => {
-    const deckOnly = {
-      win: gameLogHash(playGame(WIN_SEED, WIN_SCRIPT_BEFORE_R5A)),
-      loss: gameLogHash(playGame(LOSS_SEED, LOSS_SCRIPT)),
-    }
-    expect(deckOnly, 'the old script on the deck stream does not replay as the deck move left it').toEqual(POST_DECK)
-    expect(sha1(snapshotFile(deckOnly)), 'the rebuilt deck snapshot is not 1baa3371').toBe(POST_DECK_FILE_SHA1)
-    // The committed snapshot is the one this build produces, and its file
-    // hash is the one recorded above.
-    expect(sha1(readFileSync(SNAPSHOT_PATH, 'utf8')), 'the committed snapshot file changed').toBe(SNAPSHOT_FILE_SHA1)
-  })
-
-  it('GUARD R5a (b): every player on a seed meets the same threats, whatever they buy', () => {
-    // Before the adversary plays, a turn's asset buys draw their delivery
-    // and slip rolls from the main stream, so lines that buy different
-    // assets reach the deck with that stream in different places, and how
-    // each hit lands differs with what they own. The events each turn draws
-    // must not. The prepared line is paired with the do-nothing line and
-    // with the mixed line, which buys a different fleet and, unlike the
-    // do-nothing line (which collapses by turn nine), plays every turn to
-    // the end, so the last turns' draws are compared too.
+  it('GUARD R5a (b), rewritten to D3 (a): the same seed and the same orders draw the same night; other orders may not', () => {
+    // Under D3 (a) the Daily keeps the reacting adversary (brief 6.10), so
+    // what COLDVEIL plays depends on the posture: two campaigns on a seed
+    // with the same orders draw identical events, and two with different
+    // orders may not. And the pick is always the board's LIKELY TARGET
+    // (tests/adversary.spec.ts holds that over 200 seeds).
     const draws = (state: GameState) => state.history.map((r) => r.events.map((e) => e.eventId))
-    const differing = (deck: DeckRouting) => {
-      const out: string[] = []
-      const perTurn = new Array<number>(DEFAULT_SCENARIO.totalTurns).fill(0)
-      for (let seed = 1; seed <= 60; seed += 1) {
-        const prepared = draws(playGame(seed, WIN_SCRIPT, deck))
-        for (const other of [LOSS_SCRIPT, MIXED_SCRIPT]) {
-          const theirs = draws(playGame(seed, other, deck))
-          for (let t = 0; t < Math.min(prepared.length, theirs.length); t += 1) {
-            perTurn[t] += 1
-            if (JSON.stringify(prepared[t]) !== JSON.stringify(theirs[t])) out.push(`seed ${seed} turn ${t + 1}`)
-          }
-        }
-      }
-      return { out, perTurn }
+    let differ = 0
+    for (let seed = 1; seed <= 60; seed += 1) {
+      expect(draws(playGame(seed, WIN_SCRIPT)), `seed ${seed}: the same orders drew different events`).toEqual(draws(playGame(seed, WIN_SCRIPT)))
+      const prepared = draws(playGame(seed, WIN_SCRIPT))
+      const idle = draws(playGame(seed, LOSS_SCRIPT))
+      for (let t = 0; t < Math.min(prepared.length, idle.length); t += 1) if (JSON.stringify(prepared[t]) !== JSON.stringify(idle[t])) differ += 1
     }
-    const split = differing('deck')
-    // Every turn compared, the last ones included, on enough seeds to mean something.
-    expect(Math.min(...split.perTurn), `turns compared per turn: ${split.perTurn.join(', ')}`).toBeGreaterThanOrEqual(30)
-    expect(split.out.join('\n'), 'two players on one seed met different threats').toBe('')
-    // The positive control: the same comparison on the single stream every
-    // earlier version drew from does find the difference, so the check can see it.
-    expect(differing('legacy').out.length, 'the comparison cannot tell the two routings apart').toBeGreaterThan(0)
+    // The positive control: different postures do meet different moves,
+    // which is the point of an adversary that reacts.
+    expect(differ, 'a prepared posture and an idle one never met different moves').toBeGreaterThan(0)
   })
 
-  it('GUARD R3 (a), the engine half: every asset-damaging event names the asset it damaged, and only those do', () => {
-    // The oracle is the engine's own note, read here and only here: the
-    // presentation must never parse it (principle 7), which is the point
-    // of the field.
-    const DAMAGE_NOTE = /\b((?:start|t\d+)-(?:sat|rpoSat|drone|groundStation)-\d+) (?:degraded to \d+ percent integrity|disabled|lost)\./
-    const lines: [number, Record<number, TurnActions>][] = [
+  it('GUARD R3 (a), the engine half: damage lands only on the tile an event names, and the record says how much', () => {
+    let damaging = 0
+    for (const [seed, script] of [
       [WIN_SEED, WIN_SCRIPT],
       [LOSS_SEED, LOSS_SCRIPT],
-      [WIN_SEED, MIXED_SCRIPT],
-      [LOSS_SEED, MIXED_SCRIPT],
-    ]
-    let damaging = 0
-    for (const [seed, script] of lines) {
+      [7, LOSS_SCRIPT],
+      [11, WIN_SCRIPT],
+    ] as const) {
       let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
       while (state.status === 'playing') {
-        const after = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
-        const known = new Set(after.assets.map((a) => a.id))
-        for (const ev of after.history[after.history.length - 1].events) {
-          const named = ev.notes.map((n) => DAMAGE_NOTE.exec(n)?.[1]).filter(Boolean)
-          expect(named.length, `${ev.eventId} on turn ${state.turn} damaged more than one asset`).toBeLessThanOrEqual(1)
-          if (named.length === 1) {
-            damaging += 1
-            expect(ev.targetAssetId, `${ev.eventId} on turn ${state.turn}, seed ${seed}`).toBe(named[0])
-            expect(known.has(ev.targetAssetId!), `${ev.targetAssetId} is not an asset`).toBe(true)
-          } else {
-            expect(ev.targetAssetId, `${ev.eventId} on turn ${state.turn} names a target it did not damage`).toBeUndefined()
-          }
+        const actions = script[state.turn] ?? NO_OP
+        // Replay the night by hand: every integrity the record says an
+        // event left must be the asset's integrity at that moment, and no
+        // asset may lose integrity that no event names.
+        const after = step(state, actions)
+        const record = after.history.at(-1)!
+        const integrity = new Map(state.assets.map((a) => [a.id, a.integrity]))
+        for (const ev of record.events) {
+          if (ev.integrityAfter === undefined) continue
+          damaging += 1
+          expect(ev.targetAssetId, `${ev.eventId} on turn ${record.turn} records a hit but names no tile`).toBeDefined()
+          expect(integrity.get(ev.targetAssetId!), `${ev.eventId} on turn ${record.turn}: integrity before`).toBe(ev.integrityBefore)
+          integrity.set(ev.targetAssetId!, ev.integrityAfter)
+        }
+        // After the close every asset is where the hits left it, healed by
+        // the close's rule and nothing else.
+        for (const asset of state.assets) {
+          const hit = integrity.get(asset.id)!
+          const final = after.assets.find((x) => x.id === asset.id)!.integrity
+          expect(final, `${asset.id} on turn ${record.turn} moved without an event naming it`).toBe(
+            record.ledger.insolvent || hit === 0 ? hit : Math.min(100, hit + 10),
+          )
         }
         state = after
       }
@@ -247,8 +139,242 @@ describe('determinism', () => {
   it('resolveTurn does not mutate its input state', () => {
     const state = newGame(DEFAULT_SCENARIO, WIN_SEED)
     const before = JSON.stringify(state)
-    resolveTurn(state, WIN_SCRIPT[1], turnRng(state.seed, state.turn))
+    step(state, WIN_SCRIPT[1])
     expect(JSON.stringify(state)).toBe(before)
+  })
+})
+
+describe('the v1.3 rules (brief 6.1)', () => {
+  it('opens on 100 CR, six turns, the starter fleet at coverage 58, a free first brief', () => {
+    const s = newGame(DEFAULT_SCENARIO, 1)
+    expect(DEFAULT_SCENARIO.totalTurns).toBe(6)
+    expect(s.credits).toBe(100)
+    expect(coverage(s.assets)).toBe(2 * COVERAGE_PER_KIND.sat + COVERAGE_PER_KIND.rpoSat + 2 * COVERAGE_PER_KIND.drone + COVERAGE_PER_KIND.groundStation)
+    expect(coverage(s.assets)).toBe(58)
+    expect(maiScore(s)).toBe(87.4)
+    expect(s.briefFreeThrough).toBe(1)
+  })
+
+  it('mitigates by primary 2 and every other owned defense 1', () => {
+    const uplink = event('uplink-jamming') // antiJam, linkAuth
+    expect(mitigationOf(uplink, [])).toBe(0)
+    expect(mitigationOf(uplink, ['antiJam'])).toBe(PRIMARY_MITIGATION)
+    expect(mitigationOf(uplink, ['linkAuth'])).toBe(SECONDARY_MITIGATION)
+    expect(mitigationOf(uplink, ['antiJam', 'linkAuth'])).toBe(PRIMARY_MITIGATION + SECONDARY_MITIGATION)
+    // Brief 6.7: encryption first for the two listening threats.
+    expect(event('downlink-eavesdropping').counters[0]).toBe('encryptedBackhaul')
+    expect(event('backhaul-exfil').counters[0]).toBe('encryptedBackhaul')
+    // The debris is a call, not an attack.
+    expect(mitigationOf(event('debris-conjunction'), ['ssaManeuver'])).toBe(0)
+  })
+
+  it('counts coverage per kind, in proportion to integrity', () => {
+    const s = newGame(DEFAULT_SCENARIO, 1)
+    const wounded = s.assets.map((a) => (a.id === 'start-sat-1' ? { ...a, integrity: 50 } : a))
+    expect(coverage(wounded)).toBeCloseTo(58 - COVERAGE_PER_KIND.sat / 2, 10)
+  })
+
+  it('sums coverage exactly, so a fleet worth 60 sits on the bonus line rather than a hair under it', () => {
+    // The starter fleet plus a drone, worn to exactly 6,000 hundredths.
+    // Added term by term as fractions it came to 59.99999999999999, and
+    // the close refused the coverage bonus to a fleet that had earned it.
+    const kinds = ['sat', 'sat', 'rpoSat', 'drone', 'drone', 'groundStation', 'drone'] as const
+    const integrity = [97, 66, 97, 100, 87, 99, 92]
+    const layerOf = { sat: 'ORBIT', rpoSat: 'ORBIT', drone: 'AIR', groundStation: 'GROUND' } as const
+    const fleet = kinds.map((kind, i) => ({ id: `a${i}`, kind, layer: layerOf[kind], integrity: integrity[i] }))
+    expect(kinds.reduce((n, kind, i) => n + COVERAGE_PER_KIND[kind] * integrity[i], 0)).toBe(6000)
+    expect(coverage(fleet)).toBe(DEFAULT_SCENARIO.slaBonus.coverageMin)
+  })
+
+  it('charges the orders at EXECUTE, and the turn closes with repairs, upkeep, funding and the coverage bonus after arrivals', () => {
+    const s = newGame(DEFAULT_SCENARIO, 3)
+    // A drone and both turn-1 primaries: nothing gets through, so no repairs.
+    const after = step(s, a({ buyAssets: [{ kind: 'drone' }], buyCounters: ['antiJam', 'pntAuth'] }))
+    const l = after.history[0].ledger
+    expect(l.ordered).toBe(15 + 10 + 10)
+    expect(l.repairs).toBe(0)
+    expect(l.upkeep).toBe(2 * DEFAULT_SCENARIO.upkeepPerDefense)
+    // The drone arrives at this close, and coverage 67 earns the bonus.
+    expect(l.arrivals).toEqual(['t1-drone-1'])
+    expect(l.bonusCoverage).toBe(58 + COVERAGE_PER_KIND.drone)
+    expect(l.coverageBonus).toBe(DEFAULT_SCENARIO.slaBonus.credits)
+    expect(after.credits).toBe(100 - 35 - 4 + 20 + 10)
+    expect(l.after).toBe(after.credits)
+    expect(l.afterNight - l.repairs - l.upkeep + l.funding + l.coverageBonus).toBe(l.after)
+  })
+
+  it('lands a satellite two closes after its order, with no slip', () => {
+    let s = step(newGame(DEFAULT_SCENARIO, 5), a({ buyAssets: [{ kind: 'sat' }] }))
+    expect(s.assets.some((x) => x.id === 't1-sat-1')).toBe(false)
+    expect(s.pipeline.find((p) => p.id === 't1-sat-1')?.etaTurns).toBe(1)
+    s = step(s)
+    expect(s.assets.some((x) => x.id === 't1-sat-1')).toBe(true)
+  })
+
+  it('ends the run insolvent when the close cannot cover repairs and upkeep, with funding frozen', () => {
+    // Every defense the budget allows on turn 1, then nothing: the upkeep
+    // and the hits outrun funding sooner or later on some seed.
+    let found = false
+    for (let seed = 1; seed <= 200 && !found; seed += 1) {
+      let s = newGame(DEFAULT_SCENARIO, seed)
+      s = step(s, a({ buyCounters: ['sensorFusion', 'groundZeroTrust', 'tierAAttestation', 'irRetainer', 'antiJam', 'pntAuth', 'linkAuth', 'encryptedBackhaul'] }))
+      while (s.status === 'playing') s = step(s)
+      if (s.lossReason !== 'insolvency') continue
+      found = true
+      const l = s.history.at(-1)!.ledger
+      expect(l.insolvent).toBe(true)
+      expect(l.funding).toBe(0)
+      expect(l.coverageBonus).toBe(0)
+      expect(l.afterNight - l.repairs - l.upkeep).toBeLessThan(0)
+    }
+    expect(found, 'no seed went insolvent').toBe(true)
+  })
+
+  it('makes the first brief free, names every candidate when briefed, and charges 8 CR on a later night', () => {
+    const s = newGame(DEFAULT_SCENARIO, 2)
+    const t1 = step(s)
+    expect(t1.history[0].briefed).toBe(true)
+    expect(t1.history[0].named).toEqual(['uplink-jamming', 'gnss-spoofing'])
+    const t2 = step(t1, a({ intelBrief: true }))
+    expect(t2.history[1].briefed).toBe(true)
+    expect(t2.history[1].ledger.ordered).toBe(DEFAULT_SCENARIO.prices.intelBrief)
+    const unbriefed = step(t1)
+    expect(unbriefed.history[1].briefed).toBe(false)
+    expect(unbriefed.history[1].named).toEqual([])
+  })
+
+  it('has COLDVEIL take the move the defenses mitigate least', () => {
+    for (let seed = 1; seed <= 40; seed += 1) {
+      const s = newGame(DEFAULT_SCENARIO, seed)
+      // Block uplink jamming outright: the spoofing lands.
+      const blocked = step(s, a({ buyCounters: ['antiJam'] }))
+      expect(blocked.history[0].events.map((e) => e.eventId)).toEqual(['gnss-spoofing'])
+      const other = step(s, a({ buyCounters: ['pntAuth'] }))
+      expect(other.history[0].events.map((e) => e.eventId)).toEqual(['uplink-jamming'])
+    }
+  })
+
+  it('leaves a condition with a fixed clock that presses the next night and lifts on time', () => {
+    for (let seed = 1; seed <= 40; seed += 1) {
+      // Turn 1, nothing owned: an uplink jam lands on some seeds.
+      const s = step(newGame(DEFAULT_SCENARIO, seed))
+      const ev = s.history[0].events[0]
+      if (ev.eventId !== 'uplink-jamming') continue
+      const cond = event('uplink-jamming').condition!
+      expect(ev.condition).toEqual(cond)
+      const jam = s.conditions.find((c) => c.eventId === 'uplink-jamming')!
+      // Placed at the clock's length and counted down once at this close.
+      expect(jam.remainingTurns).toBe(cond.turns - 1)
+      const t2 = step(s)
+      expect(t2.history[1].conditionsActive).toContain(cond.name)
+      expect(t2.conditions.some((c) => c.instanceId === jam.instanceId)).toBe(cond.turns - 2 > 0)
+      return
+    }
+    throw new Error('no seed landed the uplink jam on turn 1')
+  })
+
+  it('adds the chain bonus while GNSS denial is live, and WORST CASE counts it', () => {
+    // Built by hand: under brief 6.2's plan and a 2-turn GNSS DENIED clock
+    // no campaign reaches it (pnt-jamming is drawn on turns 2 and 3 only,
+    // so GNSS denial is live on turns 3 and 4 at most, and every chain
+    // exploit is drawn on turns 5 and 6). Raised with Ken in the R0 report.
+    let s = newGame(DEFAULT_SCENARIO, 21)
+    while (s.turn < 6) s = step(s, a({ buyCounters: s.turn === 1 ? ['sensorFusion'] : [] }))
+    expect(s.status).toBe('playing')
+    const denied = { ...s, conditions: [{ instanceId: 'pnt-jamming-t5', eventId: 'pnt-jamming', name: 'GNSS DENIED', startedTurn: 5, remainingTurns: 1, baseSeverity: 2 }] }
+    const chained = step(denied).history.at(-1)!.events.find((e) => e.eventId === 'blackout-chain')!
+    expect(chained.chainBonus).toBe(CHAIN_BONUS)
+    expect(chained.effectiveSeverity).toBe(event('blackout-chain').baseSeverity + CHAIN_BONUS - PRIMARY_MITIGATION)
+    const plain = step(s).history.at(-1)!.events.find((e) => e.eventId === 'blackout-chain')!
+    expect(plain.chainBonus).toBe(0)
+    expect(worstCase(denied, NO_OP).repairs).toBeGreaterThan(worstCase(s, NO_OP).repairs)
+  })
+
+  it('makes the debris a call: a burn costs fuel without SSA and nothing with it, a hold risks the satellite', () => {
+    const toTurn4 = (seed: number, buy: TurnActions['buyCounters'] = []) => {
+      let s = newGame(DEFAULT_SCENARIO, seed)
+      s = step(s, a({ buyCounters: buy }))
+      while (s.turn < 4) s = step(s)
+      return s
+    }
+    const s = toTurn4(9)
+    const sat = debrisTarget(s)!
+    expect(sat.id).toBe('start-sat-2')
+    const burn = step(s, a({ debris: 'burn' })).history.at(-1)!
+    const call = burn.events.find((e) => e.eventId === 'debris-conjunction')!
+    expect(call.debris).toMatchObject({ choice: 'burn', assetId: sat.id, lost: false, fuel: BURN_FUEL_CREDITS, ssa: false })
+    expect(burn.ledger.fuel).toBe(BURN_FUEL_CREDITS)
+    // Off station for tonight's bonus check, and back for the score.
+    expect(burn.ledger.bonusCoverage).toBeLessThan(burn.coverage)
+    const withSsa = step(toTurn4(9, ['ssaManeuver']), a({ debris: 'burn' })).history.at(-1)!
+    expect(withSsa.events.find((e) => e.eventId === 'debris-conjunction')!.debris!.fuel).toBe(0)
+    // HOLD loses the satellite on some seeds, with a loss review queued.
+    let lost = 0
+    let kept = 0
+    for (let seed = 1; seed <= 80; seed += 1) {
+      const held = step(toTurn4(seed)).history.at(-1)!.events.find((e) => e.eventId === 'debris-conjunction')!
+      expect(held.debris!.choice).toBe('hold')
+      if (held.debris!.lost) {
+        lost += 1
+        expect(held.integrityAfter).toBe(0)
+        expect(held.repairCost).toBe(event('debris-conjunction').effect.repairCostPerSeverity * 2)
+      } else kept += 1
+    }
+    expect(lost).toBeGreaterThan(10)
+    expect(kept).toBeGreaterThan(lost)
+  })
+
+  it('aims the implant at any asset, and attestation blunts it to 1 without blocking it', () => {
+    const implant = event('supply-chain-implant')
+    expect(implant.name).not.toMatch(/Tier/)
+    expect(implant.blurb).toContain('without firmware attestation')
+    expect(Math.max(0, implant.baseSeverity - mitigationOf(implant, ['tierAAttestation']))).toBe(1)
+  })
+
+  it('scales damage and repair bills by 0.75 on EASY, and nothing else', () => {
+    for (let seed = 1; seed <= 40; seed += 1) {
+      const std = step(newGame(DEFAULT_SCENARIO, seed, 'standard')).history[0]
+      const easy = step(newGame(DEFAULT_SCENARIO, seed, 'easy')).history[0]
+      const hit = std.events[0]
+      expect(easy.events[0].eventId).toBe(hit.eventId)
+      if (hit.integrityAfter === undefined) continue
+      expect(hit.integrityBefore! - hit.integrityAfter).toBe(ASSET_DAMAGE_PER_SEVERITY * hit.effectiveSeverity)
+      const easyHit = easy.events[0]
+      expect(easyHit.integrityBefore! - easyHit.integrityAfter!).toBe(Math.round(ASSET_DAMAGE_PER_SEVERITY * hit.effectiveSeverity * 0.75))
+      expect(easyHit.repairCost).toBe(Math.round(hit.repairCost * 0.75))
+      expect(easy.ledger.funding).toBe(std.ledger.funding)
+      return
+    }
+    throw new Error('no turn-1 hit damaged a tile')
+  })
+
+  it('counts a defense streak, points saved and what the player can now say', () => {
+    const s = newGame(DEFAULT_SCENARIO, 4)
+    const held = step(s, a({ buyCounters: ['antiJam', 'pntAuth'] }))
+    const ev = held.history[0].events[0]
+    expect(ev.outcome).toBe('held')
+    expect(held.streak).toBe(1)
+    expect(held.bestStreak).toBe(1)
+    expect(ev.saved).toBeGreaterThan(0)
+    expect(held.saved).toBe(ev.saved)
+    expect(held.learned).toEqual([{ counter: event(ev.eventId).counters[0], threat: ev.eventId, how: 'held' }])
+    const open = step(s)
+    expect(open.history[0].events[0].outcome).toBe('open')
+    expect(open.streak).toBe(0)
+    expect(open.learned[0].how).toBe('missed')
+    // The meters it cost, at the damage rule.
+    const hit = open.history[0].events[0]
+    for (const m of event(hit.eventId).effect.meters) {
+      expect(100 - open.history[0].meters[m] + DEFAULT_SCENARIO.recovery.base).toBe(METER_DAMAGE_PER_SEVERITY * hit.effectiveSeverity)
+    }
+  })
+
+  it('reads the board and the engine through the same pick', () => {
+    const s = newGame(DEFAULT_SCENARIO, 12)
+    const orders = a({ buyCounters: ['antiJam'] })
+    const read = adversaryPicks(s, countersAfter(s, orders))
+    expect(read[0].least).toEqual(['gnss-spoofing'])
+    expect(step(s, orders).history[0].events[0].eventId).toBe(read[0].pick)
   })
 })
 
@@ -263,83 +389,5 @@ describe('reachability by real play', () => {
     const end = playGame(LOSS_SEED, LOSS_SCRIPT)
     expect(end.status).toBe('lost')
     expect(end.lossReason).toBeTruthy()
-  })
-
-  it('the supply-chain implant never damages Tier A assets (spec Sections 5 and 8)', () => {
-    // A Tier A drone deploys in one turn, so it is reliably on station well
-    // before the scripted turn-5 implant.
-    const buyTierA: TurnActions = { ...NO_OP, buyAssets: [{ kind: 'drone', tier: 'A' }] }
-    for (let seed = 1; seed <= 50; seed += 1) {
-      let state = newGame(DEFAULT_SCENARIO, seed)
-      state = resolveTurn(state, buyTierA, turnRng(state.seed, state.turn))
-      while (state.status === 'playing' && state.turn <= 4) {
-        state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
-      }
-      if (state.status !== 'playing') continue
-      const tierABefore = state.assets.filter((a) => a.tier === 'A').map((a) => a.integrity)
-      expect(tierABefore.length).toBeGreaterThan(0)
-      state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn)) // turn 5: scripted implant
-      const implant = state.history.find((h) => h.turn === 5)?.events.find((e) => e.eventId === 'supply-chain-implant')
-      expect(implant).toBeTruthy()
-      const tierAAfter = state.assets.filter((a) => a.tier === 'A').map((a) => a.integrity)
-      expect(tierAAfter).toEqual(tierABefore)
-    }
-  })
-
-  it('a jam becomes an active condition that holds LiDAR fallback, then expires', () => {
-    let state = newGame(DEFAULT_SCENARIO, LOSS_SEED)
-    while (state.status === 'playing' && state.turn <= 6) {
-      state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn)) // turn 6: fixed pnt-jamming
-    }
-    const jam = state.conditions.find((c) => c.eventId === 'pnt-jamming')
-    expect(jam, 'pnt-jamming should be an active condition after turn 6').toBeTruthy()
-    expect(jam!.remainingTurns).toBeGreaterThanOrEqual(1)
-    expect(state.flags.lidarFallback).toBe(true)
-    // Play out with no new jams and confirm the condition eventually lifts.
-    let sawExpiry = false
-    for (let i = 0; i < 4 && state.status === 'playing'; i += 1) {
-      state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
-      if (!state.conditions.some((c) => c.instanceId === jam!.instanceId)) sawExpiry = true
-    }
-    expect(sawExpiry).toBe(true)
-  })
-
-  it('deployments arrive after their ETA, not instantly', () => {
-    let state = newGame(DEFAULT_SCENARIO, WIN_SEED)
-    const before = state.assets.length
-    state = resolveTurn(state, { ...NO_OP, buyAssets: [{ kind: 'sat', tier: 'B' }] }, turnRng(state.seed, state.turn))
-    expect(state.assets.length, 'sat should not be operational the turn it is bought').toBe(before)
-    expect(state.pipeline.length).toBe(1)
-    expect(state.pipeline[0].etaTurns).toBeGreaterThanOrEqual(1)
-    let arrived = false
-    for (let i = 0; i < 4 && state.status === 'playing'; i += 1) {
-      state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
-      if (state.assets.length > before) arrived = true
-    }
-    expect(arrived, 'sat should reach orbit within a few turns').toBe(true)
-  })
-
-  it('a surge token clears one active condition and is consumed', () => {
-    let state = newGame(DEFAULT_SCENARIO, LOSS_SEED)
-    while (state.status === 'playing' && state.turn <= 6) {
-      state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
-    }
-    const cond = state.conditions[0]
-    expect(cond).toBeTruthy()
-    const tokensBefore = state.surgeTokens
-    expect(tokensBefore).toBeGreaterThan(0)
-    state = resolveTurn(state, { ...NO_OP, spendSurgeOn: cond.instanceId }, turnRng(state.seed, state.turn))
-    expect(state.conditions.some((c) => c.instanceId === cond.instanceId)).toBe(false)
-    expect(state.surgeTokens).toBe(tokensBefore - 1)
-  })
-
-  it('the BLACKOUT CHAIN lands at full potency against a single-sensor posture', () => {
-    let state = newGame(DEFAULT_SCENARIO, LOSS_SEED)
-    while (state.status === 'playing' && state.turn <= 7) {
-      state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
-    }
-    const chainTurn = state.history.find((h) => h.turn === 7)
-    const chainEvent = chainTurn?.events.find((e) => e.eventId === 'blackout-chain')
-    expect(chainEvent?.chainBonus).toBe(2)
   })
 })

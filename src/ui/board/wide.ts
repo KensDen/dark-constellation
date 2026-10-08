@@ -5,7 +5,6 @@
 // turn it is given, the engine's, as the layer chips count it. Loaded only
 // with the wide board, never in the first download.
 
-import { effectiveIntel } from '../../engine/reducer'
 import type { AssetKind, GameState, Layer } from '../../engine/types'
 import { kindLabels } from '../labels'
 import { verdictFor } from '../verdict'
@@ -62,7 +61,6 @@ export interface Inspected {
 export function inspectTile(shown: GameState, turn: number, assetId: string | null): Inspected | null {
   const asset = assetId ? shown.assets.find((a) => a.id === assetId) : undefined
   if (!asset) return null
-  const top = effectiveIntel(shown) >= 3
   return {
     assetId: asset.id,
     kind: asset.kind,
@@ -74,7 +72,8 @@ export function inspectTile(shown: GameState, turn: number, assetId: string | nu
       eventId: c.eventId,
       name: c.name,
       age: turn - c.startedTurn,
-      left: top ? c.remainingTurns : undefined,
+      // Turns left, shown since v1.3 (brief 6.5).
+      left: c.remainingTurns,
     })),
   }
 }

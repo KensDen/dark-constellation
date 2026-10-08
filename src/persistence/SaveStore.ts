@@ -4,7 +4,7 @@
 // implement the same interface with zero engine or UI changes; nothing
 // remote is imported here.
 
-import { captureGame, restoreGame, type DailyOp, type PersistedGame, type RestoredRecord, type SavePhase } from './codec'
+import { StaleSaveError, captureGame, restoreGame, type DailyOp, type PersistedGame, type RestoredRecord, type SavePhase } from './codec'
 import type { GameState } from '../engine/types'
 
 export interface SaveMeta {
@@ -26,6 +26,9 @@ export interface SaveStore {
   remove(id: string): void
   autosave(state: GameState, phase: SavePhase, daily?: DailyOp): void
   loadAutosave(): RestoredGame | null
+  // Whether the autosave is one this version refuses (brief 6.10), so the
+  // shell can say so once and offer PLAY rather than drop it silently.
+  autosaveIsStale(): boolean
   clearAutosave(): void
 }
 
@@ -116,6 +119,17 @@ export class LocalStorageStore implements SaveStore {
       return restoreGame(JSON.parse(raw))
     } catch {
       return null
+    }
+  }
+
+  autosaveIsStale(): boolean {
+    try {
+      const raw = localStorage.getItem(AUTOSAVE_KEY)
+      if (!raw) return false
+      restoreGame(JSON.parse(raw))
+      return false
+    } catch (e) {
+      return e instanceof StaleSaveError
     }
   }
 

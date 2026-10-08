@@ -8,9 +8,18 @@
 import { SCENARIOS } from '../content'
 import type { GameState } from '../engine/types'
 
-// Bump when the persisted shape changes. Versions we know how to migrate
-// are upgraded on load; anything else is rejected with a message rather
-// than corrupt-loaded (R4 item 6).
+// Bump when the persisted shape changes. Anything but the current version
+// is rejected with a message rather than corrupt-loaded (R4 item 6); the
+// migrations v1.2 carried left with v4, below.
+//
+// v4 (v1.3 Round 0, brief 6.10): the loop pass. Six turns, the reacting
+// adversary, the intel brief for intel levels, no tiers and no surge, and
+// the learning state on the game (the defense streak, points saved, what
+// the player can now say). A v1.2 save cannot resume under those rules,
+// so v1 to v3 are REFUSED, never migrated: a load says "This save is from
+// an earlier version and cannot be resumed" (StaleSaveError, so the shell
+// can offer PLAY beside it), and the history below is the record of what
+// those versions were.
 //
 // v1 (R4): no difficulty field, all campaigns were the Standard tuning.
 // v2 (R5): adds difficulty. v1 saves migrate forward as Standard.
@@ -27,10 +36,10 @@ import type { GameState } from '../engine/types'
 // not know (a slot's `name` rides the same way), so a build that predates
 // it loads a Daily Op as free play, which is also the safe reading. A
 // bump would buy nothing and make every older build refuse the new codes.
-export const SAVE_VERSION = 3
-const OLDEST_MIGRATABLE = 1
+export const SAVE_VERSION = 4
 
-export type SavePhase = 'brief' | 'procure' | 'harden' | 'aftermath'
+// HARDEN merged into PROCURE in v1.3 Round 0, so 'harden' is not a phase.
+export type SavePhase = 'brief' | 'procure' | 'aftermath'
 
 // WHICH DAILY OP A CAMPAIGN IS (v1.2 R5, brief 7.1): the local date it
 // started on and its number. It lives in the persisted record, not in the
@@ -72,6 +81,16 @@ export class SaveError extends Error {
   }
 }
 
+// A save from an earlier version (brief 6.10): read and refused, so the
+// shell can say so and offer PLAY rather than drop it silently.
+export const STALE_SAVE_MESSAGE = 'This save is from an earlier version and cannot be resumed'
+export class StaleSaveError extends SaveError {
+  constructor() {
+    super(STALE_SAVE_MESSAGE)
+    this.name = 'StaleSaveError'
+  }
+}
+
 // Build the persisted record from a live game. savedAt is injected by the
 // caller so this stays pure and testable.
 export function captureGame(state: GameState, phase: SavePhase, savedAt: string, daily?: DailyOp): PersistedGame {
@@ -94,8 +113,8 @@ function readDaily(d: unknown): DailyOp | undefined {
 
 // Validate every dynamic GameState field the engine reads. A partial but
 // JSON-parseable payload must be rejected here, not loaded and then crashed
-// on the next resolveTurn (which dereferences pipeline, counters, flags, and
-// the three meter keys directly).
+// on the next resolveTurn (which dereferences pipeline, counters,
+// conditions and the three meter keys directly).
 function isPlainState(s: unknown): s is Omit<GameState, 'scenario'> {
   if (!s || typeof s !== 'object') return false
   const st = s as Record<string, unknown>
@@ -104,14 +123,15 @@ function isPlainState(s: unknown): s is Omit<GameState, 'scenario'> {
   const m = st.meters as Record<string, unknown> | undefined
   return (
     (st.status === 'playing' || st.status === 'won' || st.status === 'lost') &&
-    (st.difficulty === 'easy' || st.difficulty === 'standard' || st.difficulty === 'expert') &&
+    (st.difficulty === 'easy' || st.difficulty === 'standard') &&
     num(st.seed) &&
     num(st.turn) &&
     num(st.credits) &&
-    num(st.intelLevel) &&
-    num(st.surgeTokens) &&
-    num(st.intelBoostTurns) &&
-    typeof st.irRetainer === 'boolean' &&
+    num(st.briefFreeThrough) &&
+    num(st.streak) &&
+    num(st.bestStreak) &&
+    num(st.saved) &&
+    Array.isArray(st.learned) &&
     Array.isArray(st.assets) &&
     Array.isArray(st.counters) &&
     Array.isArray(st.history) &&
@@ -120,9 +140,6 @@ function isPlainState(s: unknown): s is Omit<GameState, 'scenario'> {
     (st.status === 'playing' || (st.history as unknown[]).length > 0) &&
     Array.isArray(st.conditions) &&
     Array.isArray(st.pipeline) &&
-    Array.isArray(st.pendingCounters) &&
-    isObj(st.flags) &&
-    isObj(st.forecast) &&
     isObj(m) &&
     num(m!.linkAvailability) &&
     num(m!.dataIntegrity) &&
@@ -136,22 +153,16 @@ export function restoreGame(p: unknown): RestoredRecord {
   if (!p || typeof p !== 'object') throw new SaveError('This is not a valid save.')
   const rec = p as Partial<PersistedGame>
   if (typeof rec.version !== 'number') throw new SaveError('This save is missing its version.')
-  if (rec.version > SAVE_VERSION || rec.version < OLDEST_MIGRATABLE) {
-    throw new SaveError(
-      `This save is version ${rec.version}, but this build reads versions ${OLDEST_MIGRATABLE} to ${SAVE_VERSION}. It cannot be loaded.`,
-    )
+  if (rec.version < SAVE_VERSION) throw new StaleSaveError()
+  if (rec.version > SAVE_VERSION) {
+    throw new SaveError(`This save is version ${rec.version}, but this build reads version ${SAVE_VERSION}. It cannot be loaded.`)
   }
   const scenario = SCENARIOS.find((s) => s.id === rec.scenarioId)
   if (!scenario) throw new SaveError(`This save references an unknown scenario (${String(rec.scenarioId)}).`)
-  // Migrate forward. v1 predates difficulty, so those campaigns were played
-  // on the Standard tuning and load as Standard; they are never rejected.
   const raw = rec.state as Record<string, unknown> | undefined
-  const migrated =
-    rec.version < 2 && raw && typeof raw === 'object' ? { ...raw, difficulty: 'standard' } : raw
-  if (!isPlainState(migrated)) throw new SaveError('This save is corrupt or incomplete.')
-  const phase: SavePhase =
-    rec.phase === 'procure' || rec.phase === 'harden' || rec.phase === 'aftermath' ? rec.phase : 'brief'
-  const state = { ...(migrated as Omit<GameState, 'scenario'>), scenario } as GameState
+  if (!isPlainState(raw)) throw new SaveError('This save is corrupt or incomplete.')
+  const phase: SavePhase = rec.phase === 'procure' || rec.phase === 'aftermath' ? rec.phase : 'brief'
+  const state = { ...(raw as Omit<GameState, 'scenario'>), scenario } as GameState
   const daily = readDaily(rec.daily)
   return daily ? { state, phase, daily } : { state, phase }
 }

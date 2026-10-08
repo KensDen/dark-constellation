@@ -17,12 +17,13 @@ vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 import Game from '../src/ui/Game'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
+import { briefFree } from '../src/engine/rules'
 import { turnRng } from '../src/engine/rng'
 import { LAYERS, type GameState } from '../src/engine/types'
-import { callSigns } from '../src/ui/board/board'
+import { callSigns, cartCallSigns } from '../src/ui/board/board'
 import { assetPrice } from '../src/engine/scoring'
 import { ACTIONS, resolveLabel } from '../src/ui/board/actions'
-import ProcureSheet, { ORDER_TIER, PROCURE_STEPS } from '../src/ui/board/ProcureSheet'
+import ProcureSheet, { PROCURE_STEPS } from '../src/ui/board/ProcureSheet'
 import { vectorLabels } from '../src/ui/labels'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
@@ -91,7 +92,7 @@ function gameAt(turn: number, seed = 20260712): GameState {
 }
 
 let mounts = 0
-function render(state: GameState, phase: 'brief' | 'procure' | 'harden' | 'aftermath' = 'brief') {
+function render(state: GameState, phase: 'brief' | 'procure' | 'aftermath' = 'brief') {
   mounts += 1
   act(() => {
     root.render(<Game key={`m${mounts}`} initial={{ state, phase }} onExit={() => {}} />)
@@ -120,15 +121,20 @@ describe('the board (v1.2 R1)', () => {
     // and full, is checked against the whole sheet's text, so a line in
     // ASSETS, INTEL or a footnote would fail it the same as the old
     // "Answers:" line did. (Ruling R1's earned answer key rewrites this
-    // guard in a later step.) A saved 'harden' phase opens PROCURE.
-    render(gameAt(3), 'harden')
+    // guard in a later step.) A saved 'procure' phase opens PROCURE (the
+    // 'harden' phase left the save format with its sheet in v1.3 Round 0).
+    render(gameAt(3), 'procure')
     const procure = sheet('procure')
     expect(procure, 'the PROCURE sheet is not open').not.toBeNull()
     const defenses = procure!.querySelector('[data-procure-defenses]')
     expect(defenses, 'PROCURE has no DEFENSES section').not.toBeNull()
     const offeredText = defenses!.textContent ?? ''
     const text = procure!.textContent ?? ''
-    const offered = DEFAULT_SCENARIO.countermeasures.filter((cm) => cm.id !== 'intelInvestment' && cm.id !== 'irRetainer')
+    // The retainer is a defense like any other since v1.3 Round 0, but it
+    // answers no threat, so it carries no vector icon, and its tile reads
+    // the recovery line rather than its blurb (its own test below pins
+    // that line). It stays in the leak check through the full list.
+    const offered = DEFAULT_SCENARIO.countermeasures.filter((cm) => cm.id !== 'irRetainer')
     // The positive controls, so the section cannot pass by being empty:
     // each countermeasure's name and blurb are there, and each has at least
     // one vector icon with the vector's player-facing name as its alt text.
@@ -141,7 +147,7 @@ describe('the board (v1.2 R1)', () => {
     for (const alt of alts) expect(Object.values(vectorLabels), `an icon's alt text is not a vector: ${alt}`).toContain(alt)
     // And the guard itself.
     const leaked: string[] = []
-    for (const cm of offered) {
+    for (const cm of DEFAULT_SCENARIO.countermeasures) {
       for (const id of cm.counters) {
         const ev = DEFAULT_SCENARIO.events.find((e) => e.id === id)!
         for (const name of [ev.name, ev.name.split(' (')[0]]) {
@@ -156,12 +162,13 @@ describe('the board (v1.2 R1)', () => {
     // The retainer decides more games than any other purchase and sat on
     // INTEL's second step, where a player who hardens fully never looked.
     // It moved to HARDEN, and with HARDEN into PROCURE's DEFENSES in v1.3
-    // Round 0. Its tile reads the scenario's two recovery rates, and the
-    // tick queues the turn's own retainer flag: the engine skips the
-    // retainer in the countermeasure list, so a tile that queued it there
-    // would charge the cart and buy nothing.
+    // Round 0. Its tile reads the scenario's two recovery rates. Since v1.3
+    // Round 0 the retainer is a countermeasure like any other (no flag of
+    // its own), so the tick queues it in the turn's defenses and the engine
+    // buys it into state.counters.
     const state = gameAt(3)
-    expect(state.irRetainer, 'the fixture already owns the retainer').toBe(false)
+    expect(state.counters.includes('irRetainer'), 'the fixture already owns the retainer').toBe(false)
+    expect(briefFree(state), "the fixture's intel brief is free tonight, so its box is ticked before anything is queued").toBe(false)
     render(state, 'brief')
     click(byText(/^PROCURE/)!)
     const { base, withIrRetainer } = DEFAULT_SCENARIO.recovery
@@ -176,8 +183,8 @@ describe('the board (v1.2 R1)', () => {
       box!.click()
     })
     expect(box!.checked, 'the retainer did not queue').toBe(true)
-    // One order, the retainer's: it rides its own flag, not the intel order
-    // beside it on the same sheet.
+    // One order, the retainer's: it does not tick the intel brief beside
+    // it on the same sheet.
     expect(byText(/^PROCURE/)!.textContent, 'PROCURE does not count the queued retainer').toContain('1 queued')
     const intel = sheet('procure')!.querySelector('[data-procure-intel] input[type="checkbox"]') as HTMLInputElement | null
     expect(intel, 'PROCURE has no INTEL order').not.toBeNull()
@@ -189,7 +196,7 @@ describe('the board (v1.2 R1)', () => {
     click(execute!)
     const saved = JSON.parse(localStorage.getItem('dc-autosave') ?? 'null')
     expect(saved?.state.turn, 'the turn did not resolve').toBe(state.turn + 1)
-    expect(saved.state.irRetainer, 'the retainer ticked in DEFENSES was not bought').toBe(true)
+    expect(saved.state.counters, 'the retainer ticked in DEFENSES was not bought').toContain('irRetainer')
     // Read off the scenario, not written out: the sheet on a retuned
     // scenario says the retuned rates.
     const retuned = { ...DEFAULT_SCENARIO, recovery: { base: 3, withIrRetainer: 9 } }
@@ -248,7 +255,7 @@ describe('the board (v1.2 R1)', () => {
     expect(container.querySelector('section[data-intel-card="tile"]')?.textContent).toMatch(/INTEGRITY\d+%/)
   })
 
-  it('shows condition chips on the layer header with elapsed time only', () => {
+  it('shows condition chips on the layer header with the elapsed time and the exact turns left', () => {
     // Find a turn with a live condition on this seed.
     let state = gameAt(1)
     while (state.status === 'playing' && state.conditions.length === 0) state = gameAt(state.turn + 1)
@@ -260,10 +267,16 @@ describe('the board (v1.2 R1)', () => {
         const panel = container.querySelector(`[aria-labelledby="layer-${layer}"]`)!
         expect(panel.textContent, `${c.name} is not chipped on ${layer}`).toContain(c.name)
         expect(panel.textContent).toContain(`T+${state.turn - c.startedTurn}`)
+        // The turns left since v1.3 Round 0 (brief 6.5 reverses v1.2 4.3's
+        // "elapsed time only" on purpose: the player plans around the
+        // clock). Every condition has a fixed clock, so the count is exact.
+        expect(panel.textContent, `${c.name} on ${layer} does not show its turns left`).toContain(`${c.remainingTurns} left`)
       }
     }
-    // Never the remaining span below top intel (brief 4.3).
-    if (state.intelLevel < 3) expect(container.textContent).not.toMatch(/~\d+ left/)
+    // Never an estimate: v1.2 marked the remaining span "~n left" when it
+    // was a forecast of a random duration; v1.3's clocks are fixed, so a
+    // tilde would tell the player it is a guess.
+    expect(container.textContent, 'a chip shows its turns left as an estimate').not.toMatch(/~\d+ left/)
   })
 
   it('opens PROCURE with a STEP n OF m header over its three sections and walks it to a queued tile', () => {
@@ -271,12 +284,17 @@ describe('the board (v1.2 R1)', () => {
     // of PROCURE's first step (DEFENSES, the IR retainer among them, and
     // INTEL), and SURGE left with its sheet. SYSTEM has its title and no
     // step header.
-    render(gameAt(2), 'brief')
+    const state = gameAt(2)
+    render(state, 'brief')
     click(byText(/^PROCURE/)!)
     expect(stepHeader('procure'), 'PROCURE has no step header').toEqual([1, PROCURE_STEPS])
     expect(sheet('procure')!.querySelectorAll('[data-procure-kind]').length, 'PROCURE offers no assets').toBeGreaterThan(0)
     expect(sheet('procure')!.querySelector('[data-procure-defenses]')!.textContent, 'the retainer is not in DEFENSES').toMatch(/Incident response retainer/)
-    expect(sheet('procure')!.querySelector('[data-procure-intel]')?.textContent, 'PROCURE has no INTEL order').toMatch(/Raise intel to level \d/)
+    // INTEL is the one intel brief since v1.3 Round 0 (D2 a), priced from
+    // the scenario on a night it is not free; turn 2 of this fixture is not.
+    expect(sheet('procure')!.querySelector('[data-procure-intel]')?.textContent, 'PROCURE has no INTEL order').toContain(
+      `Intel brief (${DEFAULT_SCENARIO.prices.intelBrief} CR): names COLDVEIL's moves tonight`,
+    )
     // PROCURE: kind, then the confirm, and the confirm carries the price.
     // The Tier A / Tier B step went with D2 (a): every asset is ordered at
     // the one price there is.
@@ -284,11 +302,15 @@ describe('the board (v1.2 R1)', () => {
     expect(stepHeader('procure')).toEqual([2, PROCURE_STEPS])
     expect(container.querySelector('[data-procure-tier]'), 'the tier step is back').toBeNull()
     const confirm = container.querySelector('[data-procure-buy]')!
-    expect(confirm.textContent).toBe(`ORDER · ${assetPrice(DEFAULT_SCENARIO, 'drone', ORDER_TIER)} CR`)
+    expect(confirm.textContent).toBe(`ORDER · ${assetPrice(DEFAULT_SCENARIO, 'drone')} CR`)
     click(confirm)
-    // The sheet closes and the queued tile is on AIR, with its call sign.
+    // The sheet closes and the queued tile is on AIR, with its call sign:
+    // the next drone ordinal, read off the fixture (v1.3's WIN_SCRIPT
+    // orders a drone on turn 1, so turn 2 already flies three).
     expect(sheet('procure')).toBeNull()
-    const queued = container.querySelector('[aria-labelledby="layer-AIR"] button[aria-label^="Remove KESTREL-3"]')
+    const [sign] = cartCallSigns(state, [{ kind: 'drone' }])
+    expect(sign, 'the next drone is not a KESTREL').toMatch(/^KESTREL-\d+$/)
+    const queued = container.querySelector(`[aria-labelledby="layer-AIR"] button[aria-label^="Remove ${sign},"]`)
     expect(queued, 'the buy did not become a queued tile on AIR').not.toBeNull()
     expect(byText(/^PROCURE/)!.textContent).toContain('1 queued')
     click(queued!)
@@ -315,7 +337,7 @@ describe('the board (v1.2 R1)', () => {
   })
 
   it('carries no developer parenthetical on any screen state a player reaches', () => {
-    for (const phase of ['brief', 'procure', 'harden', 'aftermath'] as const) {
+    for (const phase of ['brief', 'procure', 'aftermath'] as const) {
       render(gameAt(3), phase)
       expect(container.textContent, `"in this build" at ${phase}`).not.toMatch(/in this build/i)
     }

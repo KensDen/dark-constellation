@@ -1,0 +1,157 @@
+// THE POLICIES OF THE SWEEP GATE (v1.3 brief 7): five, which with Prepared
+// also played on EASY are the six rows of the brief's table, and the sweep
+// plays all five on both difficulties. Each is a function of
+// the state the player sees, returning tonight's orders: the same calls
+// the board makes, through the engine's own pick (src/engine/adversary.ts)
+// and worst case (src/engine/worstCase.ts), so a policy reads TONIGHT and
+// WORST CASE exactly as a player would. Any randomness comes from a
+// stream seeded by the game's seed and the turn, so a sweep replays.
+//
+// What each one does, as the brief's table says it, and where the brief
+// left a choice, the choice made:
+//   - BUY EVERYTHING: every defense and the IR retainer as soon as
+//     affordable, then assets, cheapest first, until nothing more fits.
+//     It burns on the debris night. It never reads WORST CASE.
+//   - PREPARED: reads TONIGHT, which names the moves only under the intel
+//     brief, so it orders the brief on every night it is not free (while
+//     WORST CASE stays at 0 or more). A drone on turn 1, then, slot by
+//     slot, the primary defense (or the next one listed) of the move
+//     COLDVEIL will take (LIKELY TARGET, or the first of EITHER) while that
+//     move is not already blocked and WORST CASE stays at 0 or more. It
+//     burns on the debris night when the fuel keeps WORST CASE at 0 or
+//     more, and holds otherwise; it never buys the SSA subscription, since
+//     at 10 CR and 2 CR a turn to keep it costs more than the one burn it
+//     makes free.
+//   - NOVICE: follows FIRST ORDERS on turn 1 (a drone, and the primary
+//     defense of one exposed move it picks at random, kept only while
+//     WORST CASE stays at 0 or more), then one random affordable defense a
+//     turn while WORST CASE allows. A coin decides the debris call.
+//   - RANDOM LEGAL: each defense, asset kind and the brief offered in a
+//     random order, each taken on a coin of 3 in 10 while REMAINING stays
+//     at 0 or more. A coin decides the debris call.
+//   - NOTHING: orders nothing, and holds.
+
+import { adversaryPicks } from '../src/engine/adversary'
+import { mulberry32, type Rng } from '../src/engine/rng'
+import { briefFree, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, orderCost, planFor } from '../src/engine/rules'
+import { worstCase } from '../src/engine/worstCase'
+import type { AssetKind, CountermeasureId, GameState, TurnActions } from '../src/engine/types'
+
+export type Policy = (state: GameState) => TurnActions
+export type PolicyName = 'buyEverything' | 'prepared' | 'novice' | 'randomLegal' | 'nothing'
+
+export const NO_ORDERS: TurnActions = { buyAssets: [], buyCounters: [], intelBrief: false }
+
+const KINDS: readonly AssetKind[] = ['drone', 'groundStation', 'sat', 'rpoSat']
+
+// A stream of the policy's own, seeded by the game and the turn and salted
+// per policy, so it never shares a draw with the engine's streams.
+const streamFor = (state: GameState, salt: number): Rng =>
+  mulberry32((Math.imul(state.seed ^ salt, 2654435761) ^ Math.imul(state.turn + 1, 40503)) >>> 0)
+
+const fits = (state: GameState, actions: TurnActions) => state.credits - orderCost(state, actions) >= 0
+const safe = (state: GameState, actions: TurnActions) => fits(state, actions) && worstCase(state, actions).value >= 0
+const withCounter = (actions: TurnActions, id: CountermeasureId): TurnActions => ({ ...actions, buyCounters: [...actions.buyCounters, id] })
+const withAsset = (actions: TurnActions, kind: AssetKind): TurnActions => ({ ...actions, buyAssets: [...actions.buyAssets, { kind }] })
+const debrisTonight = (state: GameState) =>
+  (planFor(state.scenario, state.turn)?.slots ?? []).some((s) => s.fixed && eventById(state.scenario, s.fixed).effect.special === 'debrisStrike')
+
+export const nothing: Policy = () => NO_ORDERS
+
+export const buyEverything: Policy = (state) => {
+  let actions: TurnActions = { ...NO_ORDERS }
+  for (const cm of state.scenario.countermeasures) {
+    if (state.counters.includes(cm.id)) continue
+    const next = withCounter(actions, cm.id)
+    if (fits(state, next)) actions = next
+  }
+  const byPrice = [...KINDS].sort((x, y) => state.scenario.prices[x] - state.scenario.prices[y])
+  for (let guard = 0; guard < 20; guard += 1) {
+    const kind = byPrice.find((k) => fits(state, withAsset(actions, k)))
+    if (!kind) break
+    actions = withAsset(actions, kind)
+  }
+  return debrisTonight(state) ? { ...actions, debris: 'burn' } : actions
+}
+
+// The primary defense, or the next one listed, that a move still lacks.
+function nextDefenseFor(eventId: string, state: GameState, counters: readonly CountermeasureId[]): CountermeasureId | undefined {
+  return eventById(state.scenario, eventId).counters.find((id) => !counters.includes(id))
+}
+
+export const prepared: Policy = (state) => {
+  // TONIGHT names the moves only under the intel brief (brief 5.3), so a
+  // player who reads it orders the brief on every night it is not free.
+  let actions: TurnActions = { ...NO_ORDERS, intelBrief: !briefFree(state) && safe(state, { ...NO_ORDERS, intelBrief: true }) }
+  if (state.turn === 1 && safe(state, withAsset(actions, 'drone'))) actions = withAsset(actions, 'drone')
+  const denied = gnssDenied(state.conditions, state.scenario)
+  const blocked = (eventId: string, counters: readonly CountermeasureId[]) => {
+    const ev = eventById(state.scenario, eventId)
+    return ev.effect.special === 'debrisStrike' || ev.baseSeverity + chainBonusOf(ev, denied) - mitigationOf(ev, counters) <= 0
+  }
+  // One defense a slot: the primary (or the next one listed) of the move
+  // COLDVEIL will take there, the LIKELY TARGET or the first of EITHER,
+  // while that move is not already blocked.
+  const reads = adversaryPicks(state, countersAfter(state, actions))
+  for (let i = 0; i < reads.length; i += 1) {
+    const counters = countersAfter(state, actions)
+    const target = adversaryPicks(state, counters)[i].least[0]
+    if (blocked(target, counters)) continue
+    const defense = nextDefenseFor(target, state, counters)
+    const next = defense ? withCounter(actions, defense) : undefined
+    if (next && safe(state, next)) actions = next
+  }
+  if (!debrisTonight(state)) return actions
+  return { ...actions, debris: safe(state, actions) ? 'burn' : 'hold' }
+}
+
+export const novice: Policy = (state) => {
+  const r = streamFor(state, 0x0b5e55ed)
+  let actions: TurnActions = { ...NO_ORDERS }
+  if (state.turn === 1) {
+    // FIRST ORDERS: a drone, a defense that blocks one red move, and WORST
+    // CASE kept at 0 or more.
+    if (safe(state, withAsset(actions, 'drone'))) actions = withAsset(actions, 'drone')
+    const moves = adversaryPicks(state, countersAfter(state, actions)).flatMap((read) => read.candidates.map((c) => c.id))
+    const move = moves.length > 0 ? r.pick(moves) : undefined
+    const defense = move ? nextDefenseFor(move, state, countersAfter(state, actions)) : undefined
+    if (defense && safe(state, withCounter(actions, defense))) actions = withCounter(actions, defense)
+  } else {
+    const options = state.scenario.countermeasures
+      .map((cm) => cm.id)
+      .filter((id) => !state.counters.includes(id) && safe(state, withCounter(actions, id)))
+    if (options.length > 0) actions = withCounter(actions, r.pick(options))
+  }
+  return debrisTonight(state) ? { ...actions, debris: r.chance(0.5) ? 'burn' : 'hold' } : actions
+}
+
+export const randomLegal: Policy = (state) => {
+  const r = streamFor(state, 0x7a11d0e5)
+  let actions: TurnActions = { ...NO_ORDERS }
+  type Option = { kind: 'counter'; id: CountermeasureId } | { kind: 'asset'; asset: AssetKind } | { kind: 'brief' }
+  const options: Option[] = [
+    ...state.scenario.countermeasures.filter((cm) => !state.counters.includes(cm.id)).map((cm) => ({ kind: 'counter' as const, id: cm.id })),
+    ...KINDS.map((asset) => ({ kind: 'asset' as const, asset })),
+    { kind: 'brief' },
+  ]
+  // A Fisher-Yates shuffle on the policy's own stream.
+  for (let i = options.length - 1; i > 0; i -= 1) {
+    const j = r.int(i + 1)
+    ;[options[i], options[j]] = [options[j], options[i]]
+  }
+  for (const option of options) {
+    if (!r.chance(0.3)) continue
+    const next =
+      option.kind === 'counter' ? withCounter(actions, option.id) : option.kind === 'asset' ? withAsset(actions, option.asset) : { ...actions, intelBrief: true }
+    if (fits(state, next)) actions = next
+  }
+  return debrisTonight(state) ? { ...actions, debris: r.chance(0.5) ? 'burn' : 'hold' } : actions
+}
+
+export const POLICIES: readonly { name: PolicyName; label: string; policy: Policy }[] = [
+  { name: 'buyEverything', label: 'Buy everything', policy: buyEverything },
+  { name: 'prepared', label: 'Prepared', policy: prepared },
+  { name: 'novice', label: 'Novice', policy: novice },
+  { name: 'randomLegal', label: 'Random legal', policy: randomLegal },
+  { name: 'nothing', label: 'Nothing', policy: nothing },
+]

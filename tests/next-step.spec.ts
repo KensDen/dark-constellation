@@ -4,31 +4,38 @@
 // sheet, and EXECUTE. SURGE left the suggestion with its sheet.
 //
 // Each row states only what the player could see: the credits on the HUD,
-// what has been opened this turn, what is owned and the intel level. The
-// prices are read from the scenario rather than written here, so a price
-// change moves the rows' credits with it.
+// what has been opened this turn, what is owned and whether the intel
+// brief is free tonight (turn 1, or a night the allied data share covers).
+// The prices are read from the scenario rather than written here, so a
+// price change moves the rows' credits with it.
 
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame } from '../src/engine/reducer'
+import { briefFree } from '../src/engine/rules'
 import { assetPrice } from '../src/engine/scoring'
 import type { GameState } from '../src/engine/types'
 import { KIND_LAYER, hardenOffers, turnBudget } from '../src/ui/board/board'
-import { ORDER_TIER } from '../src/ui/board/ProcureSheet'
 import { ACTIONS, GUIDE, NEXT_STEP_SENTENCE, guideStage, suggestNextStep, type StepId } from '../src/ui/board/actions'
 
 const start = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
 const scenario = start.scenario
-// Every asset is ordered at the one tier PROCURE sells.
-const cheapestAsset = Math.min(...(Object.keys(KIND_LAYER) as (keyof typeof KIND_LAYER)[]).map((k) => assetPrice(scenario, k, ORDER_TIER)))
+// Every asset is ordered at the one price there is (the tiers are gone).
+const cheapestAsset = Math.min(...(Object.keys(KIND_LAYER) as (keyof typeof KIND_LAYER)[]).map((k) => assetPrice(scenario, k)))
 const cheapestDefense = Math.min(...hardenOffers(scenario).map((cm) => cm.cost))
-const intelPrice = scenario.prices.intelLevels[start.intelLevel]
+const intelPrice = scenario.prices.intelBrief
+// INTEL has nothing to sell on a night the brief is free: turn 1 of a new
+// game (briefFreeThrough 1), or a night the allied data share extended it.
+// On turn 2 of a game without the share the brief is for sale.
+const briefFreeTonight: GameState = start
+const briefForSale: GameState = { ...start, turn: 2 }
+const sharedBrief: GameState = { ...start, turn: 2, briefFreeThrough: 3 }
 // One section of the sheet left with something to sell, the other two
-// spent: every defense owned, or intel at the top level, or both.
-const allDefenses: GameState = { ...start, counters: hardenOffers(scenario).map((cm) => cm.id) }
-const topIntel: GameState = { ...start, intelLevel: scenario.prices.intelLevels.length }
-const assetsOnly: GameState = { ...allDefenses, intelLevel: scenario.prices.intelLevels.length }
+// spent: every defense owned, or the brief free tonight, or both.
+const ownsEveryDefense = hardenOffers(scenario).map((cm) => cm.id)
+const intelOnly: GameState = { ...briefForSale, counters: ownsEveryDefense }
+const assetsOnly: GameState = { ...briefFreeTonight, counters: ownsEveryDefense }
 const used = (...ids: StepId[]) => new Set<string>(ids)
 
 describe('the suggested next step (v1.2 R2b)', () => {
@@ -38,16 +45,22 @@ describe('the suggested next step (v1.2 R2b)', () => {
     expect(cheapestDefense).toBeGreaterThan(0)
     expect(intelPrice).toBeGreaterThan(0)
     expect(cheapestDefense, 'the defense row needs a defense cheaper than any asset').toBeLessThan(cheapestAsset)
-    expect(intelPrice, 'the intel row needs an intel level cheaper than any asset').toBeLessThan(cheapestAsset)
+    expect(intelPrice, 'the intel row needs an intel brief cheaper than any asset').toBeLessThan(cheapestAsset)
+    expect(briefFree(briefFreeTonight), 'turn 1 of a new game is not a free brief night').toBe(true)
+    expect(briefFree(sharedBrief), 'the allied data share did not make turn 2 a free brief night').toBe(true)
+    expect(briefFree(briefForSale), 'the brief is free on turn 2 without the share').toBe(false)
     const rows: [string, GameState, Set<string>, number, StepId][] = [
       ['turn 1, nothing opened, the turn budget', start, used(), turnBudget(start), 'procure'],
       // Each section of PROCURE is enough on its own to point at it.
-      ['PROCURE unopened, only a defense affordable', topIntel, used(), cheapestDefense, 'procure'],
-      ['PROCURE unopened, only the next intel level affordable', allDefenses, used(), intelPrice, 'procure'],
+      ['PROCURE unopened, only a defense affordable, the brief free tonight', briefFreeTonight, used(), cheapestDefense, 'procure'],
+      ['PROCURE unopened, only the intel brief affordable', intelOnly, used(), intelPrice, 'procure'],
       ['PROCURE unopened, only an asset affordable', assetsOnly, used(), cheapestAsset, 'procure'],
       ['PROCURE unopened, a credit short of the only asset left to buy', assetsOnly, used(), cheapestAsset - 1, 'resolve'],
-      ['PROCURE unopened, a credit short of everything on it', start, used(), Math.min(cheapestAsset, cheapestDefense, intelPrice) - 1, 'resolve'],
-      ['PROCURE opened, everything still affordable', start, used('procure'), turnBudget(start), 'resolve'],
+      // A free brief is not something left to buy: it is already on.
+      ['PROCURE unopened, every defense owned, the brief free on turn 1', assetsOnly, used(), intelPrice, 'resolve'],
+      ['PROCURE unopened, every defense owned, the brief free from the share', { ...sharedBrief, counters: ownsEveryDefense }, used(), intelPrice, 'resolve'],
+      ['PROCURE unopened, a credit short of everything on it', briefForSale, used(), Math.min(cheapestAsset, cheapestDefense, intelPrice) - 1, 'resolve'],
+      ['PROCURE opened, everything still affordable', briefForSale, used('procure'), turnBudget(briefForSale), 'resolve'],
       ['nothing affordable', start, used(), 0, 'resolve'],
     ]
     const wrong: string[] = []

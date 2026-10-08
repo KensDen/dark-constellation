@@ -20,6 +20,7 @@
 // Kept free of React and of the sheet components, so brief.ts and the
 // node battery can read it.
 
+import { briefFree } from '../../engine/rules'
 import { assetPrice } from '../../engine/scoring'
 import type { GameState } from '../../engine/types'
 import { KIND_LAYER, hardenOffers, turnBudget } from './board'
@@ -75,12 +76,11 @@ export interface NextStep {
 export function suggestNextStep(state: GameState, used: ReadonlySet<string>, credits: number = turnBudget(state)): NextStep {
   const scenario = state.scenario
   const pick = (step: StepId): NextStep => ({ step, sentence: NEXT_STEP_SENTENCE[step] })
-  const cheapestAsset = Math.min(...(Object.keys(KIND_LAYER) as (keyof typeof KIND_LAYER)[]).map((kind) => assetPrice(scenario, kind, 'B')))
+  const cheapestAsset = Math.min(...(Object.keys(KIND_LAYER) as (keyof typeof KIND_LAYER)[]).map((kind) => assetPrice(scenario, kind)))
   const defenses = hardenOffers(scenario).filter((cm) => !state.counters.includes(cm.id))
-  // The price of the next intel level; none past the top level.
-  const intelPrice = (scenario.prices.intelLevels as readonly number[])[state.intelLevel]
-  const affordable =
-    cheapestAsset <= credits || defenses.some((cm) => cm.cost <= credits) || (intelPrice !== undefined && intelPrice <= credits)
+  // The intel brief, on a night it is not already free.
+  const brief = !briefFree(state) && scenario.prices.intelBrief <= credits
+  const affordable = cheapestAsset <= credits || defenses.some((cm) => cm.cost <= credits) || brief
   if (!used.has('procure') && affordable) return pick('procure')
   return pick('resolve')
 }

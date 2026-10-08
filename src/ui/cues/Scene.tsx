@@ -166,11 +166,13 @@ export default function Scene({ kind, beat, presented, final, reduced }: ScenePr
   if (kind === 'commendation') {
     // Ribbon drops in; bonus credits count up. Under reduce the ribbon is
     // in place and the number is its final value, which useCountUp already
-    // does when the preference is set.
+    // does when the preference is set. Since v1.3 Round 0 the ribbon is the
+    // defense streak (brief 6.8), which pays nothing on the board, so the
+    // count shows only for a beat that carries credits.
     const bonus = beat.patch.credits ?? 0
     return (
       <div {...{ [SCENE_ATTR]: kind }} className={`mt-3 border border-hero-blue/60 bg-hero-blue/5 p-3 ${enter}`}>
-        <p className="font-mono text-xs uppercase tracking-widest text-hero-blue">Commendation</p>
+        <p className="font-mono text-xs uppercase tracking-widest text-hero-blue">Defense streak</p>
         <p className="mt-1 font-mono text-sm text-ink">{beat.title}</p>
         {bonus > 0 && (
           <div className="mt-2 max-w-[12rem]">

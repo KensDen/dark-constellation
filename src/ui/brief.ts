@@ -7,10 +7,10 @@
 // than trusted.
 
 import { ADVERSARY, SQUADRON } from '../config'
-import { SURGE_TOKEN_CAP, effectiveIntel } from '../engine/reducer'
+import { briefFree, gnssDenied } from '../engine/reducer'
 import { coverage, maiScore } from '../engine/scoring'
 import type { GameState, ThreatEvent } from '../engine/types'
-import { kindLabels, techniqueLabel, vectorLabels } from './labels'
+import { coverageFigure, kindLabels, techniqueLabel, vectorLabels } from './labels'
 import { LAYERS } from '../engine/types'
 import { ACTIONS, SKIP_TIPS, fKeyOf, openingObjective, resolveLabel } from './board/actions'
 
@@ -111,15 +111,6 @@ function capWords(text: string, max: number): string {
   return words.slice(0, max).join(' ')
 }
 
-// What the next intel level buys, in the game's own terms. The fidelity
-// ladder is implemented in forecastFor and mirrored in briefCopy below, so
-// this describes what those branches actually do rather than a promise.
-const INTEL_BUYS: Record<number, string> = {
-  0: 'names the segment under threat',
-  1: 'adds the signature class',
-  2: 'names the event itself',
-}
-
 // The expansion below top intel (Round 7b).
 //
 // THE DISCLOSURE WAS A DEAD CONTROL. Measured at every level: the
@@ -144,8 +135,8 @@ function postureLines(state: GameState): string[] {
   const min = scenario.slaBonus.coverageMin
   lines.push(
     cov >= min
-      ? `Coverage ${cov}, clear of the ${min} the SLA pays at.`
-      : `Coverage ${cov}. The SLA pays ${scenario.slaBonus.credits} a turn from ${min}.`,
+      ? `Coverage ${coverageFigure(cov)}, clear of the ${min} the SLA pays at.`
+      : `Coverage ${coverageFigure(cov)}. The SLA pays ${scenario.slaBonus.credits} a turn from ${min}.`,
   )
 
   // THREE POPULATIONS, not one. The first version computed only the
@@ -185,23 +176,13 @@ function postureLines(state: GameState): string[] {
       : 'No conditions running against you.',
   )
 
-  lines.push(
-    state.surgeTokens > 0
-      ? `${state.surgeTokens} surge authority in hand.`
-      : 'No surge authority in hand.',
-  )
-
   // The price is read from the deck, never spelled, so it cannot drift
-  // from what procurement charges. Keyed on the PURCHASED level rather
-  // than the effective one, because an allied data share lifts what the
-  // brief says without changing what the next level costs.
-  // `!== 3` rather than `< 3`: a comparison does not narrow a union of
-  // numeric literals, and the tuple index is what catches that at compile
-  // time rather than at level 3 in someone's campaign.
-  const purchased = state.intelLevel
-  if (purchased !== 3) {
-    lines.push(`Intel level ${purchased + 1} costs ${scenario.prices.intelLevels[purchased]} and ${INTEL_BUYS[purchased]}.`)
-  }
+  // from what procurement charges (the intel brief, D2 a).
+  lines.push(
+    briefFree(state)
+      ? "Tonight's intel brief is free and names every move."
+      : `An intel brief costs ${scenario.prices.intelBrief} and names tonight's moves.`,
+  )
 
   return lines
 }
@@ -223,8 +204,8 @@ export function jobFramingLines(scenario: GameState['scenario']): string[] {
   return [
     `Finish turn ${scenario.totalTurns} with the Mission Assurance Index (MAI) at ${scenario.winThreshold} or higher.`,
     `You start above the win line. ${ADVERSARY} spends ${scenario.totalTurns} turns eroding it.`,
-    `Spend credits on fleet and defenses to slow it. MAI below ${scenario.collapseThreshold}, or a budget below zero, ends the campaign early.`,
-    'Some attacks become conditions that press every turn until they lift. Deployments take turns to arrive. Surge authority clears a condition.',
+    `Spend credits on fleet and defenses to slow it. MAI under ${scenario.collapseThreshold} or a negative budget ends the campaign.`,
+    `Some attacks become conditions that press every turn until they lift. Deployments take turns to arrive. Each defense costs ${scenario.upkeepPerDefense} CR a turn.`,
   ]
 }
 
@@ -250,7 +231,8 @@ export function showsJobFraming(state: GameState): boolean {
 // The fleet line used to list every asset one by one, so a large fleet grew
 // the panel without limit: three lenses found it at 115 to 139 words in
 // legal play against a budget of 110 and a pinned "worst" of 93. Grouped by
-// kind and tier it is bounded by the deck's seven pairs, not the fleet size.
+// kind it is bounded by the deck's four kinds, not the fleet size (by kind
+// and tier until the tiers left in v1.3 Round 0).
 export type PostureTone = 'dim' | 'blue' | 'amber'
 export interface PostureLine {
   text: string
@@ -271,27 +253,31 @@ export function postureDetailLines(state: GameState): PostureLine[] {
     return [...counts].map(([l, n]) => `${n} ${l}`).join(', ')
   }
   const lines: PostureLine[] = [
-    { text: `Fleet: ${alive.length} operational${alive.length ? `: ${grouped(alive.map((a) => `${kindLabels[a.kind]} ${a.tier}`))}` : ''}.`, tone: 'dim' },
+    { text: `Fleet: ${alive.length} operational${alive.length ? `: ${grouped(alive.map((a) => kindLabels[a.kind]))}` : ''}.`, tone: 'dim' },
     { text: `Countermeasures: ${state.counters.length ? state.counters.map(counterName).join('; ') : 'none'}.`, tone: 'blue' },
   ]
-  if (state.pipeline.length || state.pendingCounters.length) {
-    // Grouped by kind and tier with the SOONEST arrival, so the line is
-    // bounded by the deck's kinds and tiers. Grouping by ETA as well split
-    // one kind into several groups and left the line unbounded.
+  if (state.pipeline.length) {
+    // Grouped by kind with the SOONEST arrival, so the line is bounded by
+    // the deck's kinds. Grouping by ETA as well split one kind into
+    // several groups and left the line unbounded.
     const soonest = new Map<string, { n: number; eta: number }>()
     for (const p of state.pipeline) {
-      const key = `${kindLabels[p.kind]} ${p.tier}`
+      const key = kindLabels[p.kind]
       const cur = soonest.get(key)
       soonest.set(key, { n: (cur?.n ?? 0) + 1, eta: Math.min(cur?.eta ?? Infinity, p.etaTurns) })
     }
     const parts = [...soonest].map(([k, { n, eta }]) => `${n} ${k}, next in ${eta}`)
-    for (const c of state.pendingCounters) parts.push(`${counterName(c.id)} retrofit in ${c.etaTurns}`)
     lines.push({ text: `In transit (turns to arrive): ${parts.join('; ')}.`, tone: 'dim' })
   }
-  // "In any phase" was false: surge is spent in the decision phases only.
-  lines.push({ text: `Surge authority: ${state.surgeTokens} of ${SURGE_TOKEN_CAP}, spent in a decision phase to clear an active condition.`, tone: 'amber' })
-  if (state.intelBoostTurns > 0) {
-    lines.push({ text: `Allied intel boost active for ${state.intelBoostTurns} more turn${state.intelBoostTurns === 1 ? '' : 's'}.`, tone: 'blue' })
+  // The upkeep the defenses cost at every turn close (brief 6.1), amber as
+  // the surge rule was: it is the line that can end the operation.
+  if (state.counters.length > 0) {
+    const upkeep = state.counters.length * scenario.upkeepPerDefense
+    lines.push({ text: `Keeping ${state.counters.length} defense${state.counters.length === 1 ? '' : 's'} costs ${upkeep} at every turn close.`, tone: 'amber' })
+  }
+  if (state.briefFreeThrough > state.turn) {
+    const left = state.briefFreeThrough - state.turn
+    lines.push({ text: `Allied intel: the brief is free for ${left} more turn${left === 1 ? '' : 's'}.`, tone: 'blue' })
   }
   return lines
 }
@@ -303,30 +289,40 @@ export function disclosureBlocks(copy: BriefCopy): string[] {
   return copy.framing.length > 0 ? [JOB_FRAMING_HEADING, ...copy.framing, ...copy.full] : copy.full
 }
 
-// What the banner says at intel level zero, and all the banner's intel
-// card says there (v1.2 R3, brief 4.8): the forecast is dark.
+// What the banner says on a night without the intel brief, and the gist of
+// what the banner's intel card says then (v1.2 R3, brief 4.8; the intel
+// brief since v1.3 Round 0, D2 a): the moves are not named.
 export const FORECAST_DARK = {
-  headline: 'Forecast dark at intel level zero',
-  vector: 'Raise intel investment to see what is coming.',
+  headline: 'Moves unnamed: no intel brief tonight',
+  vector: 'Order an intel brief to name the moves.',
 } as const
 
-// The event the banner names at top intel, when a slot this turn is fixed:
-// the lead whose technique is briefCopy's tag. Nothing below top intel,
-// and nothing on a turn where every slot is a draw.
-export function forecastLead(state: GameState): ThreatEvent | undefined {
-  if (effectiveIntel(state) < 3) return undefined
+// The event the banner names under the brief, when a slot this turn is
+// fixed: the lead whose technique is briefCopy's tag. Nothing without the
+// brief, and nothing on a turn where every slot is a draw.
+export function forecastLead(state: GameState, briefed = briefFree(state)): ThreatEvent | undefined {
+  if (!briefed) return undefined
   return plannedEvents(state, state.turn).filter((s) => s.length === 1)[0]?.[0]
 }
 
-export function briefCopy(state: GameState): BriefCopy {
+// The brief's named lines (D2 a): every slot's candidates, by name. This
+// replaced the engine's forecast prose, which left with the intel levels.
+function namedLines(slots: ThreatEvent[][]): string[] {
+  return slots.map((slot) =>
+    slot.length === 1 ? `Confirmed: ${shortName(slot[0])}.` : `COLDVEIL will hit 1 of ${slot.length}: ${slot.map(shortName).join(' / ')}.`,
+  )
+}
+
+// `briefed` is whether the intel brief names tonight's moves: free on its
+// free nights, or ordered (the board passes the cart's order in).
+export function briefCopy(state: GameState, briefed = briefFree(state)): BriefCopy {
   const turn = state.turn
   // Carried beside `full` rather than inside it (Round 7): disclosureBlocks
   // joins the two in render order, and the budget measures that join.
   const framing = showsJobFraming(state) ? jobFramingBlocks(state.scenario) : []
-  const intel = effectiveIntel(state)
   const slots = plannedEvents(state, turn)
   const events = slots.flat()
-  const full = state.forecast.lines
+  const full = namedLines(slots)
 
   if (events.length === 0) {
     return {
@@ -341,31 +337,20 @@ export function briefCopy(state: GameState): BriefCopy {
   const vectors = [...new Set(events.map((e) => vectorLabels[e.vector]))]
   const layerList = layers.join(', ')
 
-  if (intel === 0) {
-    return { ...FORECAST_DARK, full: postureLines(state), framing }
-  }
-
-  if (intel === 1) {
+  // Without the brief the moves are unnamed: the layers and the signature
+  // are on the board, the names are not (brief 5.3, "Unidentified").
+  if (!briefed) {
     return {
-      headline: capWords(`Indicators point at ${layerList}`, HEADLINE_WORD_MAX),
-      vector: `Segment under watch: ${layerList}.`,
+      headline: FORECAST_DARK.headline,
+      vector: `On ${layerList}; ${vectors.join(', ')} signature. ${FORECAST_DARK.vector}`,
       full: postureLines(state),
       framing,
     }
   }
 
-  if (intel === 2) {
-    return {
-      headline: capWords(`Signature class ${vectors.join(', ')}`, HEADLINE_WORD_MAX),
-      vector: `Likely target: ${layerList}. Signature: ${vectors.join(', ')}.`,
-      full: postureLines(state),
-      framing,
-    }
-  }
-
-  // Top intel names the deck, but only where the deck is fixed. A slot the
-  // engine draws from is a maybe, and its own forecast says so ("Assessed
-  // likely, one of ..."); the headline must not turn that into a fact.
+  // The brief names the deck, but the headline names an event only where
+  // the deck is fixed. A slot the adversary chooses from is a maybe, and
+  // the named lines say so; the headline must not turn that into a fact.
   const fixed = slots.filter((s) => s.length === 1).map((s) => s[0])
   const lead = fixed[0]
   const extra = slots.length - 1
@@ -390,8 +375,8 @@ export function briefCopy(state: GameState): BriefCopy {
   const nameBudget = HEADLINE_WORD_MAX - countWords(suffix)
   const headline = `${capWords(shortName(lead), nameBudget)}${suffix}`
   const ref = lead.techniqueRefs[0]
-  // Level 3 names the fixed event, and still carries everything level 2
-  // would have said, so paying for the top tier never narrows the line.
+  // The brief names the fixed event, and still carries the layers and the
+  // signature the unbriefed line gives, so paying never narrows it.
   const rest = extra > 0 ? ` Also in play: ${layerList}; ${vectors.join(', ')}.` : ''
   return {
     headline,
@@ -402,13 +387,11 @@ export function briefCopy(state: GameState): BriefCopy {
     // expression would make that join a coincidence rather than a fact.
     tag: ref ? techniqueLabel(ref) : undefined,
     tagUrl: ref?.url,
-    // Top intel carries the engine's named forecast AND the posture. The
-    // forecast alone was not enough: on a turn with exactly one fixed
-    // event the headline already names it, so the expansion added three
-    // tokens, two of which were "Tier B". The dead control was at all four
-    // levels, not three; only the turns with a draw disguised it.
+    // The brief carries the named moves AND the posture. The names alone
+    // were not enough: on a turn with exactly one fixed event the headline
+    // already names it, so the expansion added almost nothing.
     full: [...full, ...postureLines(state)],
-      framing,
+    framing,
   }
 }
 
@@ -437,9 +420,11 @@ export function hudLabels(state: GameState): HudLabels {
 }
 
 // The status line in its three parts, so the HUD can set the intel eye
-// beside the intel part (v1.2 R2) and still print exactly this line.
+// beside the intel part (v1.2 R2) and still print exactly this line. The
+// intel part says whether tonight's brief is free since the intel levels
+// left (D2 a).
 export function hudStatusParts(state: GameState, difficultyLabel: string, displayTurn: number): [turn: string, intel: string, difficulty: string] {
-  return [`Turn ${displayTurn} of ${state.scenario.totalTurns}`, `Intel ${state.intelLevel}`, difficultyLabel]
+  return [`Turn ${displayTurn} of ${state.scenario.totalTurns}`, briefFree(state) ? 'Brief free' : `Brief ${state.scenario.prices.intelBrief} CR`, difficultyLabel]
 }
 
 export function hudStatusLine(state: GameState, difficultyLabel: string, displayTurn: number): string {
@@ -466,20 +451,25 @@ export const CHAIN_ARMED_LINE = `BLACKOUT CHAIN ARMED: ${SQUADRON} is on LiDAR a
 // MEASURED worst plus room, and the test pins the measured worst exactly
 // so re-baselining is a deliberate edit:
 //
-//   Expand full brief          115 on turn 1, where the job framing sits
+//   Expand full brief          119 on turn 1, where the job framing sits
 //                              under its heading above the posture panel
-//   What these numbers mean    263, the HUD's own reference: eleven lines,
-//                              each a real mechanic, each interpolated from
-//                              the deck. Bounded, not trimmed; it is the
-//                              deep-reading layer the brief puts one tap away
-//   Posture detail             164, the DECK'S structural maximum: every
-//                              countermeasure owned, every kind and tier
-//                              deployed and in transit. Set from that rather
+//                              (v1.3 Round 0; 115 before, cut back under
+//                              the cap after the upkeep sentence came in)
+//   What these numbers mean    257 (263 before v1.3), the HUD's own
+//                              reference: each line a real mechanic, each
+//                              interpolated from the deck. Bounded, not
+//                              trimmed; it is the deep-reading layer the
+//                              brief puts one tap away
+//   Posture detail             111 (164 before v1.3), the DECK'S
+//                              structural maximum: every countermeasure
+//                              owned, every kind deployed and in transit,
+//                              the upkeep line. Set from that rather
 //                              than from lines of play, which twice produced a
 //                              "worst" legal play beat (93, then 96, against
 //                              139 and 132). Raised from 110 on the record in
 //                              Round 7; most of it is the countermeasure list
-//   BLACKOUT CHAIN ARMED       26, rendered only while the chain is armed
+//   BLACKOUT CHAIN ARMED       23 (26 before v1.3), rendered only while
+//                              the chain is armed
 export const DISCLOSURE_WORD_BUDGETS: Record<string, number> = {
   'Expand full brief': 120,
   'What these numbers mean': 280,
@@ -495,14 +485,14 @@ export function firstInputCopy(state: GameState, difficultyLabel: string): strin
     copy.headline,
     copy.vector,
     // Rendered whenever the chain is armed, so it is measured then too.
-    ...(state.flags.lidarFallback ? [CHAIN_ARMED_LINE] : []),
+    ...(gnssDenied(state.conditions, state.scenario) ? [CHAIN_ARMED_LINE] : []),
     ...(copy.tag ? [`Technique: ${copy.tag}`] : []),
     labels.mai,
     String(maiScore(state)),
     labels.credits,
     String(state.credits),
     labels.coverage,
-    String(coverage(state.assets)),
+    String(coverageFigure(coverage(state.assets))),
     labels.link,
     String(state.meters.linkAvailability),
     labels.data,

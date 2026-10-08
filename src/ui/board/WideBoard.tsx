@@ -95,7 +95,7 @@ function Inspector(p: Extract<WideBoardProps, { part: 'inspector' }>) {
                 <li key={c.instanceId} data-inspector-condition={c.eventId}>
                   <p>
                     {c.name} T+{c.age}
-                    {c.left !== undefined ? ` ~${c.left} left` : ''}
+                    {c.left !== undefined ? ` ${c.left} left` : ''}
                   </p>
                 </li>
               ))}

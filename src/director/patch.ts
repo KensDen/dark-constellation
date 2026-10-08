@@ -9,36 +9,13 @@ import type { GameState } from '../engine/types'
 import { kindLabels } from '../ui/labels'
 import { METER_KEYS, type BeatKind, type MeterKey, type Patch } from './types'
 
-type Modeled = Pick<
-  GameState,
-  | 'meters'
-  | 'credits'
-  | 'surgeTokens'
-  | 'intelBoostTurns'
-  | 'intelLevel'
-  | 'irRetainer'
-  | 'assets'
-  | 'conditions'
-  | 'pipeline'
-  | 'pendingCounters'
-  | 'counters'
-  | 'flags'
->
+// The fields a beat can move on the board. The learning state (the defense
+// streak, points saved, what the player can now say) and the free-brief
+// clock are the engine's own and shown after the turn, not beat by beat
+// (v1.3 Round 0; Round 3 builds the cards that show them).
+type Modeled = Pick<GameState, 'meters' | 'credits' | 'assets' | 'conditions' | 'pipeline' | 'counters'>
 
-export const MODELED_FIELDS: (keyof Modeled)[] = [
-  'meters',
-  'credits',
-  'surgeTokens',
-  'intelBoostTurns',
-  'intelLevel',
-  'irRetainer',
-  'assets',
-  'conditions',
-  'pipeline',
-  'pendingCounters',
-  'counters',
-  'flags',
-]
+export const MODELED_FIELDS: (keyof Modeled)[] = ['meters', 'credits', 'assets', 'conditions', 'pipeline', 'counters']
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T
 
@@ -52,9 +29,7 @@ export function cloneModeled(state: GameState): GameState {
     assets: clone(state.assets),
     conditions: clone(state.conditions),
     pipeline: clone(state.pipeline),
-    pendingCounters: clone(state.pendingCounters),
     counters: [...state.counters],
-    flags: { ...state.flags },
   }
 }
 
@@ -67,10 +42,6 @@ export function applyPatch(state: GameState, patch: Patch): GameState {
     }
   }
   if (patch.credits !== undefined) next.credits += patch.credits
-  if (patch.surgeTokens !== undefined) next.surgeTokens += patch.surgeTokens
-  if (patch.intelBoostTurns !== undefined) next.intelBoostTurns = patch.intelBoostTurns
-  if (patch.intelLevel !== undefined) next.intelLevel = patch.intelLevel
-  if (patch.irRetainer !== undefined) next.irRetainer = patch.irRetainer
 
   if (patch.assetsSet) next.assets = clone(patch.assetsSet)
   if (patch.assetsAdd) next.assets.push(...clone(patch.assetsAdd))
@@ -107,23 +78,8 @@ export function applyPatch(state: GameState, patch: Patch): GameState {
     }
   }
 
-  if (patch.pendingCountersSet) next.pendingCounters = clone(patch.pendingCountersSet)
-  if (patch.pendingCountersRemove) {
-    const gone = new Set(patch.pendingCountersRemove)
-    next.pendingCounters = next.pendingCounters.filter((p) => !gone.has(p.id))
-  }
-  if (patch.pendingCountersAdd) next.pendingCounters.push(...clone(patch.pendingCountersAdd))
-  if (patch.pendingCountersEta) {
-    for (const p of next.pendingCounters) {
-      const v = patch.pendingCountersEta[p.id]
-      if (v !== undefined) p.etaTurns = v
-    }
-  }
-
   if (patch.countersSet) next.counters = [...patch.countersSet]
   if (patch.countersAdd) next.counters.push(...patch.countersAdd)
-
-  if (patch.flags) next.flags = { ...next.flags, ...patch.flags }
   return next
 }
 
@@ -148,22 +104,6 @@ export function residualPatch(shadow: GameState, after: GameState): Patch | null
     patch.credits = after.credits - shadow.credits
     any = true
   }
-  if (shadow.surgeTokens !== after.surgeTokens) {
-    patch.surgeTokens = after.surgeTokens - shadow.surgeTokens
-    any = true
-  }
-  if (shadow.intelBoostTurns !== after.intelBoostTurns) {
-    patch.intelBoostTurns = after.intelBoostTurns
-    any = true
-  }
-  if (shadow.intelLevel !== after.intelLevel) {
-    patch.intelLevel = after.intelLevel
-    any = true
-  }
-  if (shadow.irRetainer !== after.irRetainer) {
-    patch.irRetainer = after.irRetainer
-    any = true
-  }
   if (!same(shadow.assets, after.assets)) {
     patch.assetsSet = clone(after.assets)
     any = true
@@ -176,16 +116,8 @@ export function residualPatch(shadow: GameState, after: GameState): Patch | null
     patch.pipelineSet = clone(after.pipeline)
     any = true
   }
-  if (!same(shadow.pendingCounters, after.pendingCounters)) {
-    patch.pendingCountersSet = clone(after.pendingCounters)
-    any = true
-  }
   if (!same(shadow.counters, after.counters)) {
     patch.countersSet = [...after.counters]
-    any = true
-  }
-  if (!same(shadow.flags, after.flags)) {
-    patch.flags = { ...after.flags }
     any = true
   }
   return any ? patch : null
@@ -216,22 +148,23 @@ export function describePatch(patch: Patch, state: GameState, kind?: BeatKind): 
   const out: DeltaLine[] = []
   const scenario = state.scenario
   const counterName = (id: string) => scenario.countermeasures.find((c) => c.id === id)?.name ?? id
-  // Assets and in-transit items are named by kind and trust tier, which is
-  // what the fleet list shows; the engine id never reaches the player.
+  // Assets and in-transit items are named by kind, which is what the fleet
+  // list shows; the engine id never reaches the player. (By kind and trust
+  // tier until the tiers left in v1.3 Round 0.)
   const assetName = (id: string) => {
     const asset = state.assets.find((a) => a.id === id)
     if (asset) {
-      // The fleet holds several assets of a kind and tier, so a plain
-      // "Drone B" could not say which one was hit or tie two turns of
-      // damage to the same airframe. An ordinal over the like assets does,
-      // without putting the engine's id on screen.
-      const alike = state.assets.filter((a) => a.kind === asset.kind && a.tier === asset.tier)
-      const label = `${kindLabels[asset.kind]} ${asset.tier}`
+      // The fleet holds several assets of a kind, so a plain "Drone" could
+      // not say which one was hit or tie two turns of damage to the same
+      // airframe. An ordinal over the like assets does, without putting
+      // the engine's id on screen.
+      const alike = state.assets.filter((a) => a.kind === asset.kind)
+      const label = kindLabels[asset.kind]
       if (alike.length < 2) return label
       return `${label} #${alike.findIndex((a) => a.id === id) + 1}`
     }
     const pending = state.pipeline.find((p) => p.id === id)
-    return pending ? `${kindLabels[pending.kind]} ${pending.tier}` : 'Asset'
+    return pending ? kindLabels[pending.kind] : 'Asset'
   }
 
   for (const key of METER_KEYS) {
@@ -242,22 +175,11 @@ export function describePatch(patch: Patch, state: GameState, kind?: BeatKind): 
     const spent = kind === 'procurement'
     out.push({ text: `Credits ${signed(patch.credits)}`, tone: patch.credits > 0 ? 'good' : spent ? 'neutral' : 'bad' })
   }
-  if (patch.surgeTokens) {
-    out.push({ text: `Surge authority ${signed(patch.surgeTokens)}`, tone: patch.surgeTokens > 0 ? 'good' : 'neutral' })
-  }
-  if (patch.intelLevel !== undefined) out.push({ text: `Intel level ${patch.intelLevel}`, tone: 'good' })
-  if (patch.intelBoostTurns !== undefined) {
-    out.push({
-      text: `Allied intel boost, ${patch.intelBoostTurns} turn${patch.intelBoostTurns === 1 ? '' : 's'}`,
-      tone: patch.intelBoostTurns > 0 ? 'good' : 'neutral',
-    })
-  }
-  if (patch.irRetainer) out.push({ text: `${counterName('irRetainer')} active`, tone: 'good' })
   for (const a of patch.assetsAdd ?? []) {
     // The arrival beat's own title already says this; repeating it below
     // spends the reading budget twice on one sentence.
     if (kind === 'deploy-arrived') continue
-    out.push({ text: `${kindLabels[a.kind]} ${a.tier} on station`, tone: 'good' })
+    out.push({ text: `${kindLabels[a.kind]} on station`, tone: 'good' })
   }
   for (const [id, v] of Object.entries(patch.assetIntegrity ?? {})) {
     out.push({ text: v === 0 ? `${assetName(id)} lost` : `${assetName(id)} down to ${v} percent`, tone: 'bad' })
@@ -265,25 +187,15 @@ export function describePatch(patch: Patch, state: GameState, kind?: BeatKind): 
   for (const c of patch.conditionsAdd ?? []) out.push({ text: `Condition applied: ${c.name}`, tone: 'bad' })
   for (const p of patch.pipelineAdd ?? []) {
     out.push({
-      text: `${kindLabels[p.kind]} ${p.tier} in transit, ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'}`,
+      text: `${kindLabels[p.kind]} in transit, ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'}`,
       tone: 'neutral',
     })
   }
   for (const [id, v] of Object.entries(patch.pipelineEta ?? {})) {
     out.push({ text: `${assetName(id)} ETA ${v} turn${v === 1 ? '' : 's'}`, tone: 'neutral' })
   }
-  for (const p of patch.pendingCountersAdd ?? []) {
-    out.push({ text: `${counterName(p.id)} retrofit, ETA ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'}`, tone: 'neutral' })
-  }
   for (const id of patch.countersAdd ?? []) out.push({ text: `${counterName(id)} active`, tone: 'good' })
-  if (patch.flags?.lidarFallback !== undefined) {
-    out.push(
-      patch.flags.lidarFallback
-        ? { text: 'LiDAR fallback engaged', tone: 'bad' }
-        : { text: 'LiDAR fallback released', tone: 'good' },
-    )
-  }
-  if (patch.assetsSet || patch.conditionsSet || patch.pipelineSet || patch.pendingCountersSet || patch.countersSet) {
+  if (patch.assetsSet || patch.conditionsSet || patch.pipelineSet || patch.countersSet) {
     out.push({ text: 'State reconciled with the engine', tone: 'neutral' })
   }
   return out

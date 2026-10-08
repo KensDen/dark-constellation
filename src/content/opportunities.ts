@@ -31,7 +31,7 @@ export const OPPORTUNITIES: ThreatEvent[] = [
     baseSeverity: 1,
     counters: [],
     effect: { meters: [], assetDamage: false, repairCostPerSeverity: 0 },
-    benefit: { intelBoostTurns: 2 },
+    benefit: { briefTurns: 2 },
     techniqueRefs: [],
     blurb:
       `A partner nation opens its space tracking feed to ${PLAYER_ORG} for the surge period. Someone else's sensors, your warning time.`,

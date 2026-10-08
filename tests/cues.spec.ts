@@ -35,7 +35,7 @@ import {
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState, TurnActions } from '../src/engine/types'
-import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
+import { LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
 
 function* playTurns(seed: number, script: Record<number, TurnActions>) {
   let state = newGame(DEFAULT_SCENARIO, seed)
@@ -46,22 +46,16 @@ function* playTurns(seed: number, script: Record<number, TurnActions>) {
   }
 }
 
-// A line that spends surge authority whenever it can, so the surge beat is
-// exercised alongside everything else.
-const surgeLine = (state: GameState): TurnActions => {
-  const base = WIN_SCRIPT[state.turn] ?? NO_OP
-  return state.surgeTokens > 0 && state.conditions.length > 0
-    ? { ...base, spendSurgeOn: state.conditions[0].instanceId }
-    : base
-}
-
-function* playSurge(seed: number) {
-  let state = newGame(DEFAULT_SCENARIO, seed)
-  while (state.status === 'playing') {
-    const next = resolveTurn(state, surgeLine(state), turnRng(state.seed, state.turn))
-    yield { before: state, after: next } as { before: GameState; after: GameState }
-    state = next
-  }
+// Both ends of the scripts on one seed, the prepared line and then the
+// passive one. This was a surge line (the prepared script spending surge
+// authority whenever it could), so the surge beat was exercised alongside
+// everything else, and it lost some campaigns as well as winning others.
+// SURGE left in v1.3 Round 0 (D2 a), and the six-turn prepared script wins
+// every seed it is played on (40 of 40 measured), so the passive line joins
+// it: both endings and the whole condition family stay in the sweep.
+function* playBoth(seed: number) {
+  yield* playTurns(seed, WIN_SCRIPT)
+  yield* playTurns(seed, LOSS_SCRIPT)
 }
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
@@ -74,7 +68,9 @@ const ALL_CUES: [string, Record<string, Cue>][] = [
 ]
 
 const events = DEFAULT_SCENARIO.events
-const conditionEvents = events.filter((e) => e.duration)
+// Every event that leaves a condition: ThreatEvent.condition since v1.3
+// Round 0, which replaced the rolled duration with a fixed clock.
+const conditionEvents = events.filter((e) => e.condition)
 const counters = DEFAULT_SCENARIO.countermeasures
 
 const complete = (cue: { visual: string; sound: string; label: string } | undefined) =>
@@ -113,7 +109,7 @@ describe('cue coverage', () => {
   it('carries no stale keys for ids the deck no longer has', () => {
     const eventIds = new Set(events.map((e) => e.id))
     const conditionIds = new Set(conditionEvents.map((e) => e.id))
-    const counterIds = new Set(counters.map((c) => c.id))
+    const counterIds = new Set<string>(counters.map((c) => c.id))
     for (const key of Object.keys(EVENT_CUES)) expect(eventIds.has(key), `stale event cue ${key}`).toBe(true)
     for (const key of Object.keys(CONDITION_CUES)) expect(conditionIds.has(key), `stale condition cue ${key}`).toBe(true)
     for (const key of Object.keys(COUNTER_CUES)) expect(counterIds.has(key), `stale countermeasure cue ${key}`).toBe(true)
@@ -234,7 +230,7 @@ describe('visual cue vocabulary (Round 3)', () => {
     const beatVisuals = new Set<string>()
     const kindsSeen = new Set<string>()
     for (const seed of [1, 2, 3, 4, 5, 6]) {
-      for (const { before, after } of playSurge(seed)) {
+      for (const { before, after } of playBoth(seed)) {
         for (const beat of deriveBeats(before, after)) {
           kindsSeen.add(beat.kind)
           const visual = visualFor(beat.cueKey, beat.kind)
@@ -325,8 +321,10 @@ describe('visual cue vocabulary (Round 3)', () => {
     // to. Two candidates were tried and both are wrong: "ends visible in
     // the stylesheet" admits badge-attach and strobe, which end at full
     // opacity and belong to components; "the row's where names the
-    // director" admits token-burn, which the director runs on a marker
-    // inside the card rather than on the card.
+    // director" admitted token-burn, which the director ran on a marker
+    // inside the card rather than on the card (until it left with SURGE in
+    // v1.3 Round 0), and still misses transmission, which the card runs
+    // though its row names the teletype.
     //
     // What makes the pin worth having is the failure it catches. A
     // treatment missing from this set does not error: the card silently
@@ -372,11 +370,11 @@ describe('visual cue vocabulary (Round 3)', () => {
   })
 
   it('lets the beat kind own the visual where the subject cue would say the wrong thing', () => {
-    // These four carry a deck-keyed cue so the label and the later sound
-    // stay specific to the subject, but their visual belongs to what is
-    // happening. Without this the surge burn, the clear sweep and the
-    // persistence tick all played the hostile attach glow.
-    expect(visualClass('condition:pnt-jamming', 'surge-spent')).toBe(VISUAL_CLASS['token-burn'])
+    // These carry a deck-keyed cue so the label and the later sound stay
+    // specific to the subject, but their visual belongs to what is
+    // happening. Without this the clear sweep and the persistence tick
+    // played the hostile attach glow. (The surge burn was the third such
+    // kind until SURGE and its surge-spent beat left in v1.3 Round 0.)
     expect(visualClass('condition:pnt-jamming', 'condition-cleared')).toBe(VISUAL_CLASS['badge-clear'])
     expect(visualClass('condition:pnt-jamming', 'condition-pressure')).toBe(VISUAL_CLASS['badge-tick'])
     // deploy-arrived is deliberately NOT in the override set: the beat cue
@@ -400,7 +398,6 @@ describe('visual cue vocabulary (Round 3)', () => {
       quiet: 'all-clear',
       opportunity: 'card-friendly',
       'deploy-arrived': 'asset-light',
-      'surge-spent': 'token-burn',
       'condition-pressure': 'badge-tick',
       'condition-cleared': 'badge-clear',
       'condition-applied': 'badge-attach',
@@ -414,10 +411,13 @@ describe('visual cue vocabulary (Round 3)', () => {
     const seenVisuals = new Set<VisualCue>()
     const seenKinds = new Set<string>()
     const wrong: string[] = []
+    // The third run was the surge line, the prepared script plus SURGE,
+    // until SURGE left in v1.3 Round 0; the mixed script takes its place,
+    // a third way of playing rather than the prepared one again.
     const runs = [
       ...[1, 2, 3, 4].map((seed) => playTurns(seed, WIN_SCRIPT)),
       ...[1, 2].map((seed) => playTurns(seed, LOSS_SCRIPT)),
-      ...[1, 2, 3].map((seed) => playSurge(seed)),
+      ...[1, 2, 3].map((seed) => playTurns(seed, MIXED_SCRIPT)),
     ]
     for (const run of runs) {
       for (const { before, after } of run) {
@@ -432,9 +432,10 @@ describe('visual cue vocabulary (Round 3)', () => {
       }
     }
     expect([...new Set(wrong)].join('\n')).toBe('')
-    // The three kinds the shadowing hit must actually have occurred, or
-    // the assertions above passed vacuously.
-    for (const kind of ['surge-spent', 'condition-cleared', 'condition-pressure', 'deploy-arrived']) {
+    // The kinds the shadowing hit must actually have occurred, or the
+    // assertions above passed vacuously (surge-spent was among them until
+    // its beat kind left with SURGE in v1.3 Round 0).
+    for (const kind of ['condition-cleared', 'condition-pressure', 'deploy-arrived']) {
       expect(seenKinds.has(kind), `${kind} never occurred in the sweep`).toBe(true)
     }
   })
@@ -448,7 +449,7 @@ describe('visual cue vocabulary (Round 3)', () => {
     // five roll on five turns, so a handful of campaigns can miss it and
     // the assertion would then pass for the wrong reason.
     for (const seed of Array.from({ length: 16 }, (_, i) => i + 1)) {
-      for (const { before, after } of playSurge(seed)) {
+      for (const { before, after } of playBoth(seed)) {
         for (const beat of deriveBeats(before, after)) {
           const visual = visualFor(beat.cueKey, beat.kind)
           if (visual) fromBeats.add(visual)
@@ -496,9 +497,10 @@ describe('cue timing and card safety', () => {
   })
 
   it('never lets a treatment that ends hidden run on the whole card', () => {
-    // badge-clear finishes at opacity 0 and token-burn at 0.25. Handing
-    // either to the card would animate the card itself away, which is what
-    // the card-safe set exists to prevent.
+    // badge-clear finishes at opacity 0. Handing it to the card would
+    // animate the card itself away, which is what the card-safe set exists
+    // to prevent. (token-burn, which finished at 0.25, was the second known
+    // case until it left with SURGE in v1.3 Round 0.)
     const keyframeBlock = (name: string): string => {
       const at = CSS.indexOf(`@keyframes ${name} {`)
       if (at < 0) return ''
@@ -526,9 +528,8 @@ describe('cue timing and card safety', () => {
         `${visual} ends at reduced opacity and must not be card-safe`,
       ).toBe(false)
     }
-    // The check is only meaningful if it found the two known cases.
+    // The check is only meaningful if it found the known case.
     expect(endsHidden).toContain('badge-clear')
-    expect(endsHidden).toContain('token-burn')
   })
 
   it('declares no animation for a cue class outside the reduced-motion guard', () => {

@@ -5,6 +5,13 @@
 
 import type { AssetKind, TechniqueRef, Vector } from '../engine/types'
 
+// Coverage as every surface prints it: one decimal, rounded DOWN (v1.3
+// Round 0). Integrity-weighted coverage is fractional once a tile is hit,
+// and the bonus is paid at 60 or more, so a figure rounded up could read
+// 60 on a fleet the close refuses. The HUD, the posture panel and the turn
+// card all print this, so no two of them disagree.
+export const coverageFigure = (cov: number): number => Math.floor(Math.round(cov * 100) / 10) / 10
+
 // The words the fleet list uses, so a delta line and the HUD cannot
 // disagree about what a thing is called.
 export const kindLabels: Record<AssetKind, string> = {

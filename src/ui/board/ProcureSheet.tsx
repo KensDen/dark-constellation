@@ -3,7 +3,7 @@
 // here, and the Tier A / Tier B step went with D2 (a), so the sheet holds
 // three sections on its first step: ASSETS, DEFENSES and INTEL. An asset
 // opens a confirm step that carries its price; a defense or the intel
-// order is a checkbox on the first step. The rules are the existing
+// brief is a checkbox on the first step. The rules are the existing
 // procure logic in Game.tsx, which owns the cart, the affordability gate
 // and the cues; this sheet only asks the questions. Round 2 rebuilds it to
 // brief 5.4.
@@ -14,8 +14,8 @@
 // buyIrRetainer flag rather than the countermeasure list.
 
 import type { ReactNode } from 'react'
-import { COVERAGE_PER_DRONE, COVERAGE_PER_SAT, assetPrice } from '../../engine/scoring'
-import { DEPLOY_ETA } from '../../engine/reducer'
+import { COVERAGE_PER_KIND, assetPrice } from '../../engine/scoring'
+import { DEPLOY_TURNS, briefFree } from '../../engine/reducer'
 import type { AssetKind, CountermeasureId, GameState, Scenario } from '../../engine/types'
 import { vectorIcons } from '../cues/icons'
 import { kindLabels, vectorLabels } from '../labels'
@@ -24,10 +24,6 @@ import Sheet, { SHEET_BUTTON } from './Sheet'
 
 export const PROCURE_STEPS = 2
 export const PROCURE_KINDS: AssetKind[] = ['sat', 'rpoSat', 'drone', 'groundStation']
-// Every asset is bought at the one price there is since D2 (a) retired the
-// tiers; the engine still reads a tier on the order until Round 0's engine
-// step removes the field, and this is the one it is sent.
-export const ORDER_TIER = 'B' as const
 
 // Plain-language effect of each kind, shown at the point of purchase so
 // the reason for every buy is legible. Developer parentheticals about
@@ -37,17 +33,20 @@ export const ORDER_TIER = 'B' as const
 // arrive, and what it does. The sheet says all three; a deployed tile's
 // intel card says the first and the last (assetRole), since the arrival
 // is behind it. The same words either way.
+// Read off the engine's tables since v1.3 Round 0 (brief 6.1): coverage
+// per kind at full integrity, and a fixed arrival with no slip.
+const turns = (n: number) => `${n} turn${n === 1 ? '' : 's'}`
 const COVERAGE: Record<AssetKind, string> = {
-  sat: `+${COVERAGE_PER_SAT} coverage`,
-  rpoSat: `+${COVERAGE_PER_SAT} coverage`,
-  drone: `+${COVERAGE_PER_DRONE} coverage`,
-  groundStation: 'no coverage',
+  sat: `+${COVERAGE_PER_KIND.sat} coverage`,
+  rpoSat: `+${COVERAGE_PER_KIND.rpoSat} coverage`,
+  drone: `+${COVERAGE_PER_KIND.drone} coverage`,
+  groundStation: `+${COVERAGE_PER_KIND.groundStation} coverage`,
 }
 const ARRIVAL: Record<AssetKind, string> = {
-  sat: `${DEPLOY_ETA.sat.min} to ${DEPLOY_ETA.sat.max} turns to orbit`,
-  rpoSat: `${DEPLOY_ETA.rpoSat.min} to ${DEPLOY_ETA.rpoSat.max} turns to orbit`,
-  drone: 'deploys next turn',
-  groundStation: `${DEPLOY_ETA.groundStation.min} to ${DEPLOY_ETA.groundStation.max} turns to stand up`,
+  sat: `${turns(DEPLOY_TURNS.sat)} to orbit`,
+  rpoSat: `${turns(DEPLOY_TURNS.rpoSat)} to orbit`,
+  drone: `deploys in ${turns(DEPLOY_TURNS.drone)}`,
+  groundStation: `${turns(DEPLOY_TURNS.groundStation)} to stand up`,
 }
 const ROLE: Partial<Record<AssetKind, string>> = {
   rpoSat: 'hosts the docking LiDAR',
@@ -81,6 +80,7 @@ export interface ProcureSheetProps {
   onToggleCounter: (id: CountermeasureId) => void
   // Class for a refused tile, keyed by countermeasure id.
   deniedClassFor: (id: CountermeasureId) => string
+  // The intel brief (D2 a): ordered for tonight, unless it is free tonight.
   intelChecked: boolean
   onIntel: (checked: boolean) => void
   intelClass: string
@@ -107,7 +107,7 @@ export default function ProcureSheet({
   intelClass,
 }: ProcureSheetProps) {
   const kind = pick.kind
-  const maxed = state.intelLevel === 3
+  const free = briefFree(state)
   return (
     <Sheet id="procure" title="PROCURE" step={step} steps={PROCURE_STEPS} onClose={onClose} onBack={step > 1 ? onBack : undefined}>
       {spendLine}
@@ -123,7 +123,7 @@ export default function ProcureSheet({
                 <button type="button" data-procure-kind={k} className={`${SHEET_BUTTON} w-full flex flex-col items-start text-left py-2`} onClick={() => onKind(k)}>
                   <span>
                     {kindLabels[k]}
-                    <span className="ml-2 font-mono text-[10px] text-dc-warn">{assetPrice(scenario, k, ORDER_TIER)} CR</span>
+                    <span className="ml-2 font-mono text-[10px] text-dc-warn">{assetPrice(scenario, k)} CR</span>
                   </span>
                   <span className="mt-1 font-sans text-xs normal-case text-dc-muted">{assetEffects[k]}</span>
                 </button>
@@ -174,13 +174,13 @@ export default function ProcureSheet({
           </ul>
           <p className={SECTION}>
             <span>INTEL</span>
+            <span className="font-mono">this turn only</span>
           </p>
           <p className={`mt-2 dc-tile p-1.5 border-2 ${intelClass}`} data-procure-intel>
             <label className="flex items-start gap-2 min-h-11 text-sm">
-              <input type="checkbox" className="mt-1" checked={intelChecked} disabled={maxed} onChange={(e) => onIntel(e.target.checked)} />
+              <input type="checkbox" className="mt-1" checked={free || intelChecked} disabled={free} onChange={(e) => onIntel(e.target.checked)} />
               <span>
-                Raise intel to level {Math.min(3, state.intelLevel + 1)} ({state.intelLevel === 3 ? 'maxed' : scenario.prices.intelLevels[state.intelLevel]}) for a sharper
-                forecast of the coming turn
+                Intel brief ({free ? 'free tonight' : `${scenario.prices.intelBrief} CR`}): names COLDVEIL's moves tonight
               </span>
             </label>
           </p>
@@ -193,7 +193,7 @@ export default function ProcureSheet({
             <p className="mt-1 text-xs text-dc-muted">{assetEffects[kind]}</p>
           </div>
           <button type="button" data-procure-buy className={`${buyClass} mt-3 w-full min-h-12`} onClick={onBuy}>
-            ORDER · {assetPrice(scenario, kind, ORDER_TIER)} CR
+            ORDER · {assetPrice(scenario, kind)} CR
           </button>
         </div>
       )}

@@ -29,6 +29,7 @@
 // set rather than leaving that to this comment.
 
 import { DUCKS_MUSIC, SOUND_MS, type SoundCue } from '../director/cues'
+import { gnssDenied } from '../engine/rules'
 import { maiScore } from '../engine/scoring'
 import type { GameState } from '../engine/types'
 import type { AudioContextLike, AudioNodeLike, GainLike } from './graph'
@@ -195,7 +196,7 @@ export function musicStateFrom(state: GameState): MusicState {
     mai: maiScore(state),
     threshold: state.scenario.winThreshold,
     conditions: state.conditions.length,
-    chainArmed: state.flags.lidarFallback,
+    chainArmed: gnssDenied(state.conditions, state.scenario),
     resolvingLoss: state.status === 'lost',
   }
 }

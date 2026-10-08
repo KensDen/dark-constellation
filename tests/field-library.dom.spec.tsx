@@ -25,7 +25,7 @@ import Game from '../src/ui/Game'
 import FieldLibrary from '../src/ui/FieldLibrary'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { SHELVES_AS_DRAFTED } from '../src/content/fieldLibraryData'
-import { resolveTurn, newGame } from '../src/engine/reducer'
+import { briefFree, resolveTurn, newGame } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
 import { captureGame, encodeSaveCode } from '../src/persistence'
@@ -285,10 +285,25 @@ describe('the INTEL ARCHIVE on the menu', () => {
 })
 
 describe("the event cards' learn more", () => {
-  function gameAt(turn: number): GameState {
-    let state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
-    while (state.status === 'playing' && state.turn < turn) state = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+  function gameAt(turn: number, seed = 20260712, script = WIN_SCRIPT): GameState {
+    let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+    while (state.status === 'playing' && state.turn < turn) state = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
     return state
+  }
+  // A night on which the intel brief is free and names a fixed move, so
+  // the banner carries the lead's technique tag and its card the lead's
+  // REAL WORLD line: since v1.3 Round 0 the brief is on or off, free on
+  // turn 1 (which has no fixed slot) and on the turns an allied data share
+  // covers, and the empty cart these tests commit orders nothing. Found in
+  // v1.3 play by search over seeds of the given line.
+  function briefedWithLead(script = WIN_SCRIPT): GameState {
+    for (const seed of [20260712, 11, 41, 104, ...Array.from({ length: 100 }, (_, i) => i + 1)]) {
+      for (let turn = 2; turn <= DEFAULT_SCENARIO.totalTurns; turn += 1) {
+        const state = gameAt(turn, seed, script)
+        if (state.status === 'playing' && state.turn === turn && briefFree(state) && briefCopy(state).tag) return state
+      }
+    }
+    throw new Error('no turn of any line searched carries a technique tag')
   }
   function render(state: GameState) {
     mounts += 1
@@ -415,8 +430,8 @@ describe("the event cards' learn more", () => {
   })
 
   it('from the intel card, closes the card, opens the library, and returns focus to what opened the card', async () => {
-    // At top intel the banner's card names the lead threat with its REAL WORLD line.
-    render({ ...gameAt(3), intelLevel: 3 })
+    // Under the intel brief the banner's card names the lead threat with its REAL WORLD line.
+    render(briefedWithLead())
     const banner = container.querySelector<HTMLButtonElement>('button[aria-label="Threat intel"]')!
     banner.focus()
     click(banner)
@@ -452,18 +467,12 @@ describe("the event cards' learn more", () => {
   it('closes the Glossary on Escape during playback without skipping the turn it holds', async () => {
     // The Glossary joined the board dialogs this round: it holds playback,
     // so its Escape must stop there rather than reach the playback's.
-    // A turn whose brief names its lead technique as a tag: top intel and
-    // a fixed slot, found by search as game.dom.spec.tsx finds it.
-    const withTag = (() => {
-      for (const seed of [20260712, 11, 41, 104]) {
-        let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
-        for (let i = 0; i < DEFAULT_SCENARIO.totalTurns && state.status === 'playing'; i += 1) {
-          if (briefCopy(state, 'Standard').tag) return state
-          state = resolveTurn(state, TOP_INTEL_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
-        }
-      }
-      throw new Error('no turn of any line searched carries a technique tag')
-    })()
+    // A turn whose brief names its lead technique as a tag: the intel
+    // brief on and a fixed slot, found by search on the top-intel line.
+    // The brief must be free that night (an allied data share), since the
+    // empty cart committed here orders nothing and the playback's banner
+    // reads the night's free brief.
+    const withTag = briefedWithLead(TOP_INTEL_SCRIPT)
     render(withTag)
     execute()
     const tag = container.querySelector<HTMLButtonElement>('button[data-technique-tag]')
@@ -498,8 +507,11 @@ describe("the event cards' learn more", () => {
   })
 
   it('shows no link on an opportunity, which has no entries', () => {
-    // The fixture turn draws an opportunity, and its card is seen.
-    const state = gameAt(3)
+    // The fixture turn draws an opportunity, and its card is seen. The
+    // six-turn campaign of v1.3 Round 0 rolls one at 0.2 on turns 2 to 5,
+    // and seed 20260712 draws none, so the prepared line on seed 5, whose
+    // turn 3 draws the appropriations rider, is the fixture.
+    const state = gameAt(3, 5)
     const opportunities = drawnFrom(state).filter((e) => DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)?.kind === 'opportunity')
     expect(opportunities.length, 'the turn draws no opportunity, so this asserts nothing').toBeGreaterThan(0)
     const names = opportunities.map((e) => DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)!.name)

@@ -20,15 +20,18 @@ import {
   type Beat,
   type BeatKind,
 } from '../src/director'
-import { CHAIN_BONUS, newGame, resolveTurn } from '../src/engine/reducer'
+import { CHAIN_BONUS, DEPLOY_TURNS, gnssDenied, newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
-import type { Difficulty, GameState, TurnActions } from '../src/engine/types'
-import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
+import type { ActiveCondition, Difficulty, GameState, TurnActions } from '../src/engine/types'
+import { randomLegal } from './policies'
+import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT, randomPolicy } from './scripts'
 
 const WIN_SEED = 20260712
 const LOSS_SEED = 4041
 const SEEDS = 40
-const DIFFICULTIES: Difficulty[] = ['easy', 'standard', 'expert']
+// Expert retired with the v1.2 economy in v1.3 Round 0 (brief 5.1): the
+// title offers EASY or STANDARD, and the engine has no profile for a third.
+const DIFFICULTIES: Difficulty[] = ['easy', 'standard']
 
 type Line = (state: GameState) => TurnActions
 const scripted =
@@ -36,22 +39,22 @@ const scripted =
   (state) =>
     script[state.turn] ?? NO_OP
 
-// A prepared line that also spends surge authority whenever it can, so the
-// surge-clear grain is exercised alongside everything else.
-const surgeLine: Line = (state) => {
-  const base = WIN_SCRIPT[state.turn] ?? NO_OP
-  if (state.surgeTokens > 0 && state.conditions.length > 0) {
-    return { ...base, spendSurgeOn: state.conditions[0].instanceId }
-  }
-  return base
-}
+// The fifth line was a prepared line that also spent surge authority, so
+// the surge-clear grain was exercised alongside everything else. SURGE
+// left in v1.3 Round 0 (D2 a), and the grain v1.3 added in its place is
+// the insolvent close: repairs and upkeep the budget cannot cover, funding
+// frozen and healing withheld. None of the four scripts reaches it, so the
+// fifth line is the seeded random line (tests/scripts.ts), which orders
+// heavily, lands several deployments a night and goes insolvent in most of
+// its campaigns. Seeded by the game, so the sweep replays.
+const randomLine: Line = (state) => randomPolicy(state.seed)(state)
 
 const LINES: [string, Line][] = [
   ['prepared', scripted(WIN_SCRIPT)],
   ['mixed', scripted(MIXED_SCRIPT)],
   ['lazy', scripted(LAZY_SCRIPT)],
   ['passive', scripted(LOSS_SCRIPT)],
-  ['surge', surgeLine],
+  ['random', randomLine],
 ]
 
 interface Turn {
@@ -70,12 +73,19 @@ function* playTurns(seed: number, line: Line, difficulty: Difficulty = 'standard
 
 const modeled = (s: GameState) => Object.fromEntries(MODELED_FIELDS.map((k) => [k, s[k]]))
 // The mutation guard's projection is wider than the ledger's: deriveBeats
-// reads history and forecast too, and an in-place edit of either would
-// corrupt live state with the sweep still green.
+// reads history and the defense streak too, and an in-place edit of either
+// would corrupt live state with the sweep still green. (The forecast it
+// also read left with the intel levels in v1.3 Round 0; the streak's
+// learning state and the free-brief clock are the engine-owned fields
+// beside it now.)
 const readable = (s: GameState) => ({
   ...modeled(s),
   history: s.history,
-  forecast: s.forecast,
+  streak: s.streak,
+  bestStreak: s.bestStreak,
+  saved: s.saved,
+  learned: s.learned,
+  briefFreeThrough: s.briefFreeThrough,
   // The scenario is a shared module singleton, so a write there would
   // outlive the call and poison every later game in the process.
   scenario: s.scenario,
@@ -107,11 +117,16 @@ describe('presentation adapter: zero-residual ledger against the engine', () => 
       const seen = new Set<BeatKind>()
       const namespaces = new Set<string>()
       let turns = 0
+      // Closes the engine ruled insolvent (funding frozen, no healing). The
+      // random line is in LINES to reach this grain, and it is not a beat
+      // kind, so the every-kind check below cannot see it.
+      let insolventCloses = 0
       for (const [name, line] of LINES) {
         for (const difficulty of DIFFICULTIES) {
           for (let seed = 1; seed <= SEEDS; seed += 1) {
             for (const { before, after } of playTurns(seed, line, difficulty)) {
               turns += 1
+              if (after.history[after.history.length - 1].ledger.insolvent) insolventCloses += 1
               const where = `${name} line, ${difficulty}, seed ${seed}, turn ${before.turn}`
               // Derivation reads both states and must mutate neither. The
               // after-state matters most: an adapter that wrote to it would
@@ -136,12 +151,18 @@ describe('presentation adapter: zero-residual ledger against the engine', () => 
               // its event's engine record names, in order, and moves that
               // asset's integrity and no other's. The board lands the hit on
               // whatever the beat names, so this is the link between the
-              // engine's record and the tile.
+              // engine's record and the tile. Since v1.3 Round 0 the record
+              // names the AIMED tile even when a defense held the hit (so
+              // the strike can lock on and flash a shield, brief 5.5), and
+              // the tile was HIT only when the record's integrity fell; the
+              // beat names the tile only then.
               const events = after.history[after.history.length - 1].events.filter((e) => after.scenario.events.find((d) => d.id === e.eventId)?.kind !== 'opportunity')
               const threatBeats = beats.filter((b) => b.kind === 'threat')
               expect(threatBeats.map((b) => b.subjectId), `${where}: threat beats out of step with the record`).toEqual(events.map((e) => e.eventId))
               threatBeats.forEach((b, i) => {
-                expect(b.targetAssetId, `${where}: ${b.id}`).toBe(events[i].targetAssetId)
+                const e = events[i]
+                const hit = e.integrityBefore !== undefined && e.integrityAfter !== undefined && e.integrityAfter < e.integrityBefore
+                expect(b.targetAssetId, `${where}: ${b.id}`).toBe(hit ? e.targetAssetId : undefined)
                 expect(Object.keys(b.patch.assetIntegrity ?? {}), `${where}: ${b.id}`).toEqual(b.targetAssetId ? [b.targetAssetId] : [])
               })
               const settle = beats.find((b) => b.kind === 'settle')
@@ -165,10 +186,18 @@ describe('presentation adapter: zero-residual ledger against the engine', () => 
       const expected = BEAT_KINDS.filter((k) => k !== 'settle')
       for (const kind of expected) expect(seen.has(kind), `beat kind ${kind} never observed in the sweep`).toBe(true)
       expect(seen.has('settle')).toBe(false)
-      // Every cue namespace is exercised by real play, not by one fixture:
-      // the counter namespace in particular only appears when a retrofit
-      // lands, which the prepared line reaches part way through a campaign.
-      for (const ns of ['beat', 'event', 'condition', 'counter']) {
+      // The insolvent close is a grain of the ledger the sweep exists to
+      // cover (the fifth line was chosen for it), so a sweep that never
+      // reaches one has quietly lost it. Measured today: 66 of the random
+      // line's 80 campaigns end insolvent; no scripted line reaches it.
+      expect(insolventCloses, 'the sweep never reached an insolvent close').toBeGreaterThan(0)
+      // Every cue namespace the adapter emits is exercised by real play,
+      // not by one fixture. The counter namespace is no longer one of them:
+      // it only ever appeared when a sensor fusion retrofit landed a turn
+      // after purchase, and v1.3 Round 0 retired the retrofit delay (a
+      // defense is active the night it is ordered, brief 6.1), so beats.ts
+      // emits no `counter:` key at all.
+      for (const ns of ['beat', 'event', 'condition']) {
         expect(namespaces.has(ns), `cue namespace ${ns} never observed in the sweep`).toBe(true)
       }
     },
@@ -178,8 +207,25 @@ describe('presentation adapter: zero-residual ledger against the engine', () => 
   it('models every dynamic field of the engine state, so a new engine field cannot slip past the ledger', () => {
     // Fields the engine owns outright and the director never patches: the
     // static scenario, the seed, the turn counter, status and loss reason,
-    // difficulty, the forecast, and the history the record lives in.
-    const engineOwned = new Set(['scenario', 'seed', 'turn', 'status', 'lossReason', 'difficulty', 'forecast', 'history'])
+    // difficulty, and the history the record lives in. Since v1.3 Round 0
+    // also the learning state (the defense streak, its best, points saved,
+    // what the player can now say) and the free-brief clock, which the
+    // engine shows after the turn rather than beat by beat (src/director/
+    // patch.ts, MODELED_FIELDS). The forecast left with the intel levels.
+    const engineOwned = new Set([
+      'scenario',
+      'seed',
+      'turn',
+      'status',
+      'lossReason',
+      'difficulty',
+      'history',
+      'briefFreeThrough',
+      'streak',
+      'bestStreak',
+      'saved',
+      'learned',
+    ])
     // A fresh game does not carry every key: optional fields such as
     // lossReason only appear once the engine sets them. Union the keys
     // across a new game, several mid-campaign states and both endings, so
@@ -203,7 +249,7 @@ describe('presentation adapter: zero-residual ledger against the engine', () => 
     // does not fail this test for an unrelated reason.
     const spendToTheEdge: Line = (state) => ({
       ...NO_OP,
-      buyAssets: state.credits > 35 ? [{ kind: 'rpoSat', tier: 'A' }] : [],
+      buyAssets: state.credits > state.scenario.prices.rpoSat ? [{ kind: 'rpoSat' }] : [],
     })
     const endings = new Set<string>()
     for (let seed = 1; seed <= 60; seed += 1) {
@@ -224,15 +270,12 @@ describe('presentation adapter: zero-residual ledger against the engine', () => 
     }
   })
 
-  it('pins the content assumption the expedite reconstruction relies on', () => {
-    // The rolled ETA of an expedited same-turn purchase is recovered as the
-    // after-state ETA plus the expedite; that is exact only while the
-    // expedite is one turn (see beats.ts). A retune fails here, not silently.
-    for (const ev of DEFAULT_SCENARIO.events) {
-      const n = ev.benefit?.expediteTurns
-      expect(n === undefined || n === 1, `${ev.id} expediteTurns ${n}`).toBe(true)
-    }
-  })
+  // RETIRED in v1.3 Round 0: the pin on a one-turn expedite. The adapter
+  // recovered a slipped, rolled ETA as the after-state ETA plus the
+  // expedite, exact only while the expedite was one turn. Arrivals are
+  // fixed with no slip now (brief 6.1): the adapter takes the ordered ETA
+  // from DEPLOY_TURNS and applies the expedite with the engine's own
+  // formula, so no expedite length is assumed anywhere to pin.
 
   it('anchors the two determinism seeds', () => {
     for (const [seed, line] of [
@@ -248,14 +291,18 @@ describe('presentation adapter: zero-residual ledger against the engine', () => 
   })
 
   it('gives every beat a unique id, a resolvable cue key, and a title', () => {
-    for (const { before, after } of playTurns(WIN_SEED, surgeLine)) {
-      const beats = deriveBeats(before, after)
-      const ids = new Set(beats.map((b) => b.id))
-      expect(ids.size).toBe(beats.length)
-      for (const b of beats) {
-        expect(resolveCue(b.cueKey), `${b.id} cue ${b.cueKey}`).toBeTruthy()
-        expect(b.title.length).toBeGreaterThan(0)
-        expect(b.title).not.toContain('\u{2014}')
+    // Every line on the anchor seed: this walked the surge line, which was
+    // the prepared script plus SURGE, until SURGE left in v1.3 Round 0.
+    for (const [name, line] of LINES) {
+      for (const { before, after } of playTurns(WIN_SEED, line)) {
+        const beats = deriveBeats(before, after)
+        const ids = new Set(beats.map((b) => b.id))
+        expect(ids.size, `${name} line, turn ${before.turn}`).toBe(beats.length)
+        for (const b of beats) {
+          expect(resolveCue(b.cueKey), `${b.id} cue ${b.cueKey}`).toBeTruthy()
+          expect(b.title.length).toBeGreaterThan(0)
+          expect(b.title).not.toContain('\u{2014}')
+        }
       }
     }
   })
@@ -274,17 +321,24 @@ describe('beat grain fixtures', () => {
     expect(beats.map((b) => b.kind)).toContain('quiet')
     const buy = beats.find((b) => b.kind === 'procurement')!
     expect(buy).toBeTruthy()
+    // v1.3 Round 0 (brief 5.5): the orders land at EXECUTE, before
+    // anything else happens tonight, so the procurement beat comes first.
+    expect(beats[0], 'the orders must land before the night opens').toBe(buy)
+    // The prepared script's turn 1 (tests/scripts.ts): a drone and both
+    // turn-1 primaries. The intel brief is free on turn 1 (D2 a) and the
+    // script does not order it, so it costs nothing; the v1.2 intel level
+    // this used to buy left with the intel levels.
     const s = DEFAULT_SCENARIO
     const expected =
-      s.countermeasures.find((c) => c.id === 'sensorFusion')!.cost +
       s.countermeasures.find((c) => c.id === 'antiJam')!.cost +
-      s.prices.sat +
-      s.prices.intelLevels[0]
+      s.countermeasures.find((c) => c.id === 'pntAuth')!.cost +
+      s.prices.drone
     expect(buy.patch.credits).toBe(-expected)
-    expect(buy.patch.intelLevel).toBe(1)
-    expect(buy.patch.countersAdd).toEqual(['antiJam'])
-    expect(buy.patch.pendingCountersAdd?.map((p) => p.id)).toEqual(['sensorFusion'])
-    expect(buy.patch.pipelineAdd?.map((p) => p.kind)).toEqual(['sat'])
+    expect(buy.patch.credits).toBe(-after.history[0].ledger.ordered)
+    // Both defenses are active the night they are ordered (brief 6.1): no
+    // retrofit, so nothing is pending.
+    expect(buy.patch.countersAdd).toEqual(['antiJam', 'pntAuth'])
+    expect(buy.patch.pipelineAdd).toEqual([{ id: 't1-drone-1', kind: 'drone', etaTurns: DEPLOY_TURNS.drone }])
     expect(buy.lines).toEqual(after.history[0].purchases)
     // Silent by decision (brief v0.5 section 6): the buy already fired its
     // cue in the procurement phase.
@@ -305,12 +359,36 @@ describe('beat grain fixtures', () => {
     expect([...silent].sort()).toEqual(['end-of-turn-tick', 'procurement'])
   })
 
-  it('the fusion retrofit arrives as a countermeasure beat the turn after purchase', () => {
-    const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 2)
+  it('a defense is active the night it is ordered: the orders add it ahead of the move it answers, and no arrival follows', () => {
+    // This was the sensor fusion retrofit arriving as a countermeasure
+    // beat the turn after purchase. v1.3 Round 0 retired the retrofit delay
+    // (brief 6.1: defenses are active from the turn they are ordered), so
+    // the grain to pin is the opposite one: the defense lands with the
+    // orders, the adversary reads it tonight, and nothing announces it
+    // later. The prepared script buys sensor fusion and firmware attestation
+    // on turn 4 (tests/scripts.ts).
+    const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 4)
     const beats = deriveBeats(before, after)
-    const arrival = beats.find((b) => b.kind === 'deploy-arrived' && b.subjectId === 'sensorFusion')!
-    expect(arrival).toBeTruthy()
-    expect(arrival.cueKey).toBe('counter:sensorFusion')
+    const bought = WIN_SCRIPT[4].buyCounters
+    expect(bought).toContain('sensorFusion')
+    const buy = beats.find((b) => b.kind === 'procurement')!
+    expect(buy).toBeTruthy()
+    expect(buy.patch.countersAdd).toEqual(bought)
+    // Ahead of every move tonight, and a move one of them answers is met by
+    // it already.
+    const threats = beats.filter((b) => b.kind === 'threat')
+    expect(threats.length).toBeGreaterThan(0)
+    for (const t of threats) expect(beats.indexOf(buy), `${t.id} resolved before the orders landed`).toBeLessThan(beats.indexOf(t))
+    const answered = threats.filter((t) => DEFAULT_SCENARIO.events.find((e) => e.id === t.subjectId)!.counters.some((c) => bought.includes(c)))
+    expect(answered.length, 'no move tonight is one the new defenses answer').toBeGreaterThan(0)
+    for (const t of answered) expect(t.severity?.mitigation, `${t.id} was not met by tonight's defense`).toBeGreaterThan(0)
+    // No arrival beat announces a defense, tonight or on the next turn.
+    const next = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 5)
+    for (const b of [...beats, ...deriveBeats(next.before, next.after)]) {
+      if (b.kind !== 'deploy-arrived') continue
+      expect(bought as string[], `${b.id} announces a defense as an arrival`).not.toContain(b.subjectId)
+      expect(b.cueKey).not.toMatch(/^counter:/)
+    }
     // No engine id or raw enum value reaches a beat title.
     for (const { before, after } of playTurns(WIN_SEED, scripted(WIN_SCRIPT))) {
       for (const b of deriveBeats(before, after)) {
@@ -318,11 +396,27 @@ describe('beat grain fixtures', () => {
         expect(b.title, `${b.id}: raw enum in title`).not.toMatch(/\b(?:rpoSat|groundStation|supplyChain)\b/)
       }
     }
-    expect(arrival.patch.countersAdd).toEqual(['sensorFusion'])
   })
 
-  it('turn 6 of the passive line: the jam lands, becomes a condition, and arms the chain', () => {
-    const { before, after } = turnAt(LOSS_SEED, scripted(LOSS_SCRIPT), 6)
+  // The passive line's first campaign in which the jam lands, found rather
+  // than pinned: under the six-turn plan the jam is a drawn candidate on
+  // turns 2 and 3 only (src/content/scenarios/firstLight.ts), so which
+  // seed draws it moves with the deck stream.
+  const jamTurn = (): { seed: number; turn: Turn; next: Turn } => {
+    for (let seed = 1; seed <= 50; seed += 1) {
+      const turns = [...playTurns(seed, scripted(LOSS_SCRIPT))]
+      const i = turns.findIndex((t) => deriveBeats(t.before, t.after).some((b) => b.kind === 'condition-applied' && b.subjectId === 'pnt-jamming'))
+      if (i >= 0 && i + 1 < turns.length) return { seed, turn: turns[i], next: turns[i + 1] }
+    }
+    throw new Error('the passive line never lands the jam in fifty seeds')
+  }
+
+  it('the passive line: the jam lands, becomes a condition, and arms the chain', () => {
+    // Turn 6 of the passive line in the twelve-turn game. The chain was
+    // armed by a lidarFallback flag the condition patch set; v1.3 Round 0
+    // removed the flag (brief 6.5): the chain is armed while a GNSS-jamming
+    // condition is live, which the presented state itself now says.
+    const { before, after } = jamTurn().turn
     const beats = deriveBeats(before, after)
     const jam = beats.find((b) => b.kind === 'threat' && b.subjectId === 'pnt-jamming')!
     expect(jam).toBeTruthy()
@@ -333,90 +427,135 @@ describe('beat grain fixtures', () => {
     expect(applied).toBeTruthy()
     expect(applied.cueKey).toBe('condition:pnt-jamming')
     expect(applied.patch.conditionsAdd?.[0].eventId).toBe('pnt-jamming')
-    expect(applied.patch.flags?.lidarFallback).toBe(true)
-    expect(beats.indexOf(jam)).toBeLessThan(beats.indexOf(applied))
+    // A fixed clock, shown exactly (brief 6.5).
+    const def = DEFAULT_SCENARIO.events.find((e) => e.id === 'pnt-jamming')!
+    expect(applied.patch.conditionsAdd?.[0].remainingTurns).toBe(def.condition!.turns)
+    // Armed by this beat and not before it.
+    const at = beats.indexOf(applied)
+    expect(gnssDenied(replay(before, beats.slice(0, at)).conditions, before.scenario), 'GNSS was denied before the jam landed').toBe(false)
+    expect(gnssDenied(replay(before, beats.slice(0, at + 1)).conditions, before.scenario), 'the jam did not arm the chain').toBe(true)
+    expect(beats.indexOf(jam)).toBeLessThan(at)
   })
 
-  it('turn 7 of the passive line: the chain is armed entering resolution and the exploit carries the bonus', () => {
-    const { before, after } = turnAt(LOSS_SEED, scripted(LOSS_SCRIPT), 7)
+  it('the turn after the jam: the chain is armed entering resolution, and the exploit carries the bonus', () => {
+    // Turn 7 of the passive line in the twelve-turn game, where the chain
+    // was armed and BLACKOUT CHAIN struck in the same night. The arming is
+    // still real play: the jam's condition is live entering the next turn.
+    const { next } = jamTurn()
+    const armedBeats = deriveBeats(next.before, next.after)
+    expect(armedBeats.some((b) => b.kind === 'chain-armed')).toBe(true)
+    expect(armedBeats.some((b) => b.kind === 'condition-pressure' && b.subjectId === 'pnt-jamming')).toBe(true)
+
+    // The bonus is not real play any more. The jam is drawn on turns 2 and
+    // 3, its condition lasts two turns, and the chain exploits come on
+    // turns 5 and 6, so no campaign has GNSS denied when one strikes. The
+    // state is built by hand: the passive line on the eve of the final
+    // turn, with the jam's condition placed as if it had landed on turn 5.
+    const { before: eve } = turnAt(LOSS_SEED, scripted(LOSS_SCRIPT), 6)
+    const def = DEFAULT_SCENARIO.events.find((e) => e.id === 'pnt-jamming')!
+    const denial: ActiveCondition = {
+      instanceId: 'pnt-jamming-t5',
+      eventId: def.id,
+      name: def.condition!.name,
+      startedTurn: 5,
+      remainingTurns: def.condition!.turns,
+      baseSeverity: def.baseSeverity,
+    }
+    const before: GameState = { ...eve, conditions: [...eve.conditions, denial] }
+    expect(gnssDenied(eve.conditions, eve.scenario), 'the real eve already has GNSS denied, so this built nothing').toBe(false)
+    const after = resolveTurn(before, NO_OP, turnRng(before.seed, before.turn))
     const beats = deriveBeats(before, after)
-    expect(beats.some((b) => b.kind === 'chain-armed')).toBe(true)
+    const armed = beats.find((b) => b.kind === 'chain-armed')!
+    expect(armed).toBeTruthy()
     expect(beats.some((b) => b.kind === 'condition-pressure' && b.subjectId === 'pnt-jamming')).toBe(true)
     const chain = beats.find((b) => b.kind === 'threat' && b.subjectId === 'blackout-chain')!
+    expect(chain).toBeTruthy()
+    expect(beats.indexOf(armed)).toBeLessThan(beats.indexOf(chain))
     expect(chain.severity?.chain).toBe(CHAIN_BONUS)
     expect(chain.patch.meters?.sensorIntegrity).toBeLessThan(0)
+    // And the ledger still reproduces the engine on the built state.
+    expect(beats.some((b) => b.kind === 'settle')).toBe(false)
+    expect(modeled(replay(before, beats))).toEqual(modeled(after))
   })
 
-  it('a surge spend yields a surge-spent beat that removes the condition and a token', () => {
-    let state = newGame(DEFAULT_SCENARIO, LOSS_SEED)
-    while (state.status === 'playing' && state.turn <= 6) {
-      state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
-    }
-    const target = state.conditions[0]
-    expect(target).toBeTruthy()
-    const after = resolveTurn(state, { ...NO_OP, spendSurgeOn: target.instanceId }, turnRng(state.seed, state.turn))
-    const beats = deriveBeats(state, after)
-    const surge = beats.find((b) => b.kind === 'surge-spent')!
-    expect(surge).toBeTruthy()
-    expect(surge.subjectId).toBe(target.eventId)
-    expect(surge.patch.conditionsRemove).toEqual([target.instanceId])
-    expect(surge.patch.surgeTokens).toBe(-1)
-    // It did not press this turn, so no pressure beat names it.
-    expect(beats.some((b) => b.kind === 'condition-pressure' && b.subjectId === target.eventId)).toBe(false)
-    expect(beats.some((b) => b.kind === 'settle')).toBe(false)
-  })
+  // RETIRED in v1.3 Round 0: "a surge spend yields a surge-spent beat that
+  // removes the condition and a token". SURGE left with D2 (a): there are
+  // no surge tokens, no surge action and no surge-spent beat kind.
 
   it('a condition expiring yields a condition-cleared beat', () => {
+    // The clock is fixed and shown since v1.3 Round 0 (brief 6.5): a
+    // condition that is not renewed lifts at the close of the turn its
+    // clock reaches zero, exactly its turns after it landed. The passive
+    // line used to be walked to turn 6 first, past the twelve-turn game's
+    // quiet opening; six turns in, the first condition lands on turn 1.
     let state = newGame(DEFAULT_SCENARIO, LOSS_SEED)
-    while (state.status === 'playing' && state.turn <= 6) {
-      state = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
-    }
     let cleared: Beat | undefined
-    for (let i = 0; i < 4 && state.status === 'playing' && !cleared; i += 1) {
+    let beats: Beat[] = []
+    let entering: GameState | undefined
+    const renewed = new Set<string>()
+    while (state.status === 'playing' && !cleared) {
       const next = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
-      cleared = deriveBeats(state, next).find((b) => b.kind === 'condition-cleared')
+      beats = deriveBeats(state, next)
+      for (const b of beats) if (b.kind === 'condition-renewed' && b.subjectId) renewed.add(b.subjectId)
+      cleared = beats.find((b) => b.kind === 'condition-cleared')
+      entering = state
       state = next
     }
-    expect(cleared).toBeTruthy()
+    expect(cleared, 'the passive line never cleared a condition').toBeTruthy()
     expect(cleared!.patch.conditionsRemove?.length).toBe(1)
     expect(cleared!.cueKey).toMatch(/^condition:/)
+    const instance = entering!.conditions.find((c) => c.instanceId === cleared!.patch.conditionsRemove![0])!
+    expect(instance, 'the cleared condition was not live entering the turn').toBeTruthy()
+    // The countdown beat takes it to zero before the clear removes it.
+    const tick = beats.find((b) => b.kind === 'end-of-turn-tick' && b.patch.conditionsRemaining)
+    expect(tick?.patch.conditionsRemaining?.[instance.instanceId]).toBe(0)
+    expect(beats.indexOf(tick!), 'the clear came before the clock ran out').toBeLessThan(beats.indexOf(cleared!))
+    // Exactly its turns after it landed, when nothing renewed it.
+    expect(renewed.has(instance.eventId), 'the fixture renewed the condition, so its exact lift turn proves nothing').toBe(false)
+    const def = DEFAULT_SCENARIO.events.find((e) => e.id === instance.eventId)!
+    expect(entering!.turn).toBe(instance.startedTurn + def.condition!.turns - 1)
   })
 
-  it('a same-turn purchase expedited by a rideshare keeps its rolled ETA and still reports a certain slip', () => {
-    // The engine rolls the ETA at purchase (with a possible slip) and the
-    // rideshare opportunity, resolved later the same turn, can expedite that
-    // very entry; the after-state then shows the post-expedite ETA. The
-    // adapter must recover the rolled value from the engine's note. Search
-    // the seed space for the case rather than pin a seed by hand.
-    const buySat: Record<number, TurnActions> = { ...LOSS_SCRIPT, 3: { ...NO_OP, buyAssets: [{ kind: 'sat', tier: 'B' }] } }
+  it('a same-turn purchase expedited by a rideshare enters at its fixed ETA and lands the same night', () => {
+    // The rideshare opportunity, resolved later the same turn, can expedite
+    // the very entry the orders put in transit; the adapter reads which one
+    // from the engine's note. In v1.2 the ETA was rolled at purchase, with
+    // a possible slip, and the adapter recovered the rolled value from the
+    // after-state; arrivals are fixed with no slip since v1.3 Round 0
+    // (brief 6.1), so the entry goes in at the kind's fixed ETA and the
+    // slip half of this test has no subject. A satellite takes two turns,
+    // so an expedite the night it is ordered brings it in at this close.
+    // Search the seed space for the case rather than pin a seed by hand.
+    const buySat: Record<number, TurnActions> = { ...LOSS_SCRIPT, 3: { ...NO_OP, buyAssets: [{ kind: 'sat' }] } }
+    const rideshare = DEFAULT_SCENARIO.events.find((e) => e.id === 'rideshare-slot')!
+    const expedite = rideshare.benefit!.expediteTurns!
     let expedited = 0
-    let slipped = 0
-    for (let seed = 1; seed <= 600 && (expedited < 3 || slipped === 0); seed += 1) {
+    for (let seed = 1; seed <= 600 && expedited < 3; seed += 1) {
       const { before, after } = turnAt(seed, scripted(buySat), 3)
-      const rideshare = after.history[after.history.length - 1].events.find((e) => e.eventId === 'rideshare-slot')
-      if (!rideshare || !rideshare.notes.some((n) => n.includes('t3-sat-1 manifested on the rideshare'))) continue
+      const record = after.history[after.history.length - 1].events.find((e) => e.eventId === 'rideshare-slot')
+      if (!record || !record.notes.some((n) => n.includes('t3-sat-1 manifested on the rideshare'))) continue
       expedited += 1
       const beats = deriveBeats(before, after)
       const buy = beats.find((b) => b.kind === 'procurement')!
       const entry = (buy.patch.pipelineAdd ?? []).find((p) => p.id === 't3-sat-1')
       expect(entry).toBeTruthy()
       if (!entry) continue
-      const finalEta = after.pipeline.find((p) => p.id === 't3-sat-1')!.etaTurns
-      // Rolled ETA is the after-state ETA plus the expedite, and the
-      // opportunity beat brings it back down to the engine's value.
-      expect(entry.etaTurns).toBe(finalEta + 1)
+      // In transit at the kind's fixed ETA, and the opportunity beat
+      // brings it forward by the expedite, as the engine does.
+      expect(entry.etaTurns).toBe(DEPLOY_TURNS.sat)
       const opp = beats.find((b) => b.kind === 'opportunity' && b.subjectId === 'rideshare-slot')!
-      expect(opp.patch.pipelineEta).toEqual({ 't3-sat-1': finalEta })
+      expect(opp.patch.pipelineEta).toEqual({ 't3-sat-1': Math.max(1, DEPLOY_TURNS.sat - expedite) })
+      expect(beats.indexOf(buy)).toBeLessThan(beats.indexOf(opp))
+      // Due at this close: it arrives tonight, after the opportunity.
+      const arrival = beats.find((b) => b.kind === 'deploy-arrived' && b.subjectId === 't3-sat-1')
+      expect(arrival, `seed ${seed}: the expedited satellite did not arrive tonight`).toBeTruthy()
+      expect(beats.indexOf(opp)).toBeLessThan(beats.indexOf(arrival!))
+      expect(after.pipeline.some((p) => p.id === 't3-sat-1')).toBe(false)
+      expect(after.assets.some((a) => a.id === 't3-sat-1')).toBe(true)
       expect(beats.some((b) => b.kind === 'settle')).toBe(false)
       expect(modeled(replay(before, beats))).toEqual(modeled(after))
-      // A rolled ETA above the kind's published maximum means the engine
-      // slipped this purchase. There is no beat for it (the roll is folded
-      // into the ETA at purchase), but the reconstruction must still
-      // recover the pre-expedite value.
-      if (entry.etaTurns > 3) slipped += 1
     }
     expect(expedited, 'no seed exercised a same-turn expedite').toBeGreaterThan(0)
-    expect(slipped, 'no seed exercised a slipped and expedited purchase').toBeGreaterThan(0)
   })
 
   it('the deciding turn ends on an outcome beat', () => {
@@ -476,9 +615,13 @@ describe('director playback', () => {
     // screen until the player moves on, so a director that arms any timer,
     // or moves while time passes, is the auto-advance coming back.
     vi.useFakeTimers()
-    const { before, after } = turnAt(LOSS_SEED, scripted(LOSS_SCRIPT), 7)
+    // Turn 4 of the passive line, the busiest night of that six-turn
+    // campaign (two conditions pressing, two moves, two clears); turn 7 of
+    // the twelve-turn game it used to be no longer exists.
+    const { before, after } = turnAt(LOSS_SEED, scripted(LOSS_SCRIPT), 4)
     const beats = deriveBeats(before, after)
     const visible = beats.filter((b) => b.visible).length
+    expect(visible, 'the fixture has too few beats to walk').toBeGreaterThanOrEqual(5)
     const d = new Director(before, after, beats)
     let shown = 0
     const seenIds = new Set<string>()
@@ -521,32 +664,54 @@ describe('director playback', () => {
     // arrives folded into the next visible beat. Without the declaration
     // the HUD sees one negative delta on a beat titled for something else
     // and paints the player's own purchase with the hostile damage cue.
+    //
+    // Since v1.3 Round 0 the procurement beat is the first beat of the
+    // turn, so the purchase folds into the first visible one. The close
+    // also costs real credits now (repairs and upkeep, brief 6.1), folded
+    // into a later visible beat: those are not the player's chosen spend
+    // and must still read as a loss, so this walks every emit, the final
+    // jump to the engine's output included, and holds both halves.
     const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 1)
     const beats = deriveBeats(before, after)
     const procurement = beats.find((b) => b.kind === 'procurement')
     expect(procurement, 'turn 1 of the prepared line buys nothing').toBeDefined()
+    expect(beats[0], 'the orders no longer land first').toBe(procurement)
     const spend = -(procurement!.patch.credits ?? 0)
     expect(spend).toBeGreaterThan(0)
+    const ledger = after.history[after.history.length - 1].ledger
+    const realCosts = ledger.repairs + ledger.upkeep + ledger.fuel
+    expect(realCosts, 'the fixture pays nothing at the close, so the hostile half proves nothing').toBeGreaterThan(0)
 
     const d = new Director(before, after, beats)
     let declared = 0
-    let shown = d.snapshot().presented.credits
-    let worstUnchosen = 0
-    while (d.snapshot().status === 'playing') {
+    // From the before-state, not from the first emit: the purchase lands
+    // on the first emit, and measuring from it would skip the one change
+    // this test exists to read.
+    let shown = before.credits
+    let purchaseEmits = 0
+    let unchosenLosses = 0
+    for (;;) {
       const snap = d.snapshot()
       const delta = snap.presented.credits - shown
       const unchosen = delta + snap.chosenCredits
-      // No visible beat of this turn carries real credit damage, so every
-      // beat's unchosen change is a gain or nothing. A negative here is
-      // the purchase leaking back into the tone.
-      worstUnchosen = Math.min(worstUnchosen, unchosen)
+      if (snap.chosenCredits > 0) {
+        purchaseEmits += 1
+        // The beat the purchase folds into carries nothing hostile on this
+        // turn, so its unchosen change is nothing. A negative here is the
+        // purchase leaking back into the tone.
+        expect(unchosen, 'a visible beat reads as a credit loss the player did not choose').toBe(0)
+      }
+      if (unchosen < 0) unchosenLosses += unchosen
       declared += snap.chosenCredits
       shown = snap.presented.credits
+      if (snap.status === 'done') break
       d.advance()
     }
-    declared += d.snapshot().chosenCredits
-    expect(worstUnchosen, 'a visible beat reads as a credit loss the player did not choose').toBe(0)
+    expect(purchaseEmits, 'no emit declared the purchase').toBe(1)
     expect(declared, 'the declared spend does not add up to the purchase').toBe(spend)
+    // Repairs, upkeep and fuel are real costs: none of them is declared,
+    // so they read as losses, and nothing else does.
+    expect(unchosenLosses, 'the real costs at the close were excused as chosen spend').toBe(-realCosts)
     d.dispose()
   })
 
@@ -610,32 +775,48 @@ describe('director playback', () => {
     // repair bill in the same jump landed neutral instead of hostile. The
     // old skip test only ever skipped from the first beat, which is the
     // one position where the two behaviours agree.
-    // Turn 8 of the prepared line, not turn 1: thirteen beats, eleven of
-    // them visible, with the purchase third. Turn 1 has three beats, so
-    // "from any point in the turn" would have meant two points, both of
-    // them before the purchase.
-    const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 8)
-    const beats = deriveBeats(before, after)
-    expect(beats.length, 'the fixture is too small for this test to mean anything').toBeGreaterThanOrEqual(8)
-    expect(beats.findIndex((b) => b.kind === 'procurement'), 'the fixture has no purchase to declare').toBeGreaterThan(0)
+    //
+    // Turn 3 of the random legal policy (tests/policies.ts) on the anchor
+    // seed: fourteen beats, ten of them visible, a purchase, two arrivals,
+    // and the insolvent close that ends the campaign. None of the four
+    // scripts reaches eight visible beats on a turn it also buys (measured
+    // over 200 seeds: the prepared and mixed scripts peak at six, the lazy
+    // one at seven), and the twelve-turn game's turn 8 of the prepared
+    // line no longer exists.
+    const { before, after } = turnAt(WIN_SEED, randomLegal, 3)
+    const real = deriveBeats(before, after)
+    expect(real.length, 'the fixture is too small for this test to mean anything').toBeGreaterThanOrEqual(8)
+    // Since v1.3 Round 0 the purchase is the first beat and invisible, so
+    // the first emit has already applied it and no real skip point still
+    // owes it: the one way left to declare the purchase wrongly on a skip
+    // is the stale declaration the reset exists to clear. The other side
+    // of the distinction, a skip that does still owe a purchase, is the
+    // director's contract for any beat list, and is driven on a copy built
+    // by hand with the purchase behind the turn start, where the v1.2
+    // adapter put it.
+    expect(real.findIndex((b) => b.kind === 'procurement'), 'the fixture has no purchase, or not first').toBe(0)
+    const turnStart = real.findIndex((b) => b.kind === 'turn-start')
+    const reordered = [real[turnStart], real[0], ...real.filter((_, i) => i !== 0 && i !== turnStart)]
     let sawNothingLeft = false
     let sawSomethingLeft = false
     let stopsChecked = 0
-    for (let stop = 0; stop <= beats.length; stop += 1) {
-      const d = new Director(before, after, beats)
-      for (let step = 0; step < stop && d.snapshot().status === 'playing'; step += 1) d.advance()
-      if (d.snapshot().status === 'done') {
+    for (const beats of [real, reordered]) {
+      for (let stop = 0; stop <= beats.length; stop += 1) {
+        const d = new Director(before, after, beats)
+        for (let step = 0; step < stop && d.snapshot().status === 'playing'; step += 1) d.advance()
+        if (d.snapshot().status === 'done') {
+          d.dispose()
+          continue
+        }
+        const applied = d.snapshot().index
+        d.skip()
+        const owed = beats.slice(applied + 1).reduce((n, b) => n + chosenCreditsOf(b), 0)
+        expect(d.snapshot().chosenCredits, `skipping after beat ${applied} declares the wrong spend`).toBe(owed)
+        if (owed === 0) sawNothingLeft = true
+        else sawSomethingLeft = true
+        if (beats === real) stopsChecked += 1
         d.dispose()
-        continue
       }
-      const applied = d.snapshot().index
-      d.skip()
-      const owed = beats.slice(applied + 1).reduce((n, b) => n + chosenCreditsOf(b), 0)
-      expect(d.snapshot().chosenCredits, `skipping after beat ${applied} declares the wrong spend`).toBe(owed)
-      if (owed === 0) sawNothingLeft = true
-      else sawSomethingLeft = true
-      stopsChecked += 1
-      d.dispose()
     }
     // Both sides of the distinction have to occur, or the test proves
     // nothing: a skip before the purchase owes it, a skip after does not.
@@ -644,21 +825,37 @@ describe('director playback', () => {
     expect(stopsChecked, 'too few skip points to call this any point in the turn').toBeGreaterThanOrEqual(8)
   })
 
-  it('declares the spend on a skip from the first beat, where every patch lands at once', () => {
+  it('declares the spend on the first beat it shows, so a skip from there owes nothing more', () => {
+    // This was "declares the spend on a skip from the first beat, where
+    // every patch lands at once": the purchase sat behind the turn start,
+    // so a skip from the first beat still owed all of it. Since v1.3 Round
+    // 0 the purchase is the first beat and invisible, folded into the first
+    // visible one, so the first emit declares it and the skip declares
+    // nothing more. Between them, the purchase is declared exactly once.
     const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 1)
     const beats = deriveBeats(before, after)
     const spend = -(beats.find((b) => b.kind === 'procurement')!.patch.credits ?? 0)
+    expect(spend).toBeGreaterThan(0)
     const d = new Director(before, after, beats)
+    const first = d.snapshot()
+    expect(first.status).toBe('playing')
+    expect(first.chosenCredits, 'the first beat shown does not declare the purchase folded into it').toBe(spend)
+    expect(first.presented.credits).toBe(before.credits - spend)
     d.skip()
     expect(d.snapshot().status).toBe('done')
     // Skip from the first beat: everything after it lands in one jump, and
-    // all of the purchase is still in that jump.
-    expect(d.snapshot().chosenCredits).toBe(spend)
+    // none of the purchase is left in that jump.
+    expect(d.snapshot().chosenCredits, 'the skip declared the purchase a second time').toBe(0)
+    expect(d.snapshot().presented).toBe(after)
     d.dispose()
   })
 
   it('tap-to-advance walks every visible beat and the presented state tracks the ledger', () => {
-    const { before, after } = turnAt(WIN_SEED, surgeLine, 7)
+    // Turn 7 of the surge line until SURGE and the twelve-turn game left in
+    // v1.3 Round 0. The random legal policy's turn 3 on the anchor seed is
+    // a busy turn with a purchase in it: silent beats at the start, in the
+    // middle and at the end, two arrivals and the insolvent outcome.
+    const { before, after } = turnAt(WIN_SEED, randomLegal, 3)
     const beats = deriveBeats(before, after)
     const d = new Director(before, after, beats)
     let taps = 0

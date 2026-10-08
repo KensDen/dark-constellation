@@ -116,33 +116,37 @@ describe('content integrity', () => {
     expect(jam?.chainsWith ?? []).toContain('blackout-chain')
   })
 
-  it('condition durations land on the mapped events and not the one-shots', () => {
-    const withDuration = new Set(threats.filter((e) => e.duration).map((e) => e.id))
+  it('conditions land on the mapped events and not the one-shots, each on a fixed clock', () => {
+    const withCondition = new Set(threats.filter((e) => e.condition).map((e) => e.id))
     // RF jams and spoofing, the eavesdropping variants, and ransomware press
     // over time; debris, insider, and phishing stay single strikes (R3.25).
     for (const id of ['pnt-jamming', 'uplink-jamming', 'gnss-spoofing', 'downlink-eavesdropping', 'backhaul-exfil', 'ground-ransomware']) {
-      expect(withDuration.has(id), id).toBe(true)
+      expect(withCondition.has(id), id).toBe(true)
     }
     for (const id of ['debris-conjunction', 'insider-exfil', 'ops-phishing']) {
-      expect(withDuration.has(id), id).toBe(false)
+      expect(withCondition.has(id), id).toBe(false)
     }
+    // Fixed per event and shown as turns left (brief 6.5): 2 for the jams
+    // and GNSS denial, the clocks the brief names, and for the rest, which
+    // it does not name, the same 2.
+    const names = new Set<string>()
     for (const ev of threats) {
-      if (ev.duration) {
-        expect(ev.duration.max, ev.id).toBeGreaterThanOrEqual(ev.duration.min)
-        expect(ev.duration.min, ev.id).toBeGreaterThanOrEqual(2)
-        expect(ev.duration.max, ev.id).toBeLessThanOrEqual(3)
-      }
+      if (!ev.condition) continue
+      expect(ev.condition.turns, ev.id).toBe(2)
+      expect(names.has(ev.condition.name), `${ev.id} shares a chip name`).toBe(false)
+      names.add(ev.condition.name)
     }
+    expect(DEFAULT_SCENARIO.events.find((e) => e.id === 'uplink-jamming')!.condition!.name).toBe('JAMMED')
+    expect(DEFAULT_SCENARIO.events.find((e) => e.id === 'pnt-jamming')!.condition!.name).toBe('GNSS DENIED')
   })
 
   it('the BLACKOUT CHAIN jam trigger is a persistent condition', () => {
     const jam = DEFAULT_SCENARIO.events.find((e) => e.effect.special === 'jamsGnss')
-    expect(jam?.duration, 'the jam that arms the chain must persist as a condition').toBeTruthy()
+    expect(jam?.condition, 'the jam that arms the chain must persist as a condition').toBeTruthy()
   })
 
   it('purchasable countermeasure costs stay in the spec 5 to 15 band', () => {
     for (const cm of DEFAULT_SCENARIO.countermeasures) {
-      if (cm.id === 'intelInvestment') continue // priced per level in scenario prices
       expect(cm.cost).toBeGreaterThanOrEqual(5)
       expect(cm.cost).toBeLessThanOrEqual(15)
     }

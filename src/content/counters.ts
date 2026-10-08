@@ -57,7 +57,7 @@ export const COUNTERMEASURES: Countermeasure[] = [
   },
   {
     id: 'tierAAttestation',
-    name: 'Tier A sensor procurement and firmware attestation',
+    name: 'Firmware attestation and assured sourcing',
     cost: 12,
     counters: ['lidar-dazzle', 'lidar-injection', 'lidar-blinding', 'supply-chain-implant'],
     spartaCms: [
@@ -66,7 +66,7 @@ export const COUNTERMEASURES: Countermeasure[] = [
       { id: 'CM0024', name: 'Anti-counterfeit Hardware', url: 'https://sparta.aerospace.org/countermeasures/CM0024', tier: 'Tier II' },
     ],
     blurb:
-      'Audited firmware and an assured supply chain. Only pulls its weight once most of the fleet actually flies Tier A packages.',
+      'Audited firmware and an assured supply chain. An image altered at manufacture or in transit fails attestation at boot.',
   },
   {
     id: 'mlPipelineIntegrity',
@@ -124,16 +124,6 @@ export const COUNTERMEASURES: Countermeasure[] = [
     ],
     blurb:
       'Encrypt every link that touches the bird, payload and backhaul alike. A dish on a roof can hear anything sent in the clear.',
-  },
-  {
-    id: 'intelInvestment',
-    name: 'Intel investment',
-    cost: 0,
-    counters: [],
-    spartaCms: [
-      { id: 'CM0009', name: 'Threat Intelligence Program', url: 'https://sparta.aerospace.org/countermeasures/CM0009', tier: 'Tier II' },
-    ],
-    blurb: 'Levels 1 to 3, bought in the procure phase. Sharper forecasts of the coming turn.',
   },
   {
     id: 'irRetainer',

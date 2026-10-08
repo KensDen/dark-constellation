@@ -5,28 +5,20 @@
 // never reads them. Everything here is serializable so a beat list can be
 // replayed, tested in node, and later paired with visual and sound cues.
 
-import type {
-  ActiveCondition,
-  Asset,
-  ChainFlags,
-  CountermeasureId,
-  GameState,
-  Layer,
-  PendingAsset,
-  PendingCounter,
-} from '../engine/types'
+import type { ActiveCondition, Asset, CountermeasureId, Layer, PendingAsset } from '../engine/types'
 
 export type MeterKey = 'linkAvailability' | 'dataIntegrity' | 'sensorIntegrity'
 export const METER_KEYS: MeterKey[] = ['linkAvailability', 'dataIntegrity', 'sensorIntegrity']
 
 // One kind per row of the brief's cue table that the engine log can
 // express, plus the bookkeeping kinds the ledger needs. Every kind must
-// resolve to a cue entry (tests/cues.spec.ts).
+// resolve to a cue entry (tests/cues.spec.ts). 'surge-spent' left in v1.3
+// Round 0 with SURGE (D2 a); 'commendation' is the defense streak since
+// then, which replaces the commendations (brief 4 and 6.8).
 export type BeatKind =
   | 'turn-start'
   | 'deploy-arrived'
   | 'procurement'
-  | 'surge-spent'
   | 'condition-pressure'
   | 'chain-armed'
   | 'quiet'
@@ -44,7 +36,6 @@ export const BEAT_KINDS: BeatKind[] = [
   'turn-start',
   'deploy-arrived',
   'procurement',
-  'surge-spent',
   'condition-pressure',
   'chain-armed',
   'quiet',
@@ -68,10 +59,6 @@ export const BEAT_KINDS: BeatKind[] = [
 export interface Patch {
   meters?: Partial<Record<MeterKey, number>>
   credits?: number
-  surgeTokens?: number
-  intelBoostTurns?: number
-  intelLevel?: GameState['intelLevel']
-  irRetainer?: boolean
   assetsAdd?: Asset[]
   assetIntegrity?: Record<string, number>
   assetsSet?: Asset[]
@@ -83,13 +70,8 @@ export interface Patch {
   pipelineRemove?: string[]
   pipelineEta?: Record<string, number>
   pipelineSet?: PendingAsset[]
-  pendingCountersAdd?: PendingCounter[]
-  pendingCountersRemove?: CountermeasureId[]
-  pendingCountersEta?: Partial<Record<CountermeasureId, number>>
-  pendingCountersSet?: PendingCounter[]
   countersAdd?: CountermeasureId[]
   countersSet?: CountermeasureId[]
-  flags?: Partial<ChainFlags>
 }
 
 export interface BeatSeverity {
@@ -110,7 +92,8 @@ export interface Beat {
   // Event id, countermeasure id, or the eventId behind a condition.
   subjectId?: string
   // The asset a threat beat damaged (v1.2 R3): the engine's
-  // ResolvedEvent.targetAssetId, so the board can land the hit on its tile.
+  // ResolvedEvent.targetAssetId when the hit took integrity off it
+  // (integrityAfter), so the board can land the hit on its tile.
   targetAssetId?: string
   // Key into the cue registry: `beat:<kind>`, `event:<id>`,
   // `condition:<eventId>`, or `counter:<id>`.

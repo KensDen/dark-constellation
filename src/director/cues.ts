@@ -27,7 +27,6 @@ export type VisualCue =
   | 'meter-ease'
   | 'strobe'
   | 'blackout'
-  | 'token-burn'
   | 'ribbon'
   | 'asset-light'
   | 'outcome-sweep'
@@ -66,7 +65,6 @@ export type SoundCue =
   | 'warn-low'
   | 'relief-chime'
   | 'blackout-chain'
-  | 'surge-burn'
   | 'commendation-fanfare'
   | 'arrive-chime'
   | 'victory-fanfare'
@@ -96,7 +94,6 @@ export const VISUAL_CLASS: Record<VisualCue, string> = {
   'meter-ease': '',
   strobe: 'dc-strobe',
   blackout: 'dc-blackout',
-  'token-burn': 'dc-token-burn',
   ribbon: 'dc-ribbon-in',
   'asset-light': 'dc-asset-light',
   'outcome-sweep': 'dc-card-in',
@@ -121,7 +118,6 @@ export const VISUAL_MS: Record<VisualCue, number> = {
   'meter-ease': 0,
   strobe: 0,
   blackout: 900,
-  'token-burn': 560,
   ribbon: 420,
   'asset-light': 900,
   'outcome-sweep': 260,
@@ -156,7 +152,6 @@ export const SOUND_MS: Record<SoundCue, number> = {
   'warn-low': 380,
   'relief-chime': 360,
   'blackout-chain': 1500,
-  'surge-burn': 400,
   'commendation-fanfare': 400,
   'arrive-chime': 340,
   'victory-fanfare': 400,
@@ -210,7 +205,6 @@ export const DUCKS_MUSIC: Record<SoundCue, boolean> = {
   'warn-low': false,
   'relief-chime': false,
   'blackout-chain': true,
-  'surge-burn': false,
   'commendation-fanfare': true,
   'arrive-chime': false,
   'victory-fanfare': true,
@@ -298,7 +292,6 @@ export const HAPTIC_PATTERNS: Record<SoundCue, HapticStrength> = {
   'warn-low': 'long',
   'relief-chime': 'none',
   'blackout-chain': 'long',
-  'surge-burn': 'medium',
   'commendation-fanfare': 'light',
   'arrive-chime': 'none',
   // The brief gives a won campaign no haptic and a lost one a long buzz.
@@ -326,9 +319,10 @@ export function hapticMs(pattern: HapticPattern): number {
   return pattern.reduce((sum, ms, i) => (i % 2 === 0 ? sum + ms : sum), 0)
 }
 
-// Treatments that are safe to run on a whole card. The badge and token
-// families were authored for a small element and end hidden or dimmed
-// (badge-clear finishes at opacity 0, token-burn at 0.25), so handing one
+// Treatments that are safe to run on a whole card. The badge family was
+// authored for a small element and ends hidden (badge-clear finishes at
+// opacity 0; token-burn, which ended at 0.25, left with SURGE in v1.3
+// Round 0), so handing one
 // to the card would fade the card itself out. Those play on a marker
 // inside the card instead, and the card keeps its own entrance.
 export const CARD_SAFE_VISUALS = new Set<VisualCue>([
@@ -350,10 +344,9 @@ export const CARD_SAFE_VISUALS = new Set<VisualCue>([
 ])
 
 export const BEAT_CUES: Record<BeatKind, Cue> = {
-  'turn-start': cue('Turn start: income and recovery', 'transmission', 'data-burst'),
+  'turn-start': cue('Turn start: COLDVEIL is moving', 'transmission', 'data-burst'),
   'deploy-arrived': cue('Deployment arrives', 'asset-light', 'arrive-chime'),
   procurement: cue('Procurement confirmed', 'silent', 'silent'),
-  'surge-spent': cue('Surge authority spent', 'token-burn', 'surge-burn'),
   'condition-pressure': cue('Condition persists', 'badge-tick', 'soft-tick'),
   'chain-armed': cue('BLACKOUT CHAIN armed', 'blackout', 'blackout-chain'),
   // Round 7b. This borrowed the transmission bar until the opening was
@@ -376,7 +369,9 @@ export const BEAT_CUES: Record<BeatKind, Cue> = {
   'condition-renewed': cue('Condition renewed', 'badge-attach', 'alarm-gnss'),
   'end-of-turn-tick': cue('End of turn', 'silent', 'silent'),
   'condition-cleared': cue('Condition cleared', 'badge-clear', 'resolve-chime'),
-  commendation: cue('Commendation earned', 'ribbon', 'commendation-fanfare'),
+  // The defense streak (v1.3 brief 6.8), which replaces the commendations
+  // in the vocabulary (brief 4), keeps the commendation's ribbon and fanfare.
+  commendation: cue('Defense streak', 'ribbon', 'commendation-fanfare'),
   settle: cue('State reconciled', 'silent', 'silent'),
   // The registry entry is the win; a lost campaign is resolved through
   // soundFor, which is the only place the two outcomes differ.
@@ -422,41 +417,25 @@ export const CONDITION_CUES: Record<string, Cue> = {
 
 // Countermeasures, keyed by CountermeasureId.
 //
-// Only ONE of these can currently reach the screen, and for three different
-// reasons, which is why this is written out rather than summarised.
-// beats.ts derives a `counter:` cue key from state.pendingCounters and from
-// nowhere else, so a countermeasure has to retrofit to be announced:
-//
-//   - sensorFusion is the only one that does. It is the only id the buy
-//     loop puts into pendingCounters (reducer.ts), so 'counter:sensorFusion'
-//     is the only counter cue key the game can emit.
-//   - nine others go straight into state.counters in that same loop and are
-//     active the moment they are bought, so there is no arrival to announce.
-//   - irRetainer takes its own branch and also lands in state.counters,
-//     while intelInvestment never reaches state.counters at all: the buy
-//     loop skips it and the engine models intel as a level rather than as a
-//     counter, so it is unreachable here for a different reason again.
-//
-// The buy itself plays its own tile sound from Game.tsx and never consults
-// this map. Eleven entries are therefore answers to a question the game
-// does not ask yet; they are kept because the deck decides which
-// countermeasures retrofit, and one missing when a deck adds a retrofit
-// would fail the coverage test with no obvious cause. The comment here used
-// to claim these fire on a retrofit AND on a buy, and neither half was true
-// for those eleven; the replacement then said every id but sensorFusion
-// lands in state.counters, which is untrue of intelInvestment.
+// None of these reaches the screen in v1.3. beats.ts derived a `counter:`
+// cue key only from a retrofit (state.pendingCounters), and since Round 0
+// every defense, the IR retainer included, is active the night it is
+// ordered: there is no arrival to announce. The order itself plays its own
+// tile sound from PROCURE and never consults this map. The entries are kept,
+// one per countermeasure in the deck, so the coverage test still holds the
+// registry to the deck and a later round that announces a defense finds
+// its cue already here.
 export const COUNTER_CUES: Record<string, Cue> = {
   linkAuth: cue('Link-layer auth', 'asset-light', 'arrive-chime'),
   antiJam: cue('Anti-jam antennas', 'asset-light', 'arrive-chime'),
   pntAuth: cue('PNT authentication', 'asset-light', 'arrive-chime'),
   sensorFusion: cue('Sensor fusion', 'asset-light', 'arrive-chime'),
-  tierAAttestation: cue('Tier A attestation', 'asset-light', 'arrive-chime'),
+  tierAAttestation: cue('Firmware attestation', 'asset-light', 'arrive-chime'),
   mlPipelineIntegrity: cue('ML pipeline integrity', 'asset-light', 'arrive-chime'),
   groundZeroTrust: cue('Ground zero trust', 'asset-light', 'arrive-chime'),
   insiderProgram: cue('Insider program', 'asset-light', 'arrive-chime'),
   ssaManeuver: cue('SSA maneuver budget', 'asset-light', 'arrive-chime'),
   encryptedBackhaul: cue('Encrypted backhaul', 'asset-light', 'arrive-chime'),
-  intelInvestment: cue('Intel investment', 'asset-light', 'arrive-chime'),
   irRetainer: cue('Incident response retainer', 'asset-light', 'arrive-chime'),
 }
 
@@ -661,15 +640,6 @@ export const SECTION_6_ROWS: Section6Row[] = [
     cinematicInRound5: true,
   },
   {
-    beat: 'Surge token spent',
-    kinds: ['surge-spent'],
-    visual: 'token-burn',
-    where: 'director/DirectorView.tsx',
-    sound: 'surge-burn',
-    haptic: 'medium',
-    soundWhere: 'director/DirectorView.tsx',
-  },
-  {
     beat: 'Commendation earned',
     scene: 'commendation',
     kinds: ['commendation'],
@@ -731,17 +701,17 @@ export function resolveCue(cueKey: string): Cue | undefined {
 
 // Beat kinds whose own treatment must win over the deck-keyed cue. The
 // cue key names the subject (which condition, which event) so the label
-// stays specific, but the treatment belongs to what is happening: surge
-// burns a token, a clear sweeps green, persistence ticks. Without this the
+// stays specific, but the treatment belongs to what is happening: a clear
+// sweeps green, persistence ticks. Without this the
 // deck cue's attach glow would play, which is both the wrong motion and
 // the wrong colour for a friendly beat.
 //
-// Round 4d: the same three kinds own their sound for the same reason. A
+// Round 4d: the same kinds own their sound for the same reason. A
 // clear that played the subject's alarm would announce the problem at the
 // moment it went away. The condition-applied kinds are deliberately not
 // here, because there the subject IS the point: the brief asks for an
 // alarm unique per condition.
-const KIND_OWNS_TREATMENT = new Set<BeatKind>(['surge-spent', 'condition-cleared', 'condition-pressure'])
+const KIND_OWNS_TREATMENT = new Set<BeatKind>(['condition-cleared', 'condition-pressure'])
 
 // The class a beat contributes, or '' when the treatment is structural
 // rather than a one-shot animation.

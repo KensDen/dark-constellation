@@ -1,8 +1,8 @@
 // Condition badge cues (brief v0.5 section 6). A badge attaches to its
 // layer with a red pulse when the condition lands, ticks quietly while it
-// persists, and sweeps green as it dissolves on clear. The hidden span
-// stays hidden: the badge never shows how many turns are left unless the
-// player has bought top intel, which is the mechanic's whole point.
+// persists, and sweeps green as it dissolves on clear. Since v1.3 Round 0
+// a condition runs on a fixed clock and the chip says how many turns are
+// left, exactly (brief 6.5: the player plans around it).
 //
 // The time reads T+n, elapsed turns only (v1.2 brief 4.3). It used to
 // read the start turn as well ("t3 +1"); on a layer header a chip has
@@ -40,9 +40,9 @@ export interface ConditionBadgeProps {
   condition: ActiveCondition
   layer?: Layer
   phase?: BadgePhase
-  // Elapsed turns, always shown; the remaining span only at top intel.
+  // Elapsed turns and the turns left, both exact.
   elapsed: number
-  remainingEstimate?: number
+  remaining?: number
 }
 
 export default function ConditionBadge({
@@ -50,7 +50,7 @@ export default function ConditionBadge({
   layer,
   phase = 'attached',
   elapsed,
-  remainingEstimate,
+  remaining,
 }: ConditionBadgeProps) {
   const reduced = useReducedMotion()
   const cue = useCueClass(
@@ -76,7 +76,7 @@ export default function ConditionBadge({
       </span>
       <span className="font-mono text-[10px] text-ink-dim">
         T+{elapsed}
-        {remainingEstimate !== undefined ? `, ~${remainingEstimate} left` : ''}
+        {remaining !== undefined ? `, ${remaining} left` : ''}
       </span>
     </span>
   )

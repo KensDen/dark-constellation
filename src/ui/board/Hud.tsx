@@ -13,6 +13,7 @@ import { DIFFICULTIES } from '../../engine/reducer'
 import type { GameState } from '../../engine/types'
 import { METER_CAP, coverage, maiScore } from '../../engine/scoring'
 import { hudLabels, hudStatusParts } from '../brief'
+import { coverageFigure } from '../labels'
 import Readout from '../cues/Meter'
 import { COIN, EYE } from '../sprites/icons'
 import PixelSprite from '../sprites/PixelSprite'
@@ -127,7 +128,7 @@ export default function Hud({ shown, displayTurn, credits, onSystem, systemOpen,
         <MaiBar value={maiScore(shown)} winAt={scenario.winThreshold} />
       </div>
       <div className="px-2 pb-2 mt-1 grid grid-cols-4 gap-x-2">
-        <Readout label={hud.coverage} value={coverage(shown.assets)} max={METER_CAP} stacked valueClassName="text-xs leading-none" />
+        <Readout label={hud.coverage} value={coverageFigure(coverage(shown.assets))} max={METER_CAP} stacked valueClassName="text-xs leading-none" />
         <Readout label={hud.link} value={shown.meters.linkAvailability} max={METER_CAP} stacked valueClassName="text-xs leading-none" />
         <Readout label={hud.data} value={shown.meters.dataIntegrity} max={METER_CAP} stacked valueClassName="text-xs leading-none" />
         <Readout label={hud.sensor} value={shown.meters.sensorIntegrity} max={METER_CAP} stacked valueClassName="text-xs leading-none" />

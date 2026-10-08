@@ -48,7 +48,9 @@ const ALL_CUES: [string, Record<string, Cue>][] = [
 ]
 
 const events = DEFAULT_SCENARIO.events
-const conditionEvents = events.filter((e) => e.duration)
+// Every event that leaves a condition: ThreatEvent.condition since v1.3
+// Round 0, which replaced the rolled duration with a fixed clock.
+const conditionEvents = events.filter((e) => e.condition)
 
 // The brief's own ceiling: "Effects are 400 ms or shorter."
 const EFFECT_CEILING_MS = 400
@@ -62,20 +64,16 @@ function* playTurns(seed: number, script: Record<number, TurnActions>) {
   }
 }
 
-const surgeLine = (state: GameState): TurnActions => {
-  const base = WIN_SCRIPT[state.turn] ?? NO_OP
-  return state.surgeTokens > 0 && state.conditions.length > 0
-    ? { ...base, spendSurgeOn: state.conditions[0].instanceId }
-    : base
-}
-
-function* playSurge(seed: number) {
-  let state = newGame(DEFAULT_SCENARIO, seed)
-  while (state.status === 'playing') {
-    const next = resolveTurn(state, surgeLine(state), turnRng(state.seed, state.turn))
-    yield { before: state, after: next } as { before: GameState; after: GameState }
-    state = next
-  }
+// Both ends of the scripts on one seed, the prepared line and then the
+// passive one. This was a surge line (the prepared script spending surge
+// authority whenever it could), which won some campaigns and lost others,
+// so both outcome rows had a real beat to prove them. SURGE left in v1.3
+// Round 0 (D2 a), and the six-turn prepared script wins every seed it is
+// played on (40 of 40 measured), so the passive line joins it to keep a
+// lost campaign, and the whole condition family, in the sweep.
+function* playBoth(seed: number) {
+  yield* playTurns(seed, WIN_SCRIPT)
+  yield* playTurns(seed, LOSS_SCRIPT)
 }
 
 describe('sound cue coverage (Round 4d)', () => {
@@ -179,7 +177,7 @@ describe('sound cue coverage (Round 4d)', () => {
     // passed while pointing at the persistence tick.
     const soundsByKind = new Map<string, Set<string>>()
     for (const seed of [1, 2, 3, 4, 5, 6]) {
-      for (const { before, after } of playSurge(seed)) {
+      for (const { before, after } of playBoth(seed)) {
         for (const beat of deriveBeats(before, after)) {
           const sound = soundFor(beat.cueKey, beat.kind, beat.title.startsWith('MISSION FAILED'))
           if (!sound) continue
@@ -274,10 +272,10 @@ describe('sound cue coverage (Round 4d)', () => {
 
   it('lets the beat kind own the sound where the subject would say the wrong thing', () => {
     // A clear that played the subject's alarm would announce the problem
-    // at the moment it went away, and a surge burn would announce the
-    // condition it just destroyed.
+    // at the moment it went away. (A surge burn would have announced the
+    // condition it just destroyed, until SURGE and its surge-spent beat
+    // left in v1.3 Round 0.)
     expect(soundFor('condition:pnt-jamming', 'condition-cleared')).toBe('resolve-chime')
-    expect(soundFor('condition:pnt-jamming', 'surge-spent')).toBe('surge-burn')
     expect(soundFor('condition:pnt-jamming', 'condition-pressure')).toBe('soft-tick')
     // But an attaching condition keeps its own alarm, which is the whole
     // point of there being six of them.

@@ -13,7 +13,10 @@ export interface ScoreEntry {
   totalTurns: number
   scenarioId: string
   // Absent on entries recorded before R5; those runs were all Standard.
-  difficulty?: Difficulty
+  // 'expert' survives only on entries recorded before v1.3 retired it.
+  difficulty?: Difficulty | 'expert'
+  // The defense bonus (v1.3 brief 6.8); absent before v1.3 Round 0.
+  bonus?: number
   recordedAt: string // ISO, presentation only
 }
 

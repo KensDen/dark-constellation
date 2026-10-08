@@ -14,14 +14,17 @@ import type { GameState } from '../engine/types'
 import type { DailyOp } from './codec'
 
 // What an official run was. The grade is not stored: it is derived from
-// the outcome, the loss reason and the MAI (src/engine/grade.ts), and a
-// stored copy would be a second structure free to disagree with it.
+// the outcome, the loss reason, the score and the defense bonus
+// (src/engine/grade.ts), and a stored copy would be a second structure
+// free to disagree with it. The bonus is stored since v1.3 Round 0 (brief
+// 6.8); a v1.2 result has none and grades as it always did.
 export interface DailyResult {
   n: number
   seed: number
   outcome: 'won' | 'lost'
   lossReason?: GameState['lossReason']
   mai: number
+  bonus?: number
   turns: number
   recordedAt: string // ISO, presentation only
 }

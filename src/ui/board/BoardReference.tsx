@@ -2,10 +2,12 @@
 // HUD's numbers mean, and the posture detail. Both are disclosures the
 // reading diet budgets by their summary text, so the two summaries are
 // the DISCLOSURE_WORD_BUDGETS keys and nothing else renders inside them.
-// The help list is the v1.1 copy word for word: its length is pinned.
+// The help list was the v1.1 copy word for word until v1.3 Round 0 changed
+// the rules under it (brief 6.1): every number is still read off the
+// engine and the scenario. Its length is pinned.
 
-import { incomeFor, SURGE_TOKEN_CAP } from '../../engine/reducer'
-import { COVERAGE_PER_DRONE, COVERAGE_PER_SAT } from '../../engine/scoring'
+import { ASSET_HEAL_PER_TURN, DEPLOY_TURNS } from '../../engine/reducer'
+import { COVERAGE_PER_KIND } from '../../engine/scoring'
 import type { GameState } from '../../engine/types'
 import { postureDetailLines, type PostureTone } from '../brief'
 
@@ -25,9 +27,10 @@ export default function BoardReference({ shown, conditionDurationRange }: { show
             collapses.
           </li>
           <li>
-            Coverage: how much of the mission area the fleet can see, capped at 100. Each sat adds{' '}
-            {COVERAGE_PER_SAT}, each drone {COVERAGE_PER_DRONE}. At {scenario.slaBonus.coverageMin} or more, the
-            coverage SLA pays +{scenario.slaBonus.credits} credits a turn.
+            Coverage: how much of the mission area the fleet can see, capped at 100. At full integrity each sat adds{' '}
+            {COVERAGE_PER_KIND.sat}, the RPO sat {COVERAGE_PER_KIND.rpoSat}, each drone {COVERAGE_PER_KIND.drone} and
+            each ground station {COVERAGE_PER_KIND.groundStation}; a damaged asset adds in proportion. At{' '}
+            {scenario.slaBonus.coverageMin} or more at the turn close, the coverage bonus pays +{scenario.slaBonus.credits}.
           </li>
           <li>Link: command and data links available. Jamming, link intrusion, and time spoofing drive it down.</li>
           <li>
@@ -43,23 +46,22 @@ export default function BoardReference({ shown, conditionDurationRange }: { show
             incident response retainer.
           </li>
           <li>
-            Credits: the budget. Income +{incomeFor(shown.difficulty, scenario.incomePerTurn)} a turn plus any SLA bonus. Repairs come out of it,
-            and below zero the program folds.
+            Credits: the budget. At each turn close repairs and {scenario.upkeepPerDefense} a defense come out first, and
+            below zero the operation ends; then funding +{scenario.incomePerTurn} and any coverage bonus. A solvent close
+            repairs damaged assets +{ASSET_HEAL_PER_TURN}.
           </li>
           <li>
-            Conditions: some attacks (jamming, spoofing, eavesdropping, ransomware) stay active for a hidden{' '}
+            Conditions: some attacks (jamming, spoofing, eavesdropping, ransomware) stay active for{' '}
             {conditionDurationRange}, pressing the meters every turn until they lift. They stack.
           </li>
           <li>
-            Surge authority: hold one or more (cap {SURGE_TOKEN_CAP}). Spend one in any decision phase to clear a
-            condition. Earn one by holding the win line under two or more conditions; the IR retainer grants one on
-            purchase.
+            Defense streak: moves in a row with nothing through. The best streak and the points your defenses saved add
+            a small bonus to the grade.
           </li>
           <li>
-            Commendations: end a turn at or above the win line with conditions active, or fully counter an attack, for
-            credit and, under heavier pressure, meter bonuses.
+            Deployments arrive after a lead time: {DEPLOY_TURNS.drone} turn for a drone, {DEPLOY_TURNS.sat} for a sat.
+            Watch the in-transit line.
           </li>
-          <li>Deployments arrive after a lead time; sats can slip a turn. Watch the in-transit line.</li>
         </ul>
       </details>
       <details className="mt-2">

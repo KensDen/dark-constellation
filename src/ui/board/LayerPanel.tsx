@@ -45,7 +45,7 @@ export interface ChipModel {
   condition: ActiveCondition
   phase: BadgePhase
   elapsed: number
-  remainingEstimate?: number
+  remaining?: number
 }
 
 // The pips' colour by state.
@@ -253,7 +253,7 @@ export default function LayerPanel({ layer, tiles, chips, defenses, selectedKey,
                   condition={chip.condition}
                   phase={chip.phase === 'applying' ? 'attached' : chip.phase}
                   elapsed={chip.elapsed}
-                  remainingEstimate={chip.remainingEstimate}
+                  remaining={chip.remaining}
                 />
               </span>
             ))}

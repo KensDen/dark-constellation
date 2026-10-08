@@ -54,23 +54,35 @@ vi.mock('../src/ui/Constellation', () => ({
 
 import Game from '../src/ui/Game'
 import { DEFAULT_SCENARIO } from '../src/content'
-import { newGame, resolveTurn } from '../src/engine/reducer'
+import { gnssDenied, newGame, resolveTurn } from '../src/engine/reducer'
 import { maiScore } from '../src/engine/scoring'
 import { RECAP_MAX, recapTechniques } from '../src/ui/cues/Scene'
 import { turnRng } from '../src/engine/rng'
 import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
 import { glossaryEntries } from '../src/ui/reference'
 import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
-import { ORDER_TIER } from '../src/ui/board/ProcureSheet'
 import { STRIKE_MS } from '../src/ui/board/strike'
 import { CHAIN_ARMED_LINE, DISCLOSURE_WORD_BUDGETS, JOB_FRAMING_HEADING, briefCopy, countWords, disclosureBlocks, jobFramingBlocks, postureDetailLines } from '../src/ui/brief'
 import type { AssetKind, GameState, TurnActions } from '../src/engine/types'
-import { SECTION_6_ROWS, VISUAL_CLASS, deriveBeats, type Beat } from '../src/director'
+import {
+  CONDITION_CUES,
+  SECTION_6_ROWS,
+  VISUAL_CLASS,
+  applyPatch,
+  cloneModeled,
+  deriveBeats,
+  soundFor,
+  visualFor,
+  type Beat,
+  type BeatKind,
+} from '../src/director'
 import DirectorView from '../src/director/DirectorView'
 import { SOUND_TOGGLE_LABELS, chromeCopy } from '../src/ui/brief'
 import { getAudioEngine, installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
+import { CROSSING_SOUND } from '../src/ui/cues/Meter'
 import { FakeAudioContext, installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
-import { LOSS_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
+import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT, a } from './scripts'
+import { POLICIES } from './policies'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -176,7 +188,9 @@ function gameAt(turn: number, seed = 20260712): GameState {
   return state
 }
 
-type Phase = 'brief' | 'procure' | 'harden' | 'playback' | 'aftermath'
+// The save format's phases (SavePhase since v1.3 Round 0: 'harden' left
+// with its sheet) and the presentation-only playback.
+type Phase = 'brief' | 'procure' | 'playback' | 'aftermath'
 
 // A fresh key per call, because Game seeds its own state from `initial`
 // once at mount and App does the same thing for the same reason. Without
@@ -224,11 +238,11 @@ function creditsSpan(): HTMLElement {
 // DEFENSES and INTEL, which were three sheets (PROCURE, HARDEN, INTEL)
 // until v1.3 Round 0 merged them, and an asset opens a confirm step that
 // carries its price: there is no tier step since D2 retired the tiers,
-// and every asset is ordered at ORDER_TIER. These drive the sheet the way
+// and an asset has one price. These drive the sheet the way
 // a thumb does, by the attributes it carries for exactly this, so the
 // tests above the board read the same as they did above the sections. A
-// test that renders at 'procure' or 'harden' lands with PROCURE already
-// open, which is what an autosave from the v1.1 phases does too.
+// test that renders at 'procure' lands with PROCURE already open, which is
+// what an autosave from that phase does too.
 //
 // Each selector names its tag (v1.2 R2 fix, after CI run #19). jsdom's
 // selector engine answers a bare attribute selector by walking every
@@ -438,10 +452,12 @@ describe('the declaration covers the defenses as well as the assets', () => {
     //
     // Since v1.3 Round 0 the defenses are ordered in PROCURE beside the
     // assets, through their own control (a checkbox, not the asset
-    // confirm), and a v1.1 'harden' autosave lands on that sheet, which
-    // is the arrival this renders.
-    render(gameAt(3), 'harden')
-    expect(sheetOpen('procure'), 'a hardening-phase arrival did not open PROCURE').not.toBeNull()
+    // confirm). The 'harden' phase left the save format with its sheet in
+    // the same round (a save that carries it is refused as stale), so the
+    // arrival rendered here is the 'procure' one, which opens the sheet
+    // the defenses now live on.
+    render(gameAt(3), 'procure')
+    expect(sheetOpen('procure'), 'a procurement-phase arrival did not open PROCURE').not.toBeNull()
     const before = creditsSpan().getAttribute('aria-label')
     const box = defenseBoxes().find((b) => !b.disabled && !b.checked)
     expect(box, 'PROCURE offered no defense to order').toBeDefined()
@@ -706,38 +722,53 @@ describe('every refusable control answers for its own refusal', () => {
     // buzzed and flashed the spend line while the control the player
     // touched sat still, so the refusal was not attributable to it. The
     // brief's shake-flash row is three channels; those two had two.
-    // The budget is credits PLUS this turn's income, so zeroing credits is
-    // not enough to force a refusal; the cart is filled first instead,
-    // which is also how a player actually reaches this.
+    // The cart is filled to force the refusal rather than the credits
+    // zeroed, which is how a player actually reaches this. (Through v1.2
+    // the budget was credits PLUS the turn's income, so zeroing was not
+    // even enough; funding arrives at the close since v1.3 Round 0.)
     //
     // Since the board (v1.2 R1) the fleet buy's refusal is no longer on
-    // screen when the intel control is examined. The intel upgrade had a
+    // screen when the intel control is examined. The intel control had a
     // sheet of its own on the v1.2 board; since v1.3 Round 0 it sits on
     // PROCURE's first step, while the refused fleet buy stays on the
     // confirm step, so the player steps back to reach it. The exclusivity
     // claim is kept in the form the board allows, that a refusal elsewhere
     // leaves this control still, and the attribution claim, that the
     // control touched is the one that shakes, is as it was.
-    // The cart is filled with the cheapest sat, as the numbered layout's
-    // first tile was, so what is left is less than the intel upgrade.
-    render(gameAt(3), 'procure')
+    // The cart is filled with sats, as the numbered layout's first tile
+    // was, so what is left is less than the intel brief.
+    //
+    // Turn 2 since v1.3 Round 0. The budget is the balance alone now
+    // (funding arrives at the close), and the turn has to leave less than
+    // the brief's 8 CR once the sats fill it: on this line turn 3 opens on
+    // 103 CR, three sats leave 13 and the brief is simply bought, while
+    // turn 2 opens on 91 and three sats leave 1. Turn 1 cannot serve,
+    // because its brief is free and its control is disabled. The leftover
+    // is asserted below, so a retuned price fails here by name.
+    render(gameAt(2), 'procure')
     for (let i = 0; i < 12; i += 1) {
       buy('sat')
       if (container.querySelector('.dc-shake')) break
     }
     expect(container.querySelector('.dc-shake'), 'the loop did not leave a refusal on screen').not.toBeNull()
+    const planned = /Planned spend: (\d+) of (\d+)/.exec(container.textContent ?? '')
+    expect(planned, 'the spend line is not on screen').not.toBeNull()
+    expect(
+      Number(planned![2]) - Number(planned![1]),
+      'the filled cart still covers the intel brief, so its refusal is never reached',
+    ).toBeLessThan(DEFAULT_SCENARIO.prices.intelBrief)
     const back = container.querySelector('button[aria-label="Back a step"]')
     expect(back, 'the refused confirm step offers no way back to the first step').not.toBeNull()
     click(back!)
     const intel = intelBox()
-    expect(intel, 'the intel upgrade is not on screen').not.toBeNull()
-    expect(intel!.disabled, 'the intel upgrade is maxed, so it cannot be refused').toBe(false)
+    expect(intel, 'the intel brief is not on screen').not.toBeNull()
+    expect(intel!.disabled, 'the intel brief is free tonight, so it cannot be refused').toBe(false)
     // EXCLUSIVITY: a refusal on the fleet buy must not have left this
     // control shaking. Without this the tile could key off
     // `denied !== null` and shake for every refusal anywhere, which is the
     // mis-attribution the fix exists to prevent.
     const before = intel!.closest('.dc-tile')
-    expect(before, 'the intel upgrade is not on a tile that can carry a cue').not.toBeNull()
+    expect(before, 'the intel brief is not on a tile that can carry a cue').not.toBeNull()
     expect(before!.className, 'the intel tile shook for a refusal on a different control').not.toMatch(/dc-shake/)
     act(() => {
       intel!.click()
@@ -750,8 +781,8 @@ describe('every refusable control answers for its own refusal', () => {
       vi.advanceTimersByTime(40)
     })
     const tile = intel!.closest('.dc-tile')
-    expect(tile, 'the intel upgrade is not on a tile that can carry a cue').not.toBeNull()
-    expect(tile!.className, 'a refused intel upgrade did not shake').toMatch(/dc-shake/)
+    expect(tile, 'the intel brief is not on a tile that can carry a cue').not.toBeNull()
+    expect(tile!.className, 'a refused intel brief did not shake').toMatch(/dc-shake/)
     expect(intel!.checked, 'the refusal still bought it').toBe(false)
     // And the shake is on the intel tile specifically, not inherited from
     // the fleet tile that filled the cart.
@@ -771,7 +802,15 @@ describe('every refusable control answers for its own refusal', () => {
     // that), and since v1.3 Round 0 it is one of PROCURE's DEFENSES; the
     // budget is filled with the other defenses in that section first, as
     // it was through the hardening phase.
-    render(gameAt(3), 'brief')
+    //
+    // Turn 1 since v1.3 Round 0, measured: the budget is the balance
+    // alone, and on this line turn 3 opens on 103 CR owning three
+    // defenses, so the other seven (71 CR) never fill it and the retainer
+    // is simply bought. Turn 1 owns none, and the other ten cost 103
+    // against 100, so the last of them refuses with 5 CR left, under the
+    // retainer's price. The refusal is asserted, so this cannot pass on a
+    // budget that never filled.
+    render(gameAt(1), 'brief')
     openSheet('PROCURE')
     // Fill the budget with the other countermeasures until one refuses.
     for (const box of defenseBoxes()) {
@@ -781,6 +820,7 @@ describe('every refusable control answers for its own refusal', () => {
       })
       if (container.querySelector('.dc-shake')) break
     }
+    expect(container.querySelector('.dc-shake'), 'the other defenses never filled the budget').not.toBeNull()
     const retainer = defenseBoxes().find(isRetainer)
     expect(retainer, 'the retainer is not on screen').toBeDefined()
     expect(retainer!.disabled, 'the retainer is already active, so it cannot be refused').toBe(false)
@@ -1329,8 +1369,9 @@ describe('the scenes carry real content, not just their entrance (Round 5)', () 
     const cards = [...scene!.querySelectorAll('li')]
     expect(cards.length, 'the defeat scene recapped nothing').toBe(expected.length)
     expect(cards.map((c) => c.textContent?.trim())).toEqual(independent)
-    // Bounded, because a twelve turn campaign can fire two dozen and the
-    // reading diet bounds what the player is asked to take in.
+    // Bounded, because a campaign can fire more techniques than this (two
+    // dozen over the twelve turns of v1.2) and the reading diet bounds
+    // what the player is asked to take in.
     expect(cards.length).toBeLessThanOrEqual(RECAP_MAX)
   })
 })
@@ -1447,6 +1488,25 @@ describe('the scene numbers count, and the scene reads its own beat (Round 5)', 
     return el ? Number(new RegExp(`${label} ([\\d.]+)`).exec(el.getAttribute('aria-label') ?? '')?.[1] ?? NaN) : null
   }
 
+  // THE AWARD IS SET BY HAND since v1.3 Round 0. The commendation beat is
+  // the defense streak now (brief 6.8), and the streak pays nothing on the
+  // board: its bonus is added to the grade, so no real beat carries
+  // credits. Scene.tsx still counts a bonus up for a commendation beat
+  // that does carry one, and the count is what these guards are about, so
+  // the beat is a REAL streak beat from real play with an award written
+  // onto its patch. The tripwire below fails the day a real streak beat
+  // pays, so the award is then read from play rather than invented.
+  const AWARD = 12
+  function streakWithAward(award = AWARD) {
+    const f = firstBeat((b) => b.kind === 'commendation')
+    expect(f, 'the sweep produced no defense streak beat').not.toBeNull()
+    expect(
+      f!.beat.patch.credits ?? 0,
+      'a real streak beat carries credits, so these guards should read its award rather than set one',
+    ).toBe(0)
+    return { ...f!, beat: { ...f!.beat, patch: { ...f!.beat.patch, credits: award } } }
+  }
+
   it('counts the commendation bonus up instead of painting it arrived', () => {
     // useCountUp only animates an instance that is ALREADY mounted, so a
     // readout born at its final number never counted: the bonus and the
@@ -1458,8 +1518,7 @@ describe('the scene numbers count, and the scene reads its own beat (Round 5)', 
     // from outside React; what a player gets from a count that runs is the
     // readout reporting a gain, and a number painted at its final value
     // reports nothing at all. That is the same cue the HUD meters use.
-    const f = firstBeat((b) => b.kind === 'commendation' && (b.patch.credits ?? 0) > 0)
-    expect(f, 'the sweep produced no commendation carrying a bonus').not.toBeNull()
+    const f = streakWithAward()
     installGestureUnlock()
     document.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     const engine = getAudioEngine()
@@ -1496,7 +1555,7 @@ describe('the scene numbers count, and the scene reads its own beat (Round 5)', 
     // This is a deliberate departure from the HUD meters, which do tick on
     // a snap: there the number really did change during the turn, while
     // here it arrived with the scene.
-    const f = firstBeat((b) => b.kind === 'commendation' && (b.patch.credits ?? 0) > 0)!
+    const f = streakWithAward()
     installGestureUnlock()
     document.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     const engine = getAudioEngine()
@@ -1595,7 +1654,10 @@ describe('the scene numbers count, and the scene reads its own beat (Round 5)', 
     // through one mounted view, which is the only arrangement in which the
     // carry-over can happen at all: the stale number lived in Scene, and
     // Scene is only reused when the view is not remounted between beats.
-    const f = firstBeat((b) => b.kind === 'commendation' && (b.patch.credits ?? 0) > 0)!
+    // (A turn derives one streak beat at most, so the second is a copy of
+    // the first under its own id, as it always was here, and both carry
+    // an award set by hand: see streakWithAward.)
+    const f = streakWithAward()
     const first = f.beat.patch.credits ?? 0
     const second = { ...f.beat, id: `${f.beat.id}-b`, patch: { ...f.beat.patch, credits: first + 9 } }
     setReducedMotion(false)
@@ -1639,28 +1701,41 @@ describe('the scene numbers count, and the scene reads its own beat (Round 5)', 
   it('does not carry a commendation-s credits into the victory scene-s MAI', () => {
     // The same root cause across a change of scene KIND, and the case the
     // first fix explicitly reasoned itself out of guarding: two outcome
-    // beats cannot be adjacent, but a commendation and an outcome can, and
-    // they are, on any campaign won on a turn that earned one.
+    // beats cannot be adjacent, but a commendation and an outcome can.
+    //
+    // BUILT BY HAND since v1.3 Round 0, because real play cannot produce
+    // it any more, for two reasons measured against the engine: the streak
+    // pays nothing (see streakWithAward), and no won turn carries a streak
+    // beat at all. The last turn's fixed BLACKOUT CHAIN is strength 3 with
+    // one defense worth 2, so a point always gets through and resets the
+    // streak; across 200 seeds of every sweep policy and WIN_SCRIPT, no
+    // winning turn earned one. So the deciding turn is a real won turn,
+    // and a real streak beat carrying an award is placed directly before
+    // its outcome, which is the arrangement the carry-over needs.
     const won = (() => {
       for (const seed of [20260712, 7, 1, 2, 3, 4041, 11, 13]) {
         let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
         while (state.status === 'playing') {
           const after = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
-          if (after.status === 'won') {
-            const bs = deriveBeats(state, after)
-            if (bs.some((b) => b.kind === 'commendation' && (b.patch.credits ?? 0) > 0)) {
-              return { before: state, after, beats: bs }
-            }
-          }
+          if (after.status === 'won') return { before: state, after, beats: deriveBeats(state, after) }
           state = after
         }
       }
       return null
     })()
-    expect(won, 'no campaign in the sweep is won on a turn that also earns a commendation').not.toBeNull()
-    const bonus = won!.beats.find((b) => b.kind === 'commendation')!.patch.credits ?? 0
+    expect(won, 'no campaign in the sweep is won').not.toBeNull()
+    const streak = streakWithAward().beat
+    const bonus = streak.patch.credits ?? 0
+    const at = won!.beats.findIndex((b) => b.kind === 'outcome')
+    expect(at, 'the won turn derived no outcome beat').toBeGreaterThanOrEqual(0)
+    const beats = [...won!.beats.slice(0, at), streak, ...won!.beats.slice(at)]
+    const visible = beats.filter((b) => b.visible)
+    expect(
+      visible[visible.indexOf(streak) + 1]?.kind,
+      'the streak beat is not directly before the outcome, so nothing can carry across',
+    ).toBe('outcome')
     setReducedMotion(false)
-    const scene = playUntilScene(won!.before, won!.after, won!.beats, 'victory')
+    const scene = playUntilScene(won!.before, won!.after, beats, 'victory')
     expect(scene, 'playback never reached the victory scene').not.toBeNull()
     const label = scene!.querySelector('[aria-label^="Final MAI"]')?.getAttribute('aria-label') ?? ''
     expect(label, 'the victory scene shows the commendation-s credits under the label Final MAI').not.toContain(
@@ -1901,6 +1976,41 @@ describe('the save code is on the screen, not only on the clipboard', () => {
   })
 })
 
+// A turn whose intel brief actually carries a technique tag ON ARRIVAL,
+// SEARCHED for rather than assumed. briefCopy returns tag: undefined
+// whenever the lead event has no technique ref, and turn 3 at the
+// fixture's seed was one of those, so the first version of these guards
+// asserted against a screen with no tag on it and failed for a reason that
+// had nothing to do with the code under test. Round 4e learned this with
+// a hardcoded turn number; this is the same lesson.
+//
+// A tag exists only while the intel brief is active, and only when the
+// turn has a fixed slot: briefCopy returns no tag at all without the
+// brief, and none with it either when every slot is a draw, because naming
+// a maybe as a fact is the thing that code refuses to do. Through v1.2 the
+// brief was an intel LEVEL the player invested in, so TOP_INTEL_SCRIPT
+// funded it; since v1.3 Round 0 it is a per-turn order (brief D2 a), free
+// on turn 1 and on the turns an allied data share covers. Turn 1's one
+// slot is a draw, so turn 1 carries no tag although its brief is free; the
+// fixed slots are turn 4's conjunction and turn 6's chain. The screen
+// arrives with nothing in the cart, so the search asks briefCopy what the
+// banner shows on arrival (briefed only when the brief is free tonight),
+// not what it would show if the brief were ordered. The search as v1.2
+// left it passed a truthy string as `briefed`, which asks the latter, and
+// returned a turn whose banner carried no tag. A free brief on a fixed
+// turn needs the data share, which is a draw, so the seeds searched run on
+// past the four named ones (seed 11 is the first that has it today).
+function turnWithATag(): GameState {
+  for (const seed of [20260712, 11, 41, 104, ...Array.from({ length: 60 }, (_, i) => i + 1)]) {
+    let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+    for (let i = 0; i < DEFAULT_SCENARIO.totalTurns && state.status === 'playing'; i += 1) {
+      if (briefCopy(state).tag) return state
+      state = resolveTurn(state, TOP_INTEL_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+    }
+  }
+  throw new Error('no turn of any line searched carries a technique tag, so these guards assert nothing')
+}
+
 describe('the technique tag opens the GLOSSARY entry', () => {
   // Until Round 6e the tag was an external anchor with target=_blank, which
   // sent the player off-site on their first hop. The brief names GLOSSARY
@@ -1909,31 +2019,6 @@ describe('the technique tag opens the GLOSSARY entry', () => {
   // reversed it.
   const tag = () => container.querySelector('[data-technique-tag]') as HTMLElement | null
   const overlay = () => container.querySelector('[data-glossary-overlay]')
-
-  // A turn whose intel brief actually carries a technique tag, SEARCHED
-  // for rather than assumed. briefCopy returns tag: undefined whenever the
-  // lead event has no technique ref at the current intel level, and turn 3
-  // at the fixture's seed is one of those, so the first version of these
-  // guards asserted against a screen with no tag on it and failed for a
-  // reason that had nothing to do with the code under test. Round 4e
-  // learned this with a hardcoded turn number; this is the same lesson.
-  function turnWithATag(): GameState {
-    // A tag exists only at INTEL LEVEL 3, and only when the turn has a
-    // fixed slot: briefCopy returns no tag at all below that, and returns
-    // none at level 3 either when every slot is a draw, because naming a
-    // maybe as a fact is the thing that code refuses to do. The prepared
-    // line never buys the top tier, so the first version of this search
-    // swept a whole campaign and found nothing, which is the guard working
-    // rather than failing. TOP_INTEL_SCRIPT is the line that funds it.
-    for (const seed of [20260712, 11, 41, 104]) {
-      let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
-      for (let i = 0; i < DEFAULT_SCENARIO.totalTurns && state.status === 'playing'; i += 1) {
-        if (briefCopy(state, 'Standard').tag) return state
-        state = resolveTurn(state, TOP_INTEL_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
-      }
-    }
-    throw new Error('no turn of any line searched carries a technique tag, so these guards assert nothing')
-  }
 
   it('opens the glossary in place, without leaving the game', async () => {
     render(turnWithATag(), 'brief')
@@ -2038,17 +2123,6 @@ describe('the glossary overlay is a dialog a keyboard can use', () => {
   // nothing enforces.
   const tag = () => container.querySelector('[data-technique-tag]') as HTMLElement | null
   const overlay = () => container.querySelector('[data-glossary-overlay]') as HTMLElement | null
-
-  function turnWithATag(): GameState {
-    for (const seed of [20260712, 11, 41, 104]) {
-      let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
-      for (let i = 0; i < DEFAULT_SCENARIO.totalTurns && state.status === 'playing'; i += 1) {
-        if (briefCopy(state, 'Standard').tag) return state
-        state = resolveTurn(state, TOP_INTEL_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
-      }
-    }
-    throw new Error('no turn of any line searched carries a technique tag')
-  }
 
   it('closes on Escape pressed where the player actually is', async () => {
     render(turnWithATag(), 'brief')
@@ -2219,8 +2293,9 @@ describe('a loaded campaign is not a campaign that was played here', () => {
     // no campaign a player starts ever posts a score, and nothing would
     // have failed. Found as a split vote.
     //
-    // So this presses Start campaign and plays twelve turns through the
-    // controls, which is the path every real campaign takes.
+    // So this presses Start campaign and plays every turn (six since v1.3
+    // Round 0) through the controls, which is the path every real
+    // campaign takes.
     expect(scores(), 'the board is not empty at the start').toHaveLength(0)
     mounts += 1
     act(() => {
@@ -2310,8 +2385,41 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
 
   // Drive one turn from the intel brief to the aftermath, recording what
   // was painted and what was played, beat by beat.
-  type DriveOpts = { seed?: number; buy?: 'first' | 'drone'; overbuy?: boolean }
-  function driveTurn(opts: DriveOpts = {}): {
+  //
+  // A drive either places a SCRIPT's orders for the turn through the
+  // controls (each asset through the PROCURE confirm, each defense through
+  // its DEFENSES checkbox, the intel brief through its INTEL row), so the
+  // engine can replay exactly what was ordered and a seed chosen by engine
+  // search lands where it was chosen; or, with no script, it buys the
+  // first thing on offer and over-buys, as a new player does.
+  type DriveOpts = { seed?: number; script?: Record<number, TurnActions>; overbuy?: boolean }
+  function placeOrders(orders: TurnActions) {
+    for (const b of orders.buyAssets) {
+      buy(b.kind)
+      expect(container.querySelector('.dc-shake'), `the drive could not order a ${b.kind}, so the engine search does not describe this drive`).toBeNull()
+    }
+    if (orders.buyCounters.length === 0 && !orders.intelBrief) return
+    openSheet('PROCURE')
+    for (const id of orders.buyCounters) {
+      const name = DEFAULT_SCENARIO.countermeasures.find((c) => c.id === id)!.name
+      const box = defenseBoxes().find((b) => (b.closest('label')?.querySelector('span.text-sm')?.textContent ?? '').startsWith(name))
+      expect(box, `PROCURE offers no "${name}" to order`).toBeDefined()
+      act(() => {
+        box!.click()
+      })
+      expect(box!.checked, `the drive could not order "${name}", so the engine search does not describe this drive`).toBe(true)
+    }
+    if (orders.intelBrief) {
+      const ib = intelBox()
+      if (ib && !ib.disabled) {
+        act(() => {
+          ib.click()
+        })
+        expect(ib.checked, 'the drive could not order the intel brief').toBe(true)
+      }
+    }
+  }
+  function driveTurn(turn: number, opts: DriveOpts = {}): {
     pairs: Set<string>
     sounds: Set<string>
     visuals: Set<string>
@@ -2340,22 +2448,22 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     const playback = new Set<string>()
     const onCard = new Set<string>()
 
-    // Buy the cheapest thing on offer, because a new player buys
-    // something, and the procurement cues are five of the seventeen rows.
-    // 'drone' buys exactly one drone, at the ORDER_TIER the sheet sends,
-    // which the engine can replay exactly, so a seed chosen by engine
-    // search lands where it was chosen.
-    if (opts.buy === 'drone') buy('drone')
-    else buy('sat')
+    // A scripted drive places the script's orders and nothing else. An
+    // unscripted one buys the first thing on offer, because a new player
+    // buys something, and the procurement cues are five of the seventeen
+    // rows.
+    const orders = opts.script?.[turn]
+    if (opts.script) {
+      if (orders) placeOrders(orders)
+    } else buy('sat')
     // Then try to buy more than the turn can take. A new player taps past
     // their balance, and that refusal is a section 6 row of its own:
     // driving it is the difference between the row being MET and the row
     // being excused because the fixture was too careful to trip it.
-    if (opts.overbuy !== false) for (let i = 0; i < 12; i += 1) buy(DEAREST)
+    if (opts.overbuy ?? !opts.script) for (let i = 0; i < 12; i += 1) buy(DEAREST)
     // The drive spent surge authority here from Round 7 until v1.3 Round
-    // 0, through the SURGE sheet on the board. No UI control spends surge
-    // since v1.3 Round 0 (D2), so the drive no longer can, and "Surge
-    // token spent" is excused below.
+    // 0, through the SURGE sheet on the board. SURGE left the game in that
+    // round (D2), and its section 6 row with it.
     const execute = executeControl()
     expect(execute, 'the commit control is not on screen').not.toBeNull()
     click(execute!)
@@ -2419,7 +2527,7 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     const perTurn: ReturnType<typeof driveTurn>[] = []
     render(newGame(DEFAULT_SCENARIO, opts.seed ?? 20260712, 'standard'), 'brief')
     for (let t = 0; t < turns; t += 1) {
-      perTurn.push(driveTurn(opts))
+      perTurn.push(driveTurn(t + 1, opts))
       const onward = byText(/^NEXT TURN/)
       if (!onward) break
       click(onward)
@@ -2447,78 +2555,149 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     ).toBeGreaterThan(0)
   })
 
-  it('meets the rows the opening is not excused from, by the end of the third turn', () => {
-    // TWO PLAYERS, not one. Until v1.3 Round 0 one drive waited and one
-    // spent surge, because with a single condition in the opening letting
-    // it persist and surging it away were ALTERNATIVES: surging on turn 3
-    // removed the condition before its pressure beat played. No UI control
-    // spends surge any more, and the two drives still cover different
-    // rows: the waiting player orders exactly one drone a turn, so the
-    // replay lands where the engine search below said it would, and so
-    // never taps past their balance; the other player, on the fixture's
-    // seed, buys and then over-buys, which is what trips the cannot-afford
-    // row. Every row the engine can produce in three turns is required of
-    // at least one of them. The alternative, excusing whichever row a
-    // single drive misses, is the "unreached, not unreachable" error 7b's
-    // re-review found twice.
-    //
-    // And the waiting player's seed is DERIVED, not chosen. "Condition
-    // cleared" is a natural expiry, not something surge produced (the
-    // surge beat removed the condition itself and played token-burn), so
-    // it needs a seed on which a condition runs out inside three turns. 82
-    // of the first 400 standard seeds do that for a player who buys one
-    // Tier B drone a turn, which is the ORDER_TIER the sheet sends since
-    // the tiers left the screen; the engine finds the first, and the drive
-    // replays the same purchase so it lands where the search said it would.
-    const waitSeed = (() => {
-      for (let seed = 1; seed <= 400; seed += 1) {
+  // The first seed on which a scripted line's opening shows every beat
+  // kind in `want`, found by the engine so the drive that replays the same
+  // orders through the controls lands where the search said it would.
+  function firstSeedShowing(script: Record<number, TurnActions>, want: BeatKind[], who: string): number {
+    for (let seed = 1; seed <= 400; seed += 1) {
+      let st = newGame(DEFAULT_SCENARIO, seed, 'standard')
+      const kinds = new Set<string>()
+      for (let t = 0; t < 3 && st.status === 'playing'; t += 1) {
+        const next = resolveTurn(st, script[st.turn] ?? NO_OP, turnRng(st.seed, st.turn))
+        for (const b of deriveBeats(st, next)) if (b.visible) kinds.add(b.kind)
+        st = next
+      }
+      if (want.every((k) => kinds.has(k))) return seed
+    }
+    throw new Error(`no seed in 400 lets ${who} see ${want.join(', ')} inside three turns`)
+  }
+
+  // THE EXCUSES, COMPUTED FROM v1.3 PLAY (Round 0) rather than written
+  // down. Until then this file named four rows the engine "cannot produce
+  // in three turns" and trusted tests/opening.spec.ts to prove it; the
+  // 6-turn plan made two of the four false at once (GNSS denial from turn
+  // 2's jamming arms the chain on turn 3, and spending everything on turn
+  // 1 ends a campaign in insolvency), and the hand-written list kept
+  // excusing them. So a row is excused here only when no line of play the
+  // suite knows reaches it inside three turns: every script in
+  // tests/scripts.ts and every policy of the sweep gate, over 120 seeds.
+  // A row the beats carry is reached when a visible beat presents one of
+  // its (visual, sound) pairs, which is the join this file and the breadth
+  // file both use; the MAI row is reached when the presented MAI, beat by
+  // beat, goes under the win line; every other row fires from a control
+  // or a meter on any turn, so it is never excused. The excuses are then
+  // checked against the drives below, so a sweep too narrow to reach a
+  // row the drives meet fails rather than excusing it.
+  function openingExcuses(): Set<string> {
+    const lines: ((s: GameState) => TurnActions)[] = [
+      ...[WIN_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, LAZY_SCRIPT, TOP_INTEL_SCRIPT].map(
+        (script) => (s: GameState) => script[s.turn] ?? NO_OP,
+      ),
+      ...POLICIES.map((p) => p.policy),
+    ]
+    const presented = new Set<string>()
+    let floor = Infinity
+    for (const line of lines) {
+      for (let seed = 1; seed <= 120; seed += 1) {
         let st = newGame(DEFAULT_SCENARIO, seed, 'standard')
-        const kinds = new Set<string>()
         for (let t = 0; t < 3 && st.status === 'playing'; t += 1) {
-          const next = resolveTurn(st, { ...NO_OP, buyAssets: [{ kind: 'drone', tier: ORDER_TIER }] }, turnRng(st.seed, st.turn))
-          for (const b of deriveBeats(st, next)) if (b.visible) kinds.add(b.kind)
+          const next = resolveTurn(st, line(st), turnRng(st.seed, st.turn))
+          let shown = cloneModeled(st)
+          for (const b of deriveBeats(st, next)) {
+            shown = applyPatch(shown, b.patch)
+            floor = Math.min(floor, maiScore(shown))
+            if (!b.visible) continue
+            presented.add(`${visualFor(b.cueKey, b.kind)}|${soundFor(b.cueKey, b.kind, b.lost ?? false)}`)
+          }
           st = next
         }
-        if (kinds.has('condition-cleared') && kinds.has('condition-pressure')) return seed
       }
-      throw new Error('no seed in 400 lets a waiting player see a condition both persist and clear')
-    })()
-    const waits = driveOpening(3, { seed: waitSeed, buy: 'drone', overbuy: false })
+    }
+    expect(presented.size, 'the sweep presented nothing, so every beat row would be excused').toBeGreaterThan(5)
+    const pairsOf = (row: (typeof SECTION_6_ROWS)[number]) =>
+      (row.soundPerSubject === 'condition'
+        ? Object.values(CONDITION_CUES).map((c) => c.sound)
+        : [row.sound, ...(row.soundPartners ?? [])]
+      ).map((snd) => `${row.visual}|${snd}`)
+    const reached = (row: (typeof SECTION_6_ROWS)[number]) => {
+      if (row.kinds?.length) return pairsOf(row).some((p) => presented.has(p))
+      if (row.sound === CROSSING_SOUND.below) return floor < DEFAULT_SCENARIO.winThreshold
+      return true
+    }
+    return new Set(SECTION_6_ROWS.filter((r) => !r.deferred && !reached(r)).map((r) => r.beat))
+  }
+
+  it('meets the rows the opening is not excused from, by the end of the third turn', () => {
+    // THREE PLAYERS since v1.3 Round 0, each covering rows the others
+    // cannot. Until Round 0 one drive waited and one spent surge, because
+    // with a single condition in the opening letting it persist and
+    // surging it away were ALTERNATIVES; once SURGE left the board one
+    // waited and one over-bought. The v1.3 opening splits three ways:
+    //   - THE WAITING PLAYER orders exactly one drone a turn and no
+    //     defense, so the night's moves land: a condition attaches,
+    //     presses and clears, and GNSS denial arms the chain. Each of
+    //     those needs a move to get through.
+    //   - THE PREPARED PLAYER replays WIN_SCRIPT's first three turns (a
+    //     drone and the primary defense of each move tonight), so the
+    //     nights are HELD: the quiet beat and the defense streak exist only
+    //     when nothing gets through, which v1.2 gave away on a turn that
+    //     scripted no move and v1.3 makes the player earn (brief 6.2, M2).
+    //   - THE OVER-BUYER, on the fixture's seed, buys and then taps past
+    //     the balance, which is what trips the cannot-afford row. Spending
+    //     all 100 CR on turn 1 leaves nothing for the repair bill when a
+    //     point gets through, and the close below zero ends the campaign
+    //     in insolvency (brief 6.1), so this drive is one turn long and it
+    //     meets "Campaign lost", which v1.3 play reaches inside the opening.
+    // Every row v1.3 play can produce in three turns is required of at
+    // least one of them. The alternative, excusing whichever row a single
+    // drive misses, is the "unreached, not unreachable" error 7b's
+    // re-review found twice.
+    //
+    // And the scripted players' seeds are DERIVED, not chosen. "Condition
+    // cleared" is a natural expiry, so the waiting player needs a seed on
+    // which a condition runs out inside three turns, and the chain needs
+    // GNSS denial live at a turn start; the prepared player needs a seed
+    // on which an opportunity lands inside three turns (a draw at 0.2 on
+    // turns 2 and 3). The engine finds the first of each, and the drives
+    // replay the same orders, so they land where the search said they
+    // would.
+    const waitScript: Record<number, TurnActions> = Object.fromEntries(
+      [1, 2, 3].map((t) => [t, a({ buyAssets: [{ kind: 'drone' }] })]),
+    )
+    const waitSeed = firstSeedShowing(waitScript, ['condition-pressure', 'condition-cleared', 'chain-armed'], 'a waiting player')
+    const preparedSeed = firstSeedShowing(WIN_SCRIPT, ['quiet', 'commendation', 'opportunity'], 'a prepared player')
+    const waits = driveOpening(3, { seed: waitSeed, script: waitScript })
+    const prepared = driveOpening(3, { seed: preparedSeed, script: WIN_SCRIPT })
     const overbuys = driveOpening(3)
-    const turns = [...waits, ...overbuys]
+    const turns = [...waits, ...prepared, ...overbuys]
     const heard = new Set<string>()
     for (const t of turns) for (const s of t.sounds) heard.add(s)
 
-    // Derived from SECTION_6_ROWS, minus the rows the engine cannot
-    // produce in three turns (proved against the engine in
-    // tests/opening.spec.ts) and the rows still deferred. A row added
-    // later is required by default.
-    const excused = new Set([
-      'BLACKOUT CHAIN fires',
-      'MAI crosses below the win line',
-      'Campaign won',
-      'Campaign lost',
-      // Seed-dependent inside three turns rather than structurally out of
-      // reach. This file drives ONE campaign on one seed, which is what
-      // makes it the guard of record for what a player met; breadth across
-      // seeds is tests/opening.spec.ts, which requires every one of these
-      // and fails if the opening stops producing them anywhere.
-      // Empty of reachable rows since Round 7. Round 7b's re-review trimmed
-      // two false excuses; the last two ("Condition cleared", "Surge token
-      // spent") were unreached rather than unreachable, and from Round 7
-      // the drive pressed the surge control that was on screen all along.
-      // Apart from the row below, what is left is only what the engine
-      // cannot produce in three turns, which tests/opening.spec.ts proves
-      // against the engine.
-      //
-      // Unreachable from the player's seat since v1.3 Round 0: no UI
-      // control spends surge (D2 retired SURGE from the board), so no
-      // player can ask for the beat this row plays. The engine still
-      // carries surge until Round 0's engine step; the excuse is checked
-      // below like the others, so a surge control that comes back and
-      // sounds the row fails here until this line goes.
-      'Surge token spent',
-    ])
+    // Derived from SECTION_6_ROWS, minus the rows v1.3 play cannot
+    // produce in three turns (computed above, against the engine) and the
+    // rows still deferred. A row added later is required by default: one
+    // the opening cannot reach changes the computed set and fails the pin
+    // below until it is excused on purpose. Today the computation excuses
+    // the MAI row (the presented MAI's floor over the sweep stays above
+    // the win line) and "Campaign won" (the plan is six turns). "Surge
+    // token spent", excused here until v1.3 Round 0, left the table with
+    // SURGE.
+    const excused = openingExcuses()
+    // THE COMPUTED EXCUSES ARE PINNED. openingExcuses() decides a row is
+    // reached from visualFor/soundFor, the same cue lookups that paint and
+    // sound the beats this test drives, so a cue regression (say, a clear
+    // that plays its condition's attach treatment again) would stop the
+    // sweep presenting that row's pair, move the row into the excused set
+    // and take it out of `required`, all with this test green. Pinning the
+    // measured output turns that into a failure here. If the engine, the
+    // plan or the cue table really changes what three turns can reach,
+    // re-measure (print [...openingExcuses()].sort()), confirm each row
+    // left or joined for a reason v1.3 play explains, and re-pin it
+    // deliberately; never re-pin to make a red run green.
+    expect(
+      [...excused].sort(),
+      'the excused rows changed: re-measure and re-pin deliberately',
+    ).toEqual(['Campaign won', 'MAI crosses below the win line'])
     // THE EXCUSE LIST IS CHECKED IN BOTH DIRECTIONS, the way the sibling
     // breadth file checks its own. A hand-written set that subtracts from
     // a required set is granted for free otherwise: adding this round's
@@ -2562,7 +2741,17 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
   it('pairs what was painted with what was played, so a silent animation cannot pass', () => {
     // The pair is the point. A visual with no voice and a voice with no
     // visual both satisfy the two assertions above taken separately.
-    const turns = driveOpening(2)
+    //
+    // Two players since v1.3 Round 0. The quiet beat needs a night with
+    // nothing through, which v1.3 makes the player earn (brief 6.2, M2):
+    // the prepared line orders the primary defense of both of turn 1's
+    // moves and holds that night on every seed, where the over-buyer's
+    // turn 1 lets a point through (and on the fixture's seed ends the
+    // campaign). The badge control at the end needs a condition to attach,
+    // which only a night that lands can show, so the over-buyer's first
+    // turn is driven as well; that the badge really ran is asserted, so
+    // the control cannot pass on a drive that never attached one.
+    const turns = [...driveOpening(2, { script: WIN_SCRIPT }), ...driveOpening(1)]
     const pairs = new Set<string>()
     for (const t of turns) for (const p of t.pairs) pairs.add(p)
     expect(pairs.size, 'no beat was ever observed painting and sounding together').toBeGreaterThan(1)
@@ -2582,6 +2771,9 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     // The control: a treatment the registry keeps OFF the card must not
     // appear there, or the assertion above is satisfied by a card that
     // carries everything.
+    const painted = new Set<string>()
+    for (const t of turns) for (const v of t.visuals) painted.add(v)
+    expect([...painted], 'no badge treatment ran at all, so its absence from the card proves nothing').toContain('dc-badge-attach')
     expect([...card], 'a badge treatment ran on the whole card').not.toContain('dc-badge-attach')
   })
 
@@ -2616,25 +2808,42 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
       }
       if (st.status === 'playing') states.push([label, st])
     }
+    // Six turns since v1.3 Round 0, so the late states are turns 4 to 6
+    // (they were turns 7 to 12 of the twelve-turn game).
     push('turn 1', {}, 1)
-    push('prepared, turn 7', WIN_SCRIPT, 7)
-    push('prepared, turn 12', WIN_SCRIPT, 12)
-    // Where Posture detail worsts, measured over 64 states: seed 1's prepared
-    // fleet at turn 12. Without it the pin records whatever this smaller set
-    // happens to reach, which is a lower number than the game produces.
-    push('prepared, turn 12, seed 1', WIN_SCRIPT, 12, 1)
-    push('top intel, turn 9', TOP_INTEL_SCRIPT, 9)
-    push('passive, turn 8', LOSS_SCRIPT, 8)
+    push('prepared, turn 4', WIN_SCRIPT, 4)
+    push('prepared, turn 6', WIN_SCRIPT, 6)
+    // Where Posture detail worsts, measured over 64 seeds of every script
+    // and sweep policy: seed 20's prepared fleet at turn 6, 74 words, the
+    // full fleet and nine defenses with their upkeep. Without it the set
+    // records whatever these few states happen to reach, which is a lower
+    // number than the game produces.
+    push('prepared, turn 6, seed 20', WIN_SCRIPT, 6, 20)
+    // The allied data share's free-brief line, which renders only while the
+    // brief is free for turns still to come: seed 1's share covers turns 5
+    // and 6, so turn 5 carries it.
+    push('prepared, turn 5, seed 1', WIN_SCRIPT, 5, 1)
+    // The in-transit line, which no prepared state carries (its one drone
+    // lands at the close it was ordered): a sat ordered on turn 1 is still
+    // in transit on turn 2.
+    push('a sat in transit, turn 2', { 1: { ...NO_OP, buyAssets: [{ kind: 'sat' }] } }, 2)
+    push('top intel, turn 5', TOP_INTEL_SCRIPT, 5)
+    push('passive, turn 5', LOSS_SCRIPT, 5)
     // The chain disclosure renders only while the chain is armed, so find a
-    // state that arms it rather than hoping one of the above does.
-    for (let seed = 1; seed <= 40 && !states.some(([, st]) => st.flags.lidarFallback); seed += 1) {
+    // state that arms it rather than hoping one of the above does. Armed
+    // means GNSS denial is live (state.flags.lidarFallback until v1.3
+    // Round 0), and a prepared line never arms it, because its anti-jam
+    // holds the jamming that leaves the denial; the passive line lets it
+    // land.
+    const armed = (st: GameState) => gnssDenied(st.conditions, st.scenario)
+    for (let seed = 1; seed <= 40 && !states.some(([, st]) => armed(st)); seed += 1) {
       let st = newGame(DEFAULT_SCENARIO, seed, 'standard')
-      while (st.status === 'playing' && !st.flags.lidarFallback) {
-        st = resolveTurn(st, WIN_SCRIPT[st.turn] ?? NO_OP, turnRng(st.seed, st.turn))
+      while (st.status === 'playing' && !armed(st)) {
+        st = resolveTurn(st, LOSS_SCRIPT[st.turn] ?? NO_OP, turnRng(st.seed, st.turn))
       }
-      if (st.status === 'playing' && st.flags.lidarFallback) states.push([`chain armed, seed ${seed}`, st])
+      if (st.status === 'playing' && armed(st)) states.push([`chain armed, seed ${seed}`, st])
     }
-    expect(states.some(([, st]) => st.flags.lidarFallback), 'no state armed the chain, so its disclosure was never measured').toBe(true)
+    expect(states.some(([, st]) => armed(st)), 'no state armed the chain, so its disclosure was never measured').toBe(true)
 
     const keyOf = (summary: string) => (summary.startsWith('BLACKOUT CHAIN ARMED') ? CHAIN_ARMED_LINE : summary)
     const worst = new Map<string, number>()
@@ -2668,8 +2877,16 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     // are swept over every line of play in tests/reading-diet.spec.ts, and
     // pinning them from seven named states is what produced a "worst" of 93
     // for a panel that reached 139 in legal play.
-    expect(worst.get('What these numbers mean')).toBe(263)
-    expect(worst.get(CHAIN_ARMED_LINE)).toBe(26)
+    // 257 since v1.3 Round 0 (263 before): the reference was rewritten to
+    // the v1.3 rules. The surge and commendation lines and the sats' slip
+    // left with their mechanics; the defense streak line, the upkeep and
+    // insolvency order of the close, coverage per kind and the deploy lead
+    // times came in.
+    expect(worst.get('What these numbers mean')).toBe(257)
+    // 23 since v1.3 Round 0 (26 before): the chain's line no longer says
+    // a fusion stack or an all-Tier-A drone fleet cancels the bonus, since
+    // the tiers are gone and every defense now takes a share (brief 6.7).
+    expect(worst.get(CHAIN_ARMED_LINE)).toBe(23)
     // The varying panels are JOINED instead: what renders must be exactly
     // what the swept function builds, so the sweep measures the screen.
     for (const [label, st] of states) {
@@ -2690,10 +2907,13 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
       // The COLOUR, by meaning, stated here as a second structure: the
       // attribute above is what the code says the tone is, and a mutation
       // that repainted the class while leaving the attribute alone slept.
+      // Since v1.3 Round 0 the amber line is the defenses' upkeep (the line
+      // that can end the operation, as the surge rule was) and the blue
+      // allied line is the free brief (it was the intel level boost).
       const meaning: [RegExp, string][] = [
         [/^Countermeasures:/, 'text-hero-blue'],
-        [/^Allied intel boost/, 'text-hero-blue'],
-        [/^Surge authority:/, 'text-alert-amber'],
+        [/^Allied intel:/, 'text-hero-blue'],
+        [/^Keeping \d+ defenses? costs/, 'text-alert-amber'],
         [/^(Fleet|In transit)/, 'text-ink-dim'],
       ]
       for (const el of panel.querySelectorAll('[data-posture-tone]')) {

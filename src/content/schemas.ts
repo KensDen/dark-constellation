@@ -37,7 +37,6 @@ export const countermeasureIdSchema = z.enum([
   'insiderProgram',
   'ssaManeuver',
   'encryptedBackhaul',
-  'intelInvestment',
   'irRetainer',
 ])
 
@@ -59,7 +58,7 @@ export const countermeasureSchema = z.object({
 
 export const threatEffectSchema = z.object({
   meters: z.array(z.enum(['linkAvailability', 'dataIntegrity', 'sensorIntegrity'])),
-  special: z.enum(['jamsGnss', 'chainExploit', 'implantTierB', 'debrisStrike']).optional(),
+  special: z.enum(['jamsGnss', 'chainExploit', 'debrisStrike']).optional(),
   assetDamage: z.boolean().optional(),
   repairCostPerSeverity: z.number().int().min(0),
 })
@@ -76,15 +75,13 @@ export const threatEventSchema = z
     techniqueRefs: z.array(techniqueRefSchema),
     chainsWith: z.array(z.string()).optional(),
     effect: threatEffectSchema,
-    // Landed events with a duration become active conditions (R3.25).
-    duration: z
-      .object({ min: z.number().int().min(1), max: z.number().int().min(1) })
-      .refine((d) => d.max >= d.min, { message: 'duration max must be at least min' })
-      .optional(),
+    // A landed event with a condition leaves it for a fixed number of
+    // turns, shown to the player as turns left (v1.3 brief 6.5).
+    condition: z.object({ name: z.string().min(1), turns: z.number().int().min(1) }).optional(),
     benefit: z
       .object({
         credits: z.number().int().positive().optional(),
-        intelBoostTurns: z.number().int().positive().optional(),
+        briefTurns: z.number().int().positive().optional(),
         expediteTurns: z.number().int().positive().optional(),
       })
       .optional(),
@@ -108,14 +105,13 @@ export const threatEventSchema = z
       if (!ev.benefit || Object.keys(ev.benefit).length === 0) {
         ctx.addIssue({ code: 'custom', message: `opportunity ${ev.id} carries no benefit` })
       }
-      if (ev.duration) {
-        ctx.addIssue({ code: 'custom', message: `opportunity ${ev.id} must not carry a duration` })
+      if (ev.condition) {
+        ctx.addIssue({ code: 'custom', message: `opportunity ${ev.id} must not carry a condition` })
       }
     }
   })
 
 const assetKindSchema = z.enum(['sat', 'rpoSat', 'drone', 'groundStation'])
-const tierSchema = z.enum(['A', 'B'])
 
 export const scenarioSchema = z
   .object({
@@ -138,14 +134,15 @@ export const scenarioSchema = z
       rpoSat: z.number().int().positive(),
       drone: z.number().int().positive(),
       groundStation: z.number().int().positive(),
-      tierAUpcharge: z.object({ sat: z.number().int().min(0), drone: z.number().int().min(0) }),
-      intelLevels: z.tuple([z.number().int().min(0), z.number().int().min(0), z.number().int().min(0)]),
+      intelBrief: z.number().int().min(0),
     }),
+    upkeepPerDefense: z.number().int().min(0),
     recovery: z.object({ base: z.number().int().min(0), withIrRetainer: z.number().int().min(0) }),
-    starterAssets: z.array(z.object({ kind: assetKindSchema, tier: tierSchema })).min(1),
+    starterAssets: z.array(z.object({ kind: assetKindSchema })).min(1),
     campaign: z.array(
       z.object({
         turn: z.number().int().min(1),
+        intro: z.string().min(1),
         slots: z.array(
           z
             .object({ fixed: z.string().optional(), drawFrom: z.array(z.string()).min(1).optional() })

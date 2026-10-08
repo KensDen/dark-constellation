@@ -1,95 +1,48 @@
 // Presentation adapter (game-feel brief section 3, Round 2): derives the
 // beat-by-beat grain the engine log does not carry. resolveTurn records
-// per-event severity math and prose notes, but only an end-of-turn meter
-// snapshot; condition apply and clear, deployment arrivals, asset damage
-// and commendations exist only as note text. This module walks the
-// engine's documented turn order over a shadow copy of the before-state,
-// emitting one Beat per step with an exact Patch, and closes with a
-// residual reconciliation against the real after-state. The engine and
-// the content modules are untouched; nothing here feeds resolveTurn.
+// each event, the turn's ledger and an end-of-turn snapshot; this module
+// walks the engine's documented turn order (src/engine/reducer.ts) over a
+// shadow copy of the before-state, emitting one Beat per step with an
+// exact Patch, and closes with a residual reconciliation against the real
+// after-state. The engine and the content modules are untouched; nothing
+// here feeds resolveTurn.
 //
-// Every number comes from the record, the scenario, or an exported engine
-// constant. Nothing is mirrored and no constant is parsed out of note
-// prose (brief v0.5, principle 7); the engine exports the values
-// presentation needs. Which asset an event hit comes from the engine's own
-// record since v1.2 R3 (ResolvedEvent.targetAssetId), and the integrity it
-// was left at from the exported damage rule, so no note is read for either
-// (brief v0.8 section 4.5). Note text is still read for one thing only the
-// engine's own rolls know: which in-transit item a rideshare expedited. Private
-// engine helpers are restated rather than imported: mitigationFor,
-// tierAShare, liveAssets and liveDrones, the short-name split, and the
-// GNSS-denial test behind lidarFallback (keyed here on the event's effect
-// where the engine keys on the event id; the two agree for this deck).
-// Two fallbacks restate engine formats only if an engine invariant is ever
-// broken (an arriving asset missing from after.assets; a condition applied
-// and gone in the same turn). tests/director.spec.ts proves the whole
-// ledger, restatements included, reproduces the engine's after-state with
-// an empty residual on every turn of hundreds of games, so none of it can
-// drift silently.
+// THE v1.3 TURN ORDER (Round 0, brief 5.5 and 6.1): the orders land at
+// EXECUTE, live conditions press, the adversary plays each slot, the rare
+// opportunity, then the close: repairs and upkeep, arrivals, funding and
+// the coverage bonus, recovery and healing, the conditions' clocks. The
+// engine records far more than v1.2's did (each hit's integrity either
+// side, the condition it left, the debris call, the whole ledger), so the
+// beats read the record and the engine's exported rules rather than
+// restating private helpers. Note text is still read for one thing only
+// the engine's own rolls know: which in-transit item a rideshare
+// expedited. tests/director.spec.ts proves the whole ledger reproduces the
+// engine's after-state with an empty residual on every turn of hundreds of
+// games, so none of it can drift silently. Round 3 retires the beats for
+// the hit card, the intel card and the end of turn.
 
 import {
-  ASSET_DAMAGE_PER_SEVERITY,
-  IR_RETAINER_BONUS_TOKENS,
+  CONDITION_PRESSURE_PER_SEVERITY,
+  DEPLOY_TURNS,
   METER_DAMAGE_PER_SEVERITY,
-  MITIGATION_COMMENDATION_CREDITS,
-  MITIGATION_PER_COUNTER,
-  RESILIENCE_CREDITS,
-  RESILIENCE_HEAL,
   RIDESHARE_RESELL_CREDITS,
-  SSA_MANEUVER_COST,
-  SURGE_EARN_MIN_CONDITIONS,
-  SURGE_TOKEN_CAP,
-  TIER_A_FLEET_SHARE,
-  conditionPressureFor,
-  incomeFor,
+  ASSET_HEAL_PER_TURN,
+  gnssDenied,
+  hasRetainer,
+  mitigationOf,
+  scaled,
 } from '../engine/reducer'
-import { METER_CAP, assetPrice, coverage, maiScore } from '../engine/scoring'
-import { LAYERS, type ActiveCondition, type Asset, type GameState, type Scenario, type ThreatEvent } from '../engine/types'
+import { coverage, METER_CAP } from '../engine/scoring'
+import { LAYERS, type ActiveCondition, type GameState, type PendingAsset, type Scenario, type ThreatEvent } from '../engine/types'
 import { applyPatch, cloneModeled, residualPatch } from './patch'
-import { kindLabels, techniqueLabel } from '../ui/labels'
+import { coverageFigure, kindLabels, techniqueLabel } from '../ui/labels'
 import { METER_KEYS, type Beat, type BeatKind, type MeterKey, type Patch } from './types'
-
-const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T
 
 function eventById(scenario: Scenario, id: string): ThreatEvent {
   const ev = scenario.events.find((e) => e.id === id)
   if (!ev) throw new Error(`deriveBeats: unknown event id ${id}`)
   return ev
 }
-
-const shortName = (ev: ThreatEvent) => ev.name.split(' (')[0]
-const liveAssets = (assets: Asset[]) => assets.filter((a) => a.integrity > 0)
-const liveDrones = (assets: Asset[]) => liveAssets(assets).filter((a) => a.kind === 'drone')
-
-function tierAShare(assets: Asset[]): number {
-  const sensored = liveAssets(assets).filter((a) => a.kind !== 'groundStation')
-  if (sensored.length === 0) return 0
-  return sensored.filter((a) => a.tier === 'A').length / sensored.length
-}
-
-// The engine's mitigation rule, restated: owned counters on the event's
-// list count MITIGATION_PER_COUNTER each; attestation only once enough of
-// the sensored fleet flies Tier A; SSA never softens a debris strike
-// passively (the paid burn is recorded separately in the event's notes).
-function mitigationFor(state: GameState, ev: ThreatEvent): number {
-  let m = 0
-  for (const cid of ev.counters) {
-    if (!state.counters.includes(cid)) continue
-    if (cid === 'tierAAttestation' && tierAShare(state.assets) < TIER_A_FLEET_SHARE) continue
-    if (cid === 'ssaManeuver' && ev.effect.special === 'debrisStrike') continue
-    m += MITIGATION_PER_COUNTER
-  }
-  return m
-}
-
-// A GNSS-denial condition holds the drones in LiDAR fallback. Keyed on the
-// event's effect; the engine keys on the event id, and the ledger test is
-// the tripwire should the deck ever make those differ.
-function jamActive(state: GameState): boolean {
-  return state.conditions.some((c) => eventById(state.scenario, c.eventId).effect.special === 'jamsGnss')
-}
-
-const lidarFallbackFor = (state: GameState) => jamActive(state) && liveDrones(state.assets).length > 0
 
 // Clamped meter deltas against the running value, so the patch carries the
 // exact number that moved.
@@ -107,15 +60,7 @@ const techniques = (ev: ThreatEvent) => ev.techniqueRefs.map((r) => ({ tag: tech
 // The rideshare note names the pipeline id it expedited; asset ids are
 // stable engine strings (start-<kind>-<n>, t<turn>-<kind>-<n>).
 const EXPEDITED = /\b((?:start|t\d+)-(?:sat|rpoSat|drone|groundStation)-\d+) manifested on the rideshare/
-// The engine only executes the avoidance burn when it can afford it, so
-// the note says whether it happened; the amount comes from the constant.
-const SSA_BURN_EXECUTED = 'conjunction avoidance burn executed'
 const RESELL_NOTE = 'resold for'
-
-const isConditionNote = (n: string) =>
-  n.startsWith('This is not a single strike') ||
-  n.includes('pressure renewed. The condition persists.') ||
-  n.startsWith('GNSS denied across the AO')
 
 export function deriveBeats(before: GameState, after: GameState): Beat[] {
   const record = after.history[after.history.length - 1]
@@ -124,6 +69,7 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
   }
   const scenario = before.scenario
   const turn = before.turn
+  const difficulty = before.difficulty
   const beats: Beat[] = []
   let shadow: GameState = cloneModeled(before)
 
@@ -151,206 +97,53 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
   const noteStarting = (prefix: string) => record.notes.filter((n) => n.startsWith(prefix))
   const noteIncluding = (needle: string) => record.notes.filter((n) => n.includes(needle))
 
-  // 1. Income, SLA, recovery, and the in-transit countdown.
+  // 1. EXECUTE: the orders land. Silent by decision (brief v0.5 section 6):
+  // each order already fired its cue in PROCURE, so replaying it here would
+  // duplicate a cue and spend the reading budget twice. The beat stays in
+  // the ledger because the patch is load-bearing; its spend is declared on
+  // the next visible beat.
   {
-    const income = incomeFor(before.difficulty, scenario.incomePerTurn)
-    const sla = coverage(shadow.assets) >= scenario.slaBonus.coverageMin ? scenario.slaBonus.credits : 0
-    const recovery = shadow.irRetainer ? scenario.recovery.withIrRetainer : scenario.recovery.base
-    const patch: Patch = { credits: income + sla, meters: {} }
-    for (const key of ['linkAvailability', 'dataIntegrity', 'sensorIntegrity'] as MeterKey[]) {
-      const d = heal(shadow, key, recovery)
-      if (d) patch.meters![key] = d
+    const countersAdd = after.counters.slice(before.counters.length)
+    const ordered: PendingAsset[] = []
+    for (const id of [...after.pipeline.map((p) => p.id), ...after.assets.map((a) => a.id)]) {
+      const m = /^t(\d+)-([A-Za-z]+)-(\d+)$/.exec(id)
+      if (!m || Number(m[1]) !== turn) continue
+      const kind = m[2] as PendingAsset['kind']
+      ordered.push({ id, kind, etaTurns: DEPLOY_TURNS[kind] })
     }
-    const pipelineEta: Record<string, number> = {}
-    for (const p of shadow.pipeline) if (p.etaTurns > 1) pipelineEta[p.id] = p.etaTurns - 1
-    if (Object.keys(pipelineEta).length) patch.pipelineEta = pipelineEta
-    const pendingEta: Patch['pendingCountersEta'] = {}
-    for (const p of shadow.pendingCounters) if (p.etaTurns > 1) pendingEta[p.id] = p.etaTurns - 1
-    if (Object.keys(pendingEta).length) patch.pendingCountersEta = pendingEta
-    // Round 7b. The title used to interpolate `recovery` unconditionally,
-    // so turn 1 read "income +20, recovery +2" while every meter sat at the
-    // cap and the patch carried `meters: {}`. That is a title asserting a
-    // change with no cue behind it, on the first card a new player ever
-    // sees: principle 16's product form inside the beat this round is
-    // about. The healed total is read off the patch that was actually
-    // built rather than off the constant that was offered.
-    // The AMOUNT HEALED, not the amount offered. The first version of this
-    // fix interpolated `recovery`, the scenario constant, so a turn that
-    // healed 4 against a 6-point retainer printed "recovery +6" while the
-    // readouts ticked 4. Fixing the zero case and leaving the partial case
-    // is the same defect at a smaller amplitude, and three lenses found it.
-    // `heal` clamps at the meter cap, so the patch holds what actually
-    // moved and the card reads it off the patch.
-    const healed = Object.values(patch.meters ?? {}).reduce((n, d) => n + d, 0)
-    const deltas = METER_KEYS.map((k) => patch.meters?.[k] ?? 0).filter((d) => d > 0)
-    // Three meters can heal by three different amounts, because `heal`
-    // clamps each one at the cap independently. One number cannot stand
-    // for all three, so the card says the per-meter figure only when they
-    // agree and reports the total otherwise. A single `recovery` constant
-    // interpolated here is what printed "+6" on a turn that moved 4.
-    const uniform = deltas.length > 0 && deltas.every((d) => d === deltas[0])
-    // NOT "meters at full", which was read against a HUD whose Posture
-    // grid shows Coverage and MAI in the same six cells as Link, Data and
-    // Sensor: nothing on screen told a new player that "meters" meant only
-    // the three integrity readouts, so the card contradicted the grid
-    // above it. Naming the three was the first fix and cost six words in a
-    // channel measured at 13 of 14. The second attempt, ", no damage to
-    // recover", was SHORTER AND FALSE: `healed === 0` means the three
-    // integrity meters are at the cap, which says nothing about asset
-    // integrity, and fleet damage persists for the rest of the campaign.
-    // On a turn with wreckage in the fleet the card would have asserted
-    // the absence of damage while the panel one tap away enumerated it.
-    // The answer to an ambiguous noun is to name the nouns, not to widen
-    // the claim until it covers state the beat never looked at.
-    const recoveryPart =
-      healed === 0
-        ? ', Link, Data and Sensor at cap'
-        : uniform
-          ? `, recovery +${deltas[0]}`
-          : `, recovery +${healed} across ${deltas.length} meters`
-    // The SLA is interpolated into the title only when it was earned, so a
-    // player below the coverage minimum was never told the lever existed:
-    // a new player starts at 44 against a minimum of 60 and loses the
-    // bonus every turn until they notice. The miss goes in `lines`, the
-    // channel this beat already uses for the SLA note, rather than in the
-    // title: brief v2.3 section 5 records beat titles as a channel no
-    // budget measures, and this round is not spending one on the way past.
-    const cov = coverage(shadow.assets)
-    const slaMiss =
-      sla === 0 ? [`Coverage ${cov} misses the ${scenario.slaBonus.coverageMin} the SLA pays ${scenario.slaBonus.credits} at.`] : []
-    push({
-      kind: 'turn-start',
-      title: `Turn ${turn}: income +${income}${sla ? `, coverage SLA +${sla}` : ''}${recoveryPart}`,
-      lines: [...noteStarting('Coverage SLA met'), ...slaMiss],
-      patch,
-    })
-  }
-
-  // 2. Arrivals: assets on station, retrofits active.
-  const arrivedCounters = new Set<string>()
-  for (const p of before.pipeline.filter((p) => p.etaTurns <= 1)) {
-    const landed = after.assets.find((a) => a.id === p.id)
-    const asset: Asset = landed
-      ? { ...landed, integrity: 100 }
-      : { id: p.id, kind: p.kind, layer: p.kind === 'drone' ? 'AIR' : p.kind === 'groundStation' ? 'GROUND' : 'ORBIT', tier: p.tier, integrity: 100 }
-    push({
-      kind: 'deploy-arrived',
-      title: `${kindLabels[p.kind]} ${p.tier} on station`,
-      subjectId: p.id,
-      lines: noteIncluding(`${p.id} arrived on station`),
-      patch: { pipelineRemove: [p.id], assetsAdd: [asset] },
-    })
-  }
-  for (const c of before.pendingCounters.filter((p) => p.etaTurns <= 1)) {
-    arrivedCounters.add(c.id)
-    const cm = scenario.countermeasures.find((x) => x.id === c.id)
-    push({
-      kind: 'deploy-arrived',
-      title: `${cm?.name ?? c.id} retrofit complete`,
-      subjectId: c.id,
-      cueKey: `counter:${c.id}`,
-      lines: noteIncluding('retrofit complete'),
-      patch: { pendingCountersRemove: [c.id], countersAdd: [c.id] },
-    })
-  }
-
-  // A rideshare opportunity this turn may have expedited one in-transit
-  // entry, possibly one bought this very turn. The engine names it in the
-  // event's note; the rolled ETA of a same-turn purchase is the after-state
-  // ETA plus the expedite amount. That is exact while expediteTurns is 1:
-  // the engine only expedites entries above 1 and clamps at 1, so the clamp
-  // never binds. A larger expedite would make a rolled ETA of 2 ambiguous;
-  // the zero-residual test would still pass (the shadow ends on the same
-  // ETA), only the slip beat could then be missed.
-  const expedite = (() => {
-    for (const ev of record.events) {
-      const def = eventById(scenario, ev.eventId)
-      const n = def.benefit?.expediteTurns
-      if (!n) continue
-      for (const note of ev.notes) {
-        const m = note.match(EXPEDITED)
-        if (m) return { id: m[1], turns: n }
-      }
-    }
-    return null
-  })()
-
-  // 3. Purchases, recovered from the diff plus scenario prices.
-  const boughtAssets = after.pipeline
-    .filter((p) => !before.pipeline.some((q) => q.id === p.id))
-    .map((p) => (expedite && p.id === expedite.id ? { ...p, etaTurns: p.etaTurns + expedite.turns } : { ...p }))
-  {
-    const intelBought = after.intelLevel > before.intelLevel
-    const irBought = !before.irRetainer && after.irRetainer
-    const newCounters = after.counters.slice(before.counters.length).filter((id) => !arrivedCounters.has(id))
-    const boughtPending = after.pendingCounters.filter((p) => !before.pendingCounters.some((q) => q.id === p.id))
-    const cmCost = (id: string) => scenario.countermeasures.find((c) => c.id === id)?.cost ?? 0
-    let cost = 0
+    ordered.sort((x, y) => Number(x.id.split('-').pop()) - Number(y.id.split('-').pop()))
     const patch: Patch = {}
-    if (intelBought && before.intelLevel !== 3) {
-      cost += scenario.prices.intelLevels[before.intelLevel]
-      patch.intelLevel = after.intelLevel
-    }
-    if (irBought) {
-      cost += cmCost('irRetainer')
-      patch.irRetainer = true
-      const tokens = Math.min(SURGE_TOKEN_CAP, shadow.surgeTokens + IR_RETAINER_BONUS_TOKENS) - shadow.surgeTokens
-      if (tokens) patch.surgeTokens = tokens
-    }
-    for (const id of newCounters) if (id !== 'irRetainer') cost += cmCost(id)
-    if (newCounters.length) patch.countersAdd = newCounters
-    for (const p of boughtPending) cost += cmCost(p.id)
-    if (boughtPending.length) patch.pendingCountersAdd = clone(boughtPending)
-    for (const p of boughtAssets) cost += assetPrice(scenario, p.kind, p.tier)
-    if (boughtAssets.length) patch.pipelineAdd = clone(boughtAssets)
-    if (cost) patch.credits = -cost
-    const bought = intelBought || irBought || newCounters.length > 0 || boughtPending.length > 0 || boughtAssets.length > 0
-    if (bought) {
-      // Silent by decision (brief v0.5 section 6): the buy already fired
-      // its cue in the procurement phase, so replaying it here would
-      // duplicate a cue and spend the reading budget twice. The beat stays
-      // in the ledger because the patch is load-bearing.
-      push({
-        kind: 'procurement',
-        visible: false,
-        title: `Procurement confirmed: ${cost} credits`,
-        lines: [...record.purchases],
-        patch,
-      })
+    if (record.ledger.ordered) patch.credits = -record.ledger.ordered
+    if (countersAdd.length) patch.countersAdd = countersAdd
+    if (ordered.length) patch.pipelineAdd = ordered
+    if (record.purchases.length || record.ledger.ordered) {
+      push({ kind: 'procurement', visible: false, title: `Orders confirmed: ${record.ledger.ordered} credits`, lines: [...record.purchases], patch })
     }
   }
 
-  // The engine has no deployment-slip event: the roll happens once inside
-  // applyPurchases and is folded into the ETA the player already sees, so
-  // there is nothing to show here (brief v0.5 section 6, cue removed).
-
-  // 5. Surge authority: a before-condition that neither pressed this turn
-  // (absent from conditionsActive) nor survived was cleared by surge.
+  // 2. The night opens: the watch officer's line for the turn.
   {
-    const pressed = new Set(record.conditionsActive)
-    for (const c of before.conditions.filter((c) => !pressed.has(c.name))) {
-      const patch: Patch = { conditionsRemove: [c.instanceId], surgeTokens: -1 }
-      push({
-        kind: 'surge-spent',
-        title: `Surge authority spent: ${c.name} cleared`,
-        subjectId: c.eventId,
-        cueKey: `condition:${c.eventId}`,
-        lines: noteStarting('Surge authority spent'),
-        patch,
-      })
-    }
+    const intro = scenario.campaign.find((p) => p.turn === turn)?.intro
+    // The coverage bonus is a lever a new player cannot see from the title,
+    // and the starter fleet sits just under it, so the turn says so while
+    // it is true (Round 7b). Stated as the fleet stands now: the bonus is
+    // checked at the close, after tonight's arrivals.
+    const cov = coverage(shadow.assets)
+    const { coverageMin, credits } = scenario.slaBonus
+    const short = cov < coverageMin ? [`Coverage ${coverageFigure(cov)} is under the ${coverageMin} the SLA pays ${credits} at.`] : []
+    push({ kind: 'turn-start', title: `Turn ${turn}: COLDVEIL is moving`, lines: intro ? [intro, ...short] : short })
   }
 
-  // 6. Sustained pressure from every live condition.
+  // 3. Sustained pressure from every live condition.
   for (const c of [...shadow.conditions]) {
     const def = eventById(scenario, c.eventId)
-    const mitigation = mitigationFor(shadow, def)
+    const mitigation = mitigationOf(def, shadow.counters)
     const pressure = Math.max(0, c.baseSeverity - mitigation)
     const patch: Patch = {}
     if (pressure > 0) {
       patch.meters = {}
       for (const key of def.effect.meters) {
-        const d = damage(shadow, key, pressure * conditionPressureFor(shadow.difficulty))
+        const d = damage(shadow, key, scaled(CONDITION_PRESSURE_PER_SEVERITY * pressure, difficulty))
         if (d) patch.meters[key] = d
       }
     }
@@ -367,241 +160,209 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
     })
   }
 
-  // 7. Chain state entering resolution.
-  {
-    const armed = lidarFallbackFor(shadow)
-    if (armed) {
-      // The flag only enters the patch when it actually changes, so the
-      // card does not announce a fallback that was already engaged.
-      push({
-        kind: 'chain-armed',
-        title: shadow.flags.lidarFallback
-          ? 'BLACKOUT CHAIN still armed: drones navigating on LiDAR alone'
-          : 'BLACKOUT CHAIN armed: drones navigating on LiDAR alone',
-        lines: noteIncluding('remains in LiDAR-fallback navigation'),
-        patch: shadow.flags.lidarFallback ? {} : { flags: { lidarFallback: true } },
-      })
-    } else if (shadow.flags.lidarFallback) {
-      // The jam was cleared before resolution (surge) or no drone is left;
-      // the engine drops the flag silently here.
-      push({ kind: 'end-of-turn-tick', visible: false, title: 'Chain released', patch: { flags: { lidarFallback: false } } })
-    }
+  // 4. The chain, armed entering the night: GNSS denial is live, so a
+  // chain exploit strikes a point harder.
+  if (gnssDenied(shadow.conditions, scenario)) {
+    push({ kind: 'chain-armed', title: 'BLACKOUT CHAIN armed: GNSS denied, the squadron flies on LiDAR alone' })
   }
 
-  // 8. The adversary plays the deck, then the opportunity roll.
-  if (record.events.length === 0) {
-    // Round 7b. This beat used to carry the bare sentence and the turn
-    // start's own cue, so turn 1's whole adversary phase was the blip the
-    // turn had opened with. It now has a treatment of its own (see
-    // cues.ts) and the live fleet's layers, so DirectorView pulses the
-    // layer badges the player will watch a hit land on next turn.
-    //
-    // CORRECTED after a lens read the renderer: this comment used to say
-    // the badges take a "neutral pulse". There is no neutral arm.
-    // DirectorView's class is a binary, hostile or friendly, so everything
-    // that is not hostile pulses friendly. That is the right tone here, a
-    // turn where the fleet held, but the comment described behaviour the
-    // code does not have, which is the same drift the round is about.
-    // The patch stays empty, so the ledger sweep cannot move.
-    const held = LAYERS.filter((l) => shadow.assets.some((a) => a.layer === l && a.integrity > 0))
-    push({
-      kind: 'quiet',
-      // The denominator is derived from the layer list, not the literal 3
-      // it was first written as: a count in player-facing prose that
-      // nothing joins to the fleet it describes is principle 7, and the
-      // only varying half never varied in any campaign the suite reaches.
-      title: `Nothing reached you. ${held.length} of ${LAYERS.length} layers holding.`,
-      layers: held,
-    })
-  }
+  // 5. The adversary's moves, then the opportunity.
+  const expedite = (() => {
+    for (const ev of record.events) {
+      const n = eventById(scenario, ev.eventId).benefit?.expediteTurns
+      if (!n) continue
+      for (const note of ev.notes) {
+        const m = note.match(EXPEDITED)
+        if (m) return { id: m[1], turns: n }
+      }
+    }
+    return null
+  })()
+  let landedAny = false
   for (const ev of record.events) {
     const def = eventById(scenario, ev.eventId)
-    const isOpportunity = (def.kind ?? 'threat') === 'opportunity'
-    if (isOpportunity) {
+    if ((def.kind ?? 'threat') === 'opportunity') {
       const b = def.benefit ?? {}
       const patch: Patch = {}
-      let credits = 0
-      if (b.credits) credits += b.credits
-      if (b.intelBoostTurns) patch.intelBoostTurns = Math.max(shadow.intelBoostTurns, b.intelBoostTurns)
+      let credits = b.credits ?? 0
       if (b.expediteTurns) {
         const named = expedite ? shadow.pipeline.find((p) => p.id === expedite.id) : undefined
-        const soonest = named ?? shadow.pipeline.filter((p) => p.etaTurns > 1).sort((x, y) => x.etaTurns - y.etaTurns)[0]
-        if (soonest) {
-          patch.pipelineEta = { [soonest.id]: Math.max(1, soonest.etaTurns - b.expediteTurns) }
-        } else {
-          if (ev.notes.some((n) => n.includes(RESELL_NOTE))) credits += RIDESHARE_RESELL_CREDITS
-        }
+        if (named) patch.pipelineEta = { [named.id]: Math.max(1, named.etaTurns - b.expediteTurns) }
+        else if (ev.notes.some((n) => n.includes(RESELL_NOTE))) credits += RIDESHARE_RESELL_CREDITS
       }
       if (credits) patch.credits = credits
-      push({
-        kind: 'opportunity',
-        title: ev.name,
-        subjectId: ev.eventId,
-        cueKey: `event:${ev.eventId}`,
-        layers: def.layers,
-        lines: [...ev.notes],
-        patch,
-      })
+      push({ kind: 'opportunity', title: ev.name, subjectId: ev.eventId, cueKey: `event:${ev.eventId}`, layers: def.layers, lines: [...ev.notes], patch })
       continue
     }
 
     const patch: Patch = {}
-    // The engine decides GNSS denial before this event's own asset damage
-    // lands, so the drone count is read now, not after the patch.
-    const dronesBeforeDamage = liveDrones(shadow.assets).length
     if (ev.effectiveSeverity > 0) {
+      landedAny = true
       patch.meters = {}
       for (const key of def.effect.meters) {
-        const d = damage(shadow, key, ev.effectiveSeverity * METER_DAMAGE_PER_SEVERITY)
+        const d = damage(shadow, key, scaled(METER_DAMAGE_PER_SEVERITY * ev.effectiveSeverity, difficulty))
         if (d) patch.meters[key] = d
       }
       if (!Object.keys(patch.meters).length) delete patch.meters
     }
-    let credits = -ev.repairCost
-    for (const n of ev.notes) {
-      if (n.includes(SSA_BURN_EXECUTED)) credits -= SSA_MANEUVER_COST
-    }
-    if (credits) patch.credits = credits
-    // The asset the event damaged, as the engine recorded it, and what it
-    // was left at by the engine's rule: the debris strike takes it to zero,
-    // anything else loses ASSET_DAMAGE_PER_SEVERITY per point of effective
-    // severity. An asset that arrived this turn is already in the shadow.
-    const target = ev.targetAssetId === undefined ? undefined : shadow.assets.find((a) => a.id === ev.targetAssetId)
-    if (target) {
-      patch.assetIntegrity = {
-        [target.id]: def.effect.special === 'debrisStrike' ? 0 : Math.max(0, target.integrity - ev.effectiveSeverity * ASSET_DAMAGE_PER_SEVERITY),
-      }
-    }
-    const landed = ev.effectiveSeverity > 0
+    if (ev.integrityAfter !== undefined && ev.targetAssetId !== undefined) patch.assetIntegrity = { [ev.targetAssetId]: ev.integrityAfter }
+    if (ev.debris?.fuel) patch.credits = -ev.debris.fuel
+    const title = ev.debris
+      ? ev.debris.lost
+        ? `${ev.name}: satellite lost`
+        : ev.debris.choice === 'burn'
+          ? `${ev.name}: burned clear`
+          : `${ev.name}: held its orbit`
+      : ev.effectiveSeverity > 0
+        ? ev.name
+        : `${ev.name}: held`
     push({
       kind: 'threat',
-      title: landed ? ev.name : `${ev.name}: held`,
+      title,
       subjectId: ev.eventId,
-      targetAssetId: target?.id,
+      // The tile the board lands the hit on: only when the hit damaged it.
+      targetAssetId: ev.integrityAfter !== undefined ? ev.targetAssetId : undefined,
       cueKey: `event:${ev.eventId}`,
       techniques: techniques(def),
       layers: def.layers,
       severity: { base: ev.baseSeverity, chain: ev.chainBonus, mitigation: ev.mitigation, effective: ev.effectiveSeverity },
-      lines: ev.notes.filter((n) => !isConditionNote(n)),
+      lines: ev.notes.filter((n) => !ev.condition || !n.startsWith(ev.condition.name)),
       patch,
     })
 
-    // A landed event with a duration becomes, or refreshes, a condition.
-    if (landed && def.duration) {
+    // A landed event with a condition places it, or renews its clock.
+    if (ev.condition) {
       const existing = shadow.conditions.find((c) => c.eventId === ev.eventId)
-      const final = after.conditions.find((c) => c.eventId === ev.eventId)
-      // The rolled span is hidden and irrelevant to presentation; the value
-      // the engine ends the turn on, plus the end-of-turn tick, is exact.
-      const remaining = (final?.remainingTurns ?? 0) + 1
       const condPatch: Patch = {}
       if (existing) {
-        condPatch.conditionsRemaining = { [existing.instanceId]: remaining }
+        condPatch.conditionsRemaining = { [existing.instanceId]: Math.max(existing.remainingTurns, ev.condition.turns) }
       } else {
-        const fresh: ActiveCondition = final
-          ? { ...final, remainingTurns: remaining }
-          : {
-              instanceId: `${ev.eventId}-t${turn}`,
-              eventId: ev.eventId,
-              name: shortName(def),
-              startedTurn: turn,
-              remainingTurns: remaining,
-              baseSeverity: def.baseSeverity,
-            }
+        const fresh: ActiveCondition = {
+          instanceId: `${ev.eventId}-t${turn}`,
+          eventId: ev.eventId,
+          name: ev.condition.name,
+          startedTurn: turn,
+          remainingTurns: ev.condition.turns,
+          baseSeverity: def.baseSeverity,
+        }
         condPatch.conditionsAdd = [fresh]
-      }
-      if (def.effect.special === 'jamsGnss' && dronesBeforeDamage > 0 && !shadow.flags.lidarFallback) {
-        condPatch.flags = { lidarFallback: true }
       }
       push({
         kind: existing ? 'condition-renewed' : 'condition-applied',
-        title: existing ? `${shortName(def)}: condition renewed` : `${shortName(def)}: now an active condition`,
+        title: existing ? `${ev.condition.name}: clock reset to ${ev.condition.turns} turns` : `${ev.condition.name} for ${ev.condition.turns} turns`,
         subjectId: ev.eventId,
         cueKey: `condition:${ev.eventId}`,
         layers: def.layers,
-        lines: ev.notes.filter(isConditionNote),
+        lines: ev.notes.filter((n) => n.startsWith(ev.condition!.name)),
         patch: condPatch,
       })
     }
   }
 
-  // 9 and 10. End-of-turn tick, then expiries, then the chain flag.
+  // The defense streak (brief 6.8), the commendation's successor: events
+  // with nothing through, running across turns. Walked event by event from
+  // the streak the turn opened on, the way the engine counts it (the debris
+  // call neither extends nor breaks it), and announced when tonight carried
+  // it to two or more.
   {
+    let streak = before.streak
+    let grew = false
+    for (const ev of record.events) {
+      const def = eventById(scenario, ev.eventId)
+      if ((def.kind ?? 'threat') === 'opportunity' || ev.debris) continue
+      if (ev.effectiveSeverity === 0) {
+        streak += 1
+        grew = true
+      } else {
+        streak = 0
+      }
+    }
+    if (grew && streak >= 2) push({ kind: 'commendation', title: `Defense streak ×${streak}: nothing got through ${streak} moves running` })
+  }
+
+  // Nothing got through: the night's moves were all held.
+  if (!landedAny) {
+    const held = LAYERS.filter((l) => shadow.assets.some((a) => a.layer === l && a.integrity > 0))
+    push({ kind: 'quiet', title: `Nothing reached you. ${held.length} of ${LAYERS.length} layers holding.`, layers: held })
+  }
+
+  // 6. The close (brief 5.5 item 6): repairs and upkeep, arrivals, funding
+  // and the coverage bonus, recovery and healing, the conditions' clocks.
+  {
+    const l = record.ledger
+    // What lands at this close: read before the countdown below moves the
+    // rest of the pipeline a turn closer.
+    const due = shadow.pipeline.filter((p) => p.etaTurns <= 1)
+    const pipelineEta: Record<string, number> = {}
+    for (const p of shadow.pipeline) if (p.etaTurns > 1) pipelineEta[p.id] = p.etaTurns - 1
+    const paid: Patch = {}
+    if (l.repairs + l.upkeep) paid.credits = -(l.repairs + l.upkeep)
+    if (Object.keys(pipelineEta).length) paid.pipelineEta = pipelineEta
+    push({
+      kind: 'end-of-turn-tick',
+      visible: false,
+      title: `Repairs -${l.repairs}, defenses kept -${l.upkeep}`,
+      lines: [...noteStarting('Repairs paid'), ...noteStarting('Keeping ')],
+      patch: paid,
+    })
+    for (const p of due) {
+      const landed = after.assets.find((a) => a.id === p.id)
+      if (!landed) continue
+      push({
+        kind: 'deploy-arrived',
+        title: `${kindLabels[p.kind]} on station`,
+        subjectId: p.id,
+        lines: noteIncluding(`${p.id} arrived on station`),
+        patch: { pipelineRemove: [p.id], assetsAdd: [{ ...landed, integrity: 100 }] },
+      })
+    }
+    const close: Patch = { meters: {} }
+    if (l.funding + l.coverageBonus) close.credits = l.funding + l.coverageBonus
+    const recovery = hasRetainer(shadow) ? scenario.recovery.withIrRetainer : scenario.recovery.base
+    for (const key of METER_KEYS) {
+      const d = heal(shadow, key, recovery)
+      if (d) close.meters![key] = d
+    }
+    if (!Object.keys(close.meters!).length) delete close.meters
+    if (!l.insolvent) {
+      const healed: Record<string, number> = {}
+      for (const a of shadow.assets) if (a.integrity > 0 && a.integrity < 100) healed[a.id] = Math.min(100, a.integrity + ASSET_HEAL_PER_TURN)
+      if (Object.keys(healed).length) close.assetIntegrity = healed
+    }
+    push({
+      kind: 'end-of-turn-tick',
+      visible: false,
+      title: `Funding +${l.funding}${l.coverageBonus ? `, coverage bonus +${l.coverageBonus}` : ''}, recovery +${recovery}`,
+      lines: noteStarting('Mission funding'),
+      patch: close,
+    })
     const expiring = shadow.conditions.filter((c) => c.remainingTurns - 1 <= 0)
-    const remainingAfter = shadow.conditions.filter((c) => c.remainingTurns - 1 > 0)
-    const armedAfter = lidarFallbackFor({ ...shadow, conditions: remainingAfter })
-    const tick: Patch = { conditionsRemaining: {} }
-    for (const c of shadow.conditions) tick.conditionsRemaining![c.instanceId] = c.remainingTurns - 1
-    if (shadow.intelBoostTurns > 0 && shadow.intelBoostTurns <= before.intelBoostTurns) {
-      tick.intelBoostTurns = shadow.intelBoostTurns - 1
+    if (shadow.conditions.length) {
+      const tick: Patch = { conditionsRemaining: {} }
+      for (const c of shadow.conditions) tick.conditionsRemaining![c.instanceId] = c.remainingTurns - 1
+      push({ kind: 'end-of-turn-tick', visible: false, title: 'Conditions count down', patch: tick })
     }
-    if (!shadow.conditions.length) delete tick.conditionsRemaining
-    if (expiring.length === 0 && armedAfter !== shadow.flags.lidarFallback) tick.flags = { lidarFallback: armedAfter }
-    if (Object.keys(tick).length) {
-      push({ kind: 'end-of-turn-tick', visible: false, title: 'End of turn', patch: tick })
-    }
-    expiring.forEach((c, i) => {
-      const patch: Patch = { conditionsRemove: [c.instanceId] }
-      if (i === expiring.length - 1 && armedAfter !== shadow.flags.lidarFallback) patch.flags = { lidarFallback: armedAfter }
+    for (const c of expiring) {
       push({
         kind: 'condition-cleared',
         title: `${c.name} subsided: condition lifted`,
         subjectId: c.eventId,
         cueKey: `condition:${c.eventId}`,
         lines: noteStarting(`${c.name} subsided`),
-        patch,
-      })
-    })
-  }
-
-  // 11. Commendations: zeroed attacks, then holding the line under pressure.
-  {
-    const strings = [...record.commendations]
-    for (const ev of record.events) {
-      const def = eventById(scenario, ev.eventId)
-      if ((def.kind ?? 'threat') === 'threat' && ev.effectiveSeverity === 0 && ev.mitigation > 0 && ev.baseSeverity > 0) {
-        push({
-          kind: 'commendation',
-          title: `Mitigation commendation: ${shortName(def)} fully countered`,
-          subjectId: ev.eventId,
-          lines: strings.splice(0, 1),
-          patch: { credits: MITIGATION_COMMENDATION_CREDITS },
-        })
-      }
-    }
-    const endured = record.conditionsActive.length
-    if (endured > 0 && maiScore(shadow) >= scenario.winThreshold) {
-      const tier = Math.min(3, endured)
-      const patch: Patch = { credits: RESILIENCE_CREDITS[tier] }
-      if (RESILIENCE_HEAL[tier] > 0) {
-        patch.meters = {}
-        for (const key of ['linkAvailability', 'dataIntegrity', 'sensorIntegrity'] as MeterKey[]) {
-          const d = heal(shadow, key, RESILIENCE_HEAL[tier])
-          if (d) patch.meters[key] = d
-        }
-      }
-      const grantsSurge = endured >= SURGE_EARN_MIN_CONDITIONS && shadow.surgeTokens < SURGE_TOKEN_CAP
-      if (grantsSurge) patch.surgeTokens = 1
-      push({
-        kind: 'commendation',
-        title: `Resilience commendation, tier ${tier}: held the win line under ${endured} condition${endured === 1 ? '' : 's'}`,
-        lines: strings.splice(0, grantsSurge ? 2 : 1),
-        patch,
+        patch: { conditionsRemove: [c.instanceId] },
       })
     }
   }
 
-  // 12. Reconciliation: empty when the ledger reproduced the engine, which
+  // 7. Reconciliation: empty when the ledger reproduced the engine, which
   // the battery asserts. If it ever is not, the player still ends on the
-  // engine's real numbers; the correction is silent bookkeeping, never a
-  // beat with a dwell.
+  // engine's real numbers; the correction is silent bookkeeping.
   {
     const residual = residualPatch(shadow, after)
-    if (residual) {
-      push({ kind: 'settle', visible: false, title: 'Ledger reconciled with the engine', patch: residual })
-    }
+    if (residual) push({ kind: 'settle', visible: false, title: 'Ledger reconciled with the engine', patch: residual })
   }
 
-  // 13. Outcome.
+  // 8. Outcome.
   if (after.status !== 'playing') {
     const reason =
       after.status === 'won'
@@ -609,8 +370,8 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
         : after.lossReason === 'insolvency'
           ? 'MISSION FAILED: budget insolvency'
           : after.lossReason === 'maiCollapse'
-            ? 'MISSION FAILED: Mission Assurance Index collapse'
-            : 'MISSION FAILED: below the win threshold at end of campaign'
+            ? 'MISSION FAILED: mission assurance collapse'
+            : 'MISSION FAILED: below the win line at the end of the operation'
     // The field, not the title, decides the treatment downstream.
     push({ kind: 'outcome', title: reason, lost: after.status !== 'won' })
   }
@@ -619,4 +380,4 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
 }
 
 // Kinds that carry the deck's ids, for the coverage test.
-export const ID_KEYED_KINDS: BeatKind[] = ['threat', 'opportunity', 'condition-applied', 'condition-renewed', 'condition-pressure', 'condition-cleared', 'surge-spent']
+export const ID_KEYED_KINDS: BeatKind[] = ['threat', 'opportunity', 'condition-applied', 'condition-renewed', 'condition-pressure', 'condition-cleared']

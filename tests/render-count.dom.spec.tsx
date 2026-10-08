@@ -39,7 +39,7 @@ import { sceneFor } from '../src/ui/sprites/scenery'
 import { spriteRects, type Sprite } from '../src/ui/sprites/sprite'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
-import { NO_OP } from './scripts'
+import { NO_OP, WIN_SCRIPT } from './scripts'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -142,10 +142,17 @@ describe('render counts on the board (v1.2 R2 fix)', () => {
   })
 
   it('renders each backdrop once per board mount, and no tile sprite through a quiet turn of director steps', () => {
-    const state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
-    // The fixture: turn 1 of the opening touches no asset, so every tile's
-    // sprite should hold still for the whole playback.
+    // The fixture: a turn that touches no asset, so every tile's sprite
+    // should hold still for the whole playback. v1.2's turn 1 scripted no
+    // move and was that turn for free; v1.3's turn 1 scripts one, so the
+    // fleet here already owns both of its candidates' primary defenses (the
+    // two the prepared script orders on turn 1) and the night is held
+    // outright. Owned rather than ordered, so nothing arrives at the close
+    // and the EXECUTE below needs no order queued.
+    const state: GameState = { ...newGame(DEFAULT_SCENARIO, 20260712, 'standard'), counters: [...WIN_SCRIPT[1].buyCounters] }
     const after = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
+    const record = after.history[after.history.length - 1]
+    expect(record.events.map((e) => e.outcome), 'turn 1 is no longer held outright by these defenses').toEqual(record.events.map(() => 'held'))
     expect(after.assets.map((a) => a.integrity), 'turn 1 is no longer quiet on this seed').toEqual(state.assets.map((a) => a.integrity))
     mount(state)
     expect(backdropRenders(), 'backdrop renders at mount').toBe(LAYERS.length)

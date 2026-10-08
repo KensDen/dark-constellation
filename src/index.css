@@ -352,13 +352,6 @@ body {
     animation: dc-asset-light 900ms ease-out both;
   }
 
-  .dc-token-burn {
-    animation: dc-token-burn 560ms ease-in both;
-  }
-
-  /* EXECUTE TURN's hold ring: the fill sweeps the control for as long as
-     the press has to be held. Its duration is set inline from the same
-     constant the timer uses, so the two cannot drift. */
   /* Round 5 cinematics. Each scene's ENTRANCE lives here; the scene's
      content is rendered in both modes by src/ui/cues/Scene.tsx, so the
      reduced-motion form is the same information arriving at once rather
@@ -565,12 +558,6 @@ body {
   0% { filter: brightness(1); }
   40% { filter: brightness(2.2) drop-shadow(0 0 10px var(--color-hero-blue)); }
   100% { filter: brightness(1); }
-}
-
-@keyframes dc-token-burn {
-  0% { opacity: 1; transform: scale(1); }
-  40% { opacity: 1; transform: scale(1.25); filter: drop-shadow(0 0 10px var(--color-alert-amber)); }
-  100% { opacity: 0.25; transform: scale(0.85); }
 }
 
 @keyframes dc-ribbon-in {

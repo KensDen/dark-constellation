@@ -29,11 +29,10 @@ import { briefCopy } from '../src/ui/brief'
 import { WIDE_QUERY } from '../src/ui/cues/motion'
 import { OPS_LOG_TURNS, opsLogCopy, opsLogRows } from '../src/ui/board/wide'
 import { kindLabels } from '../src/ui/labels'
-import { ORDER_TIER } from '../src/ui/board/ProcureSheet'
 import { assetPrice } from '../src/engine/scoring'
 import { verdictFor } from '../src/ui/verdict'
 import { DEFAULT_SCENARIO } from '../src/content'
-import { effectiveIntel, resolveTurn } from '../src/engine/reducer'
+import { briefFree, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
 import { LIMB, PX } from '../src/ui/sprites/scenery'
@@ -266,13 +265,22 @@ describe('GUARD R6 (d): the keys stand down when they must, and the chips with t
 
   it('down with the intel card or the Glossary open, chips and all', async () => {
     // A turn whose banner carries a technique tag, the Glossary's way in:
-    // the tag shows at the intel only the top-intel line buys.
-    const at = (t: number) => gameAt(t, 20260712, TOP_INTEL_SCRIPT)
-    let turn = 1
-    while (turn <= DEFAULT_SCENARIO.totalTurns && !briefCopy(at(turn)).tag) turn += 1
-    expect(turn, 'no turn of the top-intel line shows a technique tag').toBeLessThanOrEqual(DEFAULT_SCENARIO.totalTurns)
+    // since v1.3 Round 0 the tag shows when the intel brief is on and a
+    // slot is fixed, and with the empty cart the board opens on, only a
+    // free brief is on. So the top-intel line is searched over seeds for a
+    // night an allied data share makes the brief free on a fixed move.
+    const found = (() => {
+      for (const seed of [20260712, 11, 41, 104, 8, 14]) {
+        for (let turn = 1; turn <= DEFAULT_SCENARIO.totalTurns; turn += 1) {
+          const state = gameAt(turn, seed, TOP_INTEL_SCRIPT)
+          if (state.status === 'playing' && state.turn === turn && briefCopy(state).tag) return state
+        }
+      }
+      return undefined
+    })()
+    expect(found, 'no turn of the top-intel line shows a technique tag').toBeDefined()
     setWide(true)
-    render(at(turn))
+    render(found!)
     await settle()
     expect(liveKeys(), 'the control: live before any dialog').toEqual(all)
     click(container.querySelector('button[aria-label="Threat intel"]')!)
@@ -358,11 +366,19 @@ describe('GUARD R6 (e): the inspector says what the tile card says, and leaves t
   const lines = (root: Element, sel: string) =>
     [...root.querySelectorAll(sel)].map((li) => li.querySelector('p')!.textContent!.replace(/\s+/g, ' ').trim()).sort()
 
-  for (const intel of [0, 3] as const) {
-    it(`at intel ${intel}: title, integrity and each condition line match the card's, on a damaged tile`, async () => {
+  // The intel levels left with v1.3 Round 0: the intel brief is on or off,
+  // and a condition's turns left are exact either way (brief 6.5).
+  for (const brief of [false, true] as const) {
+    it(`${brief ? 'brief' : 'no brief'}: title, integrity and each condition line match the card's, on a damaged tile`, async () => {
       const { base, asset } = conditionFixture()
+      expect(briefFree(base), 'the fixture already has the brief').toBe(false)
       // Damaged, so a constant 100% or a missing state word cannot pass.
-      const state = { ...base, intelLevel: intel, assets: base.assets.map((a) => (a.id === asset.id ? { ...a, integrity: 40 } : a)) }
+      const state = {
+        ...base,
+        briefFreeThrough: brief ? base.turn : base.briefFreeThrough,
+        assets: base.assets.map((a) => (a.id === asset.id ? { ...a, integrity: 40 } : a)),
+      }
+      expect(briefFree(state)).toBe(brief)
       setWide(true)
       render(state)
       await settle()
@@ -381,8 +397,11 @@ describe('GUARD R6 (e): the inspector says what the tile card says, and leaves t
       const said = tileOf(asset.id).getAttribute('aria-label')!.match(/integrity (\d+%.*)$/)![1]
       expect(said).toMatch(/^40%, \w/)
       expect(inspector().querySelector('[data-inspector-integrity]')!.textContent).toBe(`INTEGRITY ${said}`)
-      const estimate = /~\d+ left/.test(inspector().textContent ?? '')
-      expect(estimate, 'the estimate follows effective intel').toBe(effectiveIntel(state) >= 3)
+      // Each line is "NAME T+a n left", the exact clock, brief or no brief:
+      // the estimate of the intel levels is gone.
+      const onLayer = state.conditions.filter((c) => DEFAULT_SCENARIO.events.find((e) => e.id === c.eventId)!.layers.includes(asset.layer))
+      expect(cardLines).toEqual(onLayer.map((c) => `${c.name} T+${state.turn - c.startedTurn} ${c.remainingTurns} left`).sort())
+      expect(inspector().textContent, 'the inspector still estimates the turns left').not.toMatch(/~\d+ left/)
       act(() => cardRoot.unmount())
       cardHost.remove()
     })
@@ -448,7 +467,7 @@ describe('GUARD R6 (e): the inspector says what the tile card says, and leaves t
     // Round 0 (brief D2).
     const order = sheet().querySelector('[data-procure-buy]')
     expect(order, 'step 2 offers no order').not.toBeNull()
-    expect(order!.textContent).toBe(`ORDER · ${assetPrice(DEFAULT_SCENARIO, asset.kind, ORDER_TIER)} CR`)
+    expect(order!.textContent).toBe(`ORDER · ${assetPrice(DEFAULT_SCENARIO, asset.kind)} CR`)
     expect(sheet().contains(document.activeElement), 'focus stayed under the panel').toBe(true)
     press('Escape')
     expect(document.activeElement, 'focus did not come back to PROCURE').toBe(procure)
@@ -520,13 +539,17 @@ describe('GUARD R6 (f): the ops log reads the history the board shows', () => {
 describe('GUARD R6 (e), during playback: the inspector shows the board the player sees, and offers nothing to do', () => {
   it('while a hit locks on the inspected tile, the inspector reads the integrity the tile shows, and its actions wait', async () => {
     // The first turn of the prepared line whose empty-cart resolution
-    // damages an asset, found from the engine's own record.
+    // damages an asset, found from the engine's own record. Since v1.3
+    // Round 0 the engine names the aimed tile even when nothing reached it,
+    // so damage is the target's integrity falling.
     let turn = 1
     let target: string | undefined
     for (; turn <= DEFAULT_SCENARIO.totalTurns; turn += 1) {
       const s = gameAt(turn)
       const after = resolveTurn(s, NO_OP, turnRng(s.seed, s.turn))
-      target = after.history[after.history.length - 1].events.find((e) => e.targetAssetId && e.effectiveSeverity > 0)?.targetAssetId
+      target = after.history[after.history.length - 1].events.find(
+        (e) => e.targetAssetId && e.integrityBefore !== undefined && e.integrityAfter !== undefined && e.integrityAfter < e.integrityBefore,
+      )?.targetAssetId
       if (target) break
     }
     expect(target, 'no turn of the prepared line lands a hit').toBeDefined()

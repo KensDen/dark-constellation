@@ -1,7 +1,9 @@
-// Scenario: FIRST LIGHT. 12 turns, escalating adversary activity, BLACKOUT
-// CHAIN scripted mid-game and again as the finale. R3 wires the full
-// 18-event deck into the campaign; economy numbers are unchanged from R1
-// (tuning happens in the dynamics round, against the R3 baseline sweep).
+// Scenario: FIRST LIGHT. Six turns since v1.3 (brief D1 a and 6.2): all 18
+// threats appear as candidates and a run meets 10 events, so the Dossier
+// fills over two or three runs. Each drawn slot is the reacting
+// adversary's pick among its candidates (src/engine/adversary.ts); a fixed
+// slot is CONFIRMED. The economy is brief 6.1's, a starting tuning from
+// the loop prototype that the sweep gate (brief 7) holds to its targets.
 
 import type { Scenario } from '../../engine/types'
 import { ADVERSARY, CONSTELLATION, PLAYER_ORG, SQUADRON } from '../../config'
@@ -9,14 +11,15 @@ import { COUNTERMEASURES } from '../counters'
 import { OPPORTUNITIES } from '../opportunities'
 import { THREATS } from '../threats'
 
-// Rare beneficial draw shared by the mid-campaign turns (R3.25). One roll
-// per listed turn; the ids come from the opportunity deck.
+// Rare beneficial draw on turns 2 to 5 (brief 6.2), from the deck stream
+// after the threat slots. One roll per listed turn; the ids come from the
+// opportunity deck.
 const OPPORTUNITY_DRAW = { chance: 0.2, drawFrom: OPPORTUNITIES.map((o) => o.id) }
 
 export const FIRST_LIGHT: Scenario = {
   id: 'first-light',
   name: 'FIRST LIGHT',
-  totalTurns: 12,
+  totalTurns: 6,
   startCredits: 100,
   incomePerTurn: 20,
   slaBonus: { coverageMin: 60, credits: 10 },
@@ -28,62 +31,56 @@ export const FIRST_LIGHT: Scenario = {
     rpoSat: 35,
     drone: 15,
     groundStation: 25,
-    tierAUpcharge: { sat: 10, drone: 5 },
-    intelLevels: [8, 12, 16],
+    intelBrief: 8,
   },
+  upkeepPerDefense: 2,
   recovery: { base: 2, withIrRetainer: 6 },
-  starterAssets: [
-    { kind: 'sat', tier: 'B' },
-    { kind: 'sat', tier: 'B' },
-    { kind: 'rpoSat', tier: 'B' },
-    { kind: 'drone', tier: 'B' },
-    { kind: 'drone', tier: 'B' },
-    { kind: 'groundStation', tier: 'B' },
-  ],
-  // The scripted beats from R1 hold their turns (implant on 5, chain on 7
-  // and 12). R3.25 clusters condition-spawning events (jams, spoofing,
-  // eavesdropping, ransomware) through the mid and late game so two or
-  // three conditions run concurrently on many turns. Which ones land and
-  // their hidden 2 to 3 turn durations vary by seed, so the sustained
-  // pressure a posture faces swings from light to heavy: that variance is
-  // what makes even prepared play genuinely uncertain.
+  starterAssets: [{ kind: 'sat' }, { kind: 'sat' }, { kind: 'rpoSat' }, { kind: 'drone' }, { kind: 'drone' }, { kind: 'groundStation' }],
+  // Brief 6.2. Turn 1's two moves are both strength 2, on different layers
+  // with different defenses, so a hit lands on turn 1 unless the player
+  // blocks both (M2), and the first lesson is jamming against spoofing
+  // (M26). The intros are the watch officer's, adapted from the
+  // prototype's to these slots.
   campaign: [
-    { turn: 1, slots: [] },
-    { turn: 2, slots: [{ drawFrom: ['ops-phishing', 'uplink-jamming', 'downlink-eavesdropping'] }] },
-    { turn: 3, slots: [{ fixed: 'uplink-jamming' }], opportunity: OPPORTUNITY_DRAW },
-    { turn: 4, slots: [{ drawFrom: ['ops-phishing', 'debris-conjunction', 'telemetry-replay', 'time-spoof'] }] },
-    { turn: 5, slots: [{ fixed: 'supply-chain-implant' }], opportunity: OPPORTUNITY_DRAW },
     {
-      turn: 6,
-      slots: [{ fixed: 'pnt-jamming' }, { drawFrom: ['gnss-spoofing', 'uplink-jamming'] }],
-      opportunity: OPPORTUNITY_DRAW,
+      turn: 1,
+      intro: 'COLDVEIL is working two doors tonight. Which one they take depends on which one you leave open.',
+      slots: [{ drawFrom: ['uplink-jamming', 'gnss-spoofing'] }],
     },
-    { turn: 7, slots: [{ fixed: 'blackout-chain' }, { drawFrom: ['downlink-eavesdropping', 'backhaul-exfil'] }] },
     {
-      turn: 8,
-      slots: [{ fixed: 'ground-ransomware' }, { drawFrom: ['rogue-ground-station', 'gnss-spoofing', 'training-data-poisoning'] }],
+      turn: 2,
+      intro: 'The squadron flies the river crossing at dawn. Expect pressure on navigation, on timing, and on the people at the consoles.',
+      slots: [{ drawFrom: ['ops-phishing', 'pnt-jamming', 'time-spoof'] }],
       opportunity: OPPORTUNITY_DRAW,
     },
     {
-      turn: 9,
+      turn: 3,
+      intro: 'Two tracks tonight: RF pressure on a link, and a quiet one against the data itself.',
+      slots: [{ drawFrom: ['uplink-jamming', 'pnt-jamming'] }, { drawFrom: ['downlink-eavesdropping', 'telemetry-replay', 'backhaul-exfil'] }],
+      opportunity: OPPORTUNITY_DRAW,
+    },
+    {
+      turn: 4,
+      intro: 'Space tracking has flagged a conjunction. COLDVEIL is also working the sensors.',
+      slots: [{ fixed: 'debris-conjunction' }, { drawFrom: ['gnss-spoofing', 'lidar-dazzle', 'supply-chain-implant'] }],
+      opportunity: OPPORTUNITY_DRAW,
+    },
+    {
+      turn: 5,
+      intro: 'The ground segment is the soft target tonight, and someone is working on what the squadron sees.',
       slots: [
-        { drawFrom: ['pnt-jamming', 'uplink-jamming'] },
-        { drawFrom: ['backhaul-exfil', 'downlink-eavesdropping', 'lidar-dazzle'] },
+        { drawFrom: ['ground-ransomware', 'rogue-ground-station', 'insider-exfil'] },
+        { drawFrom: ['training-data-poisoning', 'lidar-injection', 'lidar-blinding'] },
       ],
       opportunity: OPPORTUNITY_DRAW,
     },
-    { turn: 10, slots: [{ fixed: 'debris-conjunction' }, { drawFrom: ['insider-exfil', 'backhaul-exfil', 'ground-ransomware'] }] },
     {
-      turn: 11,
-      slots: [{ fixed: 'pnt-jamming' }, { drawFrom: ['lidar-injection', 'lidar-blinding', 'lidar-dazzle', 'uplink-jamming'] }],
-      opportunity: OPPORTUNITY_DRAW,
-    },
-    {
-      turn: 12,
-      slots: [{ fixed: 'blackout-chain' }, { drawFrom: ['ground-ransomware', 'ops-phishing', 'training-data-poisoning'] }],
+      turn: 6,
+      intro: "Final tasking. Analysts expect COLDVEIL's signature chain and one more probe wherever you are thin.",
+      slots: [{ fixed: 'blackout-chain' }, { drawFrom: ['ops-phishing', 'ground-ransomware', 'uplink-jamming'] }],
     },
   ],
-  briefIntro: `You are the mission assurance architect at ${PLAYER_ORG}, standing up ${CONSTELLATION} (nine planned smallsats, one with a docking LiDAR package) and ${SQUADRON} (an ISR drone squadron on LiDAR and GNSS navigation) for a disaster-response tasking. ${ADVERSARY}, a threat group with a taste for layered attacks, has taken an interest. Twelve turns. Keep the Mission Assurance Index above threshold and stay solvent.`,
+  briefIntro: `You are the mission assurance architect at ${PLAYER_ORG}, standing up ${CONSTELLATION} (nine planned smallsats, one with a docking LiDAR package) and ${SQUADRON} (an ISR drone squadron on LiDAR and GNSS navigation) for a disaster-response tasking. ${ADVERSARY}, a threat group with a taste for layered attacks, has taken an interest. Six turns. Keep mission assurance at 70 or above and stay solvent.`,
   events: [...THREATS, ...OPPORTUNITIES],
   countermeasures: COUNTERMEASURES,
 }
