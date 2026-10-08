@@ -8,8 +8,11 @@
 // this round because the logic lived inline in the battery and only ran
 // against a live network.
 
-import { readdirSync, readFileSync } from 'node:fs'
+import { X509Certificate } from 'node:crypto'
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { rootCertificates } from 'node:tls'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -28,6 +31,11 @@ import {
   RUNNER_BLOCKED,
   isRunnerBlocked,
   runnerBlockedWarning,
+  EXTRA_CA,
+  extraCaLine,
+  linkCheckEnv,
+  loadedExtraCa,
+  readExtraCa,
 } from '../scripts/link-check.mjs'
 
 const ok = (url: string) => ({ url, status: 200 })
@@ -508,5 +516,85 @@ describe('link check: pages that block CI runners (v1.2 R5b follow-up)', () => {
       expect(entry.verified.endsWith(entry.date), `${entry.url}: the verified line and the date disagree`).toBe(true)
       expect(isRunnerBlocked({ url: entry.url, status: 403 })).toBe(true)
     }
+  })
+})
+
+describe('link check: the extra certificate (v1.3 R0b)', () => {
+  // sparta.aerospace.org serves its leaf without the DigiCert EV RSA CA G2
+  // intermediate, and Node's fetch does not fetch a missing intermediate
+  // the way a browser or curl does. The fix gives that one public
+  // certificate to the link check's own process, pinned by fingerprint,
+  // with verification on. These hold the pin, the chain and the switches.
+  const repo = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const pinned = () => readExtraCa(repo).cert
+  const root = () => rootCertificates.map((p) => new X509Certificate(p)).find((c) => c.subject.includes(`CN=${EXTRA_CA.issuer}`))
+
+  it('is the certificate DigiCert publishes: the pinned fingerprint, a CA, issued by a root Node already trusts', () => {
+    const cert = pinned()
+    expect(cert.fingerprint256).toBe(EXTRA_CA.sha256)
+    expect(cert.subject).toContain(`CN=${EXTRA_CA.subject}`)
+    expect(cert.issuer).toContain(`CN=${EXTRA_CA.issuer}`)
+    expect(cert.ca, 'the extra certificate is not a CA certificate').toBe(true)
+    const anchor = root()
+    expect(anchor, `${EXTRA_CA.issuer} is not in Node's root store, so nothing it signs can verify`).toBeDefined()
+    // Signed by that root: the chain the link check builds still ends at a
+    // trust anchor Node ships, so the file adds a link and not a root.
+    expect(cert.checkIssued(anchor!)).toBe(true)
+    expect(cert.verify(anchor!.publicKey)).toBe(true)
+    // It expires on 2 July 2030. This fails then, on purpose: replace the
+    // file from DigiCert's list and re-pin it.
+    expect(new Date(cert.validTo).getTime(), `${EXTRA_CA.file} has expired`).toBeGreaterThan(Date.now())
+    expect(cert.validTo).toContain('2030')
+  })
+
+  it('refuses a file that is not the pinned certificate', () => {
+    // Any other certificate in the pinned file's place (here the root
+    // itself) is refused by name, so a swap fails the layer rather than
+    // widening what the link check trusts.
+    const dir = mkdtempSync(join(tmpdir(), 'dc-extra-ca-'))
+    writeFileSync(join(dir, 'other.pem'), root()!.toString())
+    expect(() => readExtraCa(dir, { ...EXTRA_CA, file: 'other.pem' })).toThrow(/is not the pinned DigiCert EV RSA CA G2/)
+    expect(() => readExtraCa(repo)).not.toThrow()
+  })
+
+  it('hands the certificate to the link check and strips the switch that turns verification off', () => {
+    const parent = { PATH: '/bin', NODE_TLS_REJECT_UNAUTHORIZED: '0' }
+    const env = linkCheckEnv(parent, '/x/ca.pem')
+    expect(env.NODE_EXTRA_CA_CERTS).toBe('/x/ca.pem')
+    expect('NODE_TLS_REJECT_UNAUTHORIZED' in env, 'the link check would run with verification off').toBe(false)
+    expect(env.PATH).toBe('/bin')
+    // The battery's own environment is left alone: the certificate is for
+    // the link check's process only.
+    expect(parent).toEqual({ PATH: '/bin', NODE_TLS_REJECT_UNAUTHORIZED: '0' })
+  })
+
+  it('reports the certificate in use only when Node actually loaded it', () => {
+    const pem = readFileSync(join(repo, EXTRA_CA.file), 'utf8')
+    expect(loadedExtraCa(EXTRA_CA, () => [pem])?.fingerprint256).toBe(EXTRA_CA.sha256)
+    expect(loadedExtraCa(EXTRA_CA, () => []), 'nothing loaded still read as in use').toBeNull()
+    expect(loadedExtraCa(EXTRA_CA, () => [root()!.toString()]), 'another certificate read as the pinned one').toBeNull()
+    // This test process was not given the variable, so its own store has
+    // no extra certificate: the real loader sees none.
+    expect(loadedExtraCa()).toBeNull()
+    expect(extraCaLine()).toContain(EXTRA_CA.sha256)
+  })
+
+  it('never turns verification off anywhere in scripts/', () => {
+    // An assignment of NODE_TLS_REJECT_UNAUTHORIZED, or rejectUnauthorized
+    // false, anywhere in the scripts would make the link check pass on
+    // links whose certificates do not verify. A comparison (===) or a
+    // delete is how the scripts guard against it, and is allowed.
+    const dir = join(repo, 'scripts')
+    const files = readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile() && /\.(m?js|cjs|sh)$|^pre-push$/.test(d.name))
+      .map((d) => join(d.parentPath, d.name))
+    expect(files.length).toBeGreaterThan(3)
+    const offenders: string[] = []
+    for (const f of files) {
+      const text = readFileSync(f, 'utf8')
+      if (/NODE_TLS_REJECT_UNAUTHORIZED['"\]]*\s*(=(?!=)|:)/.test(text)) offenders.push(`${f}: sets NODE_TLS_REJECT_UNAUTHORIZED`)
+      if (/rejectUnauthorized\s*:\s*false/.test(text)) offenders.push(`${f}: rejectUnauthorized false`)
+    }
+    expect(offenders.join('\n')).toBe('')
   })
 })

@@ -24,6 +24,11 @@
 // that way, and only when they are not all of them. Offline pays nothing,
 // and a single flaky host gets the second chance a 429 already got.
 
+import { X509Certificate } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import * as tls from 'node:tls'
+
 export const RETRY_DELAY_MS = 4000
 
 // BOT-PROTECTED PAGES (v1.2 R5b). Some hosts answer an automated request
@@ -259,3 +264,67 @@ export async function runLinkCheck({
   }
   return { outcome: 'ok', warned, results: finalResults }
 }
+
+// THE EXTRA CERTIFICATE (v1.3 Round 0b, ruled by Ken on 2026-10-08).
+// sparta.aerospace.org renewed its certificate on 2026-10-05 and now
+// serves the leaf twice and no intermediate. A browser or curl fetches the
+// missing DigiCert EV RSA CA G2 for itself; Node's fetch does not, so all
+// 32 SPARTA links failed with UNABLE_TO_VERIFY_LEAF_SIGNATURE although
+// every one of them answered 200. The fix supplies that public
+// intermediate to Node, for the link check only, and verification stays
+// on: the chain still has to reach DigiCert Global Root G2 in Node's own
+// root store. The file is byte for byte the PEM DigiCert publishes, and it
+// is pinned here by its SHA-256 fingerprint, so a changed file is refused
+// rather than trusted.
+export const EXTRA_CA = {
+  file: 'scripts/certs/digicert-ev-rsa-ca-g2.pem',
+  subject: 'DigiCert EV RSA CA G2',
+  issuer: 'DigiCert Global Root G2',
+  sha256: '95:88:EF:74:19:9E:45:AC:EF:CC:CF:C0:C4:70:10:E9:F2:A3:7A:1D:D4:4C:61:A4:E1:C6:B3:34:DA:5A:F6:14',
+  source:
+    'https://cacerts.digicert.com/DigiCertEVRSACAG2.crt.pem, the PEM link for this certificate on DigiCert\'s published list (https://knowledge.digicert.com/general-information/digicert-trusted-root-authority-certificates)',
+  checked:
+    '2026-10-08: the fingerprint and serial match the list; it issued the sparta.aerospace.org leaf (the leaf\'s authority key identifier is its subject key identifier); with it the chain verifies to the root Node ships, and without it the chain does not',
+  expires: '2030-07-02',
+}
+
+// The pinned certificate, read and checked. Throws when the file is not
+// the certificate pinned above, so a swapped file fails the layer instead
+// of quietly widening what the link check trusts.
+export function readExtraCa(root, extra = EXTRA_CA) {
+  const path = join(root, extra.file)
+  const cert = new X509Certificate(readFileSync(path))
+  if (cert.fingerprint256 !== extra.sha256) {
+    throw new Error(`${extra.file} is not the pinned ${extra.subject}: sha256 ${cert.fingerprint256}, expected ${extra.sha256}`)
+  }
+  return { path, cert }
+}
+
+// The link check's environment: the battery's own, plus the extra
+// certificate, minus any switch that would turn verification off. A
+// NODE_TLS_REJECT_UNAUTHORIZED of 0 left in a shell would make every link
+// "resolve", which is the one outcome this layer exists to rule out.
+export function linkCheckEnv(env, path) {
+  const out = { ...env, NODE_EXTRA_CA_CERTS: path }
+  delete out.NODE_TLS_REJECT_UNAUTHORIZED
+  return out
+}
+
+// In the link check's own process: the pinned certificate as Node actually
+// loaded it from NODE_EXTRA_CA_CERTS, or null. Read from the loaded store,
+// so the line that says the certificate is in use is a measurement, not an
+// echo of the environment (a file Node failed to load only warns). A Node
+// too old to report its loaded certificates (before 22.15) reads as not
+// loaded: the layer fails closed rather than claim what it cannot see.
+export function loadedExtraCa(extra = EXTRA_CA, loaded = () => tls.getCACertificates?.('extra') ?? []) {
+  for (const pem of loaded()) {
+    const cert = new X509Certificate(pem)
+    if (cert.fingerprint256 === extra.sha256) return cert
+  }
+  return null
+}
+
+// The line the layer prints under its result.
+export const extraCaLine = (extra = EXTRA_CA) =>
+  `extra certificate in use for this check only: ${extra.subject}, sha256 ${extra.sha256} (${extra.file})`
+

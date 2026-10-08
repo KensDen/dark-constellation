@@ -13,14 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { measureBundle } from './bundle-budget.mjs'
-import {
-  BOT_PROTECTED,
-  isBotProtected,
-  isExcused,
-  isRunnerBlocked,
-  runLinkCheck,
-  runnerBlockedWarning,
-} from './link-check.mjs'
+import { linkCheckEnv, readExtraCa } from './link-check.mjs'
 
 const failures = []
 // Stamped before anything builds, so the bundle layer can tell a chunk
@@ -210,113 +203,31 @@ run('pre-push OPSEC hook is active (local only)', () => {
 // offline: if every URL fails at the network layer (no HTTP status at
 // all), the environment has no route out and the layer reports SKIP.
 // Any real HTTP error status is a broken link and fails the battery.
-
-const LINK_TIMEOUT_MS = 20000
-const LINK_CONCURRENCY = 6
-
-function contentUrls() {
-  const files = sh('git ls-files --cached --others --exclude-standard')
-    .split('\n')
-    .filter((f) => f.startsWith('src/content/') && f.endsWith('.ts'))
-  const urls = new Set()
-  for (const f of files) {
-    for (const m of readFileSync(f, 'utf8').matchAll(/https:\/\/[^\s'"`<>)\]]+/g)) {
-      urls.add(m[0])
-    }
-  }
-  return [...urls].sort()
-}
-
-// Node's fetch does not honor proxy environment variables; curl does. In
-// proxied environments (corporate egress, cloud sandboxes) fall back to
-// curl so the layer still checks links instead of misreading the proxy as
-// an outage.
-const curlAvailable = spawnSync('curl', ['--version'], { stdio: 'ignore' }).status === 0
-const useCurl = Boolean(process.env.HTTPS_PROXY) && curlAvailable
-
-async function checkUrl(url) {
-  if (useCurl) {
-    const res = spawnSync(
-      'curl',
-      ['-sS', '-o', '/dev/null', '-w', '%{http_code}', '-L', '--max-time', String(LINK_TIMEOUT_MS / 1000), url],
-      { encoding: 'utf8' },
-    )
-    const status = Number.parseInt(res.stdout, 10)
-    if (res.status !== 0 || !Number.isFinite(status) || status === 0) return { url, network: true }
-    return { url, status }
-  }
+//
+// Since v1.3 Round 0b the layer runs in a process of its own,
+// scripts/content-links.mjs, so the extra certificate sparta.aerospace.org
+// leaves out (scripts/link-check.mjs, EXTRA_CA) reaches the link check and
+// nothing else. readExtraCa refuses a file that is not the pinned one, and
+// linkCheckEnv strips any switch that would turn verification off.
+function linkCheckLayer() {
+  let extra
   try {
-    const res = await fetch(url, {
-      redirect: 'follow',
-      signal: AbortSignal.timeout(LINK_TIMEOUT_MS),
-      headers: { 'user-agent': 'dark-constellation-battery/1.0 (content link check)' },
-    })
-    return { url, status: res.status }
-  } catch {
-    return { url, network: true }
+    extra = readExtraCa(process.cwd())
+  } catch (err) {
+    return `FAIL: ${err.message}`
   }
-}
-
-// A live third-party host can return a transient 429 or 5xx (rate limiting,
-// a brief outage). Those are not broken links, so retry once before calling
-// it: genuine 404s and persistent failures still fail the battery. The
-// classification and the transport-level second pass live in
-// scripts/link-check.mjs so the suite can drive them without a network.
-async function checkUrlWithRetry(url) {
-  const first = await checkUrl(url)
-  if (!isTransientStatus(first)) return first
-  await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
-  return checkUrl(url)
-}
-
-// What the layer excuses (the ATLAS SPA's 404s, and the pages listed as
-// bot-protected) lives in scripts/link-check.mjs as isExcused, so the suite
-// tests the same predicate this passes. What it only WARNS about (a page
-// listed as blocking CI runners answering 403, timing out or refusing the
-// connection) is isRunnerBlocked, passed the same way.
-
-async function linkCheck() {
-  const urls = contentUrls()
-  // The pipeline lives in scripts/link-check.mjs so the suite can drive it
-  // with fake requests. This function is now the wiring and the wording,
-  // which is all a battery layer should be.
-  const outcome = await runLinkCheck({
-    urls,
-    check: checkUrl,
-    concurrency: LINK_CONCURRENCY,
-    isKnownSpaStatusArtifact: isExcused,
-    isWarnOnly: isRunnerBlocked,
-    originPrefix: 'https://atlas.mitre.org/',
-    originUrl: 'https://atlas.mitre.org/',
+  const child = spawnSync(process.execPath, ['scripts/content-links.mjs'], {
+    env: linkCheckEnv(process.env, extra.path),
+    encoding: 'utf8',
   })
-  // Printed on a pass AND on a failure, so a warning is never hidden
-  // behind a red line about something else.
-  const warnings = (outcome.warned ?? []).map((r) => `\n  ${runnerBlockedWarning(r)}`).join('')
-  if (outcome.reason === 'no-urls') return 'FAIL: no URLs found in src/content; the deck should carry sources'
-  if (outcome.reason === 'origin') {
-    return `FAIL: atlas.mitre.org origin returned HTTP ${outcome.origin.status}; ATLAS links cannot be presumed alive`
-  }
-  if (outcome.outcome === 'skip') return 'SKIP (offline: no URL reachable at the network layer)'
-  if (outcome.outcome === 'fail') {
-    const lines = [
-      ...outcome.broken.map((r) => `  HTTP ${r.status}  ${r.url}`),
-      ...outcome.unreachable.map((r) => `  unreachable  ${r.url}`),
-    ]
-    const count = outcome.broken.length + outcome.unreachable.length
-    return `FAIL: ${count} of ${outcome.results.length} content link(s) did not resolve:\n${lines.join('\n')}${warnings}`
-  }
-  // Name every page excused as bot-protected, and who checked it, so a
-  // pass never hides one.
-  const excused = outcome.results.filter((r) => !r.network && isBotProtected(r.url, r.status))
-  const lines = excused.map((r) => {
-    const entry = BOT_PROTECTED.find((e) => e.url === r.url)
-    return `\n  allow-listed as bot-protected, HTTP ${r.status}: ${r.url}\n    checked ${entry.checked}, ${entry.how}`
-  })
-  return `OK (${outcome.results.length} links)${lines.join('')}${warnings}`
+  if (child.stderr) process.stderr.write(child.stderr)
+  const out = (child.stdout ?? '').trim()
+  if (child.status !== 0 || !out) return `FAIL: the link check process exited ${child.status ?? child.signal} without an outcome`
+  return out
 }
 
 process.stdout.write('[battery] content link check (spec 11.4) ... ')
-report('content link check (spec 11.4)', await linkCheck())
+report('content link check (spec 11.4)', linkCheckLayer())
 
 if (failures.length) {
   console.error(`[battery] RED: ${failures.length} check(s) failed: ${failures.join(', ')}`)
