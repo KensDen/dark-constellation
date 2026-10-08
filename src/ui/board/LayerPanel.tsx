@@ -3,13 +3,13 @@
 // tiles in a grid, two across for ORBIT and AIR and full width for GROUND.
 //
 // Each tile carries its kind's sprite in the state SPRITE_STATES picks
-// for its integrity (v1.2 R2), with the Tier A chevron over it; the pips
-// are ceil(integrity / 25), and the exact percent is in the tile's
-// accessible name. A knocked-out tile stays on the board, greyed and
-// crossed, so losses stay visible. Tap a tile for its intel card (v1.2 R3):
-// what it is, its tier, its exact integrity and the conditions on its
-// layer. Ghost tiles (in transit, queued) show the intact sprite faded,
-// since the thing they stand for has not taken a hit yet.
+// for its integrity (v1.2 R2); the pips are ceil(integrity / 25), and the
+// exact percent is in the tile's accessible name. A knocked-out tile stays
+// on the board, greyed and crossed, so losses stay visible. Tap a tile for
+// its intel card (v1.2 R3): what it is, its exact integrity and the
+// conditions on its layer. Ghost tiles (in transit, queued) show the
+// intact sprite faded, since the thing they stand for has not taken a hit
+// yet.
 //
 // The panel sits over its layer's backdrop, and every piece of text on it
 // sits on PANEL_FILL, so the art can be as bright as it likes around the
@@ -29,11 +29,11 @@
 // decides what moves: under reduced motion the brackets and HELD stand
 // still and the rest does not show.
 
-import type { ActiveCondition, AssetKind, Layer, TrustTier, Vector } from '../../engine/types'
+import type { ActiveCondition, AssetKind, Layer, Vector } from '../../engine/types'
 import ConditionBadge, { type BadgePhase } from '../cues/ConditionBadge'
 import { vectorIcons } from '../cues/icons'
 import { kindLabels, vectorLabels } from '../labels'
-import { ASSET_SPRITES, TIER_A_CHEVRON } from '../sprites/assets'
+import { ASSET_SPRITES } from '../sprites/assets'
 import Backdrop from '../sprites/backdrops'
 import { BACKDROP_BAND, PANEL_FILL } from '../sprites/scenery'
 import PixelSprite from '../sprites/PixelSprite'
@@ -46,7 +46,6 @@ export interface ChipModel {
   phase: BadgePhase
   elapsed: number
   remainingEstimate?: number
-  queuedForSurge: boolean
 }
 
 // The pips' colour by state.
@@ -80,18 +79,17 @@ interface TileHit {
   fromPips: number
 }
 
-// A tile's art: the kind's sprite in its state, the chevron over it at
-// Tier A, bobbing out of phase with its neighbours while it still flies.
+// A tile's art: the kind's sprite in its state, bobbing out of phase with
+// its neighbours while it still flies. The Tier A chevron left with the
+// tiers in v1.3 Round 0 (D2).
 function TileArt({
   kind,
-  tier,
   state,
   phase,
   ghost,
   hit,
 }: {
   kind: AssetKind
-  tier: TrustTier
   state: SpriteState
   phase: number
   ghost?: boolean
@@ -105,7 +103,6 @@ function TileArt({
       style={bob ? { animationDelay: `${-phase * 0.7}s` } : undefined}
     >
       <PixelSprite sprite={ASSET_SPRITES[kind][state]} name={`${kind}.${state}`} className="block" />
-      {tier === 'A' && <PixelSprite sprite={TIER_A_CHEVRON} name="tier-a" className="absolute inset-0" />}
       {hit && <PixelSprite key={hit.id} sprite={LOCK_ON} name="lock-on" className="dc-lock-on absolute inset-0" />}
       {hit?.landed &&
         HIT_BURST.map((frame, i) => (
@@ -142,12 +139,12 @@ function Tile({
         aria-haspopup={inspect ? undefined : 'dialog'}
         aria-pressed={inspect ? selected : undefined}
         aria-controls={inspect ? 'dc-inspector' : undefined}
-        aria-label={`${callSign}, ${kindLabels[asset.kind]}, Tier ${asset.tier}, integrity ${asset.integrity}%${STATE_WORD[state]}`}
+        aria-label={`${callSign}, ${kindLabels[asset.kind]}, integrity ${asset.integrity}%${STATE_WORD[state]}`}
         onClick={onSelect}
         className={`${TILE} ${selected ? 'border-dc-go' : ''}`}
       >
         {hit?.landed && <span key={hit.id} aria-hidden="true" data-strobe className="dc-hit-strobe pointer-events-none absolute inset-0 bg-dc-hostile/45" />}
-        <TileArt kind={asset.kind} tier={asset.tier} state={state} phase={phase} hit={hit} />
+        <TileArt kind={asset.kind} state={state} phase={phase} hit={hit} />
         <span className="min-w-0 flex-1">
           {/* A lost asset's name dims by colour, not by opacity: opacity
               would thin the tile's fill and let the backdrop under the text. */}
@@ -163,11 +160,11 @@ function Tile({
     const { pending, callSign } = tile
     return (
       <div className={`${TILE} border-dashed`}>
-        <TileArt kind={pending.kind} tier={pending.tier} state="intact" phase={phase} ghost />
+        <TileArt kind={pending.kind} state="intact" phase={phase} ghost />
         <span className="min-w-0 flex-1">
           <span className="block font-display text-[10px] text-dc-muted truncate">{callSign}</span>
           <span className="block font-mono text-[10px] uppercase text-dc-muted">
-            {kindLabels[pending.kind]} {pending.tier} · in transit · ETA {pending.etaTurns}
+            {kindLabels[pending.kind]} · in transit · ETA {pending.etaTurns}
           </span>
         </span>
       </div>
@@ -177,15 +174,15 @@ function Tile({
   return (
     <button
       type="button"
-      aria-label={`Remove ${callSign}, ${kindLabels[buy.kind]} Tier ${buy.tier}, from the cart`}
+      aria-label={`Remove ${callSign}, ${kindLabels[buy.kind]}, from the cart`}
       onClick={onRemove}
       className={`${TILE} border-dashed border-dc-friendly/60 ${tile.cue ?? ''}`}
     >
-      <TileArt kind={buy.kind} tier={buy.tier} state="intact" phase={phase} ghost />
+      <TileArt kind={buy.kind} state="intact" phase={phase} ghost />
       <span className="min-w-0 flex-1">
         <span className="block font-display text-[10px] text-dc-friendly truncate">{callSign}</span>
         <span className="block font-mono text-[10px] uppercase text-dc-muted">
-          {kindLabels[buy.kind]} {buy.tier} · queued · tap to remove
+          {kindLabels[buy.kind]} · queued · tap to remove
         </span>
       </span>
     </button>
@@ -257,7 +254,6 @@ export default function LayerPanel({ layer, tiles, chips, defenses, selectedKey,
                   phase={chip.phase === 'applying' ? 'attached' : chip.phase}
                   elapsed={chip.elapsed}
                   remainingEstimate={chip.remainingEstimate}
-                  queuedForSurge={chip.queuedForSurge}
                 />
               </span>
             ))}

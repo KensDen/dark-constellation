@@ -13,24 +13,7 @@ export {
   type DeltaLine,
   type DeltaTone,
 } from './patch'
-export {
-  Director,
-  BEAT_DWELL_MS,
-  beatCueMs,
-  beatDwellMs,
-  chosenCreditsOf,
-  PLAYBACK_SPEED_KEY,
-  SPEEDS,
-  SPEED_LABEL,
-  defaultSpeed,
-  isSpeed,
-  loadSpeedPreference,
-  saveSpeedPreference,
-  type DirectorOptions,
-  type DirectorSnapshot,
-  type Scheduler,
-  type Speed,
-} from './director'
+export { Director, chosenCreditsOf, type DirectorSnapshot } from './director'
 export {
   BEAT_CUES,
   CONDITION_CUES,
@@ -50,7 +33,6 @@ export {
   VISUAL_MS,
   resolveCue,
   soundFor,
-  soundsAtInstantSpeed,
   visualClass,
   visualFor,
   type Cue,
@@ -61,5 +43,4 @@ export {
   type SoundCue,
   type VisualCue,
 } from './cues'
-export { default as SpeedSelect } from './SpeedSelect'
 export { BEAT_KINDS, METER_KEYS, type Beat, type BeatKind, type MeterKey, type Patch } from './types'

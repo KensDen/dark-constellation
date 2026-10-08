@@ -2,11 +2,14 @@
 //
 // A real door to the Field Library from play (critique row M7). The only
 // route was 10px of underlined "learn more" beside a disclosure on a card
-// that moves on after BEAT_DWELL_MS, and three disclosures deep once the
-// turn had played. Now:
+// that moved on by itself after a dwell, and three disclosures deep once
+// the turn had played. Now:
 // - LEARN MORE is a full-width 44px button on every REAL WORLD line;
-// - tapping it during playback holds the beat before the library opens,
-//   and the playback goes on once the library closes;
+// - tapping it during playback asks for the library without moving the
+//   card on, the card waits behind the library, and the playback goes on
+//   once the library closes. Since v1.3 Round 0 (brief 5.5) nothing moves
+//   a card on its own, so the hold that tap used to set is gone; what is
+//   left to guard is the tap itself and the playback's keys;
 // - the aftermath lists the turn's threats, landed or held, each with the
 //   same button above the ledger. Opportunities have no entries.
 // The library itself is Game's (tests/field-library.dom.spec.tsx opens it
@@ -84,15 +87,27 @@ describe('LEARN MORE on the playback card (critique row M7)', () => {
     act(() => {
       root.render(
         <LearnMore.Provider value={open}>
-          <DirectorView before={turn.before} after={turn.after} beats={turn.beats} speed="1x" onSpeedChange={() => {}} onPresented={() => {}} onDone={() => {}} held={held} />
+          <DirectorView before={turn.before} after={turn.after} beats={turn.beats} onPresented={() => {}} onDone={() => {}} held={held} />
         </LearnMore.Provider>,
       )
     })
   }
+  // Tapped through with the playback's own Next, one beat a tap.
+  const next = () => {
+    const button = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Next')
+    if (!button) throw new Error('the playback renders no Next control')
+    act(() => button.click())
+  }
   const toThreatCard = () => {
-    for (let guard = 0; guard < 4000 && Number(beatShown() ?? 0) < turn.position; guard += 1) act(() => vi.advanceTimersByTime(25))
+    for (let guard = 0; guard < 100 && Number(beatShown() ?? 0) < turn.position; guard += 1) next()
     expect(Number(beatShown()), 'playback never reached the threat card').toBe(turn.position)
   }
+  // A key with nothing focused, which is where the playback listens for
+  // Space; Escape it takes from anywhere.
+  const press = (key: string) =>
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+    })
 
   it('is a full-width 44px button in the go colour, keeping its words for a screen reader', () => {
     render(() => {})
@@ -108,27 +123,34 @@ describe('LEARN MORE on the playback card (critique row M7)', () => {
     expect(button.className, 'still the old underlined link').not.toMatch(/underline|text-\[10px\]/)
   })
 
-  it('holds the beat before the library opens, and lets the playback go on once it closes', () => {
-    // The stub plays for time before it answers, as a library that takes
-    // a moment to open would: without the hold the card moves on under the
-    // player's tap.
+  it('asks for the library without moving the card on, and the card waits behind it until it closes', () => {
+    // This case proved PAUSE ON INTENT: the tap held the beat before the
+    // library opened, because the card moved on by itself after a dwell.
+    // v1.3 Round 0 retired the dwell (brief 5.5), and the hold went with
+    // it. What it was for still stands, that the card the player asked
+    // about is the card on screen when they come back, and two things can
+    // still take it away: the tap, which lands inside the card and would
+    // step it if the card's own click took it, and a key meant for the
+    // library, which the playback must leave alone while it is held.
     const asked: string[] = []
     const open = (id: string) => {
       asked.push(id)
-      act(() => vi.advanceTimersByTime(10_000))
     }
     render(open)
     toThreatCard()
     const held = beatShown()
+    const beat = turn.beats.filter((b: Beat) => b.visible)[turn.position - 1]
     act(() => buttons()[0].click())
-    expect(asked, 'LEARN MORE did not ask for the library').toHaveLength(1)
-    expect(beatShown(), 'the card moved on before the library opened').toBe(held)
-    // The library opens (Game holds the board) and closes again.
+    expect(asked, 'LEARN MORE did not ask for the library about this card').toEqual([beat.subjectId])
+    expect(beatShown(), 'the tap on LEARN MORE moved the card on').toBe(held)
+    // The library opens (Game holds the board), and its keys are its own.
     render(open, true)
-    act(() => vi.advanceTimersByTime(10_000))
-    expect(beatShown(), 'the card moved on behind the library').toBe(held)
+    press(' ')
+    press('Escape')
+    expect(beatShown(), 'a key meant for the library moved the card on behind it').toBe(held)
+    // It closes, and the same key is the playback's again.
     render(open, false)
-    act(() => vi.advanceTimersByTime(10_000))
+    press(' ')
     expect(beatShown() !== held, 'the playback stayed held after the library closed').toBe(true)
   })
 })

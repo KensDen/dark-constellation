@@ -22,9 +22,9 @@
 // away the turn's only telling.
 //
 // Consequences each channel answers to, rather than deciding for itself:
-//   - The director stops arming its next beat while hidden and re-arms on
-//     return, so the beat on screen when the phone locked is the beat on
-//     screen when it wakes.
+//   - Playback has nothing to pause since v1.3 Round 0: every beat waits
+//     for a tap (brief 5.5), so the beat on screen when the phone locked is
+//     the beat on screen when it wakes without a policy saying so.
 //   - The count-up snaps to the value of the beat being shown rather than
 //     easing toward it, because an animation the player cannot see is not
 //     an animation. This is what the safety settle was doing by accident.
@@ -57,12 +57,6 @@ export function onVisibilityChange(listener: VisibilityListener): () => void {
 // animate it".
 export function countUpMode(visible: boolean, reduced: boolean): 'ease' | 'snap' {
   return visible && !reduced ? 'ease' : 'snap'
-}
-
-// Whether the director should hold its position. Exported for the same
-// reason: it is the policy, not an implementation detail of the view.
-export function playbackPaused(visible: boolean): boolean {
-  return !visible
 }
 
 // Whether the audio context should be suspended. The third channel, and

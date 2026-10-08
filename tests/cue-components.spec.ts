@@ -11,14 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { BAR_TONE, FLASH_CLASS, TONE_TEXT, toneForDelta, unchosenDelta } from '../src/ui/cues/Meter'
-import {
-  HOLD_IDLE,
-  holdReducer,
-  isSyntheticActivation,
-  type HoldEvent,
-  type HoldState,
-} from '../src/ui/cues/HoldButton'
-import { countUpMode, playbackPaused } from '../src/ui/cues/visibility'
+import { audioSuspended, countUpMode } from '../src/ui/cues/visibility'
 import { PHASE_CLASS, PHASE_MS, nextPhases, settlesFor, type BadgePhase } from '../src/ui/cues/ConditionBadge'
 import { kindLabels, vectorLabels } from '../src/ui/labels'
 import { DEFAULT_SCENARIO } from '../src/content'
@@ -327,12 +320,15 @@ describe('condition badge phases', () => {
 })
 
 describe('the hidden-page policy', () => {
-  it('states one policy the three channels answer to', () => {
+  it('states one policy the channels answer to', () => {
     // The policy is a decision, so it is asserted rather than inferred:
     // hidden means paused, and every channel lands on the truth of the
-    // beat being shown.
-    expect(playbackPaused(false)).toBe(true)
-    expect(playbackPaused(true)).toBe(false)
+    // beat being shown. Playback has had nothing to pause since v1.3 Round
+    // 0, because every beat waits for a tap, so the decision that used to
+    // stand here for it is gone; sound still has one, and it is the same
+    // decision.
+    expect(audioSuspended(false)).toBe(true)
+    expect(audioSuspended(true)).toBe(false)
     // A hidden page and a reduced-motion preference mean the same thing to
     // a number: show it, do not animate it.
     expect(countUpMode(true, false)).toBe('ease')
@@ -366,122 +362,12 @@ describe('the hidden-page policy', () => {
   })
 })
 
+// The two tests that stood first in this block retired in v1.3 Round 0
+// with the hold control itself: the gesture reducer that kept an ordinary
+// click or tap from committing the turn, and the pin that kept the
+// stylesheet from declaring a ring duration of its own. EXECUTE is a tap
+// now, and the ring and its class are gone.
 describe('the prelude controls', () => {
-  it('does not commit the turn on an ordinary click or tap', () => {
-    // The defect this replaced: the control kept a flag saying a pointer
-    // gesture was in flight and cleared it on pointerup, which the browser
-    // dispatches BEFORE the click it synthesises from the same gesture. So
-    // every real mouse click and every real tap arrived at the click
-    // handler with the flag already false and committed the turn at once.
-    // Script-dispatched pointer events produce no click, which is why
-    // driving the page from script did not show it.
-    //
-    // The sequence below is exactly what a browser sends for one click.
-    const play = (events: HoldEvent[], disabled = false) => {
-      let state: HoldState = HOLD_IDLE
-      const effects: string[] = []
-      for (const event of events) {
-        const step = holdReducer(state, event, { disabled })
-        state = step.state
-        effects.push(step.effect)
-      }
-      return { state, effects }
-    }
-
-    const tap = play([
-      { type: 'pointerdown', pointerId: 1, primary: true },
-      { type: 'pointerup', pointerId: 1 },
-      { type: 'click', detail: 1 },
-    ])
-    expect(tap.effects, 'a quick tap must start the hold, cancel it, and commit nothing').toEqual([
-      'start',
-      'cancel',
-      'none',
-    ])
-
-    // Held to the end: one confirm, and the trailing click adds nothing.
-    const held = play([
-      { type: 'pointerdown', pointerId: 1, primary: true },
-      { type: 'elapsed' },
-      { type: 'pointerup', pointerId: 1 },
-      { type: 'click', detail: 1 },
-    ])
-    expect(held.effects).toEqual(['start', 'confirm', 'none', 'none'])
-
-    // A click with no pointer behind it is a keyboard or assistive
-    // activation, and those do not hold.
-    expect(play([{ type: 'click', detail: 0 }]).effects).toEqual(['confirm'])
-    expect(isSyntheticActivation(0)).toBe(true)
-    expect(isSyntheticActivation(1)).toBe(false)
-    expect(isSyntheticActivation(2)).toBe(false)
-
-    // Keyboard fires at once, and the click the browser may follow with is
-    // swallowed rather than committing a second time.
-    expect(
-      play([
-        { type: 'keydown', key: 'Enter', repeat: false },
-        { type: 'click', detail: 0 },
-      ]).effects,
-    ).toEqual(['confirm', 'none'])
-    expect(play([{ type: 'keydown', key: 'a', repeat: false }]).effects).toEqual(['none'])
-    expect(play([{ type: 'keydown', key: ' ', repeat: true }]).effects).toEqual(['none'])
-
-    // A stale timer cannot confirm a gesture that is already over, and no
-    // gesture confirms twice.
-    expect(
-      play([
-        { type: 'pointerdown', pointerId: 1, primary: true },
-        { type: 'elapsed' },
-        { type: 'elapsed' },
-      ]).effects,
-    ).toEqual(['start', 'confirm', 'none'])
-    expect(play([{ type: 'elapsed' }]).effects).toEqual(['none'])
-
-    // Secondary buttons open menus; they do not commit turns.
-    expect(play([{ type: 'pointerdown', pointerId: 1, primary: false }]).effects).toEqual(['none'])
-
-    // A second finger neither restarts the hold nor cancels it by lifting.
-    expect(
-      play([
-        { type: 'pointerdown', pointerId: 1, primary: true },
-        { type: 'pointerdown', pointerId: 2, primary: true },
-        { type: 'pointerup', pointerId: 2 },
-        { type: 'elapsed' },
-      ]).effects,
-    ).toEqual(['start', 'none', 'none', 'confirm'])
-
-    // Dragging off the control cancels, as releasing early does.
-    expect(
-      play([
-        { type: 'pointerdown', pointerId: 1, primary: true },
-        { type: 'pointerlost', pointerId: 1 },
-        { type: 'elapsed' },
-      ]).effects,
-    ).toEqual(['start', 'cancel', 'none'])
-
-    // A disabled control commits nothing on any path.
-    for (const event of [
-      { type: 'pointerdown', pointerId: 1, primary: true },
-      { type: 'click', detail: 0 },
-      { type: 'keydown', key: 'Enter', repeat: false },
-      { type: 'elapsed' },
-    ] as HoldEvent[]) {
-      expect(play([event], true).effects, `${event.type} committed while disabled`).toEqual(['none'])
-    }
-  })
-
-  it('leaves the duration of the ring to the control, so the stylesheet cannot drift from it', () => {
-    // The DOM suite asserts the rendered inline duration end to end. What
-    // no render can show is the other half of the contract: that the
-    // stylesheet declares no duration of its own to drift from the timer.
-    // This assertion was lost for part of Round 4c when the source-pinned
-    // half of its test was retired with too blunt an edit, and the audit
-    // caught it as a mutation that had started surviving.
-    const rule = /\.dc-hold-fill\s*\{([^}]*)\}/.exec(CSS)
-    expect(rule, '.dc-hold-fill is not in the stylesheet').not.toBeNull()
-    expect(rule![1], 'the stylesheet must not declare its own hold duration').not.toMatch(/\d+m?s/)
-  })
-
   it('wires the prelude cues to the controls they belong to', () => {
     // Same idiom and the same limitation as the declaration chain: no DOM
     // here, so the wiring is read from the source with comments stripped.
@@ -490,14 +376,31 @@ describe('the prelude controls', () => {
       .split('\n')
       .filter((line) => !/^\s*\/\//.test(line))
       .join('\n')
-    // The resolve control is the hold control, not a plain button.
-    expect(game, 'the resolve control must be the hold control').toMatch(
-      /<HoldButton[\s\S]*?onConfirm=\{\s*resolve\s*\}/,
+    // The resolve control is EXECUTE, a plain button since v1.3 Round 0
+    // (the hold went with brief 4: "EXECUTE ends the turn"). Its click
+    // sweeps and then resolves, in that order and in the one handler, so
+    // a mouse click, a tap and a keyboard activation all reach both. The
+    // element is bounded at its own closing tag, so a sweep or a resolve
+    // belonging to some neighbouring control cannot satisfy this.
+    const execute = /<button\b(?:(?!<\/button>)[\s\S])*?\bdata-execute\b[\s\S]*?<\/button>/.exec(game)
+    expect(execute, 'the resolve control must be the EXECUTE button').not.toBeNull()
+    expect(execute![0], 'EXECUTE must sweep and then resolve on its click').toMatch(
+      /onClick=\{\s*\(\)\s*=>\s*\{[^}]*?\bplay\(\s*'execute-sweep'\s*\)[^}]*?\bresolve\(\s*\)/,
     )
-    // Any plain control that resolves, however the handler is spelled:
-    // wrapping it in an arrow defeated the earlier form of this check.
-    expect(game, 'a plain resolve button must not sit beside it').not.toMatch(
-      /<button[\s\S]{0,240}?onClick=\{[^}]*\bresolve\b/,
+    // And it is the only control that resolves, however the handler is
+    // spelled: an arrow, a bare reference handed to some other prop, or a
+    // keyboard path of its own. Every use of the identifier is counted
+    // except its declaration and the ActionBar render prop that happens to
+    // share the name, and the one that remains must be EXECUTE's. String
+    // literals are blanked to the same length first, so the error copy
+    // ("Turn could not resolve") is not mistaken for a call and every
+    // index still points into the source above.
+    const code = game.replace(/'[^'\n]*'|"[^"\n]*"|`[^`]*`/g, (literal) => ' '.repeat(literal.length))
+    const uses = [...code.matchAll(/(?<![\w.])\bresolve\b(?!\w|\s*=(?!=))/g)]
+    expect(uses.length, 'a second control resolves the turn beside EXECUTE').toBe(1)
+    const at = uses[0].index!
+    expect(at > execute!.index && at < execute!.index + execute![0].length, 'the one resolve is not inside EXECUTE').toBe(
+      true,
     )
     // The manifest entrance is applied to the entry that was just added.
     expect(game, 'the manifest cue must be keyed to the entry that was added').toMatch(

@@ -11,7 +11,7 @@
 // static import in App.tsx is only the most obvious way to undo the split.
 // The module lands in the initial chunk if ANYTHING the initial chunk
 // reaches imports it statically: MainMenu naming Glossary for a link, a
-// shared helper pulled out of FieldManual, a barrel file re-exporting the
+// shared helper pulled out of Credits, a barrel file re-exporting the
 // lot. So the check walks the static import graph from the real entry
 // point, src/main.tsx, following only static imports, and fails if it
 // arrives at a screen the split says should be lazy. The App.tsx case is
@@ -127,8 +127,12 @@ describe('the split screens stay out of the initial chunk (v1.2 R0)', () => {
     // importing it statically, which is the trail this guard reported in
     // R0 when the declaration was tried too early. Eight since v1.2 R5b:
     // the FIELD LIBRARY, a reading room most sessions never enter, in the
-    // menu's INTEL ARCHIVE (brief 7.3: lazy-loaded, its own chunk).
-    expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(8)
+    // menu's INTEL ARCHIVE (brief 7.3: lazy-loaded, its own chunk). Six
+    // since v1.3 Round 0: the FIELD MANUAL and HOW TO PLAY screens were
+    // deleted with their menu entries (v1.3 brief 5.1, critique rows M5
+    // and M20: the briefing teaches the rules), so their two declarations
+    // went with the files rather than turning static.
+    expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(6)
     for (const spec of lazySpecs) {
       expect(resolveLocal(APP, spec), `lazy import ${spec} resolves to no file`).toBeTruthy()
     }

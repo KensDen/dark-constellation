@@ -195,7 +195,8 @@ describe('visual cue vocabulary (Round 3)', () => {
       'dc-flash-bad',
       'dc-badge',
       'dc-tile:active',
-      'dc-hold-fill',
+      // dc-hold-fill stood here until v1.3 Round 0, when EXECUTE became a
+      // tap and the hold ring left the stylesheet with its control.
       'dc-manifest-in',
       'dc-phase-dim',
       // Round 5's four scene entrances and the two treatments inside them.

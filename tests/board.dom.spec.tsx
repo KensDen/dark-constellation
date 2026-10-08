@@ -3,9 +3,10 @@
 // The board rendered (v1.2 R1, brief section 4): the layer panels and
 // their tiles, the chips and defense icons on the headers, the sheets
 // with their STEP n OF m headers, and the round's second guard, that the
-// HARDEN sheet never renders a threat name from Countermeasure.counters.
-// The fixture is the one tests/game.dom.spec.tsx documents; the same
-// masking constants apply.
+// PROCURE sheet's DEFENSES never render a threat name from
+// Countermeasure.counters (HARDEN's guard until v1.3 Round 0 merged HARDEN
+// and INTEL into PROCURE). The fixture is the one tests/game.dom.spec.tsx
+// documents; the same masking constants apply.
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -19,15 +20,13 @@ import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import { LAYERS, type GameState } from '../src/engine/types'
 import { callSigns } from '../src/ui/board/board'
-import { ACTIONS } from '../src/ui/board/actions'
-import { PROCURE_STEPS } from '../src/ui/board/ProcureSheet'
-import HardenSheet, { HARDEN_STEPS } from '../src/ui/board/HardenSheet'
-import { SURGE_STEPS } from '../src/ui/board/SurgeSheet'
+import { assetPrice } from '../src/engine/scoring'
+import { ACTIONS, resolveLabel } from '../src/ui/board/actions'
+import ProcureSheet, { ORDER_TIER, PROCURE_STEPS } from '../src/ui/board/ProcureSheet'
 import { vectorLabels } from '../src/ui/labels'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 import { NO_OP, WIN_SCRIPT } from './scripts'
-import { PLAYBACK_SPEED_KEY } from '../src/director'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -112,27 +111,33 @@ const stepHeader = (id: string) => sheet(id)?.textContent?.match(/STEP (\d+) OF 
 const shortNames = () => DEFAULT_SCENARIO.events.map((e) => e.name.split(' (')[0])
 
 describe('the board (v1.2 R1)', () => {
-  it('GUARD (b): the HARDEN sheet never renders a threat name from Countermeasure.counters', () => {
+  it("GUARD (b): PROCURE's DEFENSES never render a threat name from Countermeasure.counters", () => {
     // Brief 4.4, the answer-key fix. A countermeasure shows its vector
     // icons and its blurb, not the names of the threats it answers; that
-    // mapping stays in the Glossary. Every countered event's name, short
-    // and full, is checked against the sheet's whole text, so a line in a
-    // footnote or a title attribute would fail it the same as the old
-    // "Answers:" line did.
+    // mapping stays in the Glossary. The defenses were the HARDEN sheet
+    // until v1.3 Round 0 merged it into PROCURE, so the positive controls
+    // read the DEFENSES section, and every countered event's name, short
+    // and full, is checked against the whole sheet's text, so a line in
+    // ASSETS, INTEL or a footnote would fail it the same as the old
+    // "Answers:" line did. (Ruling R1's earned answer key rewrites this
+    // guard in a later step.) A saved 'harden' phase opens PROCURE.
     render(gameAt(3), 'harden')
-    const harden = sheet('harden')
-    expect(harden, 'the HARDEN sheet is not open').not.toBeNull()
-    const text = harden!.textContent ?? ''
+    const procure = sheet('procure')
+    expect(procure, 'the PROCURE sheet is not open').not.toBeNull()
+    const defenses = procure!.querySelector('[data-procure-defenses]')
+    expect(defenses, 'PROCURE has no DEFENSES section').not.toBeNull()
+    const offeredText = defenses!.textContent ?? ''
+    const text = procure!.textContent ?? ''
     const offered = DEFAULT_SCENARIO.countermeasures.filter((cm) => cm.id !== 'intelInvestment' && cm.id !== 'irRetainer')
-    // The positive controls, so the sheet cannot pass by being empty: each
-    // countermeasure's name and blurb are there, and each has at least one
-    // vector icon with the vector's player-facing name as its alt text.
+    // The positive controls, so the section cannot pass by being empty:
+    // each countermeasure's name and blurb are there, and each has at least
+    // one vector icon with the vector's player-facing name as its alt text.
     for (const cm of offered) {
-      expect(text, `${cm.id} is not offered`).toContain(cm.name)
-      expect(text, `${cm.id} has no blurb`).toContain(cm.blurb)
+      expect(offeredText, `${cm.id} is not offered`).toContain(cm.name)
+      expect(offeredText, `${cm.id} has no blurb`).toContain(cm.blurb)
     }
-    const alts = [...harden!.querySelectorAll('img')].map((img) => img.getAttribute('alt') ?? '')
-    expect(alts.length, 'no vector icons on the sheet').toBeGreaterThanOrEqual(offered.length)
+    const alts = [...defenses!.querySelectorAll('img')].map((img) => img.getAttribute('alt') ?? '')
+    expect(alts.length, 'no vector icons in DEFENSES').toBeGreaterThanOrEqual(offered.length)
     for (const alt of alts) expect(Object.values(vectorLabels), `an icon's alt text is not a vector: ${alt}`).toContain(alt)
     // And the guard itself.
     const leaked: string[] = []
@@ -144,25 +149,26 @@ describe('the board (v1.2 R1)', () => {
         }
       }
     }
-    expect(leaked.join('\n'), 'the HARDEN sheet names the threats a defense answers').toBe('')
+    expect(leaked.join('\n'), 'the PROCURE sheet names the threats a defense answers').toBe('')
   })
 
-  it('offers the IR retainer on HARDEN, says what it does to recovery, and buys it (critique row M8)', () => {
+  it("offers the IR retainer in PROCURE's DEFENSES, says what it does to recovery, and buys it (critique row M8)", () => {
     // The retainer decides more games than any other purchase and sat on
     // INTEL's second step, where a player who hardens fully never looked.
-    // On HARDEN its tile reads the scenario's two recovery rates, and the
+    // It moved to HARDEN, and with HARDEN into PROCURE's DEFENSES in v1.3
+    // Round 0. Its tile reads the scenario's two recovery rates, and the
     // tick queues the turn's own retainer flag: the engine skips the
     // retainer in the countermeasure list, so a tile that queued it there
     // would charge the cart and buy nothing.
-    localStorage.setItem(PLAYBACK_SPEED_KEY, 'instant')
     const state = gameAt(3)
     expect(state.irRetainer, 'the fixture already owns the retainer').toBe(false)
-    render(state, 'harden')
+    render(state, 'brief')
+    click(byText(/^PROCURE/)!)
     const { base, withIrRetainer } = DEFAULT_SCENARIO.recovery
-    const box = [...sheet('harden')!.querySelectorAll('input[type="checkbox"]')].find((b) =>
+    const box = [...sheet('procure')!.querySelectorAll('[data-procure-defenses] input[type="checkbox"]')].find((b) =>
       /Incident response retainer/.test(b.closest('label')?.textContent ?? ''),
     ) as HTMLInputElement | undefined
-    expect(box, 'the retainer is not on HARDEN').toBeDefined()
+    expect(box, 'the retainer is not in DEFENSES').toBeDefined()
     expect(box!.closest('label')!.textContent).toContain(
       `Recovers ${withIrRetainer} a turn on every meter instead of ${base}. Does not stop anything; shortens everything.`,
     )
@@ -170,23 +176,46 @@ describe('the board (v1.2 R1)', () => {
       box!.click()
     })
     expect(box!.checked, 'the retainer did not queue').toBe(true)
-    expect(byText(/^HARDEN/)!.textContent, 'HARDEN does not count the queued retainer').toContain('1 queued')
-    expect(byText(/^INTEL/)!.textContent, 'INTEL still claims the retainer').not.toContain('queued')
-    act(() => {
-      byText(/Hold to resolve/i)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
+    // One order, the retainer's: it rides its own flag, not the intel order
+    // beside it on the same sheet.
+    expect(byText(/^PROCURE/)!.textContent, 'PROCURE does not count the queued retainer').toContain('1 queued')
+    const intel = sheet('procure')!.querySelector('[data-procure-intel] input[type="checkbox"]') as HTMLInputElement | null
+    expect(intel, 'PROCURE has no INTEL order').not.toBeNull()
+    expect(intel!.checked, 'the retainer ticked the intel order').toBe(false)
+    // EXECUTE is a tap; the turn resolves on the click and the autosave
+    // carries the next turn before any of the playback is seen.
+    const execute = container.querySelector('button[data-execute]')
+    expect(execute, 'EXECUTE is not on screen').not.toBeNull()
+    click(execute!)
     const saved = JSON.parse(localStorage.getItem('dc-autosave') ?? 'null')
     expect(saved?.state.turn, 'the turn did not resolve').toBe(state.turn + 1)
-    expect(saved.state.irRetainer, 'the retainer ticked on HARDEN was not bought').toBe(true)
+    expect(saved.state.irRetainer, 'the retainer ticked in DEFENSES was not bought').toBe(true)
     // Read off the scenario, not written out: the sheet on a retuned
     // scenario says the retuned rates.
     const retuned = { ...DEFAULT_SCENARIO, recovery: { base: 3, withIrRetainer: 9 } }
     act(() => {
       root.render(
-        <HardenSheet scenario={retuned} state={state} queued={[]} step={1} onToggle={() => {}} onNext={() => {}} onBack={() => {}} onClose={() => {}} deniedClassFor={() => ''} spendLine={null} />,
+        <ProcureSheet
+          scenario={retuned}
+          state={state}
+          step={1}
+          pick={{}}
+          onKind={() => {}}
+          onBuy={() => {}}
+          onBack={() => {}}
+          onClose={() => {}}
+          buyClass=""
+          spendLine={null}
+          queuedCounters={[]}
+          onToggleCounter={() => {}}
+          deniedClassFor={() => ''}
+          intelChecked={false}
+          onIntel={() => {}}
+          intelClass=""
+        />,
       )
     })
-    expect(sheet('harden')!.textContent).toContain('Recovers 9 a turn on every meter instead of 3.')
+    expect(sheet('procure')!.querySelector('[data-procure-defenses]')!.textContent).toContain('Recovers 9 a turn on every meter instead of 3.')
   })
 
   it('renders one tile per asset on its layer, with the call sign and the exact integrity in its name', async () => {
@@ -237,41 +266,25 @@ describe('the board (v1.2 R1)', () => {
     if (state.intelLevel < 3) expect(container.textContent).not.toMatch(/~\d+ left/)
   })
 
-  it('opens each sheet with a STEP n OF m header and walks PROCURE to a queued tile', () => {
+  it('opens PROCURE with a STEP n OF m header over its three sections and walks it to a queued tile', () => {
+    // One stepped sheet since v1.3 Round 0: HARDEN and INTEL are sections
+    // of PROCURE's first step (DEFENSES, the IR retainer among them, and
+    // INTEL), and SURGE left with its sheet. SYSTEM has its title and no
+    // step header.
     render(gameAt(2), 'brief')
-    for (const [label, id, steps] of [
-      ['PROCURE', 'procure', PROCURE_STEPS],
-      ['HARDEN', 'harden', HARDEN_STEPS],
-    ] as const) {
-      click(byText(new RegExp(`^${label}`))!)
-      expect(stepHeader(id), `${label} has no step header`).toEqual([1, steps])
-    }
-    // INTEL is one step since critique row M8 moved the IR retainer, its
-    // second step, onto HARDEN, so it has its title and no step header, as
-    // SYSTEM does. The retainer is on HARDEN, not here.
-    click(byText(/^INTEL/)!)
-    expect(sheet('intel'), 'the INTEL sheet is not open').not.toBeNull()
-    expect(stepHeader('intel'), 'INTEL still counts steps').toBeUndefined()
-    expect(sheet('intel')!.textContent, 'the retainer is still on INTEL').not.toMatch(/Incident response retainer/)
-    click(byText(/^HARDEN/)!)
-    expect(sheet('harden')!.textContent, 'the retainer is not on HARDEN').toMatch(/Incident response retainer/)
-    // SURGE opens only when there is something to surge on; the bar says
-    // why otherwise.
-    const surge = byText(/^SURGE/)!
-    if (surge.disabled) expect(surge.textContent).toMatch(/no tokens|no conditions/)
-    else {
-      click(surge)
-      expect(stepHeader('surge')).toEqual([1, SURGE_STEPS])
-    }
-    // PROCURE: kind, tier, confirm, and the confirm carries the price.
     click(byText(/^PROCURE/)!)
-    expect(stepHeader('procure')).toEqual([1, 3])
+    expect(stepHeader('procure'), 'PROCURE has no step header').toEqual([1, PROCURE_STEPS])
+    expect(sheet('procure')!.querySelectorAll('[data-procure-kind]').length, 'PROCURE offers no assets').toBeGreaterThan(0)
+    expect(sheet('procure')!.querySelector('[data-procure-defenses]')!.textContent, 'the retainer is not in DEFENSES').toMatch(/Incident response retainer/)
+    expect(sheet('procure')!.querySelector('[data-procure-intel]')?.textContent, 'PROCURE has no INTEL order').toMatch(/Raise intel to level \d/)
+    // PROCURE: kind, then the confirm, and the confirm carries the price.
+    // The Tier A / Tier B step went with D2 (a): every asset is ordered at
+    // the one price there is.
     click(container.querySelector('[data-procure-kind="drone"]')!)
-    expect(stepHeader('procure')).toEqual([2, 3])
-    click(container.querySelector('[data-procure-tier="B"]')!)
-    expect(stepHeader('procure')).toEqual([3, 3])
+    expect(stepHeader('procure')).toEqual([2, PROCURE_STEPS])
+    expect(container.querySelector('[data-procure-tier]'), 'the tier step is back').toBeNull()
     const confirm = container.querySelector('[data-procure-buy]')!
-    expect(confirm.textContent).toMatch(/BUY · \d+ CR/)
+    expect(confirm.textContent).toBe(`ORDER · ${assetPrice(DEFAULT_SCENARIO, 'drone', ORDER_TIER)} CR`)
     click(confirm)
     // The sheet closes and the queued tile is on AIR, with its call sign.
     expect(sheet('procure')).toBeNull()
@@ -282,18 +295,23 @@ describe('the board (v1.2 R1)', () => {
     expect(container.querySelector('button[aria-label^="Remove"]'), 'the queued tile did not leave').toBeNull()
   })
 
-  it('keeps the RESOLVE control a hold control with its accessible name, under a row of four steps', () => {
-    // Since R2b the four steps are one row and RESOLVE is full width under
-    // it, in its own slot.
-    render(gameAt(2), 'brief')
+  it('keeps EXECUTE a plain button with its accessible name, full width under the row of steps', () => {
+    // Since R2b the steps are one row and the commit is full width under
+    // it, in its own slot. A tap since v1.3 Round 0: the hold went with
+    // the auto-advancing director, so the control is a plain button whose
+    // name is its label.
+    const state = gameAt(2)
+    render(state, 'brief')
     const bar = container.querySelector('nav[aria-label="Actions"]')!
     const labels = [...bar.querySelectorAll('button[data-action] [data-label]')].map((b) => (b.textContent ?? '').trim())
     expect(labels).toEqual(ACTIONS.filter((a) => a.sheet !== null).map((a) => a.label))
     const commit = ACTIONS.find((a) => a.sheet === null)!
-    const resolve = bar.querySelector(`[data-action="${commit.id}"] button`)!
-    expect(resolve.className).toMatch(/dc-hold/)
-    expect(resolve.className).toMatch(/w-full/)
-    expect(resolve.textContent).toMatch(/Hold to resolve turn \d+/)
+    const execute = bar.querySelector(`[data-action="${commit.id}"] button`)!
+    expect(execute.hasAttribute('data-execute'), 'the commit slot does not hold EXECUTE').toBe(true)
+    expect(execute.getAttribute('type')).toBe('button')
+    expect(execute.className).not.toMatch(/dc-hold/)
+    expect(execute.className).toMatch(/w-full/)
+    expect(execute.getAttribute('aria-label') ?? execute.textContent, 'EXECUTE is not named by its label').toBe(resolveLabel(state.turn))
   })
 
   it('carries no developer parenthetical on any screen state a player reaches', () => {
@@ -301,8 +319,12 @@ describe('the board (v1.2 R1)', () => {
       render(gameAt(3), phase)
       expect(container.textContent, `"in this build" at ${phase}`).not.toMatch(/in this build/i)
     }
+    // The phases above open PROCURE at its first step, INTEL among its
+    // sections; its second step, the confirm, is reached by picking a kind.
     render(gameAt(3), 'brief')
-    click(byText(/^INTEL/)!)
+    click(byText(/^PROCURE/)!)
+    click(container.querySelector('[data-procure-kind="sat"]')!)
+    expect(stepHeader('procure'), 'PROCURE did not reach its confirm').toEqual([2, PROCURE_STEPS])
     expect(container.textContent).not.toMatch(/in this build/i)
   })
 })

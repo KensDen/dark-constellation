@@ -1,16 +1,14 @@
 // The asset sprites (v1.2 R2, brief 5.2): every AssetKind in every sprite
-// state, and the Tier A chevron. 16x16, drawn at 2x on a tile.
+// state. 16x16, drawn at 2x on a tile.
 //
 // Damaged and critical are redrawn, not recoloured: they lose pixels
 // (a wing cell, a rotor, the dish rim) and gain sparks and then smoke,
 // which the idle life animates. Knocked out is the intact art greyed with
 // a pixel X, built by knockedOut(), and stays on the board. The battery
 // sweeps the engine's AssetKind union against this table (principle 17),
-// so a kind the engine grows fails the suite until it is drawn.
-//
-// The top-right corner, rows 0 to 2 from column 11, is kept clear on every
-// sprite: the Tier A chevron sits there, and the suite checks that the two
-// never share a pixel.
+// so a kind the engine grows fails the suite until it is drawn. The Tier A
+// chevron that sat in the top-right corner left with the tiers in v1.3
+// Round 0 (D2); Round 2 replaces these maps with the prototype's.
 
 import type { AssetKind } from '../../engine/types'
 import type { SpriteState } from '../board/board'
@@ -125,15 +123,3 @@ export const ASSET_SPRITES: Record<AssetKind, Record<SpriteState, Sprite>> = {
     out: knockedOut(GROUND_STATION),
   },
 }
-
-// The Tier A chevron (brief 4.2): gold, in the corner every asset sprite
-// keeps clear, drawn over the asset at the same size and scale.
-export const TIER_A_CHEVRON = sprite(
-  { y: { token: 'warn' } },
-  `
-  .............y.. ............yyy. ...........yy.yy ................
-  ................ ................ ................ ................
-  ................ ................ ................ ................
-  ................ ................ ................ ................
-`,
-)

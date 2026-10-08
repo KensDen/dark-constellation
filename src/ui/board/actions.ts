@@ -6,20 +6,25 @@
 // order to the array. A number or a key spelled anywhere else is the
 // second structure principle 17 forbids.
 //
-// Since R2b the bar is a turn stepper: the four actions with a sheet sit
-// in one row, RESOLVE is the full-width button under them, and an
-// objective line over the bar always says what to do next. What it says,
-// and which step glows, come from suggestNextStep below (or, on the first
-// turn ever on a device, from the walkthrough in GUIDE), in one call.
+// Since R2b the bar is a turn stepper: the actions with a sheet sit in one
+// row, the commit is the full-width button under them, and an objective
+// line over the bar always says what to do next. What it says, and which
+// step glows, come from suggestNextStep below (or, on the first turn ever
+// on a device, from the walkthrough in GUIDE), in one call.
+//
+// TWO ACTIONS since v1.3 Round 0 (brief 5.3, critique row M6): PROCURE,
+// which holds assets, defenses and intel in one sheet, and EXECUTE, which
+// ends the turn with a tap. HARDEN, INTEL and SURGE left with their
+// sheets, and the hold-to-resolve button with the auto-advancing director.
 //
 // Kept free of React and of the sheet components, so brief.ts and the
 // node battery can read it.
 
 import { assetPrice } from '../../engine/scoring'
-import type { GameState, TrustTier } from '../../engine/types'
+import type { GameState } from '../../engine/types'
 import { KIND_LAYER, hardenOffers, turnBudget } from './board'
 
-export type SheetId = 'procure' | 'harden' | 'intel' | 'surge' | 'system'
+export type SheetId = 'procure' | 'system'
 export type StepSheet = Exclude<SheetId, 'system'>
 export type StepId = StepSheet | 'resolve'
 
@@ -28,40 +33,32 @@ export interface BoardAction {
   label: string
   number: number
   hotkey: string
-  // The sheet the action opens; RESOLVE opens none, it commits the turn.
+  // The sheet the action opens; EXECUTE opens none, it commits the turn.
   sheet: StepSheet | null
-  // The HUD sprite beside the label (v1.2 R2): the eye for intel, the
-  // bolt for the surge tokens. By name, so this file stays data.
-  icon?: 'eye' | 'bolt'
 }
 
 export const ACTIONS: readonly BoardAction[] = [
   { id: 'procure', label: 'PROCURE', number: 1, hotkey: '1', sheet: 'procure' },
-  { id: 'harden', label: 'HARDEN', number: 2, hotkey: '2', sheet: 'harden' },
-  { id: 'intel', label: 'INTEL', number: 3, hotkey: '3', sheet: 'intel', icon: 'eye' },
-  { id: 'surge', label: 'SURGE', number: 4, hotkey: '4', sheet: 'surge', icon: 'bolt' },
-  { id: 'resolve', label: 'RESOLVE', number: 5, hotkey: '5', sheet: null },
+  { id: 'resolve', label: 'EXECUTE', number: 2, hotkey: '2', sheet: null },
 ]
 
 // The F key of an action (v1.2 R6, brief 4.6): F and its step number, so
 // the chip, the key and the badge it replaces on a wide screen agree.
 export const fKeyOf = (a: BoardAction) => `F${a.number}`
 
-// RESOLVE's label is the instruction (R2b), and it is also the control's
+// EXECUTE's label is the instruction (R2b), and it is also the control's
 // accessible name: the screen shows it in capitals through CSS, so a
-// screen reader hears the words and not the letters.
-export const resolveLabel = (turn: number) => `Hold to resolve turn ${turn}`
-export const resolvingLabel = (turn: number) => `Resolving turn ${turn} ...`
+// screen reader hears the words and not the letters. A tap since v1.3
+// Round 0 (brief 4, "EXECUTE ends the turn"): the hold went with the
+// auto-advancing director.
+export const resolveLabel = (turn: number) => `Execute turn ${turn}`
 
 // What the objective line says, and which step glows: one of these per
 // step, each naming the step it points at, so the sentence and the glow
 // cannot point at different steps.
 export const NEXT_STEP_SENTENCE: Record<StepId, string> = {
-  procure: 'Open PROCURE to buy an asset.',
-  harden: 'Open HARDEN to pick a defense.',
-  intel: 'Open INTEL to see further ahead.',
-  surge: 'Use SURGE to clear a condition.',
-  resolve: 'Hold RESOLVE to play the turn.',
+  procure: 'Open PROCURE to place your orders.',
+  resolve: 'Press EXECUTE to play the turn.',
 }
 
 export interface NextStep {
@@ -69,32 +66,22 @@ export interface NextStep {
   sentence: string
 }
 
-const TIERS: readonly TrustTier[] = ['A', 'B']
-
 // THE SUGGESTED NEXT STEP (R2b). Pure, and it reads only what the player
 // can already see: the credits on the HUD (`credits`, which is what the
 // cart leaves; the turn's budget when nothing is in it), the prices on the
-// sheets, what is owned, and the conditions on the layer headers. No
-// forecast, no hidden durations. `used` is the steps whose sheet was
-// opened this turn.
-//
-// SURGE takes the same "not used" test as the three before it: a queued
-// token stays in state until the turn resolves, so without it the
-// suggestion would never move on to RESOLVE.
+// sheet and what is owned. `used` is the steps whose sheet was opened this
+// turn. PROCURE until it has been opened while something on it is
+// affordable, then EXECUTE.
 export function suggestNextStep(state: GameState, used: ReadonlySet<string>, credits: number = turnBudget(state)): NextStep {
   const scenario = state.scenario
-  const open = (id: StepId) => !used.has(id)
   const pick = (step: StepId): NextStep => ({ step, sentence: NEXT_STEP_SENTENCE[step] })
-  const cheapestAsset = Math.min(
-    ...(Object.keys(KIND_LAYER) as (keyof typeof KIND_LAYER)[]).flatMap((kind) => TIERS.map((tier) => assetPrice(scenario, kind, tier))),
-  )
-  if (open('procure') && cheapestAsset <= credits) return pick('procure')
+  const cheapestAsset = Math.min(...(Object.keys(KIND_LAYER) as (keyof typeof KIND_LAYER)[]).map((kind) => assetPrice(scenario, kind, 'B')))
   const defenses = hardenOffers(scenario).filter((cm) => !state.counters.includes(cm.id))
-  if (open('harden') && defenses.some((cm) => cm.cost <= credits)) return pick('harden')
   // The price of the next intel level; none past the top level.
   const intelPrice = (scenario.prices.intelLevels as readonly number[])[state.intelLevel]
-  if (open('intel') && intelPrice !== undefined && intelPrice <= credits) return pick('intel')
-  if (open('surge') && state.surgeTokens > 0 && state.conditions.length > 0) return pick('surge')
+  const affordable =
+    cheapestAsset <= credits || defenses.some((cm) => cm.cost <= credits) || (intelPrice !== undefined && intelPrice <= credits)
+  if (!used.has('procure') && affordable) return pick('procure')
   return pick('resolve')
 }
 
@@ -102,9 +89,10 @@ export function suggestNextStep(state: GameState, used: ReadonlySet<string>, cre
 export const creditsTag = (credits: number) => `${credits} CR LEFT`
 
 // THE GUIDED FIRST TURN (R2b). On the first game ever on a device, turn
-// 1's objective line walks one step at a time: buy, then harden (or
-// skip it), then resolve. The glow follows it.
-export type GuideStage = 'start' | 'harden' | 'last'
+// 1's objective line walks one step at a time: order, then execute. The
+// glow follows it. Two stages since v1.3 Round 0, when HARDEN merged into
+// PROCURE; Round 2 replaces the walkthrough with FIRST ORDERS.
+export type GuideStage = 'start' | 'last'
 export interface Objective {
   tag: string
   sentence: string
@@ -112,17 +100,15 @@ export interface Objective {
   step: StepId | null
 }
 export const GUIDE: Record<GuideStage, Objective> = {
-  start: { tag: 'START HERE', sentence: 'Open PROCURE, buy a satellite.', step: 'procure' },
-  harden: { tag: 'STEP 2', sentence: 'Open HARDEN and pick a defense.', step: 'harden' },
-  last: { tag: 'LAST STEP', sentence: 'Hold RESOLVE to play the turn.', step: 'resolve' },
+  start: { tag: 'START HERE', sentence: 'Open PROCURE and place your orders.', step: 'procure' },
+  last: { tag: 'LAST STEP', sentence: 'Press EXECUTE to play the turn.', step: 'resolve' },
 }
 export const SKIP_TIPS = 'Skip tips'
 
-// Where the walkthrough is: a purchase moves it on, and so does a
-// hardening, or a skip (HARDEN opened and closed with nothing queued).
-export function guideStage(bought: boolean, hardenedOrSkipped: boolean): GuideStage {
-  if (!bought) return 'start'
-  return hardenedOrSkipped ? 'last' : 'harden'
+// Where the walkthrough is: an order moves it on, and so does a skip
+// (PROCURE opened and closed with nothing queued).
+export function guideStage(orderedOrSkipped: boolean): GuideStage {
+  return orderedOrSkipped ? 'last' : 'start'
 }
 
 // What the objective line says on a turn's first screen, before any input:

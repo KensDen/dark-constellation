@@ -3,8 +3,9 @@
 // GUARD R6 (c), the other half (principle 17, both directions): the F keys
 // are read from the action array's numbers, not spelled beside it. With
 // the numbers rotated by one, every F key names a different action than in
-// the shipped array (a reversal would leave the middle one where it was),
-// so a key map written as F1 is PROCURE, F2 is HARDEN and so on passes
+// the shipped array (with the two actions of v1.3 Round 0 the rotation is
+// a swap; with an odd count a reversal would leave the middle one where it
+// was), so a key map written as F1 is PROCURE, F2 is EXECUTE passes
 // tests/wide-board.dom.spec.tsx and fails here. Its own file,
 // because the renumbered array has to be the only one Game ever imports.
 
@@ -18,7 +19,7 @@ vi.mock('../src/ui/board/actions', async (importOriginal) => {
 })
 
 import { ACTIONS, fKeyOf } from '../src/ui/board/actions'
-import { bar, gameAt, hold, installWideBoardHarness, press, render, setWide, settle, sheetOpen } from './wideHarness'
+import { bar, execute, gameAt, installWideBoardHarness, press, render, setWide, settle, sheetOpen } from './wideHarness'
 
 installWideBoardHarness()
 
@@ -38,7 +39,7 @@ describe("GUARD R6 (c), the other half: the keys follow the array's numbers", ()
     for (const a of ACTIONS) {
       expect(press(fKeyOf(a)), fKeyOf(a)).toBe(true)
       if (!a.sheet) {
-        expect(document.activeElement, `${fKeyOf(a)} did not focus the hold`).toBe(hold())
+        expect(document.activeElement, `${fKeyOf(a)} did not focus EXECUTE`).toBe(execute())
         continue
       }
       expect(sheetOpen(a.sheet), `${fKeyOf(a)} did not open ${a.sheet}`).toBe(true)

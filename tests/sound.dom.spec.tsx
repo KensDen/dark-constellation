@@ -21,16 +21,25 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// Hoisted above the import of Game, which is what vi.mock requires. The
+// frame builds a WebGL renderer jsdom cannot provide, and it renders only
+// on the start screen; EXECUTE is on the board (tests/game.dom.spec.tsx
+// says why that is safe, and when it stops being).
+vi.mock('../src/ui/Constellation', () => ({
+  default: () => null,
+}))
+
 import { DEFAULT_SCENARIO } from '../src/content'
-import { beatDwellMs, deriveBeats, soundFor, type Beat, type SoundCue } from '../src/director'
-import { LOCK_SHARE } from '../src/ui/board/strike'
+import { deriveBeats, soundFor, type Beat, type SoundCue } from '../src/director'
+import { LOCK_SHARE, STRIKE_MS } from '../src/ui/board/strike'
+import { ACTIONS } from '../src/ui/board/actions'
 import { beatIntensity } from '../src/audio'
 import DirectorView from '../src/director/DirectorView'
+import Game from '../src/ui/Game'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
 import { NO_OP, WIN_SCRIPT } from './scripts'
-import HoldButton, { HOLD_MS } from '../src/ui/cues/HoldButton'
 import Readout from '../src/ui/cues/Meter'
 import SoundToggles from '../src/ui/cues/SoundToggles'
 import { SOUND_TOGGLE_LABELS } from '../src/ui/brief'
@@ -43,7 +52,14 @@ import {
   useSoundPrefs,
   type SoundPrefs,
 } from '../src/audio'
-import { FakeAudioContext, FakeGain, installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
+import {
+  FakeAudioContext,
+  FakeGain,
+  FakeOscillator,
+  installFakeAudioContext,
+  removeFakeAudioContext,
+  type FakeNode,
+} from './fakeAudio'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -112,6 +128,13 @@ function gesture(type = 'pointerdown') {
   document.dispatchEvent(new Event(type, { bubbles: true }))
 }
 
+// The page hiding or coming back, as the browser reports it: the state the
+// policy reads, and the event it listens for.
+const setHidden = (hidden: boolean) => {
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue(hidden ? 'hidden' : 'visible')
+  document.dispatchEvent(new Event('visibilitychange'))
+}
+
 describe('the first-gesture unlock is a document listener, not an intention', () => {
   it('builds no context until a real gesture reaches the document', () => {
     const uninstall = installGestureUnlock()
@@ -178,11 +201,6 @@ describe('the first-gesture unlock is a document listener, not an intention', ()
 })
 
 describe('sound follows the hidden-page policy through the real document event', () => {
-  const setHidden = (hidden: boolean) => {
-    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue(hidden ? 'hidden' : 'visible')
-    document.dispatchEvent(new Event('visibilitychange'))
-  }
-
   it('suspends when the page hides and resumes when it returns', () => {
     // The node suite turns this subscription off to test the policy alone,
     // so this is the only place the wiring itself is proven.
@@ -304,43 +322,98 @@ describe('the two toggles are the two chrome words', () => {
 })
 
 describe('the controls that sound themselves', () => {
-  it('sweeps once when a pointer press starts, and not again when it completes', () => {
+  // EXECUTE as the board renders it. It has been a plain button since v1.3
+  // Round 0 (brief 4: "EXECUTE ends the turn"), and Game plays the sweep in
+  // its click, so the fixture is Game itself rather than a control on its
+  // own: the HoldButton these cases used to render is gone, and the sweep
+  // with it moved from the start of a hold to the commit.
+  function renderBoard(): HTMLButtonElement {
+    act(() => {
+      root.render(
+        <Game initial={{ state: newGame(DEFAULT_SCENARIO, 20260712, 'standard'), phase: 'brief' as never }} onExit={() => {}} />,
+      )
+    })
+    const execute = container.querySelector<HTMLButtonElement>('button[data-execute]')
+    if (!execute) throw new Error('the board renders no EXECUTE control')
+    return execute
+  }
+
+  // The sweep's lead voice as the engine builds it, measured rather than
+  // copied out of voices.ts: an oscillator's type and opening pitch are what
+  // tell it apart from the beats and the bed in the same recording.
+  // Measured AFTER the case has taken its copies, since it clears the
+  // recording to read the sweep alone.
+  const voiceOf = (o: FakeOscillator) => `${o.type}@${o.frequency.first()}`
+  function sweepVoice(): string {
+    ctx().reset()
+    getAudioEngine().play('execute-sweep')
+    const lead = ctx().oscillators()[0]
+    expect(lead, 'the sweep builds no oscillator, so nothing here can find it').toBeDefined()
+    ctx().reset()
+    return voiceOf(lead!)
+  }
+  const sweepsIn = (nodes: FakeNode[], voice: string) =>
+    nodes.filter((n): n is FakeOscillator => n instanceof FakeOscillator && voiceOf(n) === voice).length
+
+  it('sweeps once when EXECUTE is tapped, and not again as the turn it ends plays out', () => {
     installGestureUnlock()
-    const onConfirm = vi.fn()
+    const execute = renderBoard()
+    expect(contexts.length, 'a context existed before the tap').toBe(0)
+    // A tap as a browser delivers it. It is the session's first gesture, so
+    // the context does not exist until the tap itself builds it; the unlock
+    // listens in the capture phase precisely so that happens before the
+    // button's own handler asks for the sweep. That ordering is why the
+    // first press of a session is not the silent one.
     act(() => {
-      root.render(<HoldButton label="EXECUTE TURN" holdingLabel="Hold..." onConfirm={onConfirm} />)
+      execute.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
+      execute.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }))
+      execute.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
     })
-    const button = container.querySelector('button')!
-    const down = new MouseEvent('pointerdown', { bubbles: true, button: 0 })
-    Object.defineProperty(down, 'pointerId', { value: 1 })
-    act(() => {
-      button.dispatchEvent(down)
-    })
-    // The pointerdown is itself the unlocking gesture, so by the time the
-    // sweep is asked for the context exists. That ordering is the reason
-    // the unlock listens for pointerdown rather than for click.
-    expect(contexts.length, 'the press did not unlock the context').toBe(1)
-    const started = ctx().startedCount()
-    expect(started, 'the ring filled in silence').toBeGreaterThan(0)
-    act(() => {
-      vi.advanceTimersByTime(HOLD_MS + 20)
-    })
-    expect(onConfirm).toHaveBeenCalledTimes(1)
-    expect(ctx().startedCount(), 'the completed hold swept a second time').toBe(started)
+    expect(contexts.length, 'the tap did not unlock the context').toBe(1)
+    const tapped = [...ctx().created]
+    // The commit resolves the turn at once and its playback opens. Tapped
+    // through to the aftermath, with each strike given time to land, so
+    // every beat's sound is in the recording beside the sweep.
+    for (let guard = 0; guard < 100; guard += 1) {
+      act(() => vi.advanceTimersByTime(STRIKE_MS))
+      const next = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Next')
+      if (!next) break
+      act(() => next.click())
+    }
+    const after = [...container.querySelectorAll('button')].find((b) => /NEXT TURN|FINAL REPORT/.test(b.textContent ?? ''))
+    expect(after, 'the tap never ended the turn').toBeDefined()
+    const played = [...ctx().created]
+    const sweep = sweepVoice()
+    expect(sweepsIn(tapped, sweep), 'the tap on EXECUTE did not sweep exactly once').toBe(1)
+    expect(sweepsIn(played, sweep), 'the sweep played again as the turn played out').toBe(1)
   })
 
-  it('sweeps for a keyboard commit, which has no ring to fill', () => {
+  it('sweeps for a keyboard commit, and not for the digit that only focuses EXECUTE', () => {
+    // A keyboard player commits with Enter or Space on the focused
+    // control, which the browser turns into a click with no pointer and a
+    // detail of 0. jsdom does not make that click from the key, so both
+    // halves are sent as the browser would send them. Before that, the
+    // action bar's digit for EXECUTE moves focus to it and commits nothing
+    // (a turn should not end on a stray digit), and focusing is not the
+    // sound of committing.
     installGestureUnlock()
-    const onConfirm = vi.fn()
+    const execute = renderBoard()
+    const hotkey = ACTIONS.find((a) => a.id === 'resolve')?.hotkey
+    expect(hotkey, 'EXECUTE has no digit on the action bar').toBeDefined()
     act(() => {
-      root.render(<HoldButton label="EXECUTE TURN" holdingLabel="Hold..." onConfirm={onConfirm} />)
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: hotkey!, bubbles: true }))
     })
-    const button = container.querySelector('button')!
+    expect(document.activeElement, 'the digit did not move focus to EXECUTE').toBe(execute)
+    expect(contexts.length, 'the key did not unlock the context').toBe(1)
+    const focused = [...ctx().created]
     act(() => {
-      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      execute.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      execute.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }))
     })
-    expect(onConfirm).toHaveBeenCalledTimes(1)
-    expect(ctx().startedCount(), 'the keyboard commit was silent').toBeGreaterThan(0)
+    const committed = [...ctx().created]
+    const sweep = sweepVoice()
+    expect(sweepsIn(focused, sweep), 'focusing EXECUTE swept as if it had committed').toBe(0)
+    expect(sweepsIn(committed, sweep), 'the keyboard commit did not sweep exactly once').toBe(1)
   })
 
   it('ticks a meter in the direction it moved, and only when it moves', () => {
@@ -513,6 +586,24 @@ describe('playback sounds the beat it is showing', () => {
     return [sorted[0][1], sorted[sorted.length - 1][1]]
   }
 
+  // A real threat beat that lands on an asset the engine named, which is
+  // the beat whose sound the view times to the strike rather than playing
+  // at once.
+  function landedHit(): ThreatFixture {
+    for (const seed of [20260712, 4041, 1, 2, 3, 7, 11, 13, 17, 23, 29, 31]) {
+      let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+      while (state.status === 'playing') {
+        const after = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+        for (const beat of deriveBeats(state, after)) {
+          if (beat.kind !== 'threat' || !beat.visible || beat.targetAssetId === undefined) continue
+          if ((beat.severity?.effective ?? 0) > 0) return { before: state, after, beat }
+        }
+        state = after
+      }
+    }
+    throw new Error('the sweep produced no threat that landed on an asset')
+  }
+
   it('plays the sound the registry gives that beat, not the beat kind-s default', () => {
     // The fixture was already selecting turns carrying two different
     // sounds, and then asserting only that something sounded. Resolving
@@ -549,8 +640,6 @@ describe('playback sounds the beat it is showing', () => {
           before={turn.before}
           after={turn.after}
           beats={[subjectBeat!]}
-          speed="1x"
-          onSpeedChange={() => {}}
           onPresented={() => {}}
           onDone={() => {}}
         />,
@@ -573,8 +662,6 @@ describe('playback sounds the beat it is showing', () => {
           before={turn.before}
           after={turn.after}
           beats={turn.beats}
-          speed="1x"
-          onSpeedChange={() => {}}
           onPresented={() => {}}
           onDone={() => {}}
         />,
@@ -604,8 +691,6 @@ describe('playback sounds the beat it is showing', () => {
             before={turn.before}
             after={turn.after}
             beats={[beat]}
-            speed="1x"
-            onSpeedChange={() => {}}
             onPresented={() => {}}
             onDone={() => {}}
           />,
@@ -613,7 +698,7 @@ describe('playback sounds the beat it is showing', () => {
       })
       // A hit sounds when it lands, after the lock-on (v1.2 R3).
       act(() => {
-        vi.advanceTimersByTime(beatDwellMs('1x') * LOCK_SHARE)
+        vi.advanceTimersByTime(STRIKE_MS * LOCK_SHARE)
       })
       const osc = ctx().oscillators()[0]
       expect(osc, `the ${beat.id} beat scheduled no tone`).toBeDefined()
@@ -631,7 +716,7 @@ describe('playback sounds the beat it is showing', () => {
   it('sounds a beat once, however many times the view re-renders it', () => {
     // The identity of the beat object is what makes "once per beat" true.
     // A render that changes nothing else must not re-fire the cue, or a
-    // HUD update during a long dwell would stutter the sound.
+    // HUD update while the beat is on screen would stutter the sound.
     installGestureUnlock()
     gesture()
     const [only] = twoThreats()
@@ -639,8 +724,6 @@ describe('playback sounds the beat it is showing', () => {
       before: only.before,
       after: only.after,
       beats: [only.beat],
-      speed: '1x' as const,
-      onSpeedChange: () => {},
       onPresented: () => {},
       onDone: () => {},
     }
@@ -674,8 +757,6 @@ describe('playback sounds the beat it is showing', () => {
           before={only.before}
           after={only.after}
           beats={[only.beat]}
-          speed="1x"
-          onSpeedChange={() => {}}
           onPresented={() => {}}
           onDone={() => {}}
         />,
@@ -710,8 +791,6 @@ describe('playback sounds the beat it is showing', () => {
           before={only.before}
           after={only.after}
           beats={[only.beat]}
-          speed="1x"
-          onSpeedChange={() => {}}
           onPresented={() => {}}
           onDone={() => {}}
         />,
@@ -731,13 +810,13 @@ describe('playback sounds the beat it is showing', () => {
 
   it('lets a finished playback-s last cue ring out over the aftermath', () => {
     // The other half of the rule above, and the regression that half
-    // caused. Playback also unmounts when it simply ENDS: the last beat's
-    // dwell expires, the director reports done, and Game swaps to the
-    // aftermath. Silencing on that unmount cut every closing cue longer
-    // than its own visual, which at 2x is the whole hum of the defeat
-    // sting. Driven to its own end here rather than unmounted by hand,
-    // because by-hand unmounting is exactly what cannot tell the two
-    // apart.
+    // caused. Playback also unmounts when it simply ENDS: the last beat is
+    // tapped past, the director reports done, and Game swaps to the
+    // aftermath. Silencing on that unmount cut every closing cue short of
+    // its own length, which under the v1.1 dwell at 2x was the whole hum
+    // of the defeat sting. Driven to its own end here rather than
+    // unmounted by hand, because by-hand unmounting is exactly what cannot
+    // tell the two apart.
     installGestureUnlock()
     gesture()
     const [only] = twoThreats()
@@ -752,8 +831,6 @@ describe('playback sounds the beat it is showing', () => {
           before={only.before}
           after={only.after}
           beats={[only.beat]}
-          speed="1x"
-          onSpeedChange={() => {}}
           onPresented={() => {}}
           onDone={() => {
             finished = true
@@ -764,10 +841,13 @@ describe('playback sounds the beat it is showing', () => {
     const cueGain = ctx().created.filter((n): n is FakeGain => n instanceof FakeGain && n.connections.includes(bus))[0]
     expect(cueGain, 'the beat scheduled no cue gain').toBeDefined()
     const before = cueGain.gain.events.length
-    // Run the turn out. The view unmounts itself through onDone in the
-    // real app; here the callback records that the director got there.
+    // Run the turn out with the tap that ends it: the one beat is the last
+    // beat. The view unmounts itself through onDone in the real app; here
+    // the callback records that the director got there.
+    const next = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Next')
+    expect(next, 'the playback view renders no Next control').toBeDefined()
     act(() => {
-      vi.advanceTimersByTime(30000)
+      next!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     expect(finished, 'playback never reached its own end').toBe(true)
     act(() => root.unmount())
@@ -777,50 +857,48 @@ describe('playback sounds the beat it is showing', () => {
     expect(ramped, 'a playback that finished on its own had its closing cue cut short').toBe(false)
   })
 
-  it('makes no sound at all while the page is hidden, and the beats still advance', () => {
-    // The policy's whole claim: the three channels agree. The director
-    // holds, and audio schedules nothing rather than queueing it up.
+  it('makes no sound while the page is hidden, even from a hit already on its way, and sounds again on return', () => {
+    // Until v1.3 Round 0 the zero here was the MOTION channel's: the
+    // director paused while hidden, so no beat was emitted and the audio
+    // layer was never asked, and the audio half had to be exercised by
+    // hand to be seen at all. Playback no longer pauses, because nothing
+    // moves without the player (brief 5.5). But a landed hit is still
+    // timed: its stab sounds STRIKE_MS * LOCK_SHARE into the beat, after
+    // the lock-on. A phone locked during the lock-on therefore has the
+    // view itself asking for the stab behind a hidden page, which is the
+    // audio channel refusing on its own account, through the real view.
     installGestureUnlock()
     gesture()
-    const turn = findTurn()
-    act(() => {
-      root.render(
-        <DirectorView
-          before={turn.before}
-          after={turn.after}
-          beats={turn.beats}
-          speed="1x"
-          onSpeedChange={() => {}}
-          onPresented={() => {}}
-          onDone={() => {}}
-        />,
-      )
-    })
-    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
-    act(() => {
-      document.dispatchEvent(new Event('visibilitychange'))
-    })
+    const hit = landedHit()
+    const open = () =>
+      act(() => {
+        root.render(
+          <DirectorView before={hit.before} after={hit.after} beats={[hit.beat]} onPresented={() => {}} onDone={() => {}} />,
+        )
+      })
+
+    // The control: on a visible page the same beat sounds when it lands, so
+    // the zero below is the policy's and not a silent fixture.
     ctx().reset()
+    open()
+    expect(ctx().startedCount(), 'the hit sounded before it landed').toBe(0)
     act(() => {
-      vi.advanceTimersByTime(20000)
+      vi.advanceTimersByTime(STRIKE_MS)
     })
-    expect(ctx().startedCount(), 'a hidden page kept playing sounds').toBe(0)
+    expect(ctx().startedCount(), 'the hit never sounded on a visible page, so this proves nothing').toBeGreaterThan(0)
+    act(() => root.unmount())
+    root = createRoot(container)
 
-    // That zero is produced by the MOTION channel: the director pauses
-    // while hidden, so no beat is emitted and the audio layer is never
-    // asked. Removing visibility from the audio policy entirely would
-    // leave it passing. So the audio half is exercised directly, with the
-    // view still mounted and the page still hidden, which is the only way
-    // to see that this channel refuses on its own account.
-    expect(getAudioEngine().play('hit-stab'), 'the audio channel played behind a hidden page').toBe(false)
-    expect(ctx().startedCount(), 'a refused cue still reached the graph').toBe(0)
-
-    // And both channels come back together, which is what "the three
-    // channels agree about what a hidden page means" has to mean.
-    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    ctx().reset()
+    open()
+    act(() => setHidden(true))
     act(() => {
-      document.dispatchEvent(new Event('visibilitychange'))
+      vi.advanceTimersByTime(STRIKE_MS)
     })
+    expect(ctx().startedCount(), 'a hidden page played the hit that landed behind it').toBe(0)
+
+    // And the channel comes back with the page.
+    act(() => setHidden(false))
     expect(getAudioEngine().play('hit-stab'), 'returning did not restore the audio channel').toBe(true)
   })
 })

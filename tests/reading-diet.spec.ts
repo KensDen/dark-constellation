@@ -331,15 +331,19 @@ describe('reading diet: the intel brief', () => {
     // The authoritative list is what the screen renders. There is no DOM
     // here, so it is pinned by name; Round 5's rendering environment is
     // what will derive it instead.
-    // Since v1.2 R1 the chrome is the board's: the five action-bar labels
-    // are on the first screen, and the numbered section heading and the
-    // phase button are gone. Since R1b the bar carries the step numbers,
-    // and Save, Copy save code, Back to menu, the two toggles and the
-    // playback speed sit in the SYSTEM sheet behind the gear, so the first
-    // screen shows one word for the six of them. Since R2b RESOLVE's label
-    // is the instruction with the turn in it (it replaced the word RESOLVE
-    // and the HOLD caption), and the objective line adds a tag and a
-    // sentence, which differ by state and so are required per turn.
+    // Since v1.2 R1 the chrome is the board's: the action-bar labels are
+    // on the first screen, and the numbered section heading and the phase
+    // button are gone. Since R1b the bar carries the step numbers, and
+    // the controls that are not a decision about the turn sit in the
+    // SYSTEM sheet behind the gear, so the first screen shows one word for
+    // all of them: since v1.3 Round 0 that is five, Save, Copy save code,
+    // Back to menu and the two toggles, the playback speed having gone
+    // with the auto-advancing director. Since R2b the commit's label is
+    // the instruction with the turn in it (it replaced the word RESOLVE
+    // and the HOLD caption), and since v1.3 Round 0 the bar has two
+    // actions, PROCURE and EXECUTE, whose label reads "Execute turn n".
+    // The objective line adds a tag and a sentence, which differ by state
+    // and so are required per turn.
     const required = [
       '> INCOMING TRANSMISSION_',
       'Expand full brief',
@@ -393,20 +397,20 @@ describe('reading diet: the intel brief', () => {
     // that the bar renders from that array.
     const actionBar = source('ui', 'board', 'ActionBar.tsx')
     expect(actionBar.includes('action.label') && actionBar.includes('action.number'), 'the bar no longer renders the array').toBe(true)
-    // RESOLVE's label and the objective line, from the same functions the
+    // EXECUTE's label and the objective line, from the same functions the
     // count reads: tests/game.dom.spec.tsx finds every counted line on a
     // rendered screen.
-    expect(source('ui', 'Game.tsx').includes('{resolveLabel(state.turn)}'), 'the bar no longer renders RESOLVE\'s label').toBe(true)
+    expect(source('ui', 'Game.tsx').includes('{resolveLabel(state.turn)}'), 'the bar no longer renders EXECUTE\'s label').toBe(true)
     for (const piece of ['{objective.tag}', '{objective.sentence}', '{SKIP_TIPS}']) {
       expect(actionBar.includes(piece), `the objective line no longer renders ${piece}`).toBe(true)
     }
     for (const [control, file] of Object.entries(renderedIn)) {
       expect(file.includes(control), `chrome counts "${control}", which the screen no longer renders`).toBe(true)
     }
-    // The six system controls left the first screen for the sheet, which
+    // The five system controls left the first screen for the sheet, which
     // lists them by name; tests/action-bar.dom.spec.tsx renders that list.
     const systemSheet = source('ui', 'board', 'SystemSheet.tsx')
-    for (const name of ['Save', 'Copy save code', 'Back to menu', 'Playback:']) {
+    for (const name of ['Save', 'Copy save code', 'Back to menu']) {
       expect(systemSheet.includes(name), `the SYSTEM sheet no longer lists "${name}"`).toBe(true)
     }
     // The transmission label is rendered as an entity by the teletype bar,
@@ -424,11 +428,6 @@ describe('reading diet: the intel brief', () => {
     expect(toggles.includes('SOUND_TOGGLE_LABELS'), 'the toggles no longer read their names from the counted constant').toBe(
       true,
     )
-    // The speed labels the same way: SpeedSelect reads SPEED_LABEL, and
-    // chromeCopy reads the same table, so the count cannot disagree with
-    // the buttons.
-    expect(systemSheet.includes('<SpeedSelect'), 'the SYSTEM sheet does not mount the speed control').toBe(true)
-    expect(source('director', 'SpeedSelect.tsx').includes('SPEED_LABEL'), 'the speed control no longer reads the counted labels').toBe(true)
   })
 
   it('bounds the interface chrome that the reading budget excludes', () => {

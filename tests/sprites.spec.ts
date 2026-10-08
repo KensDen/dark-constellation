@@ -1,8 +1,9 @@
 // The sprite set (v1.2 R2, brief 5.1 and 5.2): the round's first guard,
 // that every AssetKind the engine declares is drawn in every sprite state,
 // and the checks on the art itself: every grid well formed and painted in
-// section 3 tokens only, damage drawn rather than darkened, the chevron's
-// corner kept clear, and the panel text readable over every backdrop.
+// section 3 tokens only, damage drawn rather than darkened, and the panel
+// text readable over every backdrop. The Tier A chevron and the check that
+// kept its corner clear left with the tiers in v1.3 Round 0 (D2 a).
 //
 // NOTHING HERE LISTS THE KINDS OR THE STATES. The kinds are read out of
 // the engine's own AssetKind union by the TypeScript compiler, and the
@@ -17,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { SPRITE_STATES } from '../src/ui/board/board'
-import { ASSET_SPRITES, TIER_A_CHEVRON } from '../src/ui/sprites/assets'
+import { ASSET_SPRITES } from '../src/ui/sprites/assets'
 import { BACKDROP_INKS, CLOUD, PANEL_FILL, SILHOUETTE } from '../src/ui/sprites/scenery'
 import { HIT_BURST, LOCK_ON, PART_SPARKLE, SHIELD_FLASH } from '../src/ui/sprites/effects'
 import { BOLT, COIN, COLDVEIL_EMBLEM, EYE } from '../src/ui/sprites/icons'
@@ -87,7 +88,6 @@ describe('the sprite set (v1.2 R2)', () => {
     expect(Object.keys(palette).length, 'no tokens parsed from :root').toBeGreaterThanOrEqual(11)
     const named: [string, Sprite, number][] = [
       ...KINDS.flatMap((kind) => STATES.map((state): [string, Sprite, number] => [`${kind}.${state}`, ASSET_SPRITES[kind as keyof typeof ASSET_SPRITES][state], 16])),
-      ['tier-a', TIER_A_CHEVRON, 16],
       ['coldveil', COLDVEIL_EMBLEM, 16],
       ['coin', COIN, 8],
       ['eye', EYE, 8],
@@ -154,19 +154,6 @@ describe('the sprite set (v1.2 R2)', () => {
       const inks = new Set(s.out.rows.join('').replaceAll(TRANSPARENT, '').split('').map((c) => s.out.palette[c].token))
       expect([...inks].sort(), `${kind}.out is not greyed`).toEqual(['hostile', 'line', 'muted'])
     }
-  })
-
-  it('keeps the Tier A corner clear on every asset sprite', () => {
-    const chevron = opaque(TIER_A_CHEVRON)
-    expect(chevron.size).toBeGreaterThan(0)
-    const clashes: string[] = []
-    for (const kind of KINDS) {
-      for (const state of STATES) {
-        const art = opaque(ASSET_SPRITES[kind as keyof typeof ASSET_SPRITES][state])
-        for (const p of chevron) if (art.has(p)) clashes.push(`${kind}.${state} at ${p}`)
-      }
-    }
-    expect(clashes).toEqual([])
   })
 
   it('keeps every text colour on a panel at 4.5:1 over the brightest backdrop ink under PANEL_FILL', () => {

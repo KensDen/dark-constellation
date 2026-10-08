@@ -1,7 +1,7 @@
 // The SYSTEM sheet (v1.2 R1b): the controls that are not a decision about
 // the turn, behind the gear on the HUD, so the board ends at the action
-// bar. Save, Copy save code, Back to menu, the two audio toggles and the
-// playback speed, driven by the one list below, which the board suite
+// bar. Save, Copy save code, Back to menu and the two audio toggles,
+// driven by the one list below, which the board suite
 // pins by count and by name so a control cannot drop out of the sheet
 // unnoticed. Every control keeps the name it had on the old save row,
 // except Export code, which became Copy save code in v1.2 R4b to say what
@@ -10,8 +10,9 @@
 // Muting stays available whatever the campaign's status, on the same
 // principle as before: an accessibility path that disappears at the
 // loudest moment is not one. Saving belongs to a campaign in progress.
+// The playback speed left in v1.3 Round 0 with the auto-advancing
+// director (brief 5.5): every beat now waits for a tap.
 
-import { SpeedSelect, type Speed } from '../../director'
 import { SOUND_TOGGLE_LABELS } from '../brief'
 import SoundToggles from '../cues/SoundToggles'
 import type { SoundPrefs } from '../../audio'
@@ -20,12 +21,12 @@ import Sheet, { SHEET_BUTTON } from './Sheet'
 export const SYSTEM_TITLE = 'SYSTEM'
 
 export interface SystemControl {
-  id: 'save' | 'export' | 'menu' | 'sound' | 'music' | 'playback'
+  id: 'save' | 'export' | 'menu' | 'sound' | 'music'
   // The accessible name the control carries, as the tests find it.
   name: string
 }
 
-// Six controls. The two toggles are one component, SoundToggles, which
+// Five controls. The two toggles are one component, SoundToggles, which
 // renders both names; it mounts at the first of the pair and the second
 // entry stands for the name it also carries.
 export const SYSTEM_CONTROLS: readonly SystemControl[] = [
@@ -34,7 +35,6 @@ export const SYSTEM_CONTROLS: readonly SystemControl[] = [
   { id: 'menu', name: 'Back to menu' },
   { id: 'sound', name: SOUND_TOGGLE_LABELS.effects },
   { id: 'music', name: SOUND_TOGGLE_LABELS.music },
-  { id: 'playback', name: 'Playback:' },
 ]
 
 export interface SystemSheetProps {
@@ -44,13 +44,11 @@ export interface SystemSheetProps {
   onExit?: () => void
   soundPrefs: SoundPrefs
   onSoundPrefs: (next: (prev: SoundPrefs) => SoundPrefs) => void
-  speed: Speed
-  onSpeed: (speed: Speed) => void
   notice: string
   onClose: () => void
 }
 
-export default function SystemSheet({ playing, onSave, onExport, onExit, soundPrefs, onSoundPrefs, speed, onSpeed, notice, onClose }: SystemSheetProps) {
+export default function SystemSheet({ playing, onSave, onExport, onExit, soundPrefs, onSoundPrefs, notice, onClose }: SystemSheetProps) {
   // The three plain buttons, by id: their handler, and whether they apply.
   const buttons: Partial<Record<SystemControl['id'], (() => void) | undefined>> = {
     save: playing ? onSave : undefined,
@@ -60,7 +58,6 @@ export default function SystemSheet({ playing, onSave, onExport, onExit, soundPr
   const render = (control: SystemControl) => {
     if (control.id === 'sound') return <SoundToggles prefs={soundPrefs} onChange={onSoundPrefs} />
     if (control.id === 'music') return null
-    if (control.id === 'playback') return <SpeedSelect speed={speed} onChange={onSpeed} label={control.name} />
     const onClick = buttons[control.id]
     return onClick ? (
       <button type="button" className={SHEET_BUTTON} onClick={onClick}>

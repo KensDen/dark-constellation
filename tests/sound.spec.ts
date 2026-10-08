@@ -22,17 +22,15 @@ import {
   SOUND_MS,
   deriveBeats,
   soundFor,
-  soundsAtInstantSpeed,
   type Cue,
   type SoundCue,
 } from '../src/director'
 import { VOICES } from '../src/audio/voices'
 import { beatIntensity, MAX_EFFECTIVE_SEVERITY, NEUTRAL_INTENSITY } from '../src/audio/intensity'
-import { holdSound } from '../src/ui/cues/HoldButton'
 import { CROSSING_SOUND, TONE_SOUND } from '../src/ui/cues/Meter'
 import { CHROME_WORD_BUDGET, SOUND_TOGGLE_LABELS, chromeCopy, chromeWords, countWords, SYSTEM_GEAR_LABEL } from '../src/ui/brief'
 import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CHAIN_BONUS, newGame, resolveTurn } from '../src/engine/reducer'
@@ -227,55 +225,9 @@ describe('sound cue coverage (Round 4d)', () => {
     expect(beatSounds.size, 'the sweep produced too few sounds to prove anything').toBeGreaterThan(6)
   })
 
-  it('records which rows can sound at instant speed, derived from the table', () => {
-    // Instant derives no beats, so every row the director plays is silent
-    // there. The split is derived rather than listed, so a row that moves
-    // between a component and the director moves here with it.
-    //
-    // Instant is an explicit choice ONLY, since brief v1.2. It used to be
-    // what reduced motion selected, which is how eleven of these rows came
-    // to be silent for a player who had asked for nothing to move rather
-    // than for nothing to be told; that coupling was removed in Round 4e
-    // and defaultSpeed no longer takes a reducedMotion argument.
-    // Anchored to real beats, not to the predicate. Comparing the
-    // function's output against its own body proved only that it had been
-    // copied correctly; what has to be true is that the rows it calls
-    // silent are exactly the rows a real campaign's beats carry, because
-    // those are the ones that vanish when no beats are derived.
-    const fromBeats = new Set<string>()
-    for (const seed of [1, 2, 3, 4, 5, 6]) {
-      for (const { before, after } of playSurge(seed)) {
-        for (const beat of deriveBeats(before, after)) {
-          const sound = soundFor(beat.cueKey, beat.kind, beat.title.startsWith('MISSION FAILED'))
-          if (sound && sound !== 'silent') fromBeats.add(sound)
-        }
-      }
-    }
-    const silent = SECTION_6_ROWS.filter((r) => !soundsAtInstantSpeed(r))
-    const sounding = SECTION_6_ROWS.filter(soundsAtInstantSpeed)
-    for (const row of silent) {
-      const carried = row.soundPerSubject === 'condition'
-        ? [...new Set(Object.values(CONDITION_CUES).map((c) => c.sound))].some((x) => fromBeats.has(x))
-        : fromBeats.has(row.sound)
-      expect(carried, `${row.beat} is called silent at instant speed but no beat carries its sound`).toBe(true)
-    }
-    for (const row of sounding) {
-      expect(
-        row.soundWhere.startsWith('director/'),
-        `${row.beat} is called audible at instant speed but the director plays it`,
-      ).toBe(false)
-    }
-    expect(silent.every((r) => !!r.kinds?.length), 'a silent-at-instant row names no beat kinds').toBe(true)
-    // Recorded as a count so the balance cannot shift unnoticed: this is
-    // what an explicit INSTANT tap costs the player who taps it. It used
-    // to be recorded as the reduced-motion player's normal experience,
-    // which brief v1.2 and Round 4e ended.
-    // 11 until Round 7b, which added two director rows: the quiet turn
-    // taking a treatment of its own, and the opportunity row that existed
-    // as a cue with no row at all.
-    expect(silent.length).toBe(13)
-    expect(sounding.length).toBe(5)
-  })
+  // RETIRED in v1.3 Round 0: the record of which rows could still sound at
+  // INSTANT speed. INSTANT is gone with the speed control, every turn now
+  // plays its beats, and no row has a speed at which it falls silent.
 
   it('names only real beat kinds, and only on the rows the director plays', () => {
     for (const row of SECTION_6_ROWS) {
@@ -391,22 +343,50 @@ describe('severity pitches the stab (Round 4d)', () => {
 })
 
 describe('the controls the player triggers themselves (Round 4d)', () => {
-  it('sounds the hold when it starts, because the sweep is the ring filling', () => {
-    expect(holdSound('start', false)).toBe('execute-sweep')
-    expect(holdSound('cancel', true)).toBe('silent')
-    expect(holdSound('none', false)).toBe('silent')
-  })
+  it('sounds EXECUTE once, from the one click every input reaches', () => {
+    // EXECUTE was a hold until v1.3 Round 0, and the hold needed three
+    // rules to sound right: sweep when the ring started, sweep a keyboard
+    // commit that had no ring, and never sweep twice when a held press
+    // completed. A plain button sends a mouse click, a tap and a keyboard
+    // activation to the same click handler, so the three collapse into
+    // one shape: the sweep is named in code at exactly one place outside
+    // the registry and the voice that synthesises it, that place is the
+    // file the section 6 row says plays it, and it is EXECUTE's click.
+    // A second site (a keydown path that sweeps as well, say) is the
+    // double sweep coming back; none at all is the silent keyboard commit.
+    const row = SECTION_6_ROWS.find((r) => r.beat === 'EXECUTE TURN')
+    expect(row, 'the EXECUTE TURN row is gone').toBeDefined()
+    expect(row!.sound).toBe('execute-sweep')
 
-  it('sounds a keyboard commit, which has no ring to fill', () => {
-    // The one path with no visual feedback must not also be the one path
-    // with no audible feedback.
-    expect(holdSound('confirm', false)).toBe('execute-sweep')
-  })
+    const withoutComments = (source: string) =>
+      source
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .split('\n')
+        .filter((line) => !/^\s*\/\//.test(line))
+        .join('\n')
+    const registry = new Set([join(SRC, 'director', 'cues.ts'), join(SRC, 'audio', 'voices.ts')])
+    const sites: string[] = []
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) {
+          walk(full)
+          continue
+        }
+        if (!/\.(ts|tsx)$/.test(entry.name) || registry.has(full)) continue
+        const named = withoutComments(readFileSync(full, 'utf8')).match(/['"`]execute-sweep['"`]/g) ?? []
+        for (let i = 0; i < named.length; i += 1) sites.push(full.slice(SRC.length + 1))
+      }
+    }
+    walk(SRC)
+    expect(sites, 'the sweep must be played from exactly one place').toEqual([join(row!.soundWhere)])
 
-  it('does not sound the commit twice when a held press completes', () => {
-    // A pointer hold already swept when it started; sweeping again on the
-    // confirm would double it.
-    expect(holdSound('confirm', true)).toBe('silent')
+    const source = withoutComments(readFileSync(join(SRC, row!.soundWhere), 'utf8'))
+    const execute = /<button\b(?:(?!<\/button>)[\s\S])*?\bdata-execute\b[\s\S]*?<\/button>/.exec(source)
+    expect(execute, `${row!.soundWhere} renders no EXECUTE button`).not.toBeNull()
+    expect(execute![0], 'the sweep must sound on the EXECUTE click').toMatch(
+      /onClick=\{[^}]*?\bplay\(\s*'execute-sweep'\s*\)/,
+    )
   })
 
   it('names both sides of the MAI crossing', () => {

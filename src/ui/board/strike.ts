@@ -4,8 +4,8 @@
 // engine's own record of it (Beat.targetAssetId, from
 // ResolvedEvent.targetAssetId), never a parse of the note.
 //
-// A hit plays in two parts inside its beat. For the first LOCK_SHARE of the
-// dwell the board still shows the state before the hit while magenta
+// A hit plays in two parts inside its beat. For the first LOCK_SHARE of
+// STRIKE_MS the board still shows the state before the hit while magenta
 // brackets lock onto the tile and a dotted beam draws from the COLDVEIL
 // emblem; then it lands, and the tile, its pips and MAI change with the
 // strobe, the burst, the shake and the falling "-n".
@@ -13,8 +13,14 @@
 import type { Beat } from '../../director'
 import type { GameState, Layer } from '../../engine/types'
 
+// How long a strike plays (v1.3 brief 5.5: "About 1.2 s"). It was the
+// director's dwell at 1x until v1.3 Round 0 retired the dwell; the strike
+// is the one part of the night that still plays on its own, so it keeps
+// the duration as a constant of its own. The stylesheet reads it as
+// --dc-beat.
+export const STRIKE_MS = 1200
 export const LOCK_SHARE = 0.35
-// How much of the beat MAI's count takes once the hit lands.
+// How much of the strike MAI's count takes once the hit lands.
 export const COUNT_SHARE = 0.35
 
 export type Strike =

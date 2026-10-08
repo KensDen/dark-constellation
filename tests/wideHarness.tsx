@@ -6,10 +6,11 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, vi } from 'vitest'
+import { afterEach, beforeEach, expect, vi } from 'vitest'
 
 import Game from '../src/ui/Game'
 import { WIDE_QUERY } from '../src/ui/cues/motion'
+import { STRIKE_MS } from '../src/ui/board/strike'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
@@ -160,13 +161,27 @@ export function press(key: string, init: KeyboardEventInit = {}, target: EventTa
   return e.defaultPrevented
 }
 export const bar = () => container.querySelector('nav[aria-label="Actions"]')!
-export const hold = () => bar().querySelector('button.dc-hold') as HTMLButtonElement
+export const execute = () => bar().querySelector('button[data-execute]') as HTMLButtonElement
 export const sheetOpen = (id: string) => container.querySelector(`[data-sheet="${id}"]`) !== null
-// A keyboard activation of the focused hold commits at once (HoldButton).
-export const resolveNow = () => {
-  act(() => {
-    hold().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-  })
-}
+// EXECUTE is a plain button since v1.3 Round 0, and a click commits the
+// turn. A synthetic Enter on a plain button is no click in jsdom, so the
+// harness clicks it.
+export const executeNow = () => click(execute())
 export const beatText = () => container.textContent?.match(/beat (\d+) of (\d+)/)?.[0] ?? null
+// The playback's Next button, while a beat is on screen.
+export const nextBeat = () => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Next')
+// Tap the playback through to the aftermath: the director is tap-through
+// since v1.3 Round 0, so each beat waits for its Next. The timers run a
+// strike's length between taps, as a player's look at the beat would, so
+// a hit's lock-on and landing play out inside its beat.
+export function playOut() {
+  const afterword = () => /NEXT TURN|FINAL REPORT/.test(bar().textContent ?? '')
+  for (let i = 0; i < 100 && !afterword(); i += 1) {
+    const next = nextBeat()
+    expect(next, 'the playback has no Next button').toBeDefined()
+    click(next!)
+    step(STRIKE_MS)
+  }
+  expect(afterword(), 'tapping Next did not reach the aftermath').toBe(true)
+}
 export const chips = () => [...bar().querySelectorAll('[data-step]')].map((m) => m.textContent)

@@ -1,29 +1,34 @@
 // The suggested next step (v1.2 R2b): guard (a), a table over every case
-// suggestNextStep decides, and the walkthrough's stages.
+// suggestNextStep decides, and the walkthrough's stages. Two steps since
+// v1.3 Round 0: PROCURE, which holds assets, defenses and intel in one
+// sheet, and EXECUTE. SURGE left the suggestion with its sheet.
 //
 // Each row states only what the player could see: the credits on the HUD,
-// what has been opened this turn, what is owned, and the conditions on the
-// layer headers. The prices are read from the scenario rather than
-// written here, so a price change moves the rows' credits with it.
+// what has been opened this turn, what is owned and the intel level. The
+// prices are read from the scenario rather than written here, so a price
+// change moves the rows' credits with it.
 
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame } from '../src/engine/reducer'
 import { assetPrice } from '../src/engine/scoring'
-import type { ActiveCondition, GameState } from '../src/engine/types'
+import type { GameState } from '../src/engine/types'
 import { KIND_LAYER, hardenOffers, turnBudget } from '../src/ui/board/board'
+import { ORDER_TIER } from '../src/ui/board/ProcureSheet'
 import { ACTIONS, GUIDE, NEXT_STEP_SENTENCE, guideStage, suggestNextStep, type StepId } from '../src/ui/board/actions'
 
 const start = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
 const scenario = start.scenario
-const cheapestAsset = Math.min(
-  ...(Object.keys(KIND_LAYER) as (keyof typeof KIND_LAYER)[]).flatMap((k) => (['A', 'B'] as const).map((t) => assetPrice(scenario, k, t))),
-)
+// Every asset is ordered at the one tier PROCURE sells.
+const cheapestAsset = Math.min(...(Object.keys(KIND_LAYER) as (keyof typeof KIND_LAYER)[]).map((k) => assetPrice(scenario, k, ORDER_TIER)))
 const cheapestDefense = Math.min(...hardenOffers(scenario).map((cm) => cm.cost))
-const intelPrice = scenario.prices.intelLevels[0]
-const condition = { instanceId: 'c1', eventId: scenario.events[0].id } as unknown as ActiveCondition
-const withSurge: GameState = { ...start, surgeTokens: 1, conditions: [condition] }
+const intelPrice = scenario.prices.intelLevels[start.intelLevel]
+// One section of the sheet left with something to sell, the other two
+// spent: every defense owned, or intel at the top level, or both.
+const allDefenses: GameState = { ...start, counters: hardenOffers(scenario).map((cm) => cm.id) }
+const topIntel: GameState = { ...start, intelLevel: scenario.prices.intelLevels.length }
+const assetsOnly: GameState = { ...allDefenses, intelLevel: scenario.prices.intelLevels.length }
 const used = (...ids: StepId[]) => new Set<string>(ids)
 
 describe('the suggested next step (v1.2 R2b)', () => {
@@ -31,19 +36,19 @@ describe('the suggested next step (v1.2 R2b)', () => {
     // The fixture's own sanity: the rows below depend on these orderings.
     expect(cheapestAsset).toBeGreaterThan(0)
     expect(cheapestDefense).toBeGreaterThan(0)
-    expect(cheapestDefense, 'the second row needs a defense cheaper than any asset').toBeLessThan(cheapestAsset)
+    expect(intelPrice).toBeGreaterThan(0)
+    expect(cheapestDefense, 'the defense row needs a defense cheaper than any asset').toBeLessThan(cheapestAsset)
+    expect(intelPrice, 'the intel row needs an intel level cheaper than any asset').toBeLessThan(cheapestAsset)
     const rows: [string, GameState, Set<string>, number, StepId][] = [
       ['turn 1, nothing opened, the turn budget', start, used(), turnBudget(start), 'procure'],
-      ['PROCURE unopened but nothing in it affordable', start, used(), cheapestAsset - 1, 'harden'],
-      ['PROCURE opened, a defense affordable', start, used('procure'), cheapestDefense, 'harden'],
-      ['PROCURE and HARDEN opened, the next intel level affordable', start, used('procure', 'harden'), intelPrice, 'intel'],
-      ['intel at the top level', { ...start, intelLevel: scenario.prices.intelLevels.length }, used('procure', 'harden'), 10_000, 'resolve'],
-      ['the first three opened, a token and a condition', withSurge, used('procure', 'harden', 'intel'), 0, 'surge'],
-      ['a token but no condition', { ...withSurge, conditions: [] }, used('procure', 'harden', 'intel'), 0, 'resolve'],
-      ['a condition but no token', { ...withSurge, surgeTokens: 0 }, used('procure', 'harden', 'intel'), 0, 'resolve'],
-      ['SURGE already opened', withSurge, used('procure', 'harden', 'intel', 'surge'), 0, 'resolve'],
-      ['nothing affordable and no surge', start, used(), 0, 'resolve'],
-      ['every defense already owned', { ...start, counters: hardenOffers(scenario).map((cm) => cm.id) }, used('procure'), 10_000, 'intel'],
+      // Each section of PROCURE is enough on its own to point at it.
+      ['PROCURE unopened, only a defense affordable', topIntel, used(), cheapestDefense, 'procure'],
+      ['PROCURE unopened, only the next intel level affordable', allDefenses, used(), intelPrice, 'procure'],
+      ['PROCURE unopened, only an asset affordable', assetsOnly, used(), cheapestAsset, 'procure'],
+      ['PROCURE unopened, a credit short of the only asset left to buy', assetsOnly, used(), cheapestAsset - 1, 'resolve'],
+      ['PROCURE unopened, a credit short of everything on it', start, used(), Math.min(cheapestAsset, cheapestDefense, intelPrice) - 1, 'resolve'],
+      ['PROCURE opened, everything still affordable', start, used('procure'), turnBudget(start), 'resolve'],
+      ['nothing affordable', start, used(), 0, 'resolve'],
     ]
     const wrong: string[] = []
     for (const [name, state, opened, credits, expected] of rows) {
@@ -52,6 +57,9 @@ describe('the suggested next step (v1.2 R2b)', () => {
       if (got.sentence !== NEXT_STEP_SENTENCE[got.step]) wrong.push(`${name}: the sentence is not the ${got.step} sentence`)
     }
     expect(wrong).toEqual([])
+    // Every step is the answer to some row, so the table is not passing
+    // on one hard-coded answer.
+    expect(new Set(rows.map((row) => row[4]))).toEqual(new Set(ACTIONS.map((a) => a.id)))
     // The default credits are the turn's budget, which is what the HUD
     // shows before anything is bought.
     expect(suggestNextStep(start, used()).step).toBe('procure')
@@ -69,11 +77,9 @@ describe('the suggested next step (v1.2 R2b)', () => {
     }
   })
 
-  it('walks the first turn buy, then harden or skip, then resolve', () => {
-    expect(guideStage(false, false)).toBe('start')
-    expect(guideStage(false, true), 'hardening before buying skipped the buy').toBe('start')
-    expect(guideStage(true, false)).toBe('harden')
-    expect(guideStage(true, true)).toBe('last')
-    expect([GUIDE.start.step, GUIDE.harden.step, GUIDE.last.step]).toEqual(['procure', 'harden', 'resolve'])
+  it('walks the first turn: an order or a skip, then execute', () => {
+    expect(guideStage(false)).toBe('start')
+    expect(guideStage(true), 'an order or a skip did not move the walkthrough on').toBe('last')
+    expect([GUIDE.start.step, GUIDE.last.step]).toEqual(['procure', 'resolve'])
   })
 })

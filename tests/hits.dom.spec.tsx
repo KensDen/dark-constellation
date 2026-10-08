@@ -39,6 +39,7 @@ import { FORECAST_DARK } from '../src/ui/brief'
 import { techniqueLabel, vectorLabels } from '../src/ui/labels'
 import { realWorldFor } from '../src/ui/realWorldLine'
 import { assetRole } from '../src/ui/board/ProcureSheet'
+import { STRIKE_MS } from '../src/ui/board/strike'
 import { FIRST_TURN_DONE_KEY } from '../src/ui/firstTurn'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
@@ -146,15 +147,33 @@ const click = (el: Element) => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
   })
 }
-const resolveNow = () => {
-  const hold = container.querySelector('nav[aria-label="Actions"] button.dc-hold') as HTMLButtonElement
-  act(() => {
-    hold.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-  })
+// EXECUTE is a plain button since v1.3 Round 0 (the hold went with the
+// dwell), and a synthetic Enter does not click a button in jsdom, so the
+// tests click it.
+const execute = () => {
+  const button = container.querySelector('nav[aria-label="Actions"] button[data-execute]')
+  expect(button, 'EXECUTE is not on screen').not.toBeNull()
+  click(button!)
 }
 const tiles = () => [...container.querySelectorAll('button[data-asset-id]')]
 const inTiles = (selector: string) => tiles().filter((t) => t.querySelector(selector)).map((t) => t.getAttribute('data-asset-id'))
 const playingOut = () => !![...container.querySelectorAll('button')].find((b) => /^Skip/.test(b.textContent ?? ''))
+// The playback as a player taps through it. Every beat waits for a tap
+// since v1.3 Round 0; only a hit's strike plays on its own, so on each beat
+// the clock runs a strike's length in steps of `every` ms, `look` reads the
+// board at each, and then Next moves on. It stops as soon as `look` says it
+// has what it came for.
+function tapThrough(look: () => boolean | void, every: number) {
+  for (let beat = 0; beat < 60 && playingOut(); beat += 1) {
+    for (let t = 0; t <= STRIKE_MS; t += every) {
+      if (look()) return
+      step(every)
+    }
+    const next = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Next')
+    expect(next, 'the playback has no Next').toBeDefined()
+    click(next!)
+  }
+}
 
 // The hits a turn's playback shows, in order, from the ENGINE's record of
 // the turn, not from the director's beats: the board follows the beats, so
@@ -180,18 +199,17 @@ describe('hits land on their tiles (v1.2 R3)', () => {
       const expected = hitsOf(state)
       expect(expected.length, `turn ${turn} has no hit to check`).toBeGreaterThan(0)
       render(state)
-      resolveNow()
+      execute()
       const locked: string[] = []
       const struck: string[] = []
-      for (let i = 0; i < 1500 && playingOut(); i += 1) {
+      tapThrough(() => {
         const lock = inTiles('svg[data-sprite="lock-on"]')
         const strobe = inTiles('span[data-strobe]')
         expect(lock.length, 'the lock-on is on more than one tile').toBeLessThanOrEqual(1)
         expect(strobe.length, 'the strobe is on more than one tile').toBeLessThanOrEqual(1)
         if (lock[0] && locked[locked.length - 1] !== lock[0]) locked.push(lock[0]!)
         if (strobe[0] && struck[struck.length - 1] !== strobe[0]) struck.push(strobe[0]!)
-        step(20)
-      }
+      }, 20)
       expect(playingOut(), 'the playback never finished').toBe(false)
       expect(locked, `turn ${turn}: the lock-on went to other tiles`).toEqual(expected)
       expect(struck, `turn ${turn}: the strobe went to other tiles`).toEqual(expected)
@@ -207,12 +225,12 @@ describe('hits land on their tiles (v1.2 R3)', () => {
     const held = deriveBeats(state, after).find(isHeld)
     expect(held, `turn ${state.turn} no longer holds an event`).toBeDefined()
     render(state)
-    resolveNow()
+    execute()
     let seen: string[] = []
-    for (let i = 0; i < 1500 && playingOut() && seen.length === 0; i += 1) {
+    tapThrough(() => {
       seen = [...container.querySelectorAll('span[data-held]')].map((el) => el.closest('section')!.getAttribute('aria-labelledby')!.replace('layer-', ''))
-      step(20)
-    }
+      return seen.length > 0
+    }, 20)
     expect(seen.sort()).toEqual([...(held!.layers ?? [])].sort())
   })
 })
@@ -224,12 +242,12 @@ describe('a lost pip pops out of the row (v1.2 R3)', () => {
     const state = gameAt(5)
     expect(hitsOf(state)).toContain('start-sat-1')
     render(state)
-    resolveNow()
+    execute()
     let popped: string[] = []
-    for (let i = 0; i < 1500 && playingOut() && popped.length === 0; i += 1) {
+    tapThrough(() => {
       popped = inTiles('span[data-pip-pop]') as string[]
-      step(10)
-    }
+      return popped.length > 0
+    }, 10)
     expect(popped).toEqual(['start-sat-1'])
   })
 })
@@ -246,10 +264,12 @@ describe('the REAL WORLD line on the event card (v1.2 R3)', () => {
       ),
     )
     render(state)
-    resolveNow()
+    execute()
     const seen = new Map<string, string>()
     const titles = new Set<string>()
-    for (let i = 0; i < 1500 && playingOut(); i += 1) {
+    // Read once as each card arrives and once after its strike: what the
+    // card carries does not wait on the clock.
+    tapThrough(() => {
       const card = container.querySelector('div[data-beat-card]')
       const line = card?.querySelector('[data-real-world-line]')
       const title = card?.querySelector('p.font-bold')?.textContent ?? ''
@@ -267,8 +287,7 @@ describe('the REAL WORLD line on the event card (v1.2 R3)', () => {
         expect(card!.querySelector('details[data-real-world] summary'), 'the line is not one tap from the card').not.toBeNull()
         seen.set(def.id, line.textContent!)
       }
-      step(20)
-    }
+    }, STRIKE_MS)
     // Two different events, so a line written for one cannot pass as both,
     // and a condition card among the cards checked.
     expect(seen.size, 'the turn showed fewer than two threat cards').toBeGreaterThanOrEqual(2)
@@ -344,7 +363,7 @@ describe('the intel cards (v1.2 R3)', () => {
     expect(container.querySelector('section[data-intel-card] [data-real-world-line]')).toBeNull()
   })
 
-  it('opens a tile card with what the asset is, its tier, integrity and its layer conditions with sources', async () => {
+  it('opens a tile card with what the asset is, its integrity and its layer conditions with sources', async () => {
     // The first turn of the prepared line with a condition pressing, and a
     // live asset on that condition's layer, so the list is not empty.
     let turn = 2
@@ -362,7 +381,9 @@ describe('the intel cards (v1.2 R3)', () => {
     }
     const card = await open(base)
     expect(card.textContent).toContain(assetRole(asset.kind))
-    expect(card.textContent).toContain(`TIER ${asset.tier}`)
+    // Tier labels left the UI in v1.3 Round 0 (D2): the card has no TIER
+    // line, though the engine still carries a tier until its own step.
+    expect(card.textContent).not.toContain(`TIER ${asset.tier}`)
     expect(card.textContent).toContain(`${asset.integrity}%`)
     for (const c of onLayer) {
       const item = card.querySelector(`li[data-intel-condition="${c.eventId}"]`)
@@ -381,7 +402,7 @@ describe('the intel cards (v1.2 R3)', () => {
 
   it('closes on Escape during playback without skipping the playback', async () => {
     render(gameAt(11))
-    resolveNow()
+    execute()
     step(100)
     expect(playingOut()).toBe(true)
     click(container.querySelector('button[aria-label="Threat intel"]')!)
@@ -430,12 +451,10 @@ describe('GUARD R3 (e): under reduced motion nothing shakes, strobes or floats',
   function toTheHit(reduced: boolean) {
     setReducedMotion(reduced)
     render(gameAt(11))
-    resolveNow()
-    for (let i = 0; i < 1500; i += 1) {
-      if (container.querySelector('span[data-strobe]') && container.querySelector('span[data-mai-drop]')) return
-      step(10)
-    }
-    throw new Error('the hit never landed')
+    execute()
+    let landed = false
+    tapThrough(() => (landed = !!(container.querySelector('span[data-strobe]') && container.querySelector('span[data-mai-drop]'))), 10)
+    if (!landed) throw new Error('the hit never landed')
   }
   const HIT = ['dc-hit-shake', 'dc-hit-strobe', 'dc-mai-float']
 

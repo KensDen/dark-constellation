@@ -104,10 +104,6 @@ const click = (el: Element) => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
   })
 }
-const step = (ms: number) =>
-  act(() => {
-    vi.advanceTimersByTime(ms)
-  })
 const settle = () =>
   act(async () => {
     await vi.dynamicImportSettled()
@@ -240,13 +236,13 @@ describe('the INTEL ARCHIVE on the menu', () => {
   const menuButtons = () => [...container.querySelectorAll('nav button')]
   const keyOf = (label: RegExp) => menuButtons().find((b) => label.test(b.textContent ?? ''))!.querySelector('span')!.textContent!
 
-  it('groups the three screens under one INTEL ARCHIVE label that carries the FILED counter', async () => {
+  it('groups the two screens under one INTEL ARCHIVE label that carries the FILED counter', async () => {
     met('lidar-dazzle')
     loadPage()
     const group = container.querySelector('[data-intel-archive]')!
     expect(group.textContent).toMatch(/^INTEL ARCHIVE/)
     const grouped = menuButtons().filter((b) => b.getAttribute('aria-describedby') === group.id)
-    expect(grouped.map((b) => b.textContent!.replace(/^F\d+/, ''))).toEqual(['FIELD LIBRARY', 'FIELD MANUAL', 'GLOSSARY'])
+    expect(grouped.map((b) => b.textContent!.replace(/^F\d+/, ''))).toEqual(['FIELD LIBRARY', 'GLOSSARY'])
     await settle()
     // The entries that name lidar-dazzle, and SPARTA, which it carries.
     const filed = new Set([...naming('lidar-dazzle'), SPARTA]).size
@@ -257,7 +253,6 @@ describe('the INTEL ARCHIVE on the menu', () => {
     loadPage()
     for (const [label, heading] of [
       [/FIELD LIBRARY$/, 'FIELD LIBRARY'],
-      [/FIELD MANUAL$/, 'FIELD MANUAL'],
       [/GLOSSARY$/, 'GLOSSARY'],
     ] as const) {
       const key = keyOf(label)
@@ -270,20 +265,22 @@ describe('the INTEL ARCHIVE on the menu', () => {
     }
   })
 
-  it('keys no entry past F9, with RESUME and DAILY OP both showing', () => {
-    // A campaign in progress puts RESUME on the menu: ten entries.
+  it('keys every entry in order, F1 to F8, with RESUME and DAILY OP both showing', () => {
+    // A campaign in progress puts RESUME on the menu: eight entries, the
+    // most it holds since the FIELD MANUAL and HOW TO PLAY left in v1.3
+    // Round 0, so every entry has its key and none reaches F10.
     localStorage.setItem('dc-autosave', JSON.stringify(captureGame(newGame(DEFAULT_SCENARIO, 1, 'standard'), 'brief', '2026-09-29T00:00:00Z')))
     loadPage()
     click(container.querySelector('button[aria-label="System"]')!)
     click(byText(/^Back to menu$/)!)
     const rows = menuButtons()
-    expect(rows.length, 'fewer than ten entries, so no entry could reach F10').toBeGreaterThanOrEqual(10)
-    const keys = rows.map((b) => b.querySelector('span')?.textContent ?? '').filter((k) => /^F\d+$/.test(k))
-    expect(keys).toEqual(keys.map((_, i) => `F${i + 1}`))
-    expect(keys.length).toBe(9)
+    expect(rows.length, 'RESUME or DAILY OP is not showing, so the menu is not at its longest').toBe(8)
+    const keys = rows.map((b) => b.querySelector('span')?.textContent ?? '')
+    expect(keys, 'an entry without its key, or keys out of order').toEqual(rows.map((_, i) => `F${i + 1}`))
+    press('F9')
     press('F10')
     press('F11')
-    expect(container.querySelector('[data-intel-archive]'), 'F10 or F11 left the menu').not.toBeNull()
+    expect(container.querySelector('[data-intel-archive]'), 'a key past the last entry left the menu').not.toBeNull()
   })
 })
 
@@ -299,11 +296,24 @@ describe("the event cards' learn more", () => {
       root.render(<Game key={`g${mounts}`} initial={{ state, phase: 'brief' }} onExit={() => {}} />)
     })
   }
-  const resolveNow = () =>
-    act(() => {
-      container.querySelector('nav[aria-label="Actions"] button.dc-hold')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
+  // EXECUTE is a plain button since v1.3 Round 0 (the hold went with the
+  // dwell), and a synthetic Enter does not click a button in jsdom, so the
+  // tests click it.
+  const execute = () => {
+    const button = container.querySelector('nav[aria-label="Actions"] button[data-execute]')
+    expect(button, 'EXECUTE is not on screen').not.toBeNull()
+    click(button!)
+  }
   const beatShown = () => container.textContent!.match(/beat (\d+) of \d+/)?.[1]
+  // Every beat waits for a tap since v1.3 Round 0, so nothing but the
+  // player moves a playback on: Next, the card, or Space or Enter with
+  // nothing focused, which is the one a dialog over the board must keep
+  // from reaching the turn behind it.
+  const nextBeat = () => click(byText(/^Next$/)!)
+  const space = () =>
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    })
   const metNow = () => JSON.parse(localStorage.getItem('dc-met') ?? '[]') as string[]
   const escape = () =>
     act(() => {
@@ -311,12 +321,12 @@ describe("the event cards' learn more", () => {
     })
   // What the empty cart's turn from `state` draws, from the engine.
   const drawnFrom = (state: GameState) => resolveTurn(state, NO_OP, turnRng(state.seed, state.turn)).history.at(-1)!.events
-  // Playback until a threat's card carries its link.
+  // Playback, tapped through, until a threat's card carries its link.
   function untilLearnMore(): HTMLButtonElement {
-    for (let i = 0; i < 60; i += 1) {
+    for (let i = 0; i < 60 && byText(/^Skip/); i += 1) {
       const link = container.querySelector<HTMLButtonElement>('button[data-learn-more]')
       if (link) return link
-      step(250)
+      nextBeat()
     }
     throw new Error('no threat card reached the screen')
   }
@@ -338,7 +348,7 @@ describe("the event cards' learn more", () => {
     expect(state.history.flatMap((r) => r.events).length, 'the loaded campaign has no history, so a load could record nothing').toBeGreaterThan(0)
     render(state)
     expect(metNow(), 'loading a campaign recorded its history as met').toEqual([])
-    resolveNow()
+    execute()
     expect(metNow().sort()).toEqual([...new Set(drawn.map((e) => e.eventId))].sort())
   })
 
@@ -356,13 +366,13 @@ describe("the event cards' learn more", () => {
     })
     click(byText(/load from code/i)!)
     expect(metNow()).toEqual([])
-    resolveNow()
+    execute()
     expect(metNow().length, 'a pasted practice run met nothing').toBeGreaterThan(0)
   })
 
   it('opens the library over the board at that threat, holds the playback, and lets it go on after Escape', async () => {
     render(gameAt(4))
-    resolveNow()
+    execute()
     const link = untilLearnMore()
     const id = link.getAttribute('data-learn-more')!
     expect(DEFAULT_SCENARIO.events.find((e) => e.id === id)?.kind ?? 'threat').toBe('threat')
@@ -381,23 +391,20 @@ describe("the event cards' learn more", () => {
     // Space meant for the library does not step it.
     const held = beatShown()
     expect(held, 'no beat on screen, so holding it proves nothing').toBeDefined()
-    step(10_000)
-    act(() => {
-      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
-    })
+    space()
     expect(beatShown(), 'playback ran on behind the library').toBe(held)
     escape()
     expect(container.querySelector('[data-library-overlay]'), 'Escape did not close the library').toBeNull()
     expect(byText(/^Skip/), 'Escape on the library skipped the playback').toBeDefined()
     expect(document.activeElement?.getAttribute('data-learn-more'), 'focus did not come back to the link').toBe(id)
-    // Let go: the playback moves on once the library is closed.
-    step(10_000)
+    // Let go: once the library is closed, the same Space steps the turn.
+    space()
     expect(beatShown() !== held || !byText(/^Skip/), 'playback stayed held after the library closed').toBe(true)
   })
 
   it('returns focus to a tapped link, which a phone never focused', async () => {
     render(gameAt(4))
-    resolveNow()
+    execute()
     const link = untilLearnMore()
     ;(document.activeElement as HTMLElement | null)?.blur?.()
     expect(document.activeElement).toBe(document.body)
@@ -427,14 +434,19 @@ describe("the event cards' learn more", () => {
 
   it('holds the playback under the intel card too', async () => {
     render(gameAt(4))
-    resolveNow()
-    step(300)
+    execute()
     const held = beatShown()
     expect(held).toBeDefined()
     click(container.querySelector('button[aria-label="Threat intel"]')!)
     await settle()
-    step(10_000)
+    expect(container.querySelector('section[data-intel-card]'), 'the intel card did not open').not.toBeNull()
+    space()
     expect(beatShown(), 'playback ran on behind the intel card').toBe(held)
+    // The positive control: with the card closed, the same Space steps it.
+    escape()
+    expect(container.querySelector('section[data-intel-card]')).toBeNull()
+    space()
+    expect(beatShown() !== held || !byText(/^Skip/), 'a Space with no card open did not step the playback').toBe(true)
   })
 
   it('closes the Glossary on Escape during playback without skipping the turn it holds', async () => {
@@ -453,27 +465,30 @@ describe("the event cards' learn more", () => {
       throw new Error('no turn of any line searched carries a technique tag')
     })()
     render(withTag)
-    resolveNow()
-    step(300)
+    execute()
     const tag = container.querySelector<HTMLButtonElement>('button[data-technique-tag]')
     expect(tag, 'no technique tag on the banner during playback').not.toBeNull()
     click(tag!)
     await settle()
     expect(container.querySelector('[data-glossary-overlay]')).not.toBeNull()
     const held = beatShown()
-    step(10_000)
+    expect(held, 'no beat on screen, so holding it proves nothing').toBeDefined()
+    space()
     expect(beatShown(), 'playback ran on behind the Glossary').toBe(held)
     escape()
     expect(container.querySelector('[data-glossary-overlay]'), 'Escape did not close the Glossary').toBeNull()
     expect(byText(/^Skip/), 'Escape on the Glossary skipped the playback').toBeDefined()
   })
 
-  it('carries the link on the aftermath card at INSTANT, where it is the only event card', () => {
-    localStorage.setItem('dc-playback-speed', 'instant')
+  it('carries the link on the aftermath card, the only event card a skipped playback leaves', () => {
+    // INSTANT left with the speeds in v1.3 Round 0; a player who skips the
+    // playback lands on the aftermath, as INSTANT did, and reads the turn
+    // there.
     const state = gameAt(4)
     expect(drawnFrom(state).some((e) => (DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)?.kind ?? 'threat') === 'threat')).toBe(true)
     render(state)
-    resolveNow()
+    execute()
+    click(byText(/^Skip/)!)
     const aftermath = container.querySelector('section[aria-label^="Aftermath"]')
     expect(aftermath, 'no aftermath card').not.toBeNull()
     expect(aftermath!.querySelector('button[data-learn-more]'), 'the aftermath card has no learn more').not.toBeNull()
@@ -490,13 +505,16 @@ describe("the event cards' learn more", () => {
     const names = opportunities.map((e) => DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)!.name)
     const ids = new Set(opportunities.map((e) => e.eventId))
     render(state)
-    resolveNow()
+    execute()
+    // Every beat of the turn, tapped through, and the aftermath it ends on.
     let seen = false
     for (let i = 0; i < 60; i += 1) {
       if (names.some((n) => container.textContent!.includes(n))) seen = true
       for (const b of container.querySelectorAll('button[data-learn-more]')) expect(ids.has(b.getAttribute('data-learn-more')!), 'an opportunity card links to the library').toBe(false)
-      step(250)
+      if (!byText(/^Skip/)) break
+      nextBeat()
     }
+    expect(byText(/^Skip/), 'the playback never finished').toBeUndefined()
     expect(seen, 'no opportunity card was ever on screen').toBe(true)
   })
 })

@@ -61,9 +61,11 @@ import { turnRng } from '../src/engine/rng'
 import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
 import { glossaryEntries } from '../src/ui/reference'
 import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
+import { ORDER_TIER } from '../src/ui/board/ProcureSheet'
+import { STRIKE_MS } from '../src/ui/board/strike'
 import { CHAIN_ARMED_LINE, DISCLOSURE_WORD_BUDGETS, JOB_FRAMING_HEADING, briefCopy, countWords, disclosureBlocks, jobFramingBlocks, postureDetailLines } from '../src/ui/brief'
-import type { AssetKind, GameState, TrustTier, TurnActions } from '../src/engine/types'
-import { PLAYBACK_SPEED_KEY, SECTION_6_ROWS, VISUAL_CLASS, deriveBeats, type Beat } from '../src/director'
+import type { AssetKind, GameState, TurnActions } from '../src/engine/types'
+import { SECTION_6_ROWS, VISUAL_CLASS, deriveBeats, type Beat } from '../src/director'
 import DirectorView from '../src/director/DirectorView'
 import { SOUND_TOGGLE_LABELS, chromeCopy } from '../src/ui/brief'
 import { getAudioEngine, installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
@@ -216,14 +218,17 @@ function creditsSpan(): HTMLElement {
   return el as HTMLElement
 }
 
-// THE BOARD'S CONTROLS (v1.2 R1). The numbered sections had one buy
-// button per fleet tile; the board has a PROCURE sheet of three steps
-// (kind, tier, confirm) behind a pinned action bar, and HARDEN, INTEL and
-// SURGE sheets beside it. These drive the sheets the way a thumb does, by
-// the attributes the sheets carry for exactly this, so the tests above
-// the board read the same as they did above the sections. A test that
-// renders at 'procure' or 'harden' lands with that sheet already open,
-// which is what an autosave from the v1.1 phases does too.
+// THE BOARD'S CONTROLS (v1.2 R1; one sheet since v1.3 Round 0). The
+// numbered sections had one buy button per fleet tile; the board has a
+// PROCURE sheet behind a pinned action bar. Its first step holds ASSETS,
+// DEFENSES and INTEL, which were three sheets (PROCURE, HARDEN, INTEL)
+// until v1.3 Round 0 merged them, and an asset opens a confirm step that
+// carries its price: there is no tier step since D2 retired the tiers,
+// and every asset is ordered at ORDER_TIER. These drive the sheet the way
+// a thumb does, by the attributes it carries for exactly this, so the
+// tests above the board read the same as they did above the sections. A
+// test that renders at 'procure' or 'harden' lands with PROCURE already
+// open, which is what an autosave from the v1.1 phases does too.
 //
 // Each selector names its tag (v1.2 R2 fix, after CI run #19). jsdom's
 // selector engine answers a bare attribute selector by walking every
@@ -231,30 +236,75 @@ function creditsSpan(): HTMLElement {
 // backdrop rects; with the tag it starts from that tag's elements only.
 // Measured on the decision board: 1.3ms a query without, 0.14ms with.
 const sheetOpen = (id: string) => container.querySelector(`section[data-sheet="${id}"]`)
-function openSheet(label: 'PROCURE' | 'HARDEN' | 'INTEL' | 'SURGE') {
+function openSheet(label: 'PROCURE') {
   if (sheetOpen(label.toLowerCase())) return
   const control = byText(new RegExp(`^${label}`))
   if (!control) throw new Error(`no ${label} control on screen`)
   click(control)
 }
-// Walk the PROCURE sheet to its confirm step for one kind and tier and
-// return the confirm control WITHOUT pressing it, since that press is
-// what several tests inspect. A sheet already on its confirm step (after
-// a refusal) is left there.
-function reachBuy(kind: AssetKind, tier: TrustTier): HTMLButtonElement {
+// Walk the PROCURE sheet to its confirm step for one kind and return the
+// confirm control WITHOUT pressing it, since that press is what several
+// tests inspect. A sheet already on its confirm step (after a refusal) is
+// left there.
+function reachBuy(kind: AssetKind): HTMLButtonElement {
   openSheet('PROCURE')
   const k = container.querySelector(`button[data-procure-kind="${kind}"]`)
   if (k) click(k)
-  const t = container.querySelector(`button[data-procure-tier="${tier}"]`)
-  if (t) click(t)
   const confirm = container.querySelector('button[data-procure-buy]') as HTMLButtonElement | null
   if (!confirm) throw new Error('the PROCURE sheet never reached its confirm step')
   return confirm
 }
-function buy(kind: AssetKind, tier: TrustTier): HTMLButtonElement {
-  const confirm = reachBuy(kind, tier)
+function buy(kind: AssetKind): HTMLButtonElement {
+  const confirm = reachBuy(kind)
   click(confirm)
   return confirm
+}
+// The checkboxes PROCURE's first step carries, by section: the defenses
+// (the IR retainer among them) and the intel order.
+const defenseBoxes = () => [...container.querySelectorAll('ul[data-procure-defenses] input[type="checkbox"]')] as HTMLInputElement[]
+const intelBox = () => container.querySelector('p[data-procure-intel] input[type="checkbox"]') as HTMLInputElement | null
+const isRetainer = (b: HTMLInputElement) => /Incident response retainer/i.test(b.closest('label')?.textContent ?? '')
+
+// THE COMMIT AND THE PLAYBACK (v1.3 Round 0, brief 5.5). EXECUTE is a
+// plain button that ends the turn on a click; the hold-to-resolve control
+// and its keyboard path went with the auto-advancing director. A
+// synthetic keydown does not click a plain button in jsdom, so the
+// fixture clicks it, as a player taps it.
+//
+// Nothing advances on its own any more: a beat stays on screen until the
+// player moves on, so the fixture moves the turn on the way a player
+// does, by pressing Next. The strike is the one part of a beat that still
+// runs on timers (a landed hit locks on for LOCK_SHARE of STRIKE_MS
+// before the board takes the damage and the hit sounds), so each beat is
+// given its strike's length before the tap, in steps a caller can sample
+// between. The first step clears the 20ms gap useCueClass leaves when a
+// treatment repeats on the next beat, so a sample never reads that gap.
+const executeControl = () => container.querySelector('button[data-execute]') as HTMLButtonElement | null
+const inPlayback = () => /beat \d+ of \d+/.test(container.textContent ?? '')
+const BEAT_STEPS_MS = [40, ...Array.from({ length: Math.ceil(STRIKE_MS / 300) }, () => 300)]
+function playBeat(sample?: () => void) {
+  for (const ms of BEAT_STEPS_MS) {
+    act(() => {
+      vi.advanceTimersByTime(ms)
+    })
+    sample?.()
+  }
+}
+function tapNext(): boolean {
+  const next = buttons().find((b) => (b.textContent ?? '').trim() === 'Next')
+  if (!next) return false
+  click(next)
+  return true
+}
+// Tap the turn on screen through to its aftermath, letting each beat play
+// first. Returns how many taps it took.
+function playOut(sample?: () => void, limit = 80): number {
+  let taps = 0
+  for (; taps < limit && inPlayback(); taps += 1) {
+    playBeat(sample)
+    if (!tapNext()) break
+  }
+  return taps
 }
 // Every element under the container whose class names a dc- class, in
 // document order: what querySelectorAll('[class*="dc-"]') returns, found
@@ -271,8 +321,9 @@ function dcClassed(): Element[] {
   return out
 }
 // The dearest thing on offer, which a refusal drive buys until the cart
-// refuses: the RPO servicer at Tier A.
-const DEAREST: [AssetKind, TrustTier] = ['rpoSat', 'A']
+// refuses: the RPO servicer, at the one price there is since the tiers
+// went.
+const DEAREST: AssetKind = 'rpoSat'
 // The control that moves on after a turn, on the action bar.
 const NEXT_TURN = /^NEXT TURN|^FINAL REPORT/
 
@@ -299,7 +350,7 @@ describe('the declaration chain, asserted by execution', () => {
     const state = gameAt(2)
     render(state, 'procure')
     // Buy the cheapest thing on offer.
-    buy('sat', 'B')
+    buy('sat')
     // The ticker shows the cart during procurement, so the number falls.
     // It must not carry the damage colour: the fall is the player's own.
     expect(creditsSpan().className, 'a purchase was painted as damage').not.toMatch(/dc-flash-bad/)
@@ -321,21 +372,18 @@ describe('the declaration chain, asserted by execution', () => {
       render(state, 'procure')
       const read = () => Number(/Credits (\d+)/.exec(creditsSpan().getAttribute('aria-label') ?? '')?.[1] ?? 0)
       const beforeBuy = read()
-      buy('sat', 'B')
+      buy('sat')
       const spend = beforeBuy - read()
       if (spend <= 0) return null
 
-      const execute = byText(/Hold to resolve/i)
+      // EXECUTE commits on a tap since v1.3 Round 0, and the playback is
+      // tapped through beat by beat, sampled between the strike's steps.
+      const execute = executeControl()
       if (!execute) return null
-      // The keyboard path commits at once, which is the control's
-      // documented behaviour: holding a key is not the same gesture as
-      // holding a pointer, and there is nothing to read while it happens.
-      act(() => {
-        execute.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-      })
+      click(execute)
 
       const steps: { credits: number; bad: boolean; good: boolean }[] = []
-      for (let i = 0; i < 40; i += 1) {
+      const sample = () => {
         const el = container.querySelector('[aria-label^="Credits"]')
         if (el) {
           const m = /Credits (\d+)/.exec(el.getAttribute('aria-label') ?? '')
@@ -345,10 +393,9 @@ describe('the declaration chain, asserted by execution', () => {
             good: /dc-flash-good/.test(el.className),
           })
         }
-        act(() => {
-          vi.advanceTimersByTime(400)
-        })
       }
+      sample()
+      playOut(sample)
       const moved = steps.findIndex((st, i) => i > 0 && st.credits !== steps[i - 1].credits)
       if (moved <= 0) return null
       const delta = steps[moved].credits - steps[moved - 1].credits
@@ -380,35 +427,41 @@ describe('the declaration chain, asserted by execution', () => {
   })
 })
 
-describe('the declaration covers both decision phases', () => {
-  it('does not paint a hardening buy as damage either', () => {
+describe('the declaration covers the defenses as well as the assets', () => {
+  it('does not paint a defense order as damage either', () => {
     // The retired pin held FOUR links; the fixture's first version drove
-    // three. The fourth is the `chosen` prop, whose harden arm is live:
-    // countermeasures and the IR retainer are bought in the hardening
+    // three. The fourth is the `chosen` prop, whose other arm was live:
+    // countermeasures and the IR retainer were bought in the hardening
     // phase and each moves the ticker. Narrowing it to
     // `chosen={phase === 'procure'}` left every countermeasure purchase
     // flashing magenta and ticking down like damage, with the suite green.
+    //
+    // Since v1.3 Round 0 the defenses are ordered in PROCURE beside the
+    // assets, through their own control (a checkbox, not the asset
+    // confirm), and a v1.1 'harden' autosave lands on that sheet, which
+    // is the arrival this renders.
     render(gameAt(3), 'harden')
+    expect(sheetOpen('procure'), 'a hardening-phase arrival did not open PROCURE').not.toBeNull()
     const before = creditsSpan().getAttribute('aria-label')
-    const boxes = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
-    const box = boxes.find((b) => !b.disabled && !b.checked)
-    expect(box, 'the hardening phase offered nothing to buy').toBeDefined()
+    const box = defenseBoxes().find((b) => !b.disabled && !b.checked)
+    expect(box, 'PROCURE offered no defense to order').toBeDefined()
     act(() => {
       box!.click()
     })
-    expect(creditsSpan().getAttribute('aria-label'), 'the hardening buy did not move the ticker').not.toBe(before)
-    expect(creditsSpan().className, 'a hardening buy was painted as damage').not.toMatch(/dc-flash-bad/)
+    expect(creditsSpan().getAttribute('aria-label'), 'the defense order did not move the ticker').not.toBe(before)
+    expect(creditsSpan().className, 'a defense order was painted as damage').not.toMatch(/dc-flash-bad/)
   })
 })
 
 describe('the declaration survives leaving playback early', () => {
   it('does not paint the buy as damage when the player skips out of playback', () => {
     // finishPlayback deliberately does NOT clear chosenSpend, because SKIP
-    // and a mid-turn INSTANT choice end playback in the same commit that
-    // jumps credits to the engine's after-state, and that jump still
-    // carries the purchase. The retired source pin did not cover this
-    // either, and the fixture only ever let playback finish naturally, so
-    // adding setChosenSpend(0) to finishPlayback left the suite green.
+    // ends playback in the same commit that jumps credits to the engine's
+    // after-state, and that jump still carries the purchase. (A mid-turn
+    // INSTANT choice did the same until v1.3 Round 0 retired the speeds.)
+    // The retired source pin did not cover this either, and the fixture
+    // only ever let playback finish naturally, so adding setChosenSpend(0)
+    // to finishPlayback left the suite green.
     //
     // Searched for a discriminating turn, for the same reason the natural
     // completion test does: on most turns the remainder carries a repair
@@ -420,15 +473,13 @@ describe('the declaration survives leaving playback early', () => {
       render(state, 'procure')
       const read = () => Number(/Credits (\d+)/.exec(creditsSpan().getAttribute('aria-label') ?? '')?.[1] ?? 0)
       const pre = read()
-      buy('sat', 'B')
+      buy('sat')
       const spend = pre - read()
       if (spend <= 0) return null
-      const execute = byText(/Hold to resolve/i)
+      const execute = executeControl()
       if (!execute) return null
-      act(() => {
-        execute.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-      })
-      if (!/beat \d+ of \d+/.test(container.textContent ?? '')) return null
+      click(execute)
+      if (!inPlayback()) return null
       const beforeSkip = read()
       const skip = byText(/^Skip/i)
       if (!skip) return null
@@ -436,7 +487,7 @@ describe('the declaration survives leaving playback early', () => {
       act(() => {
         vi.advanceTimersByTime(50)
       })
-      if (/beat \d+ of \d+/.test(container.textContent ?? '')) return null
+      if (inPlayback()) return null
       const delta = read() - beforeSkip
       const span = creditsSpan()
       const tone = /dc-flash-bad/.test(span.className)
@@ -533,7 +584,7 @@ describe('the procurement sounds, asserted by execution', () => {
 
     const pressed: string[] = []
     // Call site one: a fleet buy, through the PROCURE sheet's confirm.
-    const confirm = reachBuy('sat', 'B')
+    const confirm = reachBuy('sat')
     ctx().reset()
     click(confirm)
     expect(ctx().oscillators().map((o) => o.frequency.first()), 'the fleet buy did not sound the buy voice').toEqual(
@@ -554,11 +605,10 @@ describe('the procurement sounds, asserted by execution', () => {
     }
 
     // Call site three: the intel upgrade, a different control entirely,
-    // in the INTEL sheet since the board.
-    openSheet('INTEL')
-    const intel = [...container.querySelectorAll('input[type="checkbox"]')].find((b) =>
-      /Raise intel/i.test(b.closest('label')?.textContent ?? ''),
-    ) as HTMLInputElement | undefined
+    // in PROCURE's INTEL section since v1.3 Round 0 (its own sheet on the
+    // v1.2 board).
+    openSheet('PROCURE')
+    const intel = intelBox()
     if (intel && !intel.disabled) {
       ctx().reset()
       act(() => {
@@ -575,15 +625,12 @@ describe('the procurement sounds, asserted by execution', () => {
     // first render never reached. Two of the five were therefore still
     // covered only by the source text pin the fixture was written to
     // replace, so deleting the sound from toggleCounter silenced every
-    // countermeasure purchase with the suite green. On the board both are
-    // the HARDEN sheet: the IR retainer was the INTEL sheet's second step
-    // until critique row M8 moved it there.
-    openSheet('HARDEN')
-    const hardenBoxes = () => [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
-    const counter = hardenBoxes().find(
-      (b) => !b.disabled && !b.checked && !/Incident response/i.test(b.closest('label')?.textContent ?? ''),
-    )
-    expect(counter, 'the hardening phase offered no countermeasure').toBeDefined()
+    // countermeasure purchase with the suite green. On the v1.2 board both
+    // were the HARDEN sheet (the IR retainer was the INTEL sheet's second
+    // step until critique row M8 moved it there); since v1.3 Round 0 both
+    // are PROCURE's DEFENSES section, on the step already open.
+    const counter = defenseBoxes().find((b) => !b.disabled && !b.checked && !isRetainer(b))
+    expect(counter, 'PROCURE offered no defense').toBeDefined()
     ctx().reset()
     act(() => {
       counter!.click()
@@ -594,10 +641,8 @@ describe('the procurement sounds, asserted by execution', () => {
     ).toEqual(buyVoice)
     pressed.push('countermeasure')
 
-    const retainer = hardenBoxes().find((b) =>
-      /Incident response retainer/i.test(b.closest('label')?.textContent ?? ''),
-    )
-    expect(retainer, 'the retainer is not on HARDEN').toBeDefined()
+    const retainer = defenseBoxes().find(isRetainer)
+    expect(retainer, 'the retainer is not among the defenses').toBeDefined()
     expect(retainer!.disabled, 'the fixture already owns the retainer, so its voice goes unheard').toBe(false)
     if (retainer && !retainer.disabled && !retainer.checked) {
       ctx().reset()
@@ -613,7 +658,7 @@ describe('the procurement sounds, asserted by execution', () => {
 
     expect(
       pressed.length,
-      `only pressed ${pressed.join(', ')}; the old pin already covered one, and two of the five live in the hardening phase`,
+      `only pressed ${pressed.join(', ')}; the old pin already covered one, and two of the five are defense orders`,
     ).toBeGreaterThanOrEqual(4)
   })
 })
@@ -624,7 +669,7 @@ describe('the cannot-afford cue, asserted by execution', () => {
     // three channels at once and the point is that they fire together.
     const broke: GameState = { ...gameAt(2), credits: 1 }
     render(broke, 'procure')
-    const buy = reachBuy('sat', 'B')
+    const buy = reachBuy('sat')
     act(() => {
       buy.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
     })
@@ -665,26 +710,27 @@ describe('every refusable control answers for its own refusal', () => {
     // not enough to force a refusal; the cart is filled first instead,
     // which is also how a player actually reaches this.
     //
-    // Since the board (v1.2 R1) the intel upgrade lives in its own sheet,
-    // so the fleet buy's refusal is no longer on screen when the intel
-    // control is examined: opening INTEL replaces the PROCURE sheet. The
-    // exclusivity claim is kept in the form the board allows, that a
-    // refusal elsewhere leaves this control still, and the attribution
-    // claim, that the control touched is the one that shakes, is as it
-    // was.
+    // Since the board (v1.2 R1) the fleet buy's refusal is no longer on
+    // screen when the intel control is examined. The intel upgrade had a
+    // sheet of its own on the v1.2 board; since v1.3 Round 0 it sits on
+    // PROCURE's first step, while the refused fleet buy stays on the
+    // confirm step, so the player steps back to reach it. The exclusivity
+    // claim is kept in the form the board allows, that a refusal elsewhere
+    // leaves this control still, and the attribution claim, that the
+    // control touched is the one that shakes, is as it was.
     // The cart is filled with the cheapest sat, as the numbered layout's
     // first tile was, so what is left is less than the intel upgrade.
     render(gameAt(3), 'procure')
     for (let i = 0; i < 12; i += 1) {
-      buy('sat', 'B')
+      buy('sat')
       if (container.querySelector('.dc-shake')) break
     }
     expect(container.querySelector('.dc-shake'), 'the loop did not leave a refusal on screen').not.toBeNull()
-    openSheet('INTEL')
-    const intel = [...container.querySelectorAll('input[type="checkbox"]')].find((b) =>
-      /Raise intel/i.test(b.closest('label')?.textContent ?? ''),
-    ) as HTMLInputElement | undefined
-    expect(intel, 'the intel upgrade is not on screen').toBeDefined()
+    const back = container.querySelector('button[aria-label="Back a step"]')
+    expect(back, 'the refused confirm step offers no way back to the first step').not.toBeNull()
+    click(back!)
+    const intel = intelBox()
+    expect(intel, 'the intel upgrade is not on screen').not.toBeNull()
     expect(intel!.disabled, 'the intel upgrade is maxed, so it cannot be refused').toBe(false)
     // EXCLUSIVITY: a refusal on the fleet buy must not have left this
     // control shaking. Without this the tile could key off
@@ -717,25 +763,25 @@ describe('every refusable control answers for its own refusal', () => {
     )
   })
 
-  it('shakes the retainer tile too, which lives in the other decision phase', () => {
+  it('shakes the retainer tile too, which sits among the defenses', () => {
     // The IR retainer is the fourth refusable id and the only one that
     // lived in the hardening phase. Guarding the intel tile alone left
-    // this one's fix unguarded, which a mutation showed. On the board it
-    // is a HARDEN tile since critique row M8 (it was the INTEL sheet's
-    // second step); the budget is filled with the other countermeasures on
-    // the same sheet first, as it was through the hardening phase.
-    render(gameAt(3), 'harden')
-    const boxes = () => [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
-    const isRetainer = (b: HTMLInputElement) => /Incident response retainer/i.test(b.closest('label')?.textContent ?? '')
+    // this one's fix unguarded, which a mutation showed. It was a HARDEN
+    // tile since critique row M8 (the INTEL sheet's second step before
+    // that), and since v1.3 Round 0 it is one of PROCURE's DEFENSES; the
+    // budget is filled with the other defenses in that section first, as
+    // it was through the hardening phase.
+    render(gameAt(3), 'brief')
+    openSheet('PROCURE')
     // Fill the budget with the other countermeasures until one refuses.
-    for (const box of boxes()) {
+    for (const box of defenseBoxes()) {
       if (box.disabled || box.checked || isRetainer(box)) continue
       act(() => {
         box.click()
       })
       if (container.querySelector('.dc-shake')) break
     }
-    const retainer = boxes().find(isRetainer)
+    const retainer = defenseBoxes().find(isRetainer)
     expect(retainer, 'the retainer is not on screen').toBeDefined()
     expect(retainer!.disabled, 'the retainer is already active, so it cannot be refused').toBe(false)
     const before = retainer!.closest('.dc-tile')
@@ -791,30 +837,34 @@ describe('the chrome the reading budget counts, asserted by execution', () => {
     // Seventeen since R2b: RESOLVE's label became "Hold to resolve turn n"
     // in place of RESOLVE and HOLD, and the objective line's tag and
     // sentence joined the bar.
-    expect(chromeCopy(state).length, 'the chrome list changed size without this guard noticing').toBe(17)
+    // Eleven since v1.3 Round 0: HARDEN, INTEL and SURGE left the bar with
+    // their three labels and three step numbers, and the commit's label
+    // became "Execute turn n", one line as its hold instruction was.
+    expect(chromeCopy(state).length, 'the chrome list changed size without this guard noticing').toBe(11)
   })
 })
 
 describe('reduced motion keeps the sequence (brief v1.2)', () => {
   it('derives beats and enters playback with the preference set', () => {
     // The round's central claim, and until now it had no guard at all: the
-    // two tests below read which speed button is pressed, and the decision
-    // that actually produces the eleven-silent-rows regression is made at
-    // Game.tsx's resolve, not in defaultSpeed. Adding one term there
+    // speed tests that stood beside it read which speed button was
+    // pressed, and the decision that actually produces the
+    // eleven-silent-rows regression is made at Game.tsx's resolve, not in
+    // the speed default. Adding one term there
     // (`speed !== 'instant' && !reducedMotion`) restored the exact v1.1
     // behaviour at the other end of the same decision with the whole suite
-    // green. Three lenses raised it independently.
+    // green. Three lenses raised it independently. The speeds are gone
+    // since v1.3 Round 0 and resolve derives beats on every turn, so the
+    // same regression is now one `!reducedMotion` term on that derivation.
     //
     // So this resolves a real turn with the preference on and asserts the
     // player reaches playback, which is the only place the eleven director
     // rows can sound.
     setReducedMotion(true)
-    render(gameAt(3), 'harden')
-    const execute = byText(/Hold to resolve/i)
-    expect(execute, 'the resolve control is not on screen').toBeDefined()
-    act(() => {
-      execute!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
+    render(gameAt(3), 'brief')
+    const execute = executeControl()
+    expect(execute, 'the EXECUTE control is not on screen').not.toBeNull()
+    click(execute!)
     // Playback renders a beat counter; the aftermath does not.
     expect(
       container.textContent,
@@ -837,10 +887,8 @@ describe('reduced motion keeps the sequence (brief v1.2)', () => {
     // classes on screen" is satisfied by a screen that never animates in
     // either mode, and the guard measures nothing.
     setReducedMotion(false)
-    render(gameAt(3), 'harden')
-    act(() => {
-      byText(/Hold to resolve/i)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
+    render(gameAt(3), 'brief')
+    click(executeControl()!)
     const cueClasses = [...container.querySelectorAll('[class*="dc-"]')]
       .flatMap((el) => (el.getAttribute('class') ?? '').split(/\s+/))
       .filter((c) => /^dc-(transmission-in|card-in|badge-|phase-dim|pulse-|manifest-in)/.test(c))
@@ -850,59 +898,31 @@ describe('reduced motion keeps the sequence (brief v1.2)', () => {
   it('plays the sequence to its end rather than skipping it', () => {
     // Completion under the preference, which section 8 asks for. It used
     // to be satisfied for free because instant finishes synchronously.
+    // Since v1.3 Round 0 every beat waits for a tap, so the player taps it
+    // through, and the turn must take more than one tap to get there: a
+    // playback that ended on its first tap would be a skip by another name.
     setReducedMotion(true)
-    render(gameAt(3), 'harden')
-    const execute = byText(/Hold to resolve/i)
-    act(() => {
-      execute!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
+    render(gameAt(3), 'brief')
+    click(executeControl()!)
     expect(container.textContent, 'playback did not start').toMatch(/beat \d+ of \d+/)
-    act(() => {
-      vi.advanceTimersByTime(60000)
-    })
+    const visible = Number(/beat \d+ of (\d+)/.exec(container.textContent ?? '')?.[1] ?? 0)
+    const taps = playOut()
     expect(container.textContent, 'playback never reached the aftermath').not.toMatch(/beat \d+ of \d+/)
-  })
-
-  it('does not fall through to instant, so playback actually runs', () => {
-    // The decoupling. Reduced motion used to select instant, instant
-    // derives no beats, and eleven of the sixteen cue rows therefore had
-    // nothing to attach to for a player who had asked for nothing to move
-    // rather than for nothing to be told.
-    setReducedMotion(true)
-    const state = gameAt(2)
-    render(state, 'harden')
-    // The speed control is in the SYSTEM sheet since R1b.
-    click(container.querySelector('button[aria-label="System"]')!)
-    const speedControls = buttons().filter((b) => /^(1x|2x|instant)$/i.test(b.textContent?.trim() ?? ''))
-    expect(speedControls.length, 'the speed control is not on screen').toBeGreaterThan(0)
-    const pressed = speedControls.find((b) => b.getAttribute('aria-pressed') === 'true')
-    expect(pressed, 'no speed is selected').toBeDefined()
-    expect(
-      pressed!.textContent?.trim().toLowerCase(),
-      'reduced motion still selects instant, so playback is skipped and eleven cue rows never sound',
-    ).not.toBe('instant')
-  })
-
-  it('leaves a stored instant preference alone, because that was a choice', () => {
-    localStorage.setItem(PLAYBACK_SPEED_KEY, 'instant')
-    setReducedMotion(true)
-    render(gameAt(2), 'harden')
-    click(container.querySelector('button[aria-label="System"]')!)
-    const pressed = buttons()
-      .filter((b) => /^(1x|2x|instant)$/i.test(b.textContent?.trim() ?? ''))
-      .find((b) => b.getAttribute('aria-pressed') === 'true')
-    expect(pressed?.textContent?.trim().toLowerCase(), 'a stored choice was overridden').toBe('instant')
+    expect(byText(NEXT_TURN), 'the turn ended without offering the next one').toBeDefined()
+    expect(taps, 'the playback ended without showing every beat it counted').toBe(visible)
+    expect(visible, 'the turn had a single beat, so a skip and a full playback look alike').toBeGreaterThan(1)
   })
 })
 
 
-// Render a whole turn's playback and advance until the named scene is on
-// screen. Rendering an outcome beat ALONE leaves the presented state at
-// `before`, because the director builds the final state by applying every
-// earlier patch; the scenes read the presented state, so in isolation they
-// legitimately show pre-turn numbers. Both content guards below were
-// written against a lone beat first and failed for exactly that reason,
-// which is a fact about the fixture rather than about the scenes.
+// Render a whole turn's playback and tap through it until the named scene
+// is on screen (every beat waits for a tap since v1.3 Round 0). Rendering
+// an outcome beat ALONE leaves the presented state at `before`, because
+// the director builds the final state by applying every earlier patch;
+// the scenes read the presented state, so in isolation they legitimately
+// show pre-turn numbers. Both content guards below were written against a
+// lone beat first and failed for exactly that reason, which is a fact
+// about the fixture rather than about the scenes.
 function playUntilScene(before: GameState, after: GameState, beats: Beat[], want: string): Element | null {
   act(() => {
     root.render(
@@ -910,8 +930,6 @@ function playUntilScene(before: GameState, after: GameState, beats: Beat[], want
         before={before}
         after={after}
         beats={beats}
-        speed="1x"
-        onSpeedChange={() => {}}
         onPresented={() => {}}
         onDone={() => {}}
       />,
@@ -920,9 +938,8 @@ function playUntilScene(before: GameState, after: GameState, beats: Beat[], want
   for (let i = 0; i < 80; i += 1) {
     const el = container.querySelector(`[data-scene="${want}"]`)
     if (el) return el
-    act(() => {
-      vi.advanceTimersByTime(400)
-    })
+    playBeat()
+    if (!tapNext()) return null
   }
   return null
 }
@@ -953,27 +970,25 @@ describe('the cinematics, from the player-s starting state (Round 5)', () => {
     throw new Error('no seed in the sweep finished a campaign under this script')
   }
 
-  // Drive Game from the hardening phase of the deciding turn through to
+  // Drive Game from the board of the deciding turn, through EXECUTE, to
   // the outcome beat, and return the scene on screen.
   function playToOutcome(before: GameState) {
-    render(before, 'harden')
-    act(() => {
-      byText(/Hold to resolve/i)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
+    render(before, 'brief')
+    click(executeControl()!)
     expect(container.textContent, 'the deciding turn did not enter playback').toMatch(/beat \d+ of \d+/)
-    // Advance to the OUTCOME scene specifically. A losing campaign passes
-    // through the blackout scene on the way, so breaking on the first
-    // [data-scene] would read the wrong one; the first version of this
-    // helper did exactly that and reported 'blackout' for both endings.
+    // Tap through to the OUTCOME scene specifically. A losing campaign
+    // passes through the blackout scene on the way, so breaking on the
+    // first [data-scene] would read the wrong one; the first version of
+    // this helper did exactly that and reported 'blackout' for both
+    // endings.
     const seen: string[] = []
     for (let i = 0; i < 80; i += 1) {
       const el = container.querySelector('[data-scene]')
       const name = el?.getAttribute('data-scene') ?? null
       if (name && seen[seen.length - 1] !== name) seen.push(name)
       if (name === 'victory' || name === 'defeat') return { el: el!, seen }
-      act(() => {
-        vi.advanceTimersByTime(400)
-      })
+      playBeat()
+      if (!tapNext()) break
     }
     return { el: null, seen }
   }
@@ -1017,8 +1032,7 @@ describe('the cinematics, from the player-s starting state (Round 5)', () => {
       'the renamed title still matches the old derivation, so this proves nothing',
     ).toBe(false)
     // The renamed outcome beat on its own, so the assertion is about that
-    // beat and not about how long playback took to reach it. Instant is
-    // not usable here: it skips to done and shows no beat at all.
+    // beat and not about how many taps playback took to reach it.
     const renamedOutcome = renamed.find((b) => b.kind === 'outcome')!
     // The two outcome voices, taken from the engine so the comparison is
     // an identity rather than a written frequency.
@@ -1047,8 +1061,6 @@ describe('the cinematics, from the player-s starting state (Round 5)', () => {
           before={before}
           after={after}
           beats={[renamedOutcome]}
-          speed="1x"
-          onSpeedChange={() => {}}
           onPresented={() => {}}
           onDone={() => {}}
         />,
@@ -1086,8 +1098,6 @@ describe('the cinematics, from the player-s starting state (Round 5)', () => {
           before={before}
           after={after}
           beats={[{ ...renamedOutcome, lost: false }]}
-          speed="1x"
-          onSpeedChange={() => {}}
           onPresented={() => {}}
           onDone={() => {}}
         />,
@@ -1135,8 +1145,6 @@ describe('the cinematics, from the player-s starting state (Round 5)', () => {
           before={fixture!.before}
           after={fixture!.after}
           beats={[fixture!.beat]}
-          speed="1x"
-          onSpeedChange={() => {}}
           onPresented={() => {}}
           onDone={() => {}}
         />,
@@ -1164,8 +1172,6 @@ describe('each scene states what it does under reduced motion (Round 5)', () => 
           before={before}
           after={after}
           beats={[beat]}
-          speed="1x"
-          onSpeedChange={() => {}}
           onPresented={() => {}}
           onDone={() => {}}
         />,
@@ -1385,8 +1391,6 @@ describe('every beat kind reaches the scene the table says it plays (Round 5)', 
             before={f.before}
             after={f.after}
             beats={[f.beat]}
-            speed="1x"
-            onSpeedChange={() => {}}
             onPresented={() => {}}
             onDone={() => {}}
           />,
@@ -1417,8 +1421,6 @@ describe('the scene numbers count, and the scene reads its own beat (Round 5)', 
           before={f.before}
           after={f.after}
           beats={[f.beat]}
-          speed="1x"
-          onSpeedChange={() => {}}
           onPresented={() => {}}
           onDone={() => {}}
         />,
@@ -1474,9 +1476,10 @@ describe('the scene numbers count, and the scene reads its own beat (Round 5)', 
       tickUp.every((hz) => heard.includes(hz)),
       'the bonus was painted at its final value, so nothing counted and the readout reported no gain',
     ).toBe(true)
-    // And it lands on the right number. Read without advancing timers:
-    // one beat at 1x finishes after its dwell and the card unmounts, so
-    // advancing past it reads an empty screen rather than a settled one.
+    // And it lands on the right number. Read without advancing timers, a
+    // habit from when one beat at 1x finished after its dwell and the card
+    // unmounted; the beat waits for a tap since v1.3 Round 0, and the
+    // readout's label carries the value it is counting to either way.
     expect(
       readoutValue(container.querySelector('[data-scene="commendation"]')!, 'Bonus credits'),
       'the bonus never arrived at its value',
@@ -1604,8 +1607,6 @@ describe('the scene numbers count, and the scene reads its own beat (Round 5)', 
           before={f.before}
           after={f.after}
           beats={[f.beat, second]}
-          speed="1x"
-          onSpeedChange={() => {}}
           onPresented={() => {}}
           onDone={() => {}}
         />,
@@ -1623,11 +1624,9 @@ describe('the scene numbers count, and the scene reads its own beat (Round 5)', 
     })
     expect(digit(), 'the first commendation did not settle on its award').toBe(String(first))
 
-    // Advance past the dwell to the second beat and read what the player
-    // sees as it opens.
-    act(() => {
-      vi.advanceTimersByTime(600)
-    })
+    // Tap on to the second beat (it advanced past a dwell until v1.3 Round
+    // 0) and read what the player sees as it opens.
+    expect(tapNext(), 'the playback offers no way on to the second beat').toBe(true)
     const onArrival = digit()
     expect(onArrival, 'the second commendation opened on the first award-s number').not.toBe(String(first))
     expect(onArrival, 'the second commendation did not open from zero').toBe('0')
@@ -2148,9 +2147,9 @@ describe('a loaded campaign is not a campaign that was played here', () => {
     // the post on arrival could have suppressed every post and no existing
     // test would have noticed.
     //
-    // So this plays the last turn through the controls. The keyboard path
-    // on the hold control commits at once, which is its documented
-    // behaviour and what the fixture already uses elsewhere.
+    // So this plays the last turn through the controls: EXECUTE, which
+    // commits on a tap since v1.3 Round 0, and then the playback tapped
+    // through to its end.
     let state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
     while (state.status === 'playing' && state.turn < DEFAULT_SCENARIO.totalTurns) {
       state = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
@@ -2160,15 +2159,12 @@ describe('a loaded campaign is not a campaign that was played here', () => {
     expect(scores(), 'the board is not empty at the start').toHaveLength(0)
 
     render(state, 'brief')
-    const execute = byText(/Hold to resolve/i)
-    expect(execute, 'no commit control on the final turn').toBeDefined()
-    act(() => {
-      execute!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
+    const execute = executeControl()
+    expect(execute, 'no commit control on the final turn').not.toBeNull()
+    click(execute!)
     // Run the playback out so the campaign reaches its end state.
-    act(() => {
-      vi.advanceTimersByTime(60_000)
-    })
+    playOut()
+    expect(inPlayback(), 'the final turn never left playback').toBe(false)
 
     expect(scores().length, 'a campaign played to its end here posted no score').toBeGreaterThan(0)
   })
@@ -2236,14 +2232,10 @@ describe('a loaded campaign is not a campaign that was played here', () => {
     expect(container.querySelector('[aria-label^="Credits"]'), 'the campaign did not start').not.toBeNull()
 
     for (let turn = 0; turn < DEFAULT_SCENARIO.totalTurns + 2; turn += 1) {
-      const execute = byText(/Hold to resolve/i)
+      const execute = executeControl()
       if (!execute) break
-      act(() => {
-        execute.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-      })
-      act(() => {
-        vi.advanceTimersByTime(60_000)
-      })
+      click(execute)
+      playOut()
       const next = byText(NEXT_TURN)
       if (!next) break
       click(next)
@@ -2266,12 +2258,9 @@ describe('a loaded campaign is not a campaign that was played here', () => {
     render(nearEnd, 'brief')
     expect(localStorage.getItem('dc-autosave'), 'nothing autosaved while playing').not.toBeNull()
 
-    act(() => {
-      byText(/Hold to resolve/i)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
-    act(() => {
-      vi.advanceTimersByTime(60_000)
-    })
+    click(executeControl()!)
+    playOut()
+    expect(inPlayback(), 'the final turn never left playback').toBe(false)
     expect(
       localStorage.getItem('dc-autosave'),
       'a finished campaign is still offered for resume',
@@ -2321,7 +2310,7 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
 
   // Drive one turn from the intel brief to the aftermath, recording what
   // was painted and what was played, beat by beat.
-  type DriveOpts = { surge?: boolean; seed?: number; buy?: 'first' | 'drone'; overbuy?: boolean }
+  type DriveOpts = { seed?: number; buy?: 'first' | 'drone'; overbuy?: boolean }
   function driveTurn(opts: DriveOpts = {}): {
     pairs: Set<string>
     sounds: Set<string>
@@ -2353,50 +2342,35 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
 
     // Buy the cheapest thing on offer, because a new player buys
     // something, and the procurement cues are five of the seventeen rows.
-    // 'drone' buys exactly one Tier B drone, which the engine can replay
-    // exactly, so a seed chosen by engine search lands where it was chosen.
-    if (opts.buy === 'drone') buy('drone', 'B')
-    else buy('sat', 'B')
+    // 'drone' buys exactly one drone, at the ORDER_TIER the sheet sends,
+    // which the engine can replay exactly, so a seed chosen by engine
+    // search lands where it was chosen.
+    if (opts.buy === 'drone') buy('drone')
+    else buy('sat')
     // Then try to buy more than the turn can take. A new player taps past
     // their balance, and that refusal is a section 6 row of its own:
     // driving it is the difference between the row being MET and the row
     // being excused because the fixture was too careful to trip it.
-    if (opts.overbuy !== false) for (let i = 0; i < 12; i += 1) buy(...DEAREST)
-    // Spend surge authority when the game offers it (Round 7). The control
-    // is a normal decision-phase action like the buy and the over-buy
-    // above, and it is offered on this seed from turn 3. The drive used to
-    // walk past it, so "Surge token spent" and "Condition cleared" were
-    // EXCUSED as out of reach when they were only unreached: a split
-    // finding in 7b's re-review, and correct. On the board it is the
-    // SURGE sheet: pick a condition, then spend the token on it.
-    const surgeControl = opts.surge ? byText(/^SURGE/) : undefined
-    if (surgeControl && !surgeControl.disabled) {
-      click(surgeControl)
-      const condition = container.querySelector('button[data-surge-condition]')
-      if (condition) {
-        click(condition)
-        click(container.querySelector('button[data-surge-confirm]')!)
-        surged += 1
-      } else {
-        click(surgeControl)
-      }
-    }
-    const execute = byText(/Hold to resolve/i)
-    expect(execute, 'the commit control is not on screen').toBeDefined()
-    act(() => {
-      execute!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
+    if (opts.overbuy !== false) for (let i = 0; i < 12; i += 1) buy(DEAREST)
+    // The drive spent surge authority here from Round 7 until v1.3 Round
+    // 0, through the SURGE sheet on the board. No UI control spends surge
+    // since v1.3 Round 0 (D2), so the drive no longer can, and "Surge
+    // token spent" is excused below.
+    const execute = executeControl()
+    expect(execute, 'the commit control is not on screen').not.toBeNull()
+    click(execute!)
 
-    // Step the playback and sample the card between steps. The card class
-    // is the visual the registry resolved; whatever the spy caught since
-    // the last sample is the sound that went with it.
+    // Tap the playback through and sample the card between the steps of
+    // each beat. The card class is the visual the registry resolved;
+    // whatever the spy caught since the last sample is the sound that went
+    // with it.
     //
     // `mark` is drained HERE, after the commit, so nothing the player's own
     // buttons played can enter the playback set or the pairing. The first
     // version started the window at zero and paired the first card class
     // with the entire procurement phase.
     let mark = played.length
-    for (let i = 0; i < 60; i += 1) {
+    const sample = () => {
       // TWO CHANNELS, kept distinct, because WHERE a class lands is the
       // observable that matters.
       //
@@ -2427,11 +2401,8 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
       }
       for (const c of classes) visuals.add(c)
       for (const c of classes) for (const s of fresh) pairs.add(`${c}|${s}`)
-      act(() => {
-        vi.advanceTimersByTime(300)
-      })
-      if (byText(NEXT_TURN)) break
     }
+    playOut(sample, 60)
     for (const s of played.slice(mark)) {
       sounds.add(s)
       playback.add(s)
@@ -2444,9 +2415,7 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     return { pairs, sounds, visuals, playback, onCard }
   }
 
-  let surged = 0
   function driveOpening(turns = 3, opts: DriveOpts = {}) {
-    surged = 0
     const perTurn: ReturnType<typeof driveTurn>[] = []
     render(newGame(DEFAULT_SCENARIO, opts.seed ?? 20260712, 'standard'), 'brief')
     for (let t = 0; t < turns; t += 1) {
@@ -2479,27 +2448,34 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
   })
 
   it('meets the rows the opening is not excused from, by the end of the third turn', () => {
-    // TWO PLAYERS, not one. With a single condition in the opening,
-    // letting it persist and spending surge to clear it are ALTERNATIVES:
-    // surging on turn 3 removes the condition before its pressure beat
-    // plays. So one drive waits and one surges, and every row the engine
-    // can produce in three turns is required of at least one of them. The
-    // alternative, excusing whichever row a single drive misses, is the
-    // "unreached, not unreachable" error 7b's re-review found twice.
+    // TWO PLAYERS, not one. Until v1.3 Round 0 one drive waited and one
+    // spent surge, because with a single condition in the opening letting
+    // it persist and surging it away were ALTERNATIVES: surging on turn 3
+    // removed the condition before its pressure beat played. No UI control
+    // spends surge any more, and the two drives still cover different
+    // rows: the waiting player orders exactly one drone a turn, so the
+    // replay lands where the engine search below said it would, and so
+    // never taps past their balance; the other player, on the fixture's
+    // seed, buys and then over-buys, which is what trips the cannot-afford
+    // row. Every row the engine can produce in three turns is required of
+    // at least one of them. The alternative, excusing whichever row a
+    // single drive misses, is the "unreached, not unreachable" error 7b's
+    // re-review found twice.
     //
     // And the waiting player's seed is DERIVED, not chosen. "Condition
-    // cleared" is a natural expiry, not something surge produces (the
-    // surge beat removes the condition itself and plays token-burn), so it
-    // needs a seed on which a condition runs out inside three turns. 82 of
-    // the first 400 standard seeds do that for a player who buys one Tier B
-    // drone a turn; the engine finds the first, and the drive replays the
-    // same purchase so it lands where the search said it would.
+    // cleared" is a natural expiry, not something surge produced (the
+    // surge beat removed the condition itself and played token-burn), so
+    // it needs a seed on which a condition runs out inside three turns. 82
+    // of the first 400 standard seeds do that for a player who buys one
+    // Tier B drone a turn, which is the ORDER_TIER the sheet sends since
+    // the tiers left the screen; the engine finds the first, and the drive
+    // replays the same purchase so it lands where the search said it would.
     const waitSeed = (() => {
       for (let seed = 1; seed <= 400; seed += 1) {
         let st = newGame(DEFAULT_SCENARIO, seed, 'standard')
         const kinds = new Set<string>()
         for (let t = 0; t < 3 && st.status === 'playing'; t += 1) {
-          const next = resolveTurn(st, { ...NO_OP, buyAssets: [{ kind: 'drone', tier: 'B' }] }, turnRng(st.seed, st.turn))
+          const next = resolveTurn(st, { ...NO_OP, buyAssets: [{ kind: 'drone', tier: ORDER_TIER }] }, turnRng(st.seed, st.turn))
           for (const b of deriveBeats(st, next)) if (b.visible) kinds.add(b.kind)
           st = next
         }
@@ -2508,9 +2484,8 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
       throw new Error('no seed in 400 lets a waiting player see a condition both persist and clear')
     })()
     const waits = driveOpening(3, { seed: waitSeed, buy: 'drone', overbuy: false })
-    const surges = driveOpening(3, { surge: true })
-    expect(surged, 'the surging drive never found a surge control to press').toBeGreaterThan(0)
-    const turns = [...waits, ...surges]
+    const overbuys = driveOpening(3)
+    const turns = [...waits, ...overbuys]
     const heard = new Set<string>()
     for (const t of turns) for (const s of t.sounds) heard.add(s)
 
@@ -2530,10 +2505,19 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
       // and fails if the opening stops producing them anywhere.
       // Empty of reachable rows since Round 7. Round 7b's re-review trimmed
       // two false excuses; the last two ("Condition cleared", "Surge token
-      // spent") were unreached rather than unreachable, and the drive now
-      // presses the surge control that was on screen all along. What is
-      // left is only what the engine cannot produce in three turns, which
-      // tests/opening.spec.ts proves against the engine.
+      // spent") were unreached rather than unreachable, and from Round 7
+      // the drive pressed the surge control that was on screen all along.
+      // Apart from the row below, what is left is only what the engine
+      // cannot produce in three turns, which tests/opening.spec.ts proves
+      // against the engine.
+      //
+      // Unreachable from the player's seat since v1.3 Round 0: no UI
+      // control spends surge (D2 retired SURGE from the board), so no
+      // player can ask for the beat this row plays. The engine still
+      // carries surge until Round 0's engine step; the excuse is checked
+      // below like the others, so a surge control that comes back and
+      // sounds the row fails here until this line goes.
+      'Surge token spent',
     ])
     // THE EXCUSE LIST IS CHECKED IN BOTH DIRECTIONS, the way the sibling
     // breadth file checks its own. A hand-written set that subtracts from

@@ -35,6 +35,7 @@ import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
 import { captureGame, decodeSaveCode, encodeSaveCode, type DailyOp } from '../src/persistence'
 import { startDailyOp } from '../src/ui/dailyOp'
+import { STRIKE_MS } from '../src/ui/board/strike'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
@@ -134,19 +135,29 @@ const press = (key: string) =>
     window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
   })
 
-// One turn through the controls: hold to resolve (the keyboard path
-// commits at once), run the playback out, and move on.
+// One turn through the controls: tap EXECUTE, tap the playback through
+// to its aftermath, and move on. Since v1.3 Round 0 EXECUTE is a plain
+// button (a synthetic keydown does not click one in jsdom, so it is
+// clicked) and nothing in the playback advances on its own, so each beat
+// is given its strike's length and then tapped past with Next, as a
+// player does. The control is there only while the turn is undecided, so
+// its absence is the end of the campaign.
+const executeControl = () => container.querySelector('button[data-execute]')
+const nextBeat = () => buttons().find((b) => (b.textContent ?? '').trim() === 'Next')
 function playTurn(): boolean {
-  const hold = byText(/Hold to resolve/i)
-  if (!hold) return false
-  act(() => {
-    hold.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-  })
-  act(() => {
-    vi.advanceTimersByTime(60_000)
-  })
-  const next = byText(/^NEXT TURN|^FINAL REPORT/)
-  if (next) click(next)
+  const execute = executeControl()
+  if (!execute) return false
+  click(execute)
+  for (let beats = 0; beats < 80; beats += 1) {
+    act(() => {
+      vi.advanceTimersByTime(STRIKE_MS)
+    })
+    const next = nextBeat()
+    if (!next) break
+    click(next)
+  }
+  const on = byText(/^NEXT TURN|^FINAL REPORT/)
+  if (on) click(on)
   return true
 }
 async function playToEnd() {
@@ -385,7 +396,7 @@ describe('GUARD R5 (c): a run belongs to the date it started', () => {
     vi.setSystemTime(new Date(2026, 8, 28, 0, 30))
     // Still in play past midnight, with nothing filed yet: the claim below
     // is made after it.
-    expect(byText(/Hold to resolve/i), 'the run ended before midnight').toBeDefined()
+    expect(executeControl(), 'the run ended before midnight').not.toBeNull()
     expect(ledger()).toEqual({})
     await playToEnd()
 

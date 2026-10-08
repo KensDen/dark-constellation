@@ -1,30 +1,24 @@
 // Director battery (game-feel brief section 8, Round 2). Proves the
 // presentation adapter reproduces the engine exactly (zero-residual ledger
-// over real play), that instant
-// completes on the engine's own output, that skip, tap and auto-advance
-// all land on the same end state, and that known fixtures produce the
-// expected beats. Nothing here touches resolveTurn; the engine is the
-// oracle.
+// over real play), that tapping through and skipping both land on the
+// engine's own output, that nothing advances without the player (v1.3
+// Round 0, brief 5.5), and that known fixtures produce the expected
+// beats. Nothing here touches resolveTurn; the engine is the oracle.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import {
-  BEAT_DWELL_MS,
   BEAT_KINDS,
   Director,
-  VISUAL_MS,
-  beatCueMs,
   chosenCreditsOf,
   ID_KEYED_KINDS,
   MODELED_FIELDS,
   applyPatch,
-  defaultSpeed,
   deriveBeats,
   resolveCue,
   type Beat,
   type BeatKind,
-  type Scheduler,
 } from '../src/director'
 import { CHAIN_BONUS, newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
@@ -92,30 +86,6 @@ const replay = (before: GameState, beats: Beat[]) => beats.reduce((s, b) => appl
 const turnAt = (seed: number, line: Line, turn: number): Turn => {
   for (const t of playTurns(seed, line)) if (t.before.turn === turn) return t
   throw new Error(`turn ${turn} not reached`)
-}
-
-// A scheduler that records callbacks so a test can fire them by hand.
-function fakeScheduler() {
-  const pending: { fn: () => void; ms: number }[] = []
-  const schedule: Scheduler = (fn, ms) => {
-    const entry = { fn, ms }
-    pending.push(entry)
-    return () => {
-      const i = pending.indexOf(entry)
-      if (i >= 0) pending.splice(i, 1)
-    }
-  }
-  const fire = () => {
-    const next = pending.shift()
-    if (!next) return false
-    next.fn()
-    return true
-  }
-  return { schedule, fire, pending }
-}
-
-const never: Scheduler = () => {
-  throw new Error('instant playback must never schedule a timer')
 }
 
 // The broadest correctness guard on the branch: it is the only thing
@@ -464,179 +434,86 @@ describe('director playback', () => {
     vi.useRealTimers()
   })
 
-  it('defaults to 1x, and a stored preference overrides it', () => {
-    // Reduced motion used to select instant here (brief v0.1 to v1.1) and
-    // no longer does. The two are different requests: tapping INSTANT asks
-    // for results only, while the OS preference asks for nothing to move.
-    // Conflating them left eleven of the sixteen cue rows with no beat to
-    // attach to, so a reduced-motion player heard none of them, while the
-    // brief promised sound was unaffected by the preference.
-    expect(defaultSpeed()).toBe('1x')
-    expect(defaultSpeed('2x')).toBe('2x')
-    expect(defaultSpeed('instant')).toBe('instant')
-    expect(defaultSpeed('garbage')).toBe('1x')
-    expect(defaultSpeed(null)).toBe('1x')
-    expect(defaultSpeed(undefined)).toBe('1x')
-  })
-
-  it("instant completes every turn of a scripted campaign synchronously on the engine's own output", () => {
+  it("tap-through completion: every turn of a campaign plays its whole sequence and lands on the engine's output", () => {
+    // Battery addition, brief section 8. This was the reduced-motion
+    // completion check, back when reduced motion fed the director a cue
+    // length of zero and the sequence ran on timers. Since v1.3 Round 0
+    // (brief 5.5) nothing advances on its own and reduced motion no longer
+    // reaches the director at all (it only takes the static form of each
+    // cue in the view), so the way through a turn short of SKIP is the
+    // player tapping, and completion has to be proven by tapping every
+    // turn of a campaign to its end rather than by skipping it.
+    let played = 0
     for (const { before, after } of playTurns(WIN_SEED, scripted(WIN_SCRIPT))) {
       const beats = deriveBeats(before, after)
-      const d = new Director(before, after, beats, { speed: 'instant', schedule: never })
-      const snap = d.snapshot()
-      expect(snap.status).toBe('done')
-      expect(snap.presented).toBe(after)
-      expect(modeled(snap.presented)).toEqual(modeled(after))
-      d.dispose()
-    }
-  })
-
-  it("reduced-motion completion: playback runs its whole sequence and still lands on the engine's output", () => {
-    // Battery addition, brief section 8. This used to be satisfied for
-    // free, because reduced motion meant instant and instant completes
-    // synchronously without a timer. Now reduced motion keeps the sequence
-    // and only the cues go static, so completion has to be proven by
-    // running the sequence.
-    //
-    // cueMs 0 is what reduced motion produces at the view (DirectorView
-    // passes it because there is no animation left to protect), so this is
-    // the director under exactly the reduced-motion configuration, driven
-    // beat by beat rather than skipped.
-    for (const { before, after } of playTurns(WIN_SEED, scripted(WIN_SCRIPT))) {
-      const beats = deriveBeats(before, after)
-      const pending: (() => void)[] = []
-      const d = new Director(before, after, beats, {
-        speed: '1x',
-        cueMs: () => 0,
-        schedule: (fn) => {
-          pending.push(fn)
-          return () => {
-            const i = pending.indexOf(fn)
-            if (i >= 0) pending.splice(i, 1)
-          }
-        },
-      })
+      const d = new Director(before, after, beats)
       // It must NOT be done before the sequence has run, or this proves
-      // nothing beyond what the instant test already proves.
+      // nothing beyond what the skip tests already prove.
       const opening = d.snapshot()
       if (beats.some((b) => b.visible)) {
-        expect(opening.status, 'reduced motion skipped the sequence instead of playing it').toBe('playing')
+        expect(opening.status, 'playback skipped the sequence instead of playing it').toBe('playing')
+        played += 1
       }
       let guard = 0
-      while (pending.length && guard < 500) {
+      while (d.snapshot().status === 'playing' && guard < 500) {
         guard += 1
-        pending.shift()!()
+        d.advance()
       }
       const snap = d.snapshot()
       expect(snap.status, 'playback never finished').toBe('done')
-      expect(modeled(snap.presented), 'reduced-motion playback did not land on the engine output').toEqual(
+      expect(modeled(snap.presented), 'tapped-through playback did not land on the engine output').toEqual(
         modeled(after),
       )
+      expect(snap.presented, 'playback ended on a copy rather than the engine output itself').toBe(after)
       d.dispose()
     }
+    expect(played, 'no turn of the campaign had a sequence to play').toBeGreaterThan(0)
   })
 
-  it('the production timer path (default setTimeout scheduler) dwells, cancels on tap, and cleans up on dispose', () => {
+  it('waits for the player: arms no timer, and each tap presents the next visible beat once until the engine output', () => {
+    // This was auto-advance at 1x and 2x, with the production timer path
+    // beside it. Both retired in v1.3 Round 0 (brief 5.5): a beat stays on
+    // screen until the player moves on, so a director that arms any timer,
+    // or moves while time passes, is the auto-advance coming back.
     vi.useFakeTimers()
     const { before, after } = turnAt(LOSS_SEED, scripted(LOSS_SCRIPT), 7)
     const beats = deriveBeats(before, after)
     const visible = beats.filter((b) => b.visible).length
-    const d = new Director(before, after, beats, { speed: '1x' })
-    expect(vi.getTimerCount()).toBe(1)
-    const first = d.snapshot().index
-    vi.advanceTimersByTime(BEAT_DWELL_MS - 1)
-    expect(d.snapshot().index).toBe(first)
-    vi.advanceTimersByTime(1)
-    expect(d.snapshot().index).toBeGreaterThan(first)
-    // A tap cancels the armed timer and re-arms: one dwell later, exactly
-    // one more beat, not two.
-    const beforeTap = d.snapshot().visiblePosition
-    d.advance()
-    expect(d.snapshot().visiblePosition).toBe(beforeTap + 1)
-    expect(vi.getTimerCount()).toBe(1)
-    vi.advanceTimersByTime(BEAT_DWELL_MS)
-    expect(d.snapshot().visiblePosition).toBe(beforeTap + 2)
-    // Left alone, the timers run the turn to completion on the engine output.
-    vi.advanceTimersByTime(BEAT_DWELL_MS * visible)
-    expect(d.snapshot().status).toBe('done')
-    expect(d.snapshot().presented).toBe(after)
-    expect(vi.getTimerCount()).toBe(0)
-    // Dispose mid-run leaves nothing armed.
-    const d2 = new Director(before, after, beats, { speed: '2x' })
-    expect(vi.getTimerCount()).toBe(1)
-    d2.dispose()
-    expect(vi.getTimerCount()).toBe(0)
-    d.dispose()
-  })
-
-  it('auto-advance at 1x and 2x dwells per visible beat and ends on the engine output', () => {
-    const { before, after } = turnAt(LOSS_SEED, scripted(LOSS_SCRIPT), 7)
-    const beats = deriveBeats(before, after)
-    const visible = beats.filter((b) => b.visible).length
-    for (const [speed, dwell] of [
-      ['1x', BEAT_DWELL_MS],
-      ['2x', BEAT_DWELL_MS / 2],
-    ] as const) {
-      const clock = fakeScheduler()
-      const d = new Director(before, after, beats, { speed, schedule: clock.schedule })
-      let shown = 0
-      const seenIds = new Set<string>()
-      d.subscribe(() => {
-        const s = d.snapshot()
-        if (s.beat && !seenIds.has(s.beat.id)) {
-          seenIds.add(s.beat.id)
-          shown += 1
-        }
-      })
-      const first = d.snapshot()
-      expect(first.status).toBe('playing')
-      expect(first.beat?.visible).toBe(true)
-      expect(first.visiblePosition).toBe(1)
-      expect(first.visibleTotal).toBe(visible)
-      expect(clock.pending[0]?.ms).toBe(dwell)
-      let fired = 0
-      while (clock.fire()) fired += 1
-      expect(fired).toBe(visible)
-      const done = d.snapshot()
-      expect(done.status).toBe('done')
-      expect(done.presented).toBe(after)
-      // Beats seen by subscription plus the first, which was applied before
-      // subscribing, cover every visible beat exactly once.
-      expect(shown + 1).toBe(visible)
-      expect(clock.pending.length).toBe(0)
-      d.dispose()
-    }
-  })
-
-  it('never advances a beat before its own cue has played', () => {
-    // Speed halves the reading time, not the animation. At 2x the dwell is
-    // 600ms while the BLACKOUT CHAIN and the arrival light declare 900ms,
-    // so the two signature treatments of Round 3 were being replaced a
-    // third of the way from the end. The dwell is a floor now.
-    const longest = Math.max(...Object.values(VISUAL_MS))
-    expect(longest, 'no treatment is long enough to exercise the floor').toBeGreaterThan(BEAT_DWELL_MS / 2)
-    let exercised = 0
-    let checked = 0
-    for (const seed of [LOSS_SEED, WIN_SEED]) {
-      for (const { before, after } of playTurns(seed, scripted(LOSS_SCRIPT))) {
-        const beats = deriveBeats(before, after)
-        const clock = fakeScheduler()
-        const d = new Director(before, after, beats, { speed: '2x', schedule: clock.schedule })
-        while (d.snapshot().status === 'playing') {
-          const beat = d.snapshot().beat
-          if (!beat) break
-          const want = Math.max(BEAT_DWELL_MS / 2, beatCueMs(beat))
-          checked += 1
-          if (beatCueMs(beat) > BEAT_DWELL_MS / 2) exercised += 1
-          expect(clock.pending[0]?.ms, `${beat.kind} ${beat.cueKey}`).toBe(want)
-          clock.fire()
-        }
-        d.dispose()
+    const d = new Director(before, after, beats)
+    let shown = 0
+    const seenIds = new Set<string>()
+    d.subscribe(() => {
+      const s = d.snapshot()
+      if (s.beat && !seenIds.has(s.beat.id)) {
+        seenIds.add(s.beat.id)
+        shown += 1
       }
+    })
+    const first = d.snapshot()
+    expect(first.status).toBe('playing')
+    expect(first.beat?.visible).toBe(true)
+    expect(first.visiblePosition).toBe(1)
+    expect(first.visibleTotal).toBe(visible)
+    expect(vi.getTimerCount(), 'playback armed a timer').toBe(0)
+    // A minute on the first beat moves nothing.
+    vi.advanceTimersByTime(60_000)
+    expect(d.snapshot().status).toBe('playing')
+    expect(d.snapshot().index, 'the beat moved on without a tap').toBe(first.index)
+    expect(shown, 'a beat was presented without a tap').toBe(0)
+    let taps = 0
+    while (d.snapshot().status === 'playing') {
+      d.advance()
+      taps += 1
+      expect(vi.getTimerCount(), 'a tap armed a timer').toBe(0)
     }
-    expect(checked, 'no beats were timed').toBeGreaterThan(20)
-    // The floor has to actually bind somewhere, or this proves nothing.
-    expect(exercised, 'no beat in the sweep runs a cue longer than the dwell').toBeGreaterThan(0)
+    expect(taps).toBe(visible)
+    const done = d.snapshot()
+    expect(done.status).toBe('done')
+    expect(done.presented).toBe(after)
+    // Beats seen by subscription plus the first, which was applied before
+    // subscribing, cover every visible beat exactly once.
+    expect(shown + 1).toBe(visible)
+    d.dispose()
   })
 
   it('declares the spend the player chose, so a buy never reads as damage', () => {
@@ -651,8 +528,7 @@ describe('director playback', () => {
     const spend = -(procurement!.patch.credits ?? 0)
     expect(spend).toBeGreaterThan(0)
 
-    const clock = fakeScheduler()
-    const d = new Director(before, after, beats, { speed: '1x', schedule: clock.schedule })
+    const d = new Director(before, after, beats)
     let declared = 0
     let shown = d.snapshot().presented.credits
     let worstUnchosen = 0
@@ -685,8 +561,7 @@ describe('director playback', () => {
     for (const seed of [WIN_SEED, LOSS_SEED]) {
       for (const { before, after } of playTurns(seed, scripted(WIN_SCRIPT))) {
         const beats = deriveBeats(before, after)
-        const clock = fakeScheduler()
-        const d = new Director(before, after, beats, { speed: '1x', schedule: clock.schedule })
+        const d = new Director(before, after, beats)
         let shown = before.credits
         let cursor = -1
         while (d.snapshot().status === 'playing') {
@@ -728,53 +603,6 @@ describe('director playback', () => {
     expect(chosenCreditsOf(nothing)).toBe(0)
   })
 
-  it('drops the dwell floor when the caller says motion is off', () => {
-    // The view injects this under reduced motion: with no animation to
-    // protect, a floor would only hold the turn open longer.
-    const { before, after } = turnAt(LOSS_SEED, scripted(LOSS_SCRIPT), 7)
-    const beats = deriveBeats(before, after)
-    const clock = fakeScheduler()
-    const d = new Director(before, after, beats, { speed: '2x', schedule: clock.schedule, cueMs: () => 0 })
-    while (d.snapshot().status === 'playing') {
-      expect(clock.pending[0]?.ms).toBe(BEAT_DWELL_MS / 2)
-      clock.fire()
-    }
-    d.dispose()
-  })
-
-  it('holds its position while the page is hidden, and resumes where it stopped', () => {
-    // Hidden means paused (src/ui/cues/visibility.ts). A locked phone
-    // mid-playback is the normal way a turn gets interrupted on the
-    // platform this is reviewed on, and playback presents a turn the
-    // engine has already resolved, so stopping costs nothing and resuming
-    // decides nothing.
-    const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 8)
-    const beats = deriveBeats(before, after)
-    const clock = fakeScheduler()
-    const d = new Director(before, after, beats, { speed: '1x', schedule: clock.schedule })
-    const opening = d.snapshot().beat?.id
-    expect(clock.pending.length, 'playback should be armed before it is paused').toBe(1)
-
-    d.setPaused(true)
-    expect(clock.pending.length, 'a hidden page must not leave a beat armed').toBe(0)
-    expect(d.snapshot().beat?.id, 'pausing must not advance the beat').toBe(opening)
-    // Time passing behind a locked screen does not move the turn on.
-    expect(clock.fire()).toBe(false)
-    expect(d.snapshot().beat?.id).toBe(opening)
-
-    // The player can still drive it by hand while hidden, because that is
-    // the player asking rather than a timer firing.
-    d.advance()
-    const tapped = d.snapshot().beat?.id
-    expect(tapped).not.toBe(opening)
-    expect(clock.pending.length, 'a tap while paused must not re-arm the timer').toBe(0)
-
-    d.setPaused(false)
-    expect(clock.pending.length, 'coming back should re-arm from where it stopped').toBe(1)
-    expect(d.snapshot().beat?.id, 'resuming must not skip the beat that was on screen').toBe(tapped)
-    d.dispose()
-  })
-
   it('declares only what a skip still has to apply, from any point in the turn', () => {
     // finish() resets the declaration before summing the beats it is about
     // to apply, and deleting that reset left the suite green: a skip taken
@@ -794,8 +622,7 @@ describe('director playback', () => {
     let sawSomethingLeft = false
     let stopsChecked = 0
     for (let stop = 0; stop <= beats.length; stop += 1) {
-      const clock = fakeScheduler()
-      const d = new Director(before, after, beats, { speed: '1x', schedule: clock.schedule })
+      const d = new Director(before, after, beats)
       for (let step = 0; step < stop && d.snapshot().status === 'playing'; step += 1) d.advance()
       if (d.snapshot().status === 'done') {
         d.dispose()
@@ -821,8 +648,7 @@ describe('director playback', () => {
     const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 1)
     const beats = deriveBeats(before, after)
     const spend = -(beats.find((b) => b.kind === 'procurement')!.patch.credits ?? 0)
-    const clock = fakeScheduler()
-    const d = new Director(before, after, beats, { speed: '1x', schedule: clock.schedule })
+    const d = new Director(before, after, beats)
     d.skip()
     expect(d.snapshot().status).toBe('done')
     // Skip from the first beat: everything after it lands in one jump, and
@@ -834,8 +660,7 @@ describe('director playback', () => {
   it('tap-to-advance walks every visible beat and the presented state tracks the ledger', () => {
     const { before, after } = turnAt(WIN_SEED, surgeLine, 7)
     const beats = deriveBeats(before, after)
-    const clock = fakeScheduler()
-    const d = new Director(before, after, beats, { speed: '1x', schedule: clock.schedule })
+    const d = new Director(before, after, beats)
     let taps = 0
     while (d.snapshot().status === 'playing') {
       const s = d.snapshot()
@@ -846,41 +671,25 @@ describe('director playback', () => {
     }
     expect(taps).toBe(beats.filter((b) => b.visible).length)
     expect(d.snapshot().presented).toBe(after)
-    expect(clock.pending.length).toBe(0)
     d.dispose()
   })
 
-  it('skip at any point ends on the engine output, and switching to instant mid-way does too', () => {
+  it('skip at any point ends on the engine output', () => {
+    // Every stop skips now. Half of them used to switch to INSTANT
+    // instead, which retired with the speed control in v1.3 Round 0
+    // (brief 5.5); SKIP is the one way left to end a turn early.
     const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 6)
     const beats = deriveBeats(before, after)
     const visible = beats.filter((b) => b.visible).length
     for (let stop = 0; stop < visible; stop += 1) {
-      const clock = fakeScheduler()
-      const d = new Director(before, after, beats, { speed: '1x', schedule: clock.schedule })
+      const d = new Director(before, after, beats)
       for (let i = 0; i < stop; i += 1) d.advance()
-      if (stop % 2 === 0) d.skip()
-      else d.setSpeed('instant')
+      expect(d.snapshot().status, `stop ${stop}: playback ended before the skip`).toBe('playing')
+      d.skip()
       const s = d.snapshot()
       expect(s.status).toBe('done')
       expect(s.presented).toBe(after)
-      expect(clock.pending.length).toBe(0)
       d.dispose()
     }
-  })
-
-  it('changing speed re-arms the dwell without losing position', () => {
-    const { before, after } = turnAt(LOSS_SEED, scripted(LOSS_SCRIPT), 6)
-    const beats = deriveBeats(before, after)
-    const clock = fakeScheduler()
-    const d = new Director(before, after, beats, { speed: '1x', schedule: clock.schedule })
-    d.advance()
-    const index = d.snapshot().index
-    d.setSpeed('2x')
-    expect(d.snapshot().index).toBe(index)
-    expect(d.snapshot().speed).toBe('2x')
-    expect(clock.pending.length).toBe(1)
-    expect(clock.pending[0].ms).toBe(BEAT_DWELL_MS / 2)
-    d.dispose()
-    expect(clock.pending.length).toBe(0)
   })
 })

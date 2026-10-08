@@ -6,14 +6,13 @@
 // Both parts read `shown`, the board the player sees, so during playback
 // the log holds back the turn still playing out and the inspector reads
 // the integrity the tile shows, not the engine's end state. A condition's
-// age counts from the engine's turn, as the chips do, and SURGE reads the
-// engine's tokens.
+// age counts from the engine's turn, as the chips do. SURGE left the
+// inspector with the mechanic in v1.3 Round 0 (brief D2).
 
 import { useLayoutEffect, useRef } from 'react'
 import type { AssetKind, GameState } from '../../engine/types'
 import { kindLabels } from '../labels'
 import { SHEET_BUTTON } from './Sheet'
-import { surgePickDisabled } from './board'
 import './wide.css'
 import { INSPECTOR_HEADING, INSPECT_PROMPT, NOTHING, OPS_LOG_HEADING, inspectTile, opsLogLine, opsLogRows } from './wide'
 
@@ -26,10 +25,7 @@ export type WideBoardProps =
       assetId: string | null
       // Whether the actions are live: only while the turn is decided.
       live: boolean
-      tokens: number
-      queuedSurge?: string
       onProcure: (kind: AssetKind) => void
-      onSurge: (instanceId: string) => void
       onIntel: (assetId: string) => void
       onReady: (ready: boolean) => void
     }
@@ -95,29 +91,14 @@ function Inspector(p: Extract<WideBoardProps, { part: 'inspector' }>) {
             <p>{NOTHING}</p>
           ) : (
             <ul>
-              {t.conditions.map((c) => {
-                // Already queued this turn: it says so, and opens the
-                // sheet where UNDO is.
-                const queued = c.instanceId === p.queuedSurge
-                return (
-                  <li key={c.instanceId} data-inspector-condition={c.eventId}>
-                    <p>
-                      {c.name} T+{c.age}
-                      {c.left !== undefined ? ` ~${c.left} left` : ''}
-                    </p>
-                    <button
-                      type="button"
-                      data-inspector-surge={c.instanceId}
-                      aria-label={`SURGE ${c.name}${queued ? ', queued' : ''}`}
-                      className={BUTTON}
-                      disabled={!p.live || surgePickDisabled(p.tokens, c.instanceId, p.queuedSurge)}
-                      onClick={() => p.onSurge(c.instanceId)}
-                    >
-                      {queued ? 'SURGE QUEUED' : 'SURGE'}
-                    </button>
-                  </li>
-                )
-              })}
+              {t.conditions.map((c) => (
+                <li key={c.instanceId} data-inspector-condition={c.eventId}>
+                  <p>
+                    {c.name} T+{c.age}
+                    {c.left !== undefined ? ` ~${c.left} left` : ''}
+                  </p>
+                </li>
+              ))}
             </ul>
           )}
           <button

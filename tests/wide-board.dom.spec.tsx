@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 //
 // The wide board (v1.2 R6, brief 4.6): the three-column layout on a screen
-// 1024 wide and up and its F1 to F5 keys. GUARD R6 (a), that none of it
+// 1024 wide and up and its F keys, one per action (F1 and F2 since v1.3
+// Round 0 left two actions, brief 5.3). GUARD R6 (a), that none of it
 // reaches a phone, is tests/wide-board-load.dom.spec.tsx; the keys'
 // derivation from the array's numbers is tests/wide-keys-renumbered.dom
 // .spec.tsx; a chunk that fails to load is tests/wide-fallback.dom.spec.tsx.
@@ -23,18 +24,20 @@ vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 
 import IntelCard from '../src/ui/board/IntelCard'
 import ActionBar from '../src/ui/board/ActionBar'
-import SurgeSheet from '../src/ui/board/SurgeSheet'
 import { ACTIONS, fKeyOf, type BoardAction } from '../src/ui/board/actions'
 import { briefCopy } from '../src/ui/brief'
 import { WIDE_QUERY } from '../src/ui/cues/motion'
 import { OPS_LOG_TURNS, opsLogCopy, opsLogRows } from '../src/ui/board/wide'
 import { kindLabels } from '../src/ui/labels'
+import { ORDER_TIER } from '../src/ui/board/ProcureSheet'
+import { assetPrice } from '../src/engine/scoring'
 import { verdictFor } from '../src/ui/verdict'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { effectiveIntel, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
 import { LIMB, PX } from '../src/ui/sprites/scenery'
+import { STRIKE_MS } from '../src/ui/board/strike'
 import { NO_OP, TOP_INTEL_SCRIPT } from './scripts'
 import {
   bar,
@@ -43,12 +46,14 @@ import {
   click,
   conditionFixture,
   container,
+  execute,
+  executeNow,
   gameAt,
-  hold,
   installWideBoardHarness,
+  nextBeat,
+  playOut,
   press,
   render,
-  resolveNow,
   root,
   setWide,
   settle,
@@ -138,14 +143,14 @@ describe('GUARD R6 (b): no new global keydown listener', () => {
     press(fKeyOf(first))
     expect(takers.at(-1), 'the F key was taken by another listener').toBe(digitTaker)
     // The positive control: the playback's own listener is seen.
-    resolveNow()
+    executeNow()
     step(100)
     expect(beatText(), 'not in playback').not.toBeNull()
     expect(live.length, 'the tracker missed the playback listener').toBe(phone + 1)
   })
 })
 
-describe('GUARD R6 (c): F1 to F5 drive the five actions through the one array', () => {
+describe('GUARD R6 (c): the F keys drive the actions through the one array', () => {
   it('on a wide screen each F key does what its digit does, the digits still work, and a key past the array does nothing', async () => {
     setWide(true)
     render(gameAt(2))
@@ -158,11 +163,11 @@ describe('GUARD R6 (c): F1 to F5 drive the five actions through the one array', 
           expect(press(key(a))).toBe(true)
           expect(sheetOpen(a.sheet), `${key(a)} again did not close ${a.sheet}`).toBe(false)
         } else {
-          // RESOLVE's key focuses the hold and never commits: a keypress
-          // cannot hold, and a turn should not end on a stray key.
+          // EXECUTE's key focuses the button and never commits: a turn
+          // should not end on a stray key.
           ;(document.activeElement as HTMLElement | null)?.blur()
           expect(press(key(a))).toBe(true)
-          expect(document.activeElement, `${key(a)} did not focus the hold`).toBe(hold())
+          expect(document.activeElement, `${key(a)} did not focus EXECUTE`).toBe(execute())
           expect(beatText(), `${key(a)} committed the turn`).toBeNull()
         }
       }
@@ -171,7 +176,7 @@ describe('GUARD R6 (c): F1 to F5 drive the five actions through the one array', 
     expect(press(past), `${past} is bound to nothing and was taken`).toBe(false)
   })
 
-  it('a held F key acts once, and its repeats are still taken, so a held F5 cannot reload the page', async () => {
+  it('a held F key acts once, and its repeats are still taken, so a held bound key never reaches the browser', async () => {
     setWide(true)
     render(gameAt(2))
     await settle()
@@ -182,7 +187,7 @@ describe('GUARD R6 (c): F1 to F5 drive the five actions through the one array', 
     press(fKeyOf(first))
     const commit = ACTIONS.find((a) => !a.sheet)!
     expect(press(fKeyOf(commit))).toBe(true)
-    expect(press(fKeyOf(commit), { repeat: true }), 'a held F5 went to the browser').toBe(true)
+    expect(press(fKeyOf(commit), { repeat: true }), `a held ${fKeyOf(commit)} went to the browser`).toBe(true)
     expect(beatText(), 'a held key committed the turn').toBeNull()
     // The digits' repeats are left alone, as they always were.
     expect(press(first.hotkey, { repeat: true })).toBe(false)
@@ -201,8 +206,8 @@ describe('GUARD R6 (c): F1 to F5 drive the five actions through the one array', 
     expect(sheetOpen(first.sheet!)).toBe(true)
   })
 
-  it('pins the vocabulary as brief 4.6 writes it', () => {
-    expect(ACTIONS.map(fKeyOf)).toEqual(['F1', 'F2', 'F3', 'F4', 'F5'])
+  it('pins the vocabulary: one F key per action, two since v1.3 Round 0, and the width query as brief 4.6 writes it', () => {
+    expect(ACTIONS.map(fKeyOf)).toEqual(['F1', 'F2'])
     expect(WIDE_QUERY).toBe('(min-width: 1024px)')
   })
 })
@@ -227,7 +232,7 @@ describe('GUARD R6 (d): the keys stand down when they must, and the chips with t
     expect(chipsShown()).toEqual(all)
     expect(liveKeys()).toEqual(all)
     for (const a of ACTIONS) {
-      const control = a.sheet ? bar().querySelector(`button[data-action="${a.id}"]`) : hold()
+      const control = a.sheet ? bar().querySelector(`button[data-action="${a.id}"]`) : execute()
       expect(control!.getAttribute('aria-keyshortcuts'), a.id).toBe(`${fKeyOf(a)} ${a.hotkey}`)
     }
   })
@@ -236,19 +241,19 @@ describe('GUARD R6 (d): the keys stand down when they must, and the chips with t
     setWide(true)
     render(gameAt(2))
     await settle()
-    resolveNow()
+    executeNow()
     step(100)
     expect(beatText(), 'not in playback').not.toBeNull()
     expect(chipsShown()).toEqual(none)
     expect(liveKeys()).toEqual(none)
-    step(120_000)
+    playOut()
     expect(beatText(), 'still in playback').toBeNull()
     expect(bar().textContent).toMatch(/NEXT TURN/)
     expect(chipsShown()).toEqual(none)
     expect(liveKeys()).toEqual(none)
   })
 
-  it('down with a modifier, so Shift+F5 still reloads', async () => {
+  it("down with a modifier, so a modified F key stays the browser's", async () => {
     setWide(true)
     render(gameAt(2))
     await settle()
@@ -405,7 +410,7 @@ describe('GUARD R6 (e): the inspector says what the tile card says, and leaves t
     expect(tile.getAttribute('aria-pressed')).toBe('false')
   })
 
-  it('marks nothing as targeted before RESOLVE, and draws the selection in the go colour', async () => {
+  it('marks nothing as targeted before EXECUTE, and draws the selection in the go colour', async () => {
     const { base, asset } = conditionFixture()
     setWide(true)
     render(base)
@@ -426,11 +431,10 @@ describe('GUARD R6 (e): the inspector says what the tile card says, and leaves t
     }
   })
 
-  it('PROCURE lands at the tier step for its kind, SURGE at the confirm for its condition, each taking focus and giving it back', async () => {
+  it('PROCURE lands at the order for its kind, taking focus and giving it back', async () => {
     const { base, asset } = conditionFixture()
-    const state = { ...base, surgeTokens: Math.max(1, base.surgeTokens) }
     setWide(true)
-    render(state)
+    render(base)
     await settle()
     click(tileOf(asset.id))
     const procure = inspector().querySelector('[data-inspector-procure]') as HTMLButtonElement
@@ -438,29 +442,16 @@ describe('GUARD R6 (e): the inspector says what the tile card says, and leaves t
     procure.focus()
     click(procure)
     const sheet = () => container.querySelector('[data-sheet]')!
-    expect(sheet().getAttribute('aria-label')).toMatch(/PROCURE, step 2 of 3/)
+    expect(sheet().getAttribute('aria-label')).toMatch(/PROCURE, step 2 of 2/)
     expect(sheet().textContent).toContain(kindLabels[asset.kind])
-    expect(sheet().querySelector('[data-procure-tier]'), 'step 2 offers no tier').not.toBeNull()
+    // The order for this kind, at its price; no tier step since v1.3
+    // Round 0 (brief D2).
+    const order = sheet().querySelector('[data-procure-buy]')
+    expect(order, 'step 2 offers no order').not.toBeNull()
+    expect(order!.textContent).toBe(`ORDER · ${assetPrice(DEFAULT_SCENARIO, asset.kind, ORDER_TIER)} CR`)
     expect(sheet().contains(document.activeElement), 'focus stayed under the panel').toBe(true)
     press('Escape')
     expect(document.activeElement, 'focus did not come back to PROCURE').toBe(procure)
-    const surge = inspector().querySelector('[data-inspector-surge]') as HTMLButtonElement
-    const name = state.conditions.find((c) => c.instanceId === surge.getAttribute('data-inspector-surge'))!.name
-    surge.focus()
-    click(surge)
-    expect(sheet().getAttribute('aria-label')).toMatch(/SURGE, step 2 of 2/)
-    expect(sheet().querySelector('[data-surge-confirm]'), 'step 2 has no confirm').not.toBeNull()
-    expect(sheet().textContent).toContain(name)
-    expect(sheet().contains(document.activeElement)).toBe(true)
-    // Confirmed, the condition is queued, and the inspector says so; a
-    // second tap opens the step where UNDO is.
-    click(sheet().querySelector('[data-surge-confirm]')!)
-    const queued = inspector().querySelector('[data-inspector-surge]') as HTMLButtonElement
-    expect(queued.textContent).toBe('SURGE QUEUED')
-    expect(queued.getAttribute('aria-label')).toBe(`SURGE ${name}, queued`)
-    click(queued)
-    expect(sheet().getAttribute('aria-label')).toMatch(/SURGE, step 1 of 2/)
-    expect(sheet().querySelector('[data-surge-undo]'), 'a queued condition did not open at UNDO').not.toBeNull()
   })
 
   it('INTEL CARD opens the inspected tile\'s card, and closing it gives focus back to INTEL CARD', async () => {
@@ -481,41 +472,6 @@ describe('GUARD R6 (e): the inspector says what the tile card says, and leaves t
     press('Escape')
     expect(container.querySelector('section[data-intel-card]')).toBeNull()
     expect(document.activeElement, 'focus went to the tile, where Enter lets the selection go').toBe(open)
-  })
-
-  it("its SURGE is disabled exactly where the sheet's is", async () => {
-    const { base, asset } = conditionFixture()
-    for (const tokens of [0, 1]) {
-      const state = { ...base, surgeTokens: tokens }
-      setWide(true)
-      render(state)
-      await settle()
-      click(tileOf(asset.id))
-      const inspected = [...container.querySelectorAll('[data-inspector-surge]')].map((b) => [b.getAttribute('data-inspector-surge'), (b as HTMLButtonElement).disabled] as const)
-      expect(inspected.length).toBeGreaterThan(0)
-      // The sheet, rendered alone for the same conditions and tokens.
-      const host = document.createElement('div')
-      document.body.appendChild(host)
-      const sheetRoot = createRoot(host)
-      act(() =>
-        sheetRoot.render(
-          <SurgeSheet
-            options={state.conditions.map((c) => ({ condition: c, layers: [], elapsed: 0 }))}
-            tokens={tokens}
-            step={1}
-            onPick={() => {}}
-            onConfirm={() => {}}
-            onUndo={() => {}}
-            onBack={() => {}}
-            onClose={() => {}}
-          />,
-        ),
-      )
-      const sheet = new Map([...host.querySelectorAll('[data-surge-condition]')].map((b) => [b.getAttribute('data-surge-condition'), (b as HTMLButtonElement).disabled]))
-      for (const [id, disabled] of inspected) expect(disabled, `tokens ${tokens}, ${id}`).toBe(sheet.get(id!))
-      act(() => sheetRoot.unmount())
-      host.remove()
-    }
   })
 
   it('narrowing past the breakpoint with focus in the inspector hands focus to the tile it showed', async () => {
@@ -542,11 +498,11 @@ describe('GUARD R6 (f): the ops log reads the history the board shows', () => {
     expect(rows()).toEqual(expected(state))
     expect(rows().length, 'the fixture has no history').toBeGreaterThan(0)
     const after = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
-    resolveNow()
+    executeNow()
     step(100)
     expect(beatText(), 'not in playback').not.toBeNull()
     expect(rows(), 'the log gave the turn away before it played').toEqual(expected(state))
-    step(120_000)
+    playOut()
     expect(rows()).toEqual(expected(after))
     // Each row's line and verdict, spelled here from the record itself.
     for (const r of after.history.slice(-OPS_LOG_TURNS)) {
@@ -579,14 +535,23 @@ describe('GUARD R6 (e), during playback: the inspector shows the board the playe
     render(state)
     await settle()
     click(tileOf(target!))
-    const waiting = () =>
-      [...inspector().querySelectorAll('[data-inspector-procure], [data-inspector-surge]')].map((b) => (b as HTMLButtonElement).disabled)
-    expect(waiting().every((d) => !d), 'the control: live before RESOLVE').toBe(true)
-    resolveNow()
+    // PROCURE is the inspector's one action since SURGE left it (v1.3
+    // Round 0); INTEL CARD only reads.
+    const waiting = () => [...inspector().querySelectorAll('[data-inspector-procure]')].map((b) => (b as HTMLButtonElement).disabled)
+    expect(waiting().length, 'the inspector offers no action, so this proves nothing').toBeGreaterThan(0)
+    expect(waiting().every((d) => !d), 'the control: live before EXECUTE').toBe(true)
+    executeNow()
+    // Each beat waits for its Next since v1.3 Round 0, so tap on until the
+    // beat that strikes the tile. The lock-on is the first LOCK_SHARE of
+    // the strike, well over the 25ms looked at after each tap.
     let locked = false
-    for (let i = 0; i < 400 && !locked; i += 1) {
+    for (let taps = 0; taps < 100 && !locked; taps += 1) {
       step(25)
       locked = container.querySelector(`button[data-asset-id="${target}"][data-struck="lock"]`) !== null
+      if (locked) break
+      const next = nextBeat()
+      if (!next) break
+      click(next)
     }
     expect(locked, 'the lock-on never came').toBe(true)
     const shownIntegrity = tileOf(target!).getAttribute('aria-label')!.match(/integrity (\d+)%/)![1]
@@ -595,7 +560,7 @@ describe('GUARD R6 (e), during playback: the inspector shows the board the playe
     expect(Number(shownIntegrity), 'the hit did not change the integrity, so this proves nothing').not.toBe(engine)
     expect(waiting().every((d) => d), 'an inspector action is live during playback').toBe(true)
     expect((inspector().querySelector('[data-inspector-intel]') as HTMLButtonElement).disabled, 'the card is always open to read').toBe(false)
-    step(120_000)
+    playOut()
     expect(bar().textContent).toMatch(/NEXT TURN/)
     expect(waiting().every((d) => d), 'an inspector action is live in the aftermath').toBe(true)
   })
@@ -605,10 +570,14 @@ describe('GUARD R6 (g): crossing the breakpoint remounts nothing', () => {
   it('a playback carries on at the same beat, on the same nodes, when the screen turns wide and back', async () => {
     render(gameAt(4))
     await settle()
-    resolveNow()
-    step(1500)
+    executeNow()
+    // One beat on, so a playback that restarted would show beat 1 again.
+    step(STRIKE_MS)
+    click(nextBeat()!)
+    step(100)
     const at = beatText()
     expect(at, 'not in playback').not.toBeNull()
+    expect(at, 'the tap did not move the playback on').not.toMatch(/^beat 1 of/)
     const main = container.querySelector('main[data-board]')!
     const nodes = () => [
       main.querySelector(':scope > div'),

@@ -19,7 +19,7 @@ vi.mock('../src/ui/board/WideBoard', async (importOriginal) => {
   return importOriginal()
 })
 
-import { container, gameAt, installWideBoardHarness, render, resolveNow, setWide, settle, step } from './wideHarness'
+import { beatText, container, executeNow, gameAt, installWideBoardHarness, playOut, render, setWide, settle, step } from './wideHarness'
 
 installWideBoardHarness()
 
@@ -27,8 +27,14 @@ describe('GUARD R6 (a): the wide board loads only on a wide screen', () => {
   it('never imports the module on a phone, through a turn played out, and imports it once the screen is wide', async () => {
     render(gameAt(2))
     await settle()
-    // A whole turn, playback and aftermath, so no phase can fetch it.
-    resolveNow()
+    // A whole turn, playback and aftermath, so no phase can fetch it: the
+    // beats tapped through, then the aftermath left on its timers for as
+    // long as the auto-advancing director's spec gave it, so a fetch armed
+    // on a delay in either phase still fires before the count is read.
+    executeNow()
+    step(100)
+    expect(beatText(), 'EXECUTE opened no playback').not.toBeNull()
+    playOut()
     step(120_000)
     await settle()
     expect(container.textContent, 'the turn never played out').toMatch(/NEXT TURN/)

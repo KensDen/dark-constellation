@@ -4,26 +4,26 @@
 // drop a ribbon, and the BLACKOUT CHAIN darkens the card. The engine's own
 // prose moved behind DETAILS, so the beat reads as deltas and a headline
 // (brief v0.5 section 5). Tap the card, press Space or Enter with nothing
-// focused, or use NEXT to advance; SKIP or Escape ends playback.
+// focused, or use NEXT to advance; SKIP or Escape ends playback. Nothing
+// advances on its own since v1.3 Round 0 (brief 5.5): the dwell, the speed
+// control and the hidden-page pause are gone, and every beat waits for the
+// player.
 
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { GameState } from '../engine/types'
 import { CARD_SAFE_VISUALS, VISUAL_CLASS, VISUAL_MS, resolveCue, soundFor, visualFor } from './cues'
-import { Director, beatCueMs, beatDwellMs, type DirectorSnapshot, type Speed } from './director'
+import { Director, type DirectorSnapshot } from './director'
 import { describePatch, type DeltaTone } from './patch'
-import SpeedSelect from './SpeedSelect'
 import type { Beat } from './types'
 import { useCueClass, useReducedMotion } from '../ui/cues/motion'
-import { onVisibilityChange, pageVisible, playbackPaused } from '../ui/cues/visibility'
 import { layerBadges, vectorIcons } from '../ui/cues/icons'
 import Scene, { sceneFor } from '../ui/cues/Scene'
 import { beatIntensity, useSilenceSound, useSound } from '../audio'
 import { DEFAULT_SCENARIO } from '../content'
-import { LearnMore } from '../ui/learnMore'
 import RealWorld from '../ui/RealWorld'
 import { realWorldFor } from '../ui/realWorldLine'
 import * as wouldHaveHelped from '../ui/wouldHaveHelped'
-import { LOCK_SHARE } from '../ui/board/strike'
+import { LOCK_SHARE, STRIKE_MS } from '../ui/board/strike'
 
 // 44px minimum hit boxes (brief principle 5: designed for a thumb at 375px).
 const btn =
@@ -47,36 +47,25 @@ export interface DirectorViewProps {
   before: GameState
   after: GameState
   beats: Beat[]
-  speed: Speed
-  onSpeedChange: (speed: Speed) => void
   // The beat on screen travels with the state it presents (v1.2 R3), so
   // the board can land a hit on the tile the beat names.
   onPresented: (state: GameState, chosenCredits: number, beat: Beat | null) => void
   onDone: () => void
-  // A dialog is open over the board (v1.2 R5b): playback holds, as it does
-  // on a hidden page, so no beat and no sound plays to nobody.
+  // A dialog is open over the board (v1.2 R5b): its keys are its own, so
+  // the playback's Space and Escape stand down.
   held?: boolean
 }
 
-export default function DirectorView({ before, after, beats, speed, onSpeedChange, onPresented, onDone, held = false }: DirectorViewProps) {
+export default function DirectorView({ before, after, beats, onPresented, onDone, held = false }: DirectorViewProps) {
   const directorRef = useRef<Director | null>(null)
   const [snap, setSnap] = useState<DirectorSnapshot | null>(null)
   const reduced = useReducedMotion()
   const play = useSound()
   const silence = useSilenceSound()
-  // Always the current speed, readable from the construction effect without
-  // making it a dependency; later changes go through setSpeed so playback
-  // position is kept.
-  const speedRef = useRef(speed)
-  speedRef.current = speed
 
   // Layout effects throughout, so the first beat, the HUD's presented state
   // and completion all land in the same paint as the change that caused
   // them: no frame where the card and the HUD disagree.
-  // Read through a ref so a preference change takes effect on the next
-  // beat without rebuilding the director and losing playback position.
-  const reducedRef = useRef(reduced)
-  reducedRef.current = reduced
 
   // Leaving playback stops whatever it was saying. The longest cues in the
   // game are here (the BLACKOUT CHAIN at 1500ms, the defeat sting at
@@ -84,15 +73,10 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
   // through one would otherwise hear the rest of it over the next screen.
   //
   // But ONLY when the player left. This view also unmounts when playback
-  // simply finishes: the last beat's dwell expires, the director reports
-  // done, and Game swaps to the aftermath. The first version of this
-  // silenced that too, and the dwell floor is the beat's VISUAL duration
-  // (director.ts beatCueMs reads VISUAL_MS, never SOUND_MS), so any
-  // closing cue longer than its own visual got cut. At 2x a lost campaign
-  // held its outcome beat for 600ms and the defeat sting runs 1200ms: the
-  // player heard the sting and none of the hum the brief asks for. A cue
-  // that outlives its beat should finish over the aftermath, which is the
-  // screen it belongs to.
+  // simply finishes: the last beat is tapped past, the director reports
+  // done, and Game swaps to the aftermath. A closing cue longer than the
+  // player's look at its beat (the defeat sting runs 1200ms) should finish
+  // over the aftermath, which is the screen it belongs to.
   const finishedRef = useRef(false)
   useEffect(
     () => () => {
@@ -102,12 +86,7 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
   )
 
   useLayoutEffect(() => {
-    const d = new Director(before, after, beats, {
-      speed: speedRef.current,
-      // Under reduced motion there is no animation to protect, so the
-      // dwell floor would only slow the turn down.
-      cueMs: (beat) => (reducedRef.current ? 0 : beatCueMs(beat)),
-    })
+    const d = new Director(before, after, beats)
     directorRef.current = d
     const publish = () => setSnap(d.snapshot())
     const unsubscribe = d.subscribe(publish)
@@ -118,18 +97,6 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
       directorRef.current = null
     }
   }, [before, after, beats])
-
-  useEffect(() => {
-    directorRef.current?.setSpeed(speed)
-  }, [speed])
-
-  // Hidden means paused, for every channel (src/ui/cues/visibility.ts), and
-  // so does a dialog held open over the board.
-  useEffect(() => {
-    const pause = (visible: boolean) => directorRef.current?.setPaused(held || playbackPaused(visible))
-    pause(pageVisible())
-    return onVisibilityChange(pause)
-  }, [before, after, beats, held])
 
   useLayoutEffect(() => {
     if (snap) onPresented(snap.presented, snap.chosenCredits, snap.beat)
@@ -142,24 +109,6 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
     finishedRef.current = true
     onDone()
   }, [done, onDone])
-
-  // PAUSE ON INTENT (critique row M7). LEARN MORE on the card holds the
-  // beat before the library opens, so the card the player asked about is
-  // the card on screen when they come back. The library is a board dialog,
-  // so `held` keeps the hold while it is open and lets go when it closes
-  // (the effect above). A speed change in between cannot happen, since the
-  // board is inert under the library; were it to, setSpeed would apply it
-  // and INSTANT would end the turn, so the resume never overrides it.
-  const learnMore = useContext(LearnMore)
-  const learnMoreHere = useMemo(
-    () =>
-      learnMore &&
-      ((eventId: string, from: HTMLElement) => {
-        directorRef.current?.setPaused(true)
-        learnMore(eventId, from)
-      }),
-    [learnMore],
-  )
 
   const advance = useCallback(() => directorRef.current?.advance(), [])
   const skip = useCallback(() => {
@@ -241,10 +190,8 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
   // further down, in src/audio/engine.ts, so nothing here has to ask.
   //
   // A hit's impact is heard and felt when it lands (v1.2 R3), after the
-  // lock-on the board plays for LOCK_SHARE of the beat, not at the start
-  // of the beat with the tile still untouched. The speed is read at the
-  // beat's start (the speed ref above) and not as a dependency, so a speed
-  // change mid-beat does not play the sound a second time.
+  // lock-on the board plays for LOCK_SHARE of the strike, not at the start
+  // of the beat with the tile still untouched.
   useEffect(() => {
     if (!beat) return
     const sound = soundFor(beat.cueKey, beat.kind, lost)
@@ -255,7 +202,7 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
       fire()
       return
     }
-    const id = window.setTimeout(fire, beatDwellMs(speedRef.current) * LOCK_SHARE)
+    const id = window.setTimeout(fire, STRIKE_MS * LOCK_SHARE)
     return () => window.clearTimeout(id)
     // The beat object itself, which the director hands back unchanged for
     // as long as that beat is on screen: its identity is what makes "once
@@ -379,11 +326,7 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
                 the technique and its first source, one tap from the
                 learn-more card. It carries the first technique's link, so
                 the line below lists only the rest when there is one. */}
-            {realWorld && (
-              <LearnMore.Provider value={learnMoreHere}>
-                <RealWorld line={realWorld} />
-              </LearnMore.Provider>
-            )}
+            {realWorld && <RealWorld line={realWorld} />}
             {beat.techniques && beat.techniques.length > (realWorld ? 1 : 0) && (
               <p className="mt-2 font-mono text-xs text-ink">
                 Technique{beat.techniques.length - (realWorld ? 1 : 0) > 1 ? 's' : ''}:{' '}
@@ -435,7 +378,6 @@ export default function DirectorView({ before, after, beats, speed, onSpeedChang
             <button className={btn} onClick={advance}>
               Next
             </button>
-            <SpeedSelect speed={speed} onChange={onSpeedChange} label="Speed:" />
             <button className={`${btn} ml-auto`} onClick={skip}>
               Skip<span className="hidden sm:inline"> [Esc]</span>
             </button>

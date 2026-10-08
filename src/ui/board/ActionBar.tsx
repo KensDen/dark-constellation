@@ -8,7 +8,7 @@
 //     order, a chevron between each. A step's number badge turns into a
 //     filled green check once its sheet has been opened this turn; a step
 //     that cannot be used is dashed and dimmed.
-//   - RESOLVE, full width under the row, its label the instruction and
+//   - EXECUTE, full width under the row, its label the instruction and
 //     its number badge on the left. Outlined until the player has done
 //     anything this turn, solid go with the hard shadow after. In the
 //     aftermath the same slot is NEXT TURN or FINAL REPORT.
@@ -16,16 +16,17 @@
 // THE GLOW. One step glows: the one the objective names. Both come from
 // the single `objective` value Game builds with one call (suggestNextStep,
 // or the walkthrough on a device's first turn), so the light and the
-// sentence cannot point at different steps. RESOLVE's glow is its solid
+// sentence cannot point at different steps. EXECUTE's glow is its solid
 // fill.
 //
-// The RESOLVE slot is handed in by Game as a render function, because it
-// is the HoldButton Game wires to resolve() and the source pin on that
-// wiring reads Game.tsx; the bar decides only how it looks.
+// The EXECUTE slot is handed in by Game as a render function, because it
+// is the button Game wires to resolve() and the source pin on that wiring
+// reads Game.tsx; the bar decides only how it looks. A tap since v1.3
+// Round 0: the hold, its fill and its short-tap hint went with the
+// auto-advancing director (brief 5.5).
 
 import { Fragment, type ReactNode } from 'react'
 import PixelSprite from '../sprites/PixelSprite'
-import { BOLT, EYE } from '../sprites/icons'
 import { sprite } from '../sprites/sprite'
 import { SKIP_TIPS, fKeyOf, type BoardAction, type Objective, type StepSheet } from './actions'
 
@@ -33,7 +34,6 @@ export type BarPhase = 'deciding' | 'playback' | 'aftermath'
 
 export interface ResolveLook {
   className: string
-  fillClassName: string
   // Its keys, for assistive tech, while the wide board's chips show them.
   keyShortcuts?: string
 }
@@ -46,8 +46,6 @@ export interface ActionBarProps {
   done: ReadonlySet<string>
   // What to do next, and the step that glows, as one value.
   objective: Objective
-  // The short-tap hint, which takes the sentence's place for a moment.
-  hint?: string
   // The walkthrough's way out, while it shows.
   onSkipTips?: () => void
   onToggle: (sheet: StepSheet) => void
@@ -64,18 +62,14 @@ export interface ActionBarProps {
   keyChips?: boolean
 }
 
-const ICONS = { eye: EYE, bolt: BOLT }
 const CHEVRON = sprite({ c: { token: 'muted' } }, 'c.. .c. ..c .c. c..')
 
 const STEP =
   'dc-tile relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 min-h-14 pt-3 font-display text-[9px] border-2 shadow-press active:shadow-none disabled:cursor-not-allowed'
 const WIDE = 'dc-tile relative flex w-full items-center justify-center min-h-12 px-8 font-display text-[10px] border-2'
-// RESOLVE and the way on, outlined and solid, and the fill that sweeps
-// each while the hold runs.
+// EXECUTE and the way on, outlined and solid.
 export const RESOLVE_OUTLINE = `${WIDE} border-dc-go bg-dc-go/5 text-dc-go shadow-press disabled:opacity-40`
 export const RESOLVE_SOLID = `${WIDE} border-dc-go bg-dc-go text-dc-ground shadow-hard disabled:opacity-40`
-const FILL_OUTLINE = 'inset-0 bg-dc-go/35'
-const FILL_SOLID = 'inset-0 bg-dc-ink/35'
 
 // The number badge: the step's number, or a filled green check once its
 // sheet has been opened this turn. Decoration for sighted players; the
@@ -102,7 +96,6 @@ export default function ActionBar({
   openSheet,
   done,
   objective,
-  hint,
   onSkipTips,
   onToggle,
   disabledFor,
@@ -141,15 +134,9 @@ export default function ActionBar({
           <span data-objective-tag className="flex-none border border-dc-go px-1 py-0.5 font-display text-[8px] leading-none text-dc-go">
             {objective.tag}
           </span>
-          {hint ? (
-            <span data-hold-hint className="min-w-0 truncate font-mono text-[10px] text-dc-warn">
-              {hint}
-            </span>
-          ) : (
-            <span data-objective-sentence className="min-w-0 truncate font-mono text-[10px] text-dc-ink">
-              {objective.sentence}
-            </span>
-          )}
+          <span data-objective-sentence className="min-w-0 truncate font-mono text-[10px] text-dc-ink">
+            {objective.sentence}
+          </span>
         </p>
         {onSkipTips && (
           // A 44px target pulled into a line half that height, so the bar
@@ -178,7 +165,6 @@ export default function ActionBar({
                 onClick={() => onToggle(sheet)}
               >
                 <span className="flex items-center gap-1">
-                  {action.icon && <PixelSprite sprite={ICONS[action.icon]} scale={1} name={action.icon} />}
                   <span data-label>{action.label}</span>
                 </span>
                 <span className="font-mono text-[9px] text-dc-muted">{captionFor(action) || (done.has(action.id) ? 'done' : '')}</span>
@@ -196,7 +182,7 @@ export default function ActionBar({
           data-glow={deciding && objective.step === commit.id ? 'true' : undefined}
         >
           {deciding ? (
-            resolve({ className: solid ? RESOLVE_SOLID : RESOLVE_OUTLINE, fillClassName: solid ? FILL_SOLID : FILL_OUTLINE, keyShortcuts: shortcuts(commit) })
+            resolve({ className: solid ? RESOLVE_SOLID : RESOLVE_OUTLINE, keyShortcuts: shortcuts(commit) })
           ) : (
             <button type="button" className={`${RESOLVE_SOLID} ${pulseNext ? 'dc-next-pulse' : ''}`} disabled={phase === 'playback'} onClick={onNext}>
               <span data-label>{nextLabel}</span>

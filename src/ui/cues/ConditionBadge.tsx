@@ -43,9 +43,6 @@ export interface ConditionBadgeProps {
   // Elapsed turns, always shown; the remaining span only at top intel.
   elapsed: number
   remainingEstimate?: number
-  queuedForSurge?: boolean
-  onSurge?: () => void
-  surgeLabel?: string
 }
 
 export default function ConditionBadge({
@@ -54,9 +51,6 @@ export default function ConditionBadge({
   phase = 'attached',
   elapsed,
   remainingEstimate,
-  queuedForSurge,
-  onSurge,
-  surgeLabel,
 }: ConditionBadgeProps) {
   const reduced = useReducedMotion()
   const cue = useCueClass(
@@ -70,34 +64,20 @@ export default function ConditionBadge({
 
   return (
     <span
-      className={`dc-badge inline-flex flex-wrap items-center gap-1.5 border px-2 py-1 ${tone} ${cue} ${
-        queuedForSurge ? 'opacity-50' : ''
-      }`}
+      className={`dc-badge inline-flex flex-wrap items-center gap-1.5 border px-2 py-1 ${tone} ${cue}`}
     >
       {layer && (
         <span className="font-mono text-[10px] tracking-widest text-ink-dim" aria-hidden="true">
           {LAYER_LABEL[layer]}
         </span>
       )}
-      <span
-        className={`font-mono text-xs ${clearing ? 'text-phosphor' : 'text-hero-magenta'} ${
-          queuedForSurge ? 'line-through' : ''
-        }`}
-      >
+      <span className={`font-mono text-xs ${clearing ? 'text-phosphor' : 'text-hero-magenta'}`}>
         {condition.name}
       </span>
       <span className="font-mono text-[10px] text-ink-dim">
         T+{elapsed}
         {remainingEstimate !== undefined ? `, ~${remainingEstimate} left` : ''}
       </span>
-      {onSurge && (
-        <button
-          className="font-mono text-[10px] border border-phosphor/60 text-phosphor px-1.5 min-h-8 hover:bg-phosphor/10"
-          onClick={onSurge}
-        >
-          {surgeLabel}
-        </button>
-      )}
     </span>
   )
 }

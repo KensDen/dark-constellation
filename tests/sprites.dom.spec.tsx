@@ -122,14 +122,15 @@ function fleetAt(integrity: number): GameState {
   return { ...state, assets: state.assets.map((a) => ({ ...a, integrity })) }
 }
 
-// A fleet in every state at once, one Tier A, and a buy in transit: the
-// board with the most kinds of idle life on it.
+// A fleet in every state at once and a buy in transit: the board with the
+// most kinds of idle life on it. (One asset was Tier A until v1.3 Round 0
+// took the chevron off the tiles with the tiers, D2 a.)
 function mixedFleet(): GameState {
   const state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
   const integrity = [100, 50, 20, 0, 60, 10]
   return {
     ...state,
-    assets: state.assets.map((a, i) => ({ ...a, integrity: integrity[i] ?? a.integrity, tier: i === 0 ? 'A' : a.tier })),
+    assets: state.assets.map((a, i) => ({ ...a, integrity: integrity[i] ?? a.integrity })),
     pipeline: [{ id: 't1-groundStation-0', kind: 'groundStation', tier: 'A', etaTurns: 2 }],
   }
 }
@@ -157,7 +158,7 @@ describe('the sprites on the board (v1.2 R2)', () => {
           (b.getAttribute('aria-label') ?? '').startsWith(`${signs.get(asset.id)},`),
         )
         expect(tile, `no tile for ${asset.id} at ${integrity}`).toBeDefined()
-        const svg = tile!.querySelector('svg[data-sprite]:not([data-sprite="tier-a"])')!
+        const svg = tile!.querySelector('svg[data-sprite]')!
         expect(svg.getAttribute('data-sprite'), `${asset.id} at ${integrity}`).toBe(`${asset.kind}.${expected}`)
         expect(rectsOf(svg), `${asset.id} at ${integrity} draws other art`).toEqual(runsOf(ASSET_SPRITES[asset.kind][expected]))
       }

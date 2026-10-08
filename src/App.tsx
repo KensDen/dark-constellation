@@ -30,8 +30,6 @@ import { startDailyOp } from './ui/dailyOp'
 // now lazy-loads the overlay's module too (it is an overlay, so nothing
 // unmounts and the cart is untouched), and this declaration is the one
 // the guard derives the requirement from.
-const FieldManual = lazy(() => import('./ui/FieldManual'))
-const HowToPlay = lazy(() => import('./ui/HowToPlay'))
 const Credits = lazy(() => import('./ui/Credits'))
 const Scoreboard = lazy(() => import('./ui/Scoreboard'))
 // The FIELD LIBRARY (v1.2 R5b) validates its list as it loads. A list that
@@ -63,8 +61,6 @@ type Screen =
   | 'game'
   | 'library'
   | 'scoreboard'
-  | 'howto'
-  | 'manual'
   | 'glossary'
   | 'credits'
   | 'soundboard'
@@ -76,8 +72,6 @@ const STATUS: Record<Screen, string> = {
   game: 'OPERATION ACTIVE',
   library: 'REFERENCE',
   scoreboard: 'RECORDS',
-  howto: 'REFERENCE',
-  manual: 'REFERENCE',
   glossary: 'REFERENCE',
   credits: 'REFERENCE',
   soundboard: 'DEV',
@@ -147,11 +141,14 @@ function App() {
         </Suspense>
       ) : (
         <div className={`${screen === 'game' ? 'h-dvh' : 'min-h-screen'} flex flex-col`}>
-          {/* The board (v1.2 R1) fills the viewport under the terminal
-              header and scrolls its own layer area, so the game screen's
-              shell is bounded to the viewport; every other screen is a
-              document that scrolls the page as before. */}
-          <TerminalChrome status={STATUS[screen]} />
+          {/* The board (v1.2 R1) fills the viewport and scrolls its own
+              layer area, so the game screen's shell is bounded to the
+              viewport; every other screen is a document that scrolls the
+              page as before. The terminal chrome is gone from the board
+              (v1.3 brief 5.3, critique row M15): the HUD is its top line.
+              The other screens keep it until the title replaces the menu
+              in R1. */}
+          {screen !== 'game' && <TerminalChrome status={STATUS[screen]} />}
           <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
             {/* One boundary around every screen that arrives as a chunk, so
                 a detour shows the same thing whichever one it is. Menu and
@@ -171,8 +168,6 @@ function App() {
               )}
               {screen === 'library' && <FieldLibrary onBack={toMenu} />}
               {screen === 'scoreboard' && <Scoreboard onBack={toMenu} />}
-              {screen === 'howto' && <HowToPlay onBack={toMenu} />}
-              {screen === 'manual' && <FieldManual onBack={toMenu} />}
               {screen === 'glossary' && <Glossary onBack={toMenu} />}
               {screen === 'credits' && <Credits onBack={toMenu} />}
               {screen === 'soundboard' && SoundBoard && <SoundBoard onBack={toMenu} />}

@@ -33,6 +33,7 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import { LAYERS, type GameState } from '../src/engine/types'
+import { STRIKE_MS } from '../src/ui/board/strike'
 import { ASSET_SPRITES } from '../src/ui/sprites/assets'
 import { sceneFor } from '../src/ui/sprites/scenery'
 import { spriteRects, type Sprite } from '../src/ui/sprites/sprite'
@@ -123,12 +124,12 @@ describe('render counts on the board (v1.2 R2 fix)', () => {
     vi.mocked(sceneFor).mockClear()
 
     // Change the credits on the HUD without touching the fleet: queue a
-    // defense on the HARDEN sheet. Opening the sheet re-renders the board
-    // too, which is the point.
+    // defense in PROCURE's DEFENSES (the HARDEN sheet until v1.3 Round 0).
+    // Opening the sheet re-renders the board too, which is the point.
     const credits = () => container.querySelector('[aria-label^="Credits"]')?.getAttribute('aria-label')
     const before = credits()
-    click(container.querySelector('nav[aria-label="Actions"] [data-action="harden"]')!)
-    const box = [...container.querySelectorAll<HTMLInputElement>('[data-sheet="harden"] input[type="checkbox"]')].find((b) => !b.disabled)
+    click(container.querySelector('nav[aria-label="Actions"] [data-action="procure"]')!)
+    const box = [...container.querySelectorAll<HTMLInputElement>('[data-sheet="procure"] [data-procure-defenses] input[type="checkbox"]')].find((b) => !b.disabled)
     expect(box, 'no defense to queue').toBeDefined()
     click(box!)
     act(() => {
@@ -140,7 +141,7 @@ describe('render counts on the board (v1.2 R2 fix)', () => {
     expect(backdropRenders(), 'backdrops re-rendered for a HUD change').toBe(0)
   })
 
-  it('renders each backdrop once per board mount, and no tile sprite through a quiet turn of director ticks', () => {
+  it('renders each backdrop once per board mount, and no tile sprite through a quiet turn of director steps', () => {
     const state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
     // The fixture: turn 1 of the opening touches no asset, so every tile's
     // sprite should hold still for the whole playback.
@@ -151,20 +152,24 @@ describe('render counts on the board (v1.2 R2 fix)', () => {
     vi.mocked(spriteRects).mockClear()
     vi.mocked(sceneFor).mockClear()
 
-    const hold = byText(/Hold to resolve/i)
-    expect(hold, 'the commit control is not on screen').toBeDefined()
-    act(() => {
-      hold!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
-    let ticks = 0
-    while (!byText(/^NEXT TURN/) && ticks < 60) {
+    const execute = container.querySelector('button[data-execute]')
+    expect(execute, 'the commit control is not on screen').not.toBeNull()
+    click(execute!)
+    // The director is tap-through since v1.3 Round 0: each beat waits for
+    // Next. The timers still run what plays inside a beat, so each step
+    // lets them run a strike's length before tapping on.
+    let taps = 0
+    while (!byText(/^NEXT TURN/) && taps < 60) {
       act(() => {
-        vi.advanceTimersByTime(300)
+        vi.advanceTimersByTime(STRIKE_MS)
       })
-      ticks += 1
+      const next = byText(/^Next$/)
+      if (!next) break
+      click(next)
+      taps += 1
     }
     expect(byText(/^NEXT TURN/), 'the playback never reached the aftermath').toBeDefined()
-    expect(ticks, 'no director ticks ran').toBeGreaterThan(1)
+    expect(taps, 'no director steps ran').toBeGreaterThan(1)
 
     expect(backdropRenders(), 'backdrops re-rendered during playback').toBe(0)
     expect(tileSpriteRenders(), 'tile sprites re-rendered during a turn that touched no asset').toBe(0)

@@ -1,7 +1,7 @@
 // The bottom sheet frame (v1.2 R1, brief 4.4): a panel that rises over
 // the dimmed board with a STEP n OF m header, the way the reference
 // game's purchases are short step-by-step pop-ups. The action bar stays
-// live beneath it, so PROCURE, HARDEN and RESOLVE are one tap away from
+// live beneath it, so PROCURE and EXECUTE are one tap away from
 // inside any sheet. A sheet with no steps (SYSTEM, R1b) shows its title
 // alone.
 //

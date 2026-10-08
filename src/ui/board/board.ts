@@ -172,16 +172,11 @@ export function conditionsOn<T extends Pick<ActiveCondition, 'eventId'>>(layer: 
   return conditions.filter((c) => layersOfEvent(scenario, c.eventId).includes(layer))
 }
 
-// Whether a condition cannot be picked for SURGE: no token left, unless it
-// is the one already queued, which stays open so it can be undone. The
-// sheet and the wide board's inspector (v1.2 R6) ask it the same way.
-export const surgePickDisabled = (tokens: number, instanceId: string, queuedId?: string) => tokens === 0 && instanceId !== queuedId
-
 // The vectors a countermeasure answers, derived from the events it
 // counters. Only the vector values are read, never an event's name: the
-// harden sheet shows a defense by its vector icons and its blurb and NOT
-// by the threats it answers (brief 4.4, the answer-key fix), and this is
-// the one place that derivation is written.
+// PROCURE sheet's DEFENSES show a defense by its vector icons and its
+// blurb and NOT by the threats it answers (brief 4.4, the answer-key fix),
+// and this is the one place that derivation is written.
 export function vectorsOf(cm: Pick<Countermeasure, 'counters'>, scenario: Scenario): Vector[] {
   const out: Vector[] = []
   for (const ev of scenario.events) {
@@ -217,16 +212,17 @@ export function defensesOn(layer: Layer, counters: readonly Countermeasure['id']
   return out
 }
 
-// The countermeasures the HARDEN sheet offers: every one but the intel
-// investment, which is the INTEL sheet. The IR retainer moved here from
-// INTEL's second step (critique row M8): it decides more games than any
-// other purchase, and a player who hardens fully never opened that step.
-// One definition, read by the sheet and by the next-step suggestion alike.
+// The countermeasures PROCURE offers as DEFENSES: every one but the intel
+// investment, which is the sheet's INTEL row. The IR retainer moved here
+// from INTEL's second step (critique row M8): it decides more games than
+// any other purchase, and a player who hardens fully never opened that
+// step. HARDEN itself merged into PROCURE in v1.3 Round 0. One definition,
+// read by the sheet and by the next-step suggestion alike.
 export function hardenOffers(scenario: Scenario): Scenario['countermeasures'] {
   return scenario.countermeasures.filter((cm) => cm.id !== 'intelInvestment')
 }
 
-// The retainer's line on its HARDEN tile, read off the scenario so it
+// The retainer's line on its DEFENSES tile, read off the scenario so it
 // stays true if recovery is retuned.
 export const retainerLine = (scenario: Scenario) =>
   `Recovers ${scenario.recovery.withIrRetainer} a turn on every meter instead of ${scenario.recovery.base}. Does not stop anything; shortens everything.`

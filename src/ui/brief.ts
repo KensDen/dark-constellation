@@ -551,6 +551,11 @@ export function firstInputWords(state: GameState, difficultyLabel: string): numb
 // objective is built from). Turn 1 is charged the longer of its two
 // lines: the walkthrough and its "Skip tips" button on a device's first
 // game, the suggestion otherwise.
+//
+// v1.3 Round 0 left two actions on the bar, PROCURE and EXECUTE (brief 5.3,
+// critique row M6), and EXECUTE's label is the instruction "Execute turn
+// n", a tap rather than a hold (brief 5.5). The SYSTEM sheet lists five
+// controls: the playback speed went with the auto-advancing director.
 export const ACTION_BAR_LABELS: readonly string[] = ACTIONS.filter((a) => a.sheet !== null).map((a) => a.label)
 export const SYSTEM_GEAR_LABEL = 'System'
 

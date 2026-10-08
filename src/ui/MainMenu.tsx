@@ -3,17 +3,19 @@
 // in progress (an autosave exists). DAILY OP #n follows NEW OPERATION since
 // v1.2 R5, from the first day there is one.
 //
-// THE INTEL ARCHIVE (v1.2 R5b, brief 4.8): the FIELD LIBRARY, the FIELD
-// MANUAL and the GLOSSARY grouped under one label after the entries that
-// play, with the library's FILED counter beside it. The three stay
-// entries in their own right, each with its function key, so the existing
-// screens keep a key of their own rather than one behind a fold. The
-// counter arrives with the library's chunk, fetched when the menu shows,
-// so the first download carries none of the library.
+// THE INTEL ARCHIVE (v1.2 R5b, brief 4.8): the FIELD LIBRARY and the
+// GLOSSARY grouped under one label after the entries that play, with the
+// library's FILED counter beside it. The two stay entries in their own
+// right, each with its function key, so the existing screens keep a key of
+// their own rather than one behind a fold. The counter arrives with the
+// library's chunk, fetched when the menu shows, so the first download
+// carries none of the library. The FIELD MANUAL and HOW TO PLAY left in
+// v1.3 Round 0 (brief 5.1): the briefing and FIRST ORDERS teach the rules.
 //
 // Function keys run F1 to F9 at most, as they always have: F10 and F11
-// belong to the browser or the system on some machines, so a tenth entry
-// (RESUME and DAILY OP both showing) goes without one and is a tap.
+// belong to the browser or the system on some machines. Since v1.3 Round 0
+// the menu holds eight entries at most, so every entry has its key; the
+// cap stays for any entry a later round adds before R1 retires the menu.
 
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { dailyNumber, msUntilNextDaily } from '../engine/daily'
@@ -26,8 +28,6 @@ export type MenuTarget =
   | 'daily'
   | 'library'
   | 'scoreboard'
-  | 'howto'
-  | 'manual'
   | 'glossary'
   | 'briefing'
   | 'credits'
@@ -36,7 +36,6 @@ type Item = { label: ReactNode; target: MenuTarget }
 
 const ARCHIVE: Item[] = [
   { label: 'FIELD LIBRARY', target: 'library' },
-  { label: 'FIELD MANUAL', target: 'manual' },
   { label: 'GLOSSARY', target: 'glossary' },
 ]
 
@@ -46,7 +45,6 @@ const BASE_ITEMS: Item[] = [
   { label: 'NEW OPERATION', target: 'game' },
   ...ARCHIVE,
   { label: 'SCOREBOARD', target: 'scoreboard' },
-  { label: 'HOW TO PLAY', target: 'howto' },
   // The cold open again (v1.2 R4). A replay, so it leaves the seen-flag
   // as it found it.
   { label: 'BRIEFING', target: 'briefing' },

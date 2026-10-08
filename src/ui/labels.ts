@@ -25,12 +25,6 @@ export const vectorLabels: Record<Vector, string> = {
   environmental: 'environmental',
 }
 
-// What a sensor trust tier means, as the PROCURE sheet has always said it.
-// A constant since v1.2 R3 so a tile's intel card can say the same thing
-// rather than a second version of it.
-export const TIER_NOTE =
-  'Tier B sensor packages are cheap with a hidden supply-chain risk: only Tier B hardware can host the firmware implant. Tier A packages cost more on sats and drones, are immune to the implant, and an all Tier A drone fleet breaks the BLACKOUT CHAIN. Ground stations carry no sensor package.'
-
 // The frameworks as MITRE and the others spell them. The enum says ATTACK,
 // and it stays that way: the engine writes it into every turn's history
 // (firedTechniqueRefs), which the determinism snapshot hashes and every

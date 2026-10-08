@@ -1,20 +1,20 @@
 // The game shell. Since v1.2 Round 1 the play screen is a BOARD (board
 // pass brief section 4): a pinned HUD, the threat banner, three layer
-// panels of asset tiles, and a pinned five-button action bar whose first
-// four open bottom sheets over the board. The start screen and the
-// outcome screen are the v1.1 ones. All game logic is unchanged: this
-// file still owns the cart, the affordability gate, the cues and the
-// engine call, and the components under ./board only render what it
-// hands them. Since v1.2 R5 the outcome screen is the score screen, a
-// chunk of its own (./ScoreScreen), and a campaign may be a Daily Op. The game-feel pass (Round 2) adds a playback phase between
-// resolve and aftermath: the director plays the resolved turn beat by
-// beat over a presented state, and instant speed skips straight to the
-// aftermath exactly as v1.0 did. Instant is an explicit choice only:
-// reduced motion keeps the sequence and takes the static form of every
-// cue (brief v1.2 section 3).
+// panels of asset tiles, and a pinned action bar whose PROCURE opens a
+// bottom sheet over the board. The start screen and the outcome screen
+// are the v1.1 ones. All game logic is unchanged: this file still owns
+// the cart, the affordability gate, the cues and the engine call, and the
+// components under ./board only render what it hands them. Since v1.2 R5
+// the outcome screen is the score screen, a chunk of its own
+// (./ScoreScreen), and a campaign may be a Daily Op. The game-feel pass
+// (Round 2) adds a playback phase between resolve and aftermath: the
+// director plays the resolved turn beat by beat over a presented state.
+// Since v1.3 Round 0 every beat waits for a tap (brief 5.5): the speeds,
+// INSTANT among them, went with the dwell, and EXECUTE is a tap rather
+// than a hold. HARDEN, INTEL and SURGE left the bar the same round:
+// defenses and intel are ordered in PROCURE, and SURGE is gone (D2).
 
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import { getHaptics } from '../haptics'
 import { ADVERSARY } from '../config'
 import {
   LocalDailyLedger,
@@ -35,18 +35,9 @@ import { copyToClipboard } from './clipboard'
 import { LearnMore } from './learnMore'
 import { DC_BTN } from './buttons'
 import DirectorView from '../director/DirectorView'
-import HoldButton from './cues/HoldButton'
 import { useMusicState, useSound, useSoundPrefs } from '../audio'
 import { hasDoneFirstTurn, markFirstTurnDone } from './firstTurn'
-import {
-  beatDwellMs,
-  defaultSpeed,
-  deriveBeats,
-  loadSpeedPreference,
-  saveSpeedPreference,
-  type Beat,
-  type Speed,
-} from '../director'
+import { deriveBeats, type Beat } from '../director'
 import { useBadgePhases } from './cues/ConditionBadge'
 import { CUE_MS, WIDE_QUERY, useCueClass, useMediaQuery, usePageVisible, useReducedMotion } from './cues/motion'
 import { JOB_FRAMING_HEADING, jobFramingBlocks } from './brief'
@@ -55,16 +46,13 @@ import ThreatBanner from './board/ThreatBanner'
 import LayerPanel, { type ChipModel } from './board/LayerPanel'
 import BoardReference from './board/BoardReference'
 import AftermathCard from './board/AftermathCard'
-import ProcureSheet, { type ProcurePick } from './board/ProcureSheet'
-import HardenSheet, { HARDEN_STEPS } from './board/HardenSheet'
-import IntelSheet from './board/IntelSheet'
-import SurgeSheet from './board/SurgeSheet'
+import ProcureSheet, { ORDER_TIER, type ProcurePick } from './board/ProcureSheet'
 import type { SheetId, StepSheet } from './board/actions'
-import { ACTIONS, GUIDE, creditsTag, fKeyOf, guideStage, resolveLabel, resolvingLabel, suggestNextStep, type Objective } from './board/actions'
+import { ACTIONS, GUIDE, creditsTag, fKeyOf, guideStage, resolveLabel, suggestNextStep, type Objective } from './board/actions'
 import ActionBar from './board/ActionBar'
 import SystemSheet from './board/SystemSheet'
 import { conditionsOn, defensesOn, tilesByLayer, turnBudget } from './board/board'
-import { COUNT_SHARE, LOCK_SHARE, strikeFor, type Strike } from './board/strike'
+import { COUNT_SHARE, LOCK_SHARE, STRIKE_MS, strikeFor, type Strike } from './board/strike'
 import {
   COUNTERMEASURE_COUNT,
   DEFAULT_SCENARIO,
@@ -77,7 +65,7 @@ import {
 import { DIFFICULTIES, effectiveIntel, newGame, resolveTurn } from '../engine/reducer'
 import { turnRng } from '../engine/rng'
 import { assetPrice, maiScore } from '../engine/scoring'
-import { LAYERS, type AssetKind, type Difficulty, type GameState, type TrustTier, type TurnActions } from '../engine/types'
+import { LAYERS, type AssetKind, type Difficulty, type GameState, type TurnActions } from '../engine/types'
 
 import Wordmark from './Wordmark'
 import heroUrl from './assets/hero.webp'
@@ -223,19 +211,16 @@ const h2cls = 'font-mono font-bold text-phosphor uppercase tracking-widest text-
 // otherwise identical, so a refusal never changes the control's size.
 const buyBtn = 'dc-tile font-display uppercase text-[10px] border-2 border-dc-go bg-dc-go/10 text-dc-go px-3 shadow-press active:shadow-none active:bg-dc-go/20'
 const buyBtnDenied = 'dc-tile font-display uppercase text-[10px] border-2 border-hero-magenta bg-hero-magenta/10 text-hero-magenta px-3'
-// The four step sheets, as the action array names them.
+// The step sheet, as the action array names it.
 const isStep = (id: Sheet | null): id is StepSheet => id !== null && id !== 'system'
-// The hint a short tap on RESOLVE puts on the objective line (R1b; on the
-// objective line since R2b), and how long it stays.
-const HOLD_HINT = 'Keep holding to resolve'
-const HOLD_HINT_MS = 2000
 
 // Which sheet is open. The sheet is presentation state, not a phase: the
 // v1.1 phases 'procure' and 'harden' still arrive from older autosaves and
-// save codes, and they open the matching sheet on a board at 'brief'.
+// save codes, and they open PROCURE on a board at 'brief', since HARDEN
+// merged into it in v1.3 Round 0.
 type Sheet = SheetId
 function arrive(phase: Phase | undefined): { phase: Phase; sheet: Sheet | null } {
-  if (phase === 'procure' || phase === 'harden') return { phase: 'brief', sheet: phase }
+  if (phase === 'procure' || phase === 'harden') return { phase: 'brief', sheet: 'procure' }
   return { phase: phase ?? 'brief', sheet: null }
 }
 
@@ -284,17 +269,14 @@ export default function Game({
   // Where each sheet is in its steps, and what PROCURE has picked so far.
   const [step, setStep] = useState(1)
   const [pick, setPick] = useState<ProcurePick>({})
-  const [surgePick, setSurgePick] = useState<string | undefined>(undefined)
   // The steps whose sheet was opened this turn (R1b): each shows a check
   // in place of its number on the bar, as the turn's record, until the
   // next turn begins.
   const [stepsDone, setStepsDone] = useState<Set<string>>(() => new Set())
-  // A short tap on RESOLVE answers with a hint for a moment (R1b).
-  const [holdHint, setHoldHint] = useState<number | null>(null)
   // The guided first turn (R2b): on until this device's first completed
   // resolve, or until "Skip tips" is pressed.
   const [guideOn, setGuideOn] = useState(() => !hasDoneFirstTurn())
-  const holdRef = useRef<HTMLButtonElement | null>(null)
+  const executeRef = useRef<HTMLButtonElement | null>(null)
   const [actions, setActions] = useState<TurnActions>(EMPTY_ACTIONS)
   const [seedInput, setSeedInput] = useState(String(DEFAULT_SEED))
   const [difficulty, setDifficulty] = useState<Difficulty>('standard')
@@ -358,11 +340,10 @@ export default function Game({
     // stays where it was rather than locking on a second time.
     setStrike((current) => (current && current.id === beat?.id ? current : strikeFor(beat, before)))
   }, [])
-  const [speed, setSpeedState] = useState<Speed>(() => defaultSpeed(loadSpeedPreference()))
-  const setSpeed = useCallback((s: Speed) => {
-    setSpeedState(s)
-    saveSpeedPreference(s)
-  }, [])
+  // Whether the turn on screen played out beat by beat. A turn whose beats
+  // could not be derived goes straight to the aftermath, which then opens
+  // its ledger, since nothing else told that turn.
+  const [unplayed, setUnplayed] = useState(false)
   const finishPlayback = useCallback(() => {
     setPlayback(null)
     setPresented(null)
@@ -370,12 +351,12 @@ export default function Game({
     setBeatId(null)
     presentedRef.current = null
     setPhase('aftermath')
-    // chosenSpend is deliberately NOT cleared here. Skipping, and choosing
-    // INSTANT mid-turn, end playback in the same commit that jumps the
-    // credits to the engine's after-state, and that jump still carries the
-    // purchase; clearing the declaration here would paint the player's own
-    // buy as damage on the way out. It is cleared when the next turn is
-    // resolved, and whenever a different campaign is loaded.
+    // chosenSpend is deliberately NOT cleared here. Skipping ends playback
+    // in the same commit that jumps the credits to the engine's
+    // after-state, and that jump still carries the purchase; clearing the
+    // declaration here would paint the player's own buy as damage on the
+    // way out. It is cleared when the next turn is resolved, and whenever a
+    // different campaign is loaded.
   }, [])
   // Cue state. These sit with the other top-level hooks because the start
   // screen returns early below, and hook order cannot depend on whether a
@@ -418,14 +399,14 @@ export default function Game({
   // The manifest entrance, and the dim the adversary phase enters through.
   const manifestCue = useCueClass(arrived?.nonce ?? null, 'dc-manifest-in', reducedMotion, 320)
   const phaseDim = useCueClass(phase === 'playback' ? `dim-${state?.turn ?? 0}` : null, 'dc-phase-dim', reducedMotion, 420)
-  // THE HIT BEATS (v1.2 R3, brief 4.5). A visible beat's dwell at this
-  // speed sets every duration on the board (the CSS reads it as --dc-beat),
-  // so 2x plays the hit twice as fast and INSTANT, which has no beats,
-  // plays none of it. The lock-on holds for LOCK_SHARE of the beat, then
-  // the hit lands and the board shakes. The shake's class is applied
+  // THE HIT BEATS (v1.2 R3, brief 4.5). The strike's length sets every
+  // duration on the board (the CSS reads it as --dc-beat). The lock-on
+  // holds for LOCK_SHARE of it, then the hit lands and the board shakes.
+  // The strike is the one part of a beat that plays on its own (brief
+  // 5.5); the beat itself waits for a tap. The shake's class is applied
   // whatever the motion preference: the stylesheet decides whether it
   // moves, as it does for the idle life.
-  const beatMs = beatDwellMs(speed)
+  const beatMs = STRIKE_MS
   useEffect(() => {
     if (strike?.kind !== 'hit' || strike.landed) return
     const id = window.setTimeout(
@@ -435,8 +416,7 @@ export default function Game({
     return () => window.clearTimeout(id)
   }, [strike, beatMs])
   // Held until the strike changes (duration 0): the stylesheet times the
-  // shake from --dc-beat, and a JS duration that followed the speed would
-  // re-run the cue, and shake the board again, on a speed change mid-beat.
+  // shake from --dc-beat.
   const hitShake = useCueClass(strike?.kind === 'hit' && strike.landed ? strike.id : null, 'dc-hit-shake', false, 0)
   // What the beat is about, brought into view in the scrolling column: the
   // struck tile, the held layer, the layer a condition stamps, or else the
@@ -658,12 +638,11 @@ export default function Game({
   )
 
   // Opening a sheet starts it at step one with nothing picked; the same
-  // button again closes it. The four sheets are exclusive.
+  // button again closes it. PROCURE and SYSTEM are exclusive.
   const openSheet = (next: Sheet | null) => {
     setSheet(next)
     setStep(1)
     setPick({})
-    setSurgePick(undefined)
     if (isStep(next)) setStepsDone((done) => (done.has(next) ? done : new Set(done).add(next)))
   }
   const toggleSheet = (next: Sheet) => openSheet(sheet === next ? null : next)
@@ -688,13 +667,13 @@ export default function Game({
   // them, and not while the glossary is open: its own listener answers
   // then. Escape closes the sheet. The digits are the action bar's
   // hotkeys (R1b), resolved through the one action array: a step's digit
-  // opens or closes its sheet, and RESOLVE's moves focus to the hold
-  // control rather than committing, because a keypress cannot hold and a
-  // turn should not end on a stray digit. On the wide board (v1.2 R6) the
-  // F keys do the same through the same array, except with Shift, so
-  // Shift+F5 still reloads, and they are taken from a checkbox a sheet
-  // left focused, since they type nothing. Not on the score screen, which
-  // is not the board.
+  // opens or closes its sheet, and EXECUTE's moves focus to the control
+  // rather than committing, because a turn should not end on a stray
+  // digit. On the wide board (v1.2 R6) the F keys do the same through the
+  // same array, except with Shift, so a browser's Shift+F key still does
+  // what it did, and they are taken from a checkbox a sheet left focused,
+  // since they type nothing. Not on the score screen, which is not the
+  // board.
   const decidingNow = state?.status === 'playing' && phase !== 'playback' && phase !== 'aftermath'
   useEffect(() => {
     if (!state || glossaryFocus || intel || library) return
@@ -709,9 +688,9 @@ export default function Game({
       const target = e.target as HTMLInputElement | null
       const byF = laidOut && !e.shiftKey ? ACTIONS.find((a) => fKeyOf(a) === e.key) : undefined
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) && !(byF && /^(checkbox|radio)$/.test(target.type))) return
-      // A held key acts once. A bound F key's repeats are still taken, or
-      // the browser's own F5 would reload the page a moment into a player
-      // holding it to resolve, and the cart would go with it.
+      // A held key acts once. A bound F key's repeats are still taken, so
+      // a key held down never falls through to whatever the browser binds
+      // it to, which for an F key can be a reload that takes the cart.
       if (e.repeat) {
         if (byF) e.preventDefault()
         return
@@ -720,18 +699,11 @@ export default function Game({
       if (!action) return
       e.preventDefault()
       if (action.sheet) toggleSheet(action.sheet)
-      else holdRef.current?.focus()
+      else executeRef.current?.focus()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
-
-  // The hint lifts on its own.
-  useEffect(() => {
-    if (holdHint === null) return
-    const id = window.setTimeout(() => setHoldHint(null), HOLD_HINT_MS)
-    return () => window.clearTimeout(id)
-  }, [holdHint])
 
   const beginGame = (next: GameState, nextPhase: Phase, nextDaily?: DailyOp) => {
     // A loaded code that is already over was not played here, so it neither
@@ -1008,15 +980,7 @@ export default function Game({
   // Narrowed from the nullable value computed with the hooks above.
   const shown = shownOrNull ?? state
 
-  // A press released early: the hint, and the light tick the buy uses,
-  // without its sound (R1b).
-  const shortTap = () => {
-    getHaptics().fire('buy-click')
-    setHoldHint((n) => (n ?? 0) + 1)
-  }
-
   const resolve = () => {
-    setHoldHint(null)
     // The engine is the authority on affordability. If the UI gate and the
     // engine ever disagree, surface the reason instead of dying silently:
     // a throw inside an event handler never reaches an error boundary.
@@ -1032,26 +996,17 @@ export default function Game({
       // A new turn declares its own spend; nothing carries over.
       setChosenSpend(0)
       // The director derives its beats from the two states. It is
-      // presentation only: instant speed never runs it (the v1.0 path,
-      // unchanged), and if derivation ever fails the turn still stands and
-      // the aftermath shows the engine's result directly.
-      //
-      // Round 4d consequence, recorded because it is not obvious: no beats
-      // means no beat sounds. At instant speed the eleven section 6 rows
-      // the director plays are silent, and only the five a component plays
-      // (the two procurement tiles, EXECUTE TURN, the meter tick and the
-      // MAI crossing) still sound. That is what an explicit INSTANT choice
-      // costs, and since v1.2 it is only ever an explicit choice: reduced
-      // motion no longer lands here. See soundsAtInstantSpeed in
-      // director/cues.ts.
+      // presentation only: if derivation ever fails the turn still stands
+      // and the aftermath shows the engine's result directly, with its
+      // ledger open. No beats means no beat sounds, so that turn plays only
+      // the sounds a component plays.
       let beats: Beat[] | null = null
-      if (speed !== 'instant') {
-        try {
-          beats = deriveBeats(state, next)
-        } catch {
-          beats = null
-        }
+      try {
+        beats = deriveBeats(state, next)
+      } catch {
+        beats = null
       }
+      setUnplayed(!beats)
       setState(next)
       setActions(EMPTY_ACTIONS)
       openSheet(null)
@@ -1083,7 +1038,8 @@ export default function Game({
 
   // The engine is the authority on affordability; this keeps the cart
   // inside the same budget so the gate never has to refuse at resolve time.
-  const afforded = (kind: AssetKind, tier: TrustTier): boolean => cost + assetPrice(scenario, kind, tier) <= available
+  // Every asset is ordered at the one price there is (ORDER_TIER).
+  const afforded = (kind: AssetKind): boolean => cost + assetPrice(scenario, kind, ORDER_TIER) <= available
   const afford = (price: number, tileId: string): boolean => {
     if (cost + price <= available) return true
     // Every refusal in the phase comes through here, so the buzz does too:
@@ -1093,14 +1049,14 @@ export default function Game({
     return false
   }
 
-  const addAsset = (kind: AssetKind, tier: TrustTier) => {
-    const price = assetPrice(scenario, kind, tier)
-    if (!afford(price, `${kind}-${tier}`)) return
+  const addAsset = (kind: AssetKind) => {
+    const price = assetPrice(scenario, kind, ORDER_TIER)
+    if (!afford(price, kind)) return
     play('buy-click')
     // The new entry is the last one, and the nonce restarts the cue when
     // the same kind is bought twice in a row.
     setArrived({ index: actions.buyAssets.length, nonce: (arrived?.nonce ?? 0) + 1 })
-    setActions({ ...actions, buyAssets: [...actions.buyAssets, { kind, tier }] })
+    setActions({ ...actions, buyAssets: [...actions.buyAssets, { kind, tier: ORDER_TIER }] })
   }
   const removeAsset = (index: number) => {
     // Taking an item back out is the same control as putting it in. The
@@ -1111,8 +1067,8 @@ export default function Game({
     setArrived(null)
     setActions({ ...actions, buyAssets: actions.buyAssets.filter((_, i) => i !== index) })
   }
-  // The IR retainer sits on HARDEN with the countermeasures (critique row
-  // M8) but is still bought through its own flag, which the engine reads.
+  // The IR retainer sits in PROCURE with the defenses (critique row M8)
+  // but is still bought through its own flag, which the engine reads.
   const toggleCounter = (id: (typeof scenario.countermeasures)[number]['id']) => {
     const retainer = id === 'irRetainer'
     const already = retainer ? actions.buyIrRetainer : actions.buyCounters.includes(id)
@@ -1128,18 +1084,11 @@ export default function Game({
     )
   }
 
-  // Surge authority (item 4): queue one live condition to be cleared when
-  // the turn resolves. The reducer applies it before condition pressure, so
-  // a queued condition never presses again. Undo to change the mind.
-  const queueSurge = (instanceId: string | undefined) => setActions({ ...actions, spendSurgeOn: instanceId })
-
   // THE BOARD'S STATE, derived. During playback the panels follow the
   // director's presented state, like the HUD, so a hit lands on the beat
   // that applies it rather than at the engine's end state.
   const deciding = phase !== 'playback' && phase !== 'aftermath'
   const showsDurationEstimate = effectiveIntel(shown) >= 3
-  const canSurge = deciding && state.surgeTokens > 0 && shown.conditions.length > 0
-  const surgeReason = !deciding ? '' : state.surgeTokens === 0 ? 'no tokens' : shown.conditions.length === 0 ? 'no conditions' : ''
   const tiles = tilesByLayer(shown, actions.buyAssets)
   // The queued tile that just slid in carries the manifest cue (brief
   // section 4: "item slides into the manifest"); the manifest is the
@@ -1161,13 +1110,7 @@ export default function Game({
       phase: phases[c.instanceId] ?? 'attached',
       elapsed: state.turn - c.startedTurn,
       remainingEstimate: showsDurationEstimate ? c.remainingTurns : undefined,
-      queuedForSurge: actions.spendSurgeOn === c.instanceId,
     }))
-  const surgeOptions = shown.conditions.map((c) => ({
-    condition: c,
-    layers: scenario.events.find((e) => e.id === c.eventId)?.layers ?? [],
-    elapsed: state.turn - c.startedTurn,
-  }))
 
   // The spend line every decision sheet carries. It is the element the
   // cannot-afford flash lands on (brief v0.5 section 6).
@@ -1182,11 +1125,11 @@ export default function Game({
 
   // The confirm step's control. The refused buy swaps its classes (see
   // buyBtnDenied) and shakes.
-  const buyClass = pick.kind && pick.tier && denied?.id === `${pick.kind}-${pick.tier}` ? `${buyBtnDenied} ${denialShake}` : buyBtn
+  const buyClass = pick.kind && denied?.id === pick.kind ? `${buyBtnDenied} ${denialShake}` : buyBtn
   const buyPicked = () => {
-    if (!pick.kind || !pick.tier) return
-    const ok = afforded(pick.kind, pick.tier)
-    addAsset(pick.kind, pick.tier)
+    if (!pick.kind) return
+    const ok = afforded(pick.kind)
+    addAsset(pick.kind)
     // A buy closes the sheet, so the queued tile is seen sliding into its
     // layer. A refused one stays on the confirm step, so the refusal is
     // seen on the control that was pressed.
@@ -1261,13 +1204,10 @@ export default function Game({
   }
 
   const displayRecord = phase === 'aftermath' && lastRecord ? lastRecord : null
-  // What each step says under its label: what is queued for the turn.
-  const queued = (n: number) => (n > 0 ? `${n} queued` : '')
+  // What PROCURE says under its label: how many orders are queued.
+  const orders = actions.buyAssets.length + actions.buyCounters.length + (actions.buyIrRetainer ? 1 : 0) + (actions.buyIntelLevel ? 1 : 0)
   const captions: Record<string, string> = {
-    procure: queued(actions.buyAssets.length),
-    harden: queued(actions.buyCounters.length + (actions.buyIrRetainer ? 1 : 0)),
-    intel: actions.buyIntelLevel ? 'queued' : '',
-    surge: actions.spendSurgeOn ? 'queued' : surgeReason || `${state.surgeTokens} token${state.surgeTokens === 1 ? '' : 's'}`,
+    procure: orders > 0 ? `${orders} queued` : '',
   }
   const sheetOpen = sheet !== null
   // How far MAI fell on the hit that just landed, floated off the number.
@@ -1280,10 +1220,10 @@ export default function Game({
   // with the credits the HUD shows; after that it says how to move on.
   const creditsLeft = available - cost
   const guided = guideOn && deciding && state.turn === 1
-  const hardenedOrSkipped = actions.buyCounters.length > 0 || actions.buyIrRetainer || (stepsDone.has('harden') && sheet !== 'harden')
+  const orderedOrSkipped = orders > 0 || (stepsDone.has('procure') && sheet !== 'procure')
   const objective: Objective = deciding
     ? guided
-      ? GUIDE[guideStage(actions.buyAssets.length > 0, hardenedOrSkipped)]
+      ? GUIDE[guideStage(orderedOrSkipped)]
       : { tag: creditsTag(creditsLeft), ...suggestNextStep(state, stepsDone, creditsLeft) }
     : phase === 'playback'
       ? { tag: `TURN ${displayTurn}`, sentence: playback?.beats.find((b) => b.id === beatId)?.title ?? 'Watch the turn play out.', step: null }
@@ -1337,7 +1277,7 @@ export default function Game({
             siblings and a playback carries on at its beat. Both read the
             board the player sees (`shown`) for its assets, conditions and
             history; a condition's age counts from the engine's turn, as the
-            chips do, and SURGE reads the engine's tokens. */}
+            chips do. */}
         {wide && (
           <Suspense fallback={null}>
             <WideBoard part="log" shown={shown} />
@@ -1366,8 +1306,6 @@ export default function Game({
             before={playback.before}
             after={playback.after}
             beats={playback.beats}
-            speed={speed}
-            onSpeedChange={setSpeed}
             onPresented={showPresented}
             onDone={finishPlayback}
             held={!!(glossaryFocus || intel || library)}
@@ -1375,7 +1313,7 @@ export default function Game({
         </div>
       )}
           {displayRecord && (
-            <AftermathCard record={displayRecord} state={state} scenario={scenario} reducedMotion={reducedMotion} ledgerOpen={speed === 'instant'} />
+            <AftermathCard record={displayRecord} state={state} scenario={scenario} reducedMotion={reducedMotion} ledgerOpen={unplayed} />
           )}
           {LAYERS.map((layer) => (
             <LayerPanel
@@ -1394,9 +1332,9 @@ export default function Game({
           ))}
           <BoardReference shown={shown} conditionDurationRange={conditionDurationRange} />
           {/* The flash notice, when the SYSTEM sheet that carries it is not
-              open. Save, Copy save code, Back to menu, the toggles and the
-              playback speed live in that sheet since R1b, so the board
-              ends at the action bar. */}
+              open. Save, Copy save code, Back to menu and the toggles live
+              in that sheet since R1b, so the board ends at the action
+              bar. */}
           {notice && sheet !== 'system' && <p className="font-mono text-xs text-alert-amber">{notice}</p>}
         </div>
         {wide && (
@@ -1407,23 +1345,11 @@ export default function Game({
               turn={state.turn}
               assetId={inspected}
               live={deciding}
-              tokens={state.surgeTokens}
-              queuedSurge={actions.spendSurgeOn}
               onProcure={(kind) => {
                 sheetFrom.current = document.activeElement as HTMLElement | null
                 openSheet('procure')
                 setPick({ kind })
                 setStep(2)
-              }}
-              onSurge={(id) => {
-                sheetFrom.current = document.activeElement as HTMLElement | null
-                openSheet('surge')
-                // A queued condition opens where UNDO is; any other at
-                // its confirm.
-                if (id !== actions.spendSurgeOn) {
-                  setSurgePick(id)
-                  setStep(2)
-                }
               }}
               onIntel={(assetId) => setIntel({ kind: 'tile', assetId })}
               onReady={setWideReady}
@@ -1437,71 +1363,29 @@ export default function Game({
         {sheet === 'procure' && (
           <ProcureSheet
             scenario={scenario}
+            state={state}
             step={step}
             pick={pick}
             onKind={(kind) => {
               setPick({ kind })
               setStep(2)
             }}
-            onTier={(tier) => {
-              setPick((p) => ({ ...p, tier }))
-              setStep(3)
-            }}
             onBuy={buyPicked}
             onBack={() => setStep((n) => Math.max(1, n - 1))}
             onClose={() => openSheet(null)}
             buyClass={buyClass}
             spendLine={spendLine}
-          />
-        )}
-        {sheet === 'harden' && (
-          <HardenSheet
-            scenario={scenario}
-            state={state}
-            queued={actions.buyIrRetainer ? [...actions.buyCounters, 'irRetainer'] : actions.buyCounters}
-            step={step}
-            onToggle={toggleCounter}
-            onNext={() => setStep(Math.min(HARDEN_STEPS, step + 1))}
-            onBack={() => setStep((n) => Math.max(1, n - 1))}
-            onClose={() => openSheet(null)}
+            queuedCounters={actions.buyIrRetainer ? [...actions.buyCounters, 'irRetainer'] : actions.buyCounters}
+            onToggleCounter={toggleCounter}
             deniedClassFor={(id) => deniedTile(`cm-${id}`)}
-            spendLine={spendLine}
-          />
-        )}
-        {sheet === 'intel' && (
-          <IntelSheet
-            scenario={scenario}
-            state={state}
-            actions={actions}
+            intelChecked={actions.buyIntelLevel}
             onIntel={(checked) => {
               const intelPrice = state.intelLevel !== 3 ? scenario.prices.intelLevels[state.intelLevel] : 0
               if (checked && !afford(intelPrice, 'intel')) return
               play('buy-click')
               setActions({ ...actions, buyIntelLevel: checked })
             }}
-            onClose={() => openSheet(null)}
             intelClass={deniedTile('intel')}
-            spendLine={spendLine}
-          />
-        )}
-        {sheet === 'surge' && (
-          <SurgeSheet
-            options={surgeOptions}
-            tokens={state.surgeTokens}
-            queuedId={actions.spendSurgeOn}
-            step={step}
-            pickedId={surgePick}
-            onPick={(id) => {
-              setSurgePick(id)
-              setStep(2)
-            }}
-            onConfirm={() => {
-              queueSurge(surgePick)
-              openSheet(null)
-            }}
-            onUndo={() => queueSurge(undefined)}
-            onBack={() => setStep((n) => Math.max(1, n - 1))}
-            onClose={() => openSheet(null)}
           />
         )}
         {sheet === 'system' && (
@@ -1512,48 +1396,43 @@ export default function Game({
             onExit={onExit}
             soundPrefs={soundPrefs}
             onSoundPrefs={setSoundPrefs}
-            speed={speed}
-            onSpeed={setSpeed}
             notice={notice}
             onClose={() => openSheet(null)}
           />
         )}
       </div>
       {/* THE ACTION BAR (brief 4.1; a turn stepper since R2b): the
-          objective line, the four steps and RESOLVE full width under them.
-          RESOLVE is the one irreversible action in the game, so it asks
-          for a deliberate gesture rather than a tap that can land by
-          accident on a phone; a keyboard or assistive activation fires at
-          once. Its label is the instruction and its accessible name, a
-          short tap puts "Keep holding to resolve" on the objective line,
-          and after playback the slot becomes the way to the next turn. */}
+          objective line, PROCURE, and EXECUTE full width under it. EXECUTE
+          is a tap since v1.3 Round 0 (brief 4: "EXECUTE ends the turn");
+          its label is the instruction and its accessible name, and after
+          playback the slot becomes the way to the next turn. */}
       <ActionBar
         actions={ACTIONS}
         phase={deciding ? 'deciding' : phase === 'playback' ? 'playback' : 'aftermath'}
         openSheet={isStep(sheet) ? sheet : null}
         done={stepsDone}
         objective={objective}
-        hint={holdHint !== null && deciding ? HOLD_HINT : undefined}
         onSkipTips={guided ? () => setGuideOn(false) : undefined}
         onToggle={toggleSheet}
-        disabledFor={(action) => (action.id === 'surge' ? !canSurge && !actions.spendSurgeOn : !deciding)}
+        disabledFor={() => !deciding}
         captionFor={(action) => captions[action.id] ?? ''}
         resolve={(look) => (
-          <HoldButton
-            ref={holdRef}
+          <button
+            ref={executeRef}
+            type="button"
+            data-execute
             className={look.className}
-            fillClassName={look.fillClassName}
-            keyShortcuts={look.keyShortcuts}
+            aria-keyshortcuts={look.keyShortcuts}
             disabled={!affordable}
-            onConfirm={resolve}
-            onShortTap={shortTap}
-            label={
-              <span data-label className="uppercase">
-                {resolveLabel(state.turn)}
-              </span>
-            }
-            holdingLabel={<span className="uppercase">{resolvingLabel(state.turn)}</span>}
-          />
+            onClick={() => {
+              play('execute-sweep')
+              resolve()
+            }}
+          >
+            <span data-label className="uppercase">
+              {resolveLabel(state.turn)}
+            </span>
+          </button>
         )}
         nextLabel={phase === 'playback' ? 'PLAYBACK' : state.status === 'playing' ? 'NEXT TURN' : 'FINAL REPORT'}
         onNext={nextTurn}

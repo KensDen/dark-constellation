@@ -513,24 +513,6 @@ export interface Section6Row {
   deferred?: string
 }
 
-// Which rows can sound at instant speed, derived from the table rather
-// than listed. Instant derives no beats at all (src/ui/Game.tsx resolve),
-// because instant IS the v1.0 path: results only. So every row the
-// director plays is silent there, and only the rows played by a component
-// the player is touching still sound.
-//
-// This used to be the reduced-motion player's normal experience, because
-// reduced motion selected instant, which left eleven of these sixteen rows
-// silent for someone who had asked for nothing to move rather than for
-// nothing to be told. Brief v1.2 separated the two: reduced motion keeps
-// the sequence and takes the static form of every cue, and instant is an
-// explicit choice only. So this function now describes what a player who
-// TAPS instant is choosing, which is a real and reasonable trade, rather
-// than something happening to them on the strength of an OS setting.
-export function soundsAtInstantSpeed(row: Section6Row): boolean {
-  return !row.soundWhere.startsWith('director/')
-}
-
 export const SECTION_6_ROWS: Section6Row[] = [
   {
     beat: 'Turn start, intel incoming',
@@ -602,7 +584,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     where: 'ui/Game.tsx resolve control',
     sound: 'execute-sweep',
     haptic: 'medium',
-    soundWhere: 'ui/cues/HoldButton.tsx',
+    soundWhere: 'ui/Game.tsx',
   },
   {
     beat: 'Adversary event lands',

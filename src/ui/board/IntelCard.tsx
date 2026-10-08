@@ -2,10 +2,10 @@
 // the game says what it knows, from content it already carries and
 // nothing unsourced. Loaded on first open, in its own chunk.
 //
-// A TILE: what the asset is and does, what its tier means, its exact
-// integrity, and the conditions pressing on its layer, each with its REAL
-// WORLD line (technique, source, the learn-more card and its links). The
-// remaining span of a condition shows only at top intel, as on the chips.
+// A TILE: what the asset is and does, its exact integrity, and the
+// conditions pressing on its layer, each with its REAL WORLD line
+// (technique, source, the learn-more card and its links). The remaining
+// span of a condition shows only at top intel, as on the chips.
 //
 // THE BANNER: only what the forecast already shows at the current intel
 // level, from briefCopy, which is the banner's own copy. At intel 0 the
@@ -17,7 +17,7 @@
 import type { GameState } from '../../engine/types'
 import { effectiveIntel } from '../../engine/reducer'
 import { FORECAST_DARK, briefCopy, forecastLead } from '../brief'
-import { TIER_NOTE, kindLabels } from '../labels'
+import { kindLabels } from '../labels'
 import RealWorld from '../RealWorld'
 import { realWorldFor } from '../realWorldLine'
 import { STATE_WORD, callSigns, conditionsOn, spriteState } from './board'
@@ -52,8 +52,6 @@ function TileIntel({ state, turn, assetId }: { state: GameState; turn: number; a
       {/* What it adds and does, while it still flies: a lost asset adds
           no coverage, and its integrity line says it is knocked out. */}
       {asset.integrity > 0 && <p className="mt-2">{assetRole(asset.kind)}.</p>}
-      <p className={LABEL}>TIER {asset.tier}</p>
-      <p className="mt-1 text-dc-muted">{TIER_NOTE}</p>
       <p className={LABEL}>INTEGRITY</p>
       <p className="mt-1">
         {asset.integrity}%{STATE_WORD[spriteState(asset.integrity)]}

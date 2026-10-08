@@ -61,7 +61,7 @@ its SPARTA countermeasure controls with their published defense-in-depth tiers (
 SPARTA CMs**). The in-game GLOSSARY derives all **52 entries** directly from that content data,
 with no hand-maintained text.
 
-The **FIELD LIBRARY**, in the menu's INTEL ARCHIVE beside the Field Manual and the Glossary,
+The **FIELD LIBRARY**, in the menu's INTEL ARCHIVE beside the Glossary,
 shelves **36 readings** behind the threats: papers, advisories, standards and hands-on
 material, each checked against the live page. Every threat's event card links to its own
 readings. An entry is stamped FILED once you have met a threat it covers, and general reading
@@ -85,7 +85,7 @@ values, and each beat carries its own visual cue and its own sound.
   no seam. The cold open builds the same bed slide by slide and hands it back to the menu.
 - **Two toggles, effects and music**, both remembered between visits. Nothing plays until your
   first tap or click.
-- **Playback speed** of 1x, 2x, or instant, where instant shows results only. Reduced motion is
+- **Tapped through.** Every beat waits for a tap, and SKIP ends the playback. Reduced motion is
   honoured as a motion preference: the sequence still plays, every cue takes its static form,
   and the sound is unchanged.
 - **Haptics** on Chrome-family Android browsers that support vibration. Nothing fires on iPhone,
