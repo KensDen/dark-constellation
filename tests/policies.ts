@@ -17,7 +17,9 @@
 //     WORST CASE stays at 0 or more). A drone on turn 1, then, slot by
 //     slot, the primary defense (or the next one listed) of the move
 //     COLDVEIL will take (LIKELY TARGET, or the first of EITHER) while that
-//     move is not already blocked and WORST CASE stays at 0 or more. It
+//     move is not already blocked and WORST CASE stays at 0 or more, one
+//     order a slot (see preparedLine for the R0b finding, and the line that
+//     follows the flag, which the sweep reports beside it). It
 //     burns on the debris night when the fuel keeps WORST CASE at 0 or
 //     more, and holds otherwise; it never buys the SSA subscription, since
 //     at 10 CR and 2 CR a turn to keep it costs more than the one burn it
@@ -79,31 +81,67 @@ function nextDefenseFor(eventId: string, state: GameState, counters: readonly Co
   return eventById(state.scenario, eventId).counters.find((id) => !counters.includes(id))
 }
 
-export const prepared: Policy = (state) => {
-  // TONIGHT names the moves only under the intel brief (brief 5.3), so a
-  // player who reads it orders the brief on every night it is not free.
-  let actions: TurnActions = { ...NO_ORDERS, intelBrief: !briefFree(state) && safe(state, { ...NO_ORDERS, intelBrief: true }) }
-  if (state.turn === 1 && safe(state, withAsset(actions, 'drone'))) actions = withAsset(actions, 'drone')
-  const denied = gnssDenied(state.conditions, state.scenario)
-  const blocked = (eventId: string, counters: readonly CountermeasureId[]) => {
-    const ev = eventById(state.scenario, eventId)
-    return ev.effect.special === 'debrisStrike' || ev.baseSeverity + chainBonusOf(ev, denied) - mitigationOf(ev, counters) <= 0
+// How a prepared player answers the flag on each slot. 'once': one order
+// against the move flagged before it, as the gated Prepared line has
+// played since R0. 'follow': again each time the flag moves, as the board
+// moves it the moment an order is queued (brief 5.3), until the move it
+// lands on is blocked, nothing listed is left for it, or WORST CASE would
+// go below 0.
+//
+// THE R0b FINDING. With 'once', no order for a drawn slot took a point off
+// the move that landed there that night, over 500 seeds on both
+// difficulties: the reacting adversary (brief 6.3) took the next least
+// covered move instead. Four of its seven defenses never touched an event
+// in any run, it blocked 1.67 of 9 threats a run, its best streak was 1 in
+// every run, and its wins topped out at 75.1 (graded 77.0), under S. That
+// is why it graded below Novice on STANDARD (S 0 A 39 against S 30 A 85).
+// 'follow' is the same player reading the same board: 100 percent wins and
+// 500 S on both difficulties, best streak 4 to 7, which is outside the
+// section 7 band of 65 to 85. Which line is the gate's Prepared is Ken's
+// ruling; until then the gate keeps 'once' and the sweep reports 'follow'.
+function preparedLine(answer: 'once' | 'follow'): Policy {
+  return (state) => {
+    // TONIGHT names the moves only under the intel brief (brief 5.3), so a
+    // player who reads it orders the brief on every night it is not free.
+    let actions: TurnActions = { ...NO_ORDERS, intelBrief: !briefFree(state) && safe(state, { ...NO_ORDERS, intelBrief: true }) }
+    if (state.turn === 1 && safe(state, withAsset(actions, 'drone'))) actions = withAsset(actions, 'drone')
+    const denied = gnssDenied(state.conditions, state.scenario)
+    const blocked = (eventId: string, counters: readonly CountermeasureId[]) => {
+      const ev = eventById(state.scenario, eventId)
+      return ev.effect.special === 'debrisStrike' || ev.baseSeverity + chainBonusOf(ev, denied) - mitigationOf(ev, counters) <= 0
+    }
+    const reads = adversaryPicks(state, countersAfter(state, actions))
+    for (let i = 0; i < reads.length; i += 1) {
+      if (answer === 'once') {
+        // One defense a slot: the primary (or the next one listed) of the
+        // move COLDVEIL will take there, the LIKELY TARGET or the first of
+        // EITHER, while that move is not already blocked.
+        const counters = countersAfter(state, actions)
+        const target = adversaryPicks(state, counters)[i].least[0]
+        if (blocked(target, counters)) continue
+        const defense = nextDefenseFor(target, state, counters)
+        const next = defense ? withCounter(actions, defense) : undefined
+        if (next && safe(state, next)) actions = next
+        continue
+      }
+      // Follow the flag: the LIKELY TARGET, or the first open move of
+      // EITHER, re-read after every order, until none is left to answer.
+      for (let order = 0; order < state.scenario.countermeasures.length; order += 1) {
+        const counters = countersAfter(state, actions)
+        const target = adversaryPicks(state, counters)[i].least.find((id) => !blocked(id, counters) && nextDefenseFor(id, state, counters))
+        if (!target) break
+        const next = withCounter(actions, nextDefenseFor(target, state, counters)!)
+        if (!safe(state, next)) break
+        actions = next
+      }
+    }
+    if (!debrisTonight(state)) return actions
+    return { ...actions, debris: safe(state, actions) ? 'burn' : 'hold' }
   }
-  // One defense a slot: the primary (or the next one listed) of the move
-  // COLDVEIL will take there, the LIKELY TARGET or the first of EITHER,
-  // while that move is not already blocked.
-  const reads = adversaryPicks(state, countersAfter(state, actions))
-  for (let i = 0; i < reads.length; i += 1) {
-    const counters = countersAfter(state, actions)
-    const target = adversaryPicks(state, counters)[i].least[0]
-    if (blocked(target, counters)) continue
-    const defense = nextDefenseFor(target, state, counters)
-    const next = defense ? withCounter(actions, defense) : undefined
-    if (next && safe(state, next)) actions = next
-  }
-  if (!debrisTonight(state)) return actions
-  return { ...actions, debris: safe(state, actions) ? 'burn' : 'hold' }
 }
+
+export const prepared: Policy = preparedLine('once')
+export const preparedFollow: Policy = preparedLine('follow')
 
 export const novice: Policy = (state) => {
   const r = streamFor(state, 0x0b5e55ed)
@@ -154,4 +192,12 @@ export const POLICIES: readonly { name: PolicyName; label: string; policy: Polic
   { name: 'novice', label: 'Novice', policy: novice },
   { name: 'randomLegal', label: 'Random legal', policy: randomLegal },
   { name: 'nothing', label: 'Nothing', policy: nothing },
+]
+
+// Lines the sweep plays and reports beside the gated ones, outside the
+// gate's targets and outside the grade calibration's population
+// (tests/grade.spec.ts reads POLICIES): measurements for a ruling, not
+// part of the balance yet.
+export const REPORTED: readonly { name: string; label: string; policy: Policy }[] = [
+  { name: 'preparedFollow', label: 'Prepared, following the flag (R0b)', policy: preparedFollow },
 ]

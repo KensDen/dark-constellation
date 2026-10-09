@@ -20,7 +20,7 @@ import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { Difficulty, GameState } from '../src/engine/types'
 import { worstCase } from '../src/engine/worstCase'
-import { POLICIES, type Policy, type PolicyName } from './policies'
+import { POLICIES, REPORTED, type Policy, type PolicyName } from './policies'
 
 const SEEDS = 500
 const GRADES: Grade[] = ['S', 'A', 'B', 'C', 'D', 'F']
@@ -38,6 +38,14 @@ export interface PolicyRun {
   unsafe: string[]
   // Turns that read WORST CASE 0 or more, so the guard is not vacuous.
   safeTurns: number
+  // The defense streak and the blocks behind it (R0b): threats met and
+  // fully blocked (nothing through) per run, by base strength 1, 2 and 3,
+  // summed over the runs. Debris and opportunities are not threats.
+  met1to3: [number, number, number]
+  blocked1to3: [number, number, number]
+  // Runs whose best streak, recomputed from the record, is not the one the
+  // engine kept (brief 6.8): the instrument and the rule must agree.
+  streakMismatches: string[]
 }
 
 export function playPolicy(policy: Policy, difficulty: Difficulty, seeds = SEEDS): PolicyRun {
@@ -52,10 +60,15 @@ export function playPolicy(policy: Policy, difficulty: Difficulty, seeds = SEEDS
     grades: { S: 0, A: 0, B: 0, C: 0, D: 0, F: 0 },
     unsafe: [],
     safeTurns: 0,
+    met1to3: [0, 0, 0],
+    blocked1to3: [0, 0, 0],
+    streakMismatches: [],
   }
   for (let seed = 1; seed <= seeds; seed += 1) {
     let state: GameState = newGame(DEFAULT_SCENARIO, seed, difficulty)
     const met = new Set<string>()
+    let streak = 0
+    let best = 0
     while (state.status === 'playing') {
       const actions = policy(state)
       const read = worstCase(state, actions).value
@@ -66,8 +79,22 @@ export function playPolicy(policy: Policy, difficulty: Difficulty, seeds = SEEDS
         if (record.ledger.insolvent) run.unsafe.push(`seed ${seed} turn ${record.turn}: WORST CASE read ${read}, closed at ${record.ledger.after}`)
       }
       for (const id of metOnTurn(record, DEFAULT_SCENARIO)) met.add(id)
+      for (const ev of record.events) {
+        const def = DEFAULT_SCENARIO.events.find((e) => e.id === ev.eventId)!
+        if (def.kind === 'opportunity' || def.effect.special === 'debrisStrike') continue
+        const strength = def.baseSeverity - 1
+        run.met1to3[strength] += 1
+        if (ev.effectiveSeverity === 0) {
+          run.blocked1to3[strength] += 1
+          streak += 1
+          best = Math.max(best, streak)
+        } else {
+          streak = 0
+        }
+      }
       state = after
     }
+    if (best !== state.bestStreak) run.streakMismatches.push(`seed ${seed}: record ${best}, engine ${state.bestStreak}`)
     if (state.status === 'won') run.wins += 1
     if (state.lossReason === 'insolvency') run.insolvencies += 1
     if (state.lossReason === 'maiCollapse') run.collapses += 1
@@ -104,26 +131,37 @@ describe('the sweep gate (v1.3 brief 7)', () => {
   const runs = new Map<string, PolicyRun>()
   const key = (name: PolicyName, difficulty: Difficulty) => `${name}:${difficulty}`
 
+  // The lines the sweep reports beside the gated ones (tests/policies.ts
+  // REPORTED): played and printed, held to no target band.
+  const reported = new Map<string, PolicyRun>()
+
   beforeAll(() => {
     for (const difficulty of ['standard', 'easy'] as const) {
       for (const p of POLICIES) runs.set(key(p.name, difficulty), playPolicy(p.policy, difficulty))
+      for (const p of REPORTED) reported.set(`${p.name}:${difficulty}`, playPolicy(p.policy, difficulty))
     }
     if (!process.env.SWEEP) return
     const rows: string[] = []
+    const share = (r: PolicyRun, n: number) => `${pct(r.bestStreaks.filter((b) => b >= n).length, SEEDS).toFixed(1)}%`
+    const blocks = (r: PolicyRun) =>
+      [0, 1, 2].map((i) => `${(r.blocked1to3[i] / SEEDS).toFixed(2)} of ${(r.met1to3[i] / SEEDS).toFixed(2)}`).join(' / ')
     for (const difficulty of ['standard', 'easy'] as const) {
-      for (const p of POLICIES) {
-        const r = runs.get(key(p.name, difficulty))!
+      const lines = [
+        ...POLICIES.map((p) => ({ label: p.label, r: runs.get(key(p.name, difficulty))! })),
+        ...REPORTED.map((p) => ({ label: `${p.label}, reported`, r: reported.get(`${p.name}:${difficulty}`)! })),
+      ]
+      for (const { label, r } of lines) {
         const grades = GRADES.map((g) => `${g} ${r.grades[g]}`).join(' ')
         rows.push(
-          `| ${p.label} | ${difficulty.toUpperCase()} | ${pct(r.wins, SEEDS).toFixed(1)}% | ${r.insolvencies} | ${r.collapses} | ${r.belowLine} | ${median(r.finalScores)} | ${median(r.bestStreaks)} | ${median(r.met)} | ${grades} |`,
+          `| ${label} | ${difficulty.toUpperCase()} | ${pct(r.wins, SEEDS).toFixed(1)}% | ${r.insolvencies} | ${r.collapses} | ${r.belowLine} | ${median(r.finalScores)} | ${median(r.bestStreaks)} | ${share(r, 2)} | ${share(r, 3)} | ${blocks(r)} | ${median(r.met)} | ${grades} |`,
         )
       }
     }
     process.stderr.write(
       [
         `\nSweep gate, ${SEEDS} seeds a policy, scenario ${DEFAULT_SCENARIO.id}:`,
-        '| policy | difficulty | win rate | insolvent | collapse | below line | median final score | median best streak | median threats met | grades |',
-        '|---|---|---|---|---|---|---|---|---|---|',
+        '| policy | difficulty | win rate | insolvent | collapse | below line | median final score | median best streak | best streak 2+ | best streak 3+ | blocked a run of met, strength 1 / 2 / 3 | median threats met | grades |',
+        '|---|---|---|---|---|---|---|---|---|---|---|---|---|',
         ...rows,
         '',
       ].join('\n') + '\n',
@@ -143,10 +181,22 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     for (const difficulty of ['standard', 'easy'] as const) expect(runs.get(key('prepared', difficulty))!.insolvencies, difficulty).toBe(0)
   })
 
+  it('keeps the defense streak the record shows, on every run of every line (brief 6.8)', () => {
+    // The streak the sweep reports is recomputed from each turn's events
+    // (threats only; the debris call and opportunities neither extend nor
+    // break it) and must equal the one the engine keeps in state.
+    const all = [...runs, ...reported]
+    const wrong = all.flatMap(([k, r]) => r.streakMismatches.map((m) => `${k} ${m}`))
+    expect(wrong.slice(0, 10).join('\n'), `${wrong.length} runs disagree`).toBe('')
+    // Not vacuous: some run reaches a streak of 3, so a counter stuck at 0
+    // or 1 would disagree somewhere.
+    expect(all.some(([, r]) => r.bestStreaks.some((b) => b >= 3)), 'no run reached a streak of 3').toBe(true)
+  })
+
   it('GUARD R0 (b): no turn that read WORST CASE 0 or more closes insolvent, over every seed of every policy (brief 6.4)', () => {
     let safe = 0
     const unsafe: string[] = []
-    for (const [k, r] of runs) {
+    for (const [k, r] of [...runs, ...reported]) {
       safe += r.safeTurns
       unsafe.push(...r.unsafe.map((u) => `${k} ${u}`))
     }
