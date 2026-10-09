@@ -66,7 +66,7 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     process.stderr.write(
       [
         `\nSweep gate, ${SEEDS} seeds a policy, scenario ${DEFAULT_SCENARIO.id}:`,
-        '| policy | difficulty | win rate | insolvent | collapse | below line | median final score | median best streak | best streak 2+ | best streak 3+ | blocked a run of met, strength 1 / 2 / 3 | median threats met | grades |',
+        '| policy | difficulty | win rate | insolvent | collapse | below line | median final score | median best streak | best streak 2+ | best streak 3+ | threats blocked a run, of those played, strength 1 / 2 / 3 | median distinct threats met | grades |',
         '|---|---|---|---|---|---|---|---|---|---|---|---|---|',
         ...rows,
         '',

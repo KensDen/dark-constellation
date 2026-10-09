@@ -77,8 +77,14 @@ describe('the sweep policies do what their comments say (R0b)', () => {
     let turns = 0
     for (const { state, actions, where } of decisions(prepared)) {
       turns += 1
-      const slots = (planFor(state.scenario, state.turn)?.slots ?? []).length
-      expect(bought(state, actions).length, `${where}: more than one defense a slot`).toBeLessThanOrEqual(slots)
+      // The slots a defense can answer: the debris call is a choice, not a
+      // threat, so turn 4's fixed conjunction does not count (the R0b
+      // review: counting it let a second order on turn 4's drawn slot
+      // through).
+      const answerable = (planFor(state.scenario, state.turn)?.slots ?? []).filter(
+        (slot) => !(slot.fixed && eventById(state.scenario, slot.fixed).effect.special === 'debrisStrike'),
+      ).length
+      expect(bought(state, actions).length, `${where}: more than one defense a slot`).toBeLessThanOrEqual(answerable)
       const counters = countersAfter(state, actions)
       const open = adversaryPicks(state, counters).some((read) =>
         read.least.some((id) => !blocked(state, id, counters) && eventById(state.scenario, id).counters.some((c) => !counters.includes(c))),
