@@ -103,6 +103,8 @@ export const RUNNER_BLOCKED_STATUSES = [403]
 // that answers 200 on its second try is simply a pass, with no warning.
 export function isRunnerBlocked(result, list = RUNNER_BLOCKED) {
   if (!list.some((entry) => entry.url === result.url)) return false
+  // A certificate that did not verify is not a runner block: it fails.
+  if (result.tls) return false
   return result.network === true || RUNNER_BLOCKED_STATUSES.includes(result.status)
 }
 
@@ -142,8 +144,21 @@ export function isTransientStatus(result) {
 // Every URL failed at the transport layer, so there is no network rather
 // than a broken deck. Guarded on length because `[].every()` is true and
 // an empty result set is a different failure, reported separately.
+//
+// A certificate that did not verify is never "offline" (v1.3 R0b review):
+// the host answered and its chain failed, so if every link fails that way
+// the layer FAILS rather than skipping green, which is what would happen
+// if, say, the trust store the link check runs with lost a certificate a
+// TLS-inspecting proxy needs.
 export function isOffline(results) {
-  return results.length > 0 && results.every((r) => r.network)
+  return results.length > 0 && results.every((r) => r.network && !r.tls)
+}
+
+// Whether a transport error is a certificate that did not verify, from
+// Node's error code or curl's exit status (60: the peer's certificate
+// could not be authenticated).
+export function isCertificateError(code) {
+  return typeof code === 'string' && /CERT|UNABLE_TO_GET_ISSUER|UNABLE_TO_VERIFY|SELF_SIGNED|ALTNAME|curl exit 60/.test(code)
 }
 
 // Which results deserve a second look at the transport layer. Empty when
@@ -267,15 +282,18 @@ export async function runLinkCheck({
 
 // THE EXTRA CERTIFICATE (v1.3 Round 0b, ruled by Ken on 2026-10-08).
 // sparta.aerospace.org renewed its certificate on 2026-10-05 and now
-// serves the leaf twice and no intermediate. A browser or curl fetches the
-// missing DigiCert EV RSA CA G2 for itself; Node's fetch does not, so all
-// 32 SPARTA links failed with UNABLE_TO_VERIFY_LEAF_SIGNATURE although
-// every one of them answered 200. The fix supplies that public
+// serves the leaf twice and no intermediate. A browser, and macOS's own
+// curl, fetch the missing DigiCert EV RSA CA G2 for themselves; Node's
+// fetch does not (nor does curl built on OpenSSL), so all 32 SPARTA links
+// failed with UNABLE_TO_VERIFY_LEAF_SIGNATURE although every one of them
+// answered 200 in a browser. The fix supplies that public
 // intermediate to Node, for the link check only, and verification stays
 // on: the chain still has to reach DigiCert Global Root G2 in Node's own
-// root store. The file is byte for byte the PEM DigiCert publishes, and it
-// is pinned here by its SHA-256 fingerprint, so a changed file is refused
-// rather than trusted.
+// root store. The file is byte for byte the PEM DigiCert publishes: one
+// certificate, pinned here by its SHA-256 fingerprint. A changed file is
+// refused rather than trusted, and so is one with anything appended,
+// because NODE_EXTRA_CA_CERTS trusts every certificate in the file and
+// X509Certificate reads only the first (the R0b review found that hole).
 export const EXTRA_CA = {
   file: 'scripts/certs/digicert-ev-rsa-ca-g2.pem',
   subject: 'DigiCert EV RSA CA G2',
@@ -293,7 +311,11 @@ export const EXTRA_CA = {
 // of quietly widening what the link check trusts.
 export function readExtraCa(root, extra = EXTRA_CA) {
   const path = join(root, extra.file)
-  const cert = new X509Certificate(readFileSync(path))
+  const text = readFileSync(path, 'utf8')
+  if (!/^-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+/=\n]+-----END CERTIFICATE-----\n?$/.test(text)) {
+    throw new Error(`${extra.file} is not exactly one PEM certificate, so it could carry more trust than the pinned ${extra.subject}`)
+  }
+  const cert = new X509Certificate(text)
   if (cert.fingerprint256 !== extra.sha256) {
     throw new Error(`${extra.file} is not the pinned ${extra.subject}: sha256 ${cert.fingerprint256}, expected ${extra.sha256}`)
   }
@@ -303,25 +325,55 @@ export function readExtraCa(root, extra = EXTRA_CA) {
 // The link check's environment: the battery's own, plus the extra
 // certificate, minus any switch that would turn verification off. A
 // NODE_TLS_REJECT_UNAUTHORIZED of 0 left in a shell would make every link
-// "resolve", which is the one outcome this layer exists to rule out.
+// "resolve", which is the one outcome this layer exists to rule out. Node
+// takes one NODE_EXTRA_CA_CERTS file, so a value already in the shell (a
+// corporate root, say) is replaced; the replaced path is passed on so the
+// layer can say so, and a link that needed it fails as a certificate
+// error rather than reading as offline (isOffline).
 export function linkCheckEnv(env, path) {
   const out = { ...env, NODE_EXTRA_CA_CERTS: path }
   delete out.NODE_TLS_REJECT_UNAUTHORIZED
+  delete out.DC_REPLACED_EXTRA_CA_CERTS
+  if (env.NODE_EXTRA_CA_CERTS && env.NODE_EXTRA_CA_CERTS !== path) out.DC_REPLACED_EXTRA_CA_CERTS = env.NODE_EXTRA_CA_CERTS
+  return out
+}
+
+// The battery's link check layer: refuse a file that is not the pinned
+// certificate, run scripts/content-links.mjs as its own process with
+// linkCheckEnv, and return its outcome line (OK, SKIP or FAIL first).
+// Here rather than in battery.mjs so the suite can drive it with a fake
+// spawn and see exactly what the child is given.
+export function runLinkCheckProcess(root, env, spawn) {
+  let extra
+  try {
+    extra = readExtraCa(root)
+  } catch (err) {
+    return `FAIL: ${err.message}`
+  }
+  const child = spawn(process.execPath, [join(root, 'scripts', 'content-links.mjs')], {
+    cwd: root,
+    env: linkCheckEnv(env, extra.path),
+    encoding: 'utf8',
+  })
+  if (child.stderr) process.stderr.write(child.stderr)
+  const out = (child.stdout ?? '').trim()
+  if (child.error || child.status !== 0 || !out) {
+    return `FAIL: the link check process ${child.error ? `could not run (${child.error.message})` : `exited ${child.status ?? child.signal}`} without an outcome`
+  }
   return out
 }
 
 // In the link check's own process: the pinned certificate as Node actually
 // loaded it from NODE_EXTRA_CA_CERTS, or null. Read from the loaded store,
 // so the line that says the certificate is in use is a measurement, not an
-// echo of the environment (a file Node failed to load only warns). A Node
-// too old to report its loaded certificates (before 22.15) reads as not
-// loaded: the layer fails closed rather than claim what it cannot see.
+// echo of the environment (a file Node failed to load only warns). It must
+// be the ONLY extra certificate loaded: anything beside it is trust the
+// link check was not meant to have. A Node too old to report its loaded
+// certificates (before 22.15) reads as not loaded: the layer fails closed
+// rather than claim what it cannot see.
 export function loadedExtraCa(extra = EXTRA_CA, loaded = () => tls.getCACertificates?.('extra') ?? []) {
-  for (const pem of loaded()) {
-    const cert = new X509Certificate(pem)
-    if (cert.fingerprint256 === extra.sha256) return cert
-  }
-  return null
+  const certs = loaded().map((pem) => new X509Certificate(pem))
+  return certs.length === 1 && certs[0].fingerprint256 === extra.sha256 ? certs[0] : null
 }
 
 // The line the layer prints under its result.

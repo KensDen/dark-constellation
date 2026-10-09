@@ -15,6 +15,7 @@ import {
   EXTRA_CA,
   extraCaLine,
   isBotProtected,
+  isCertificateError,
   isExcused,
   isRunnerBlocked,
   loadedExtraCa,
@@ -60,6 +61,7 @@ async function checkUrl(url) {
       { encoding: 'utf8' },
     )
     const status = Number.parseInt(res.stdout, 10)
+    if (isCertificateError(`curl exit ${res.status}`)) return { url, network: true, tls: `curl exit ${res.status}` }
     if (res.status !== 0 || !Number.isFinite(status) || status === 0) return { url, network: true }
     return { url, status }
   }
@@ -70,8 +72,11 @@ async function checkUrl(url) {
       headers: { 'user-agent': 'dark-constellation-battery/1.0 (content link check)' },
     })
     return { url, status: res.status }
-  } catch {
-    return { url, network: true }
+  } catch (err) {
+    // A certificate that did not verify is kept apart from a dropped
+    // connection, so it can never read as "offline" (isOffline).
+    const code = err?.cause?.code ?? err?.code
+    return isCertificateError(code) ? { url, network: true, tls: code } : { url, network: true }
   }
 }
 
@@ -106,7 +111,7 @@ async function linkCheck() {
   if (outcome.outcome === 'fail') {
     const lines = [
       ...outcome.broken.map((r) => `  HTTP ${r.status}  ${r.url}`),
-      ...outcome.unreachable.map((r) => `  unreachable  ${r.url}`),
+      ...outcome.unreachable.map((r) => (r.tls ? `  certificate did not verify (${r.tls})  ${r.url}` : `  unreachable  ${r.url}`)),
     ]
     const count = outcome.broken.length + outcome.unreachable.length
     return `FAIL: ${count} of ${outcome.results.length} content link(s) did not resolve:\n${lines.join('\n')}${warnings}`
@@ -129,7 +134,13 @@ if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
   console.log(`FAIL: Node did not load the extra certificate (${EXTRA_CA.file}) from NODE_EXTRA_CA_CERTS, so the SPARTA links cannot verify`)
 } else {
   const outcome = await linkCheck()
-  // curl keeps its own trust store and never sees NODE_EXTRA_CA_CERTS.
-  const transport = useCurl ? ' (Node fetch only; this run used curl through the proxy)' : ''
-  console.log(`${outcome}\n  ${extraCaLine()}${transport}`)
+  // curl keeps its own trust store and never sees NODE_EXTRA_CA_CERTS, so
+  // on the proxy path the line says the certificate was not used.
+  const ca = useCurl
+    ? `extra certificate not used: this run checked links with curl through the proxy, which keeps its own trust store (${EXTRA_CA.file} applies to Node's fetch only)`
+    : extraCaLine()
+  const replaced = process.env.DC_REPLACED_EXTRA_CA_CERTS
+    ? `\n  note: NODE_EXTRA_CA_CERTS from the shell (${process.env.DC_REPLACED_EXTRA_CA_CERTS}) is not used by the link check; a link that needs it fails as a certificate error`
+    : ''
+  console.log(`${outcome}\n  ${ca}${replaced}`)
 }

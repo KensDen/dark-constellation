@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { measureBundle } from './bundle-budget.mjs'
-import { linkCheckEnv, readExtraCa } from './link-check.mjs'
+import { runLinkCheckProcess } from './link-check.mjs'
 
 const failures = []
 // Stamped before anything builds, so the bundle layer can tell a chunk
@@ -207,27 +207,12 @@ run('pre-push OPSEC hook is active (local only)', () => {
 // Since v1.3 Round 0b the layer runs in a process of its own,
 // scripts/content-links.mjs, so the extra certificate sparta.aerospace.org
 // leaves out (scripts/link-check.mjs, EXTRA_CA) reaches the link check and
-// nothing else. readExtraCa refuses a file that is not the pinned one, and
-// linkCheckEnv strips any switch that would turn verification off.
-function linkCheckLayer() {
-  let extra
-  try {
-    extra = readExtraCa(process.cwd())
-  } catch (err) {
-    return `FAIL: ${err.message}`
-  }
-  const child = spawnSync(process.execPath, ['scripts/content-links.mjs'], {
-    env: linkCheckEnv(process.env, extra.path),
-    encoding: 'utf8',
-  })
-  if (child.stderr) process.stderr.write(child.stderr)
-  const out = (child.stdout ?? '').trim()
-  if (child.status !== 0 || !out) return `FAIL: the link check process exited ${child.status ?? child.signal} without an outcome`
-  return out
-}
+// nothing else. runLinkCheckProcess (scripts/link-check.mjs) refuses a file
+// that is not the pinned one and strips any switch that would turn
+// verification off.
 
 process.stdout.write('[battery] content link check (spec 11.4) ... ')
-report('content link check (spec 11.4)', linkCheckLayer())
+report('content link check (spec 11.4)', runLinkCheckProcess(process.cwd(), process.env, spawnSync))
 
 if (failures.length) {
   console.error(`[battery] RED: ${failures.length} check(s) failed: ${failures.join(', ')}`)

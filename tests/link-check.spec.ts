@@ -9,7 +9,8 @@
 // against a live network.
 
 import { X509Certificate } from 'node:crypto'
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { rootCertificates } from 'node:tls'
@@ -33,9 +34,11 @@ import {
   runnerBlockedWarning,
   EXTRA_CA,
   extraCaLine,
+  isCertificateError,
   linkCheckEnv,
   loadedExtraCa,
   readExtraCa,
+  runLinkCheckProcess,
 } from '../scripts/link-check.mjs'
 
 const ok = (url: string) => ({ url, status: 200 })
@@ -547,43 +550,128 @@ describe('link check: the extra certificate (v1.3 R0b)', () => {
     expect(cert.validTo).toContain('2030')
   })
 
-  it('refuses a file that is not the pinned certificate', () => {
+  it('refuses a file that is not the pinned certificate, including the pinned one with anything appended', () => {
     // Any other certificate in the pinned file's place (here the root
     // itself) is refused by name, so a swap fails the layer rather than
-    // widening what the link check trusts.
+    // widening what the link check trusts. So is the pinned certificate
+    // with another appended: NODE_EXTRA_CA_CERTS trusts every certificate
+    // in the file while X509Certificate reads only the first, which is the
+    // hole the R0b review found.
     const dir = mkdtempSync(join(tmpdir(), 'dc-extra-ca-'))
     writeFileSync(join(dir, 'other.pem'), root()!.toString())
     expect(() => readExtraCa(dir, { ...EXTRA_CA, file: 'other.pem' })).toThrow(/is not the pinned DigiCert EV RSA CA G2/)
+    writeFileSync(join(dir, 'appended.pem'), readFileSync(join(repo, EXTRA_CA.file), 'utf8') + root()!.toString())
+    expect(() => readExtraCa(dir, { ...EXTRA_CA, file: 'appended.pem' })).toThrow(/is not exactly one PEM certificate/)
     expect(() => readExtraCa(repo)).not.toThrow()
   })
 
-  it('hands the certificate to the link check and strips the switch that turns verification off', () => {
-    const parent = { PATH: '/bin', NODE_TLS_REJECT_UNAUTHORIZED: '0' }
+  it('hands the certificate to the link check, strips the switch that turns verification off, and says what it replaced', () => {
+    const parent = { PATH: '/bin', NODE_TLS_REJECT_UNAUTHORIZED: '0', NODE_EXTRA_CA_CERTS: '/corp/root.pem' }
     const env = linkCheckEnv(parent, '/x/ca.pem')
     expect(env.NODE_EXTRA_CA_CERTS).toBe('/x/ca.pem')
     expect('NODE_TLS_REJECT_UNAUTHORIZED' in env, 'the link check would run with verification off').toBe(false)
+    expect(env.DC_REPLACED_EXTRA_CA_CERTS, 'a certificate file from the shell was dropped without a word').toBe('/corp/root.pem')
     expect(env.PATH).toBe('/bin')
+    expect('DC_REPLACED_EXTRA_CA_CERTS' in linkCheckEnv({ PATH: '/bin' }, '/x/ca.pem')).toBe(false)
     // The battery's own environment is left alone: the certificate is for
     // the link check's process only.
-    expect(parent).toEqual({ PATH: '/bin', NODE_TLS_REJECT_UNAUTHORIZED: '0' })
+    expect(parent).toEqual({ PATH: '/bin', NODE_TLS_REJECT_UNAUTHORIZED: '0', NODE_EXTRA_CA_CERTS: '/corp/root.pem' })
   })
 
-  it('reports the certificate in use only when Node actually loaded it', () => {
+  it('runs the link check as its own process with that environment, and fails on anything but an outcome', () => {
+    // runLinkCheckProcess is the battery's whole layer: this drives it
+    // with a fake spawn and sees exactly what the child is given.
+    const calls: { args: string[]; env: Record<string, string> }[] = []
+    const fake = (answer: object) => (_cmd: string, args: string[], opts: { env: Record<string, string> }) => {
+      calls.push({ args, env: opts.env })
+      return answer
+    }
+    const env = { PATH: '/bin', NODE_TLS_REJECT_UNAUTHORIZED: '0' }
+    expect(runLinkCheckProcess(repo, env, fake({ status: 0, stdout: 'OK (73 links)\n  line' }))).toBe('OK (73 links)\n  line')
+    expect(calls[0].args).toEqual([join(repo, 'scripts', 'content-links.mjs')])
+    expect(calls[0].env.NODE_EXTRA_CA_CERTS).toBe(join(repo, EXTRA_CA.file))
+    expect('NODE_TLS_REJECT_UNAUTHORIZED' in calls[0].env).toBe(false)
+    expect(runLinkCheckProcess(repo, env, fake({ status: 1, stdout: 'OK (73 links)' }))).toMatch(/^FAIL: the link check process exited 1/)
+    expect(runLinkCheckProcess(repo, env, fake({ status: 0, stdout: '' }))).toMatch(/^FAIL/)
+    expect(runLinkCheckProcess(repo, env, fake({ error: new Error('spawn ENOENT'), status: null }))).toMatch(/^FAIL: the link check process could not run/)
+    // A file that is not the pinned certificate fails before anything runs.
+    const dir = mkdtempSync(join(tmpdir(), 'dc-extra-ca-'))
+    mkdirSync(join(dir, 'scripts', 'certs'), { recursive: true })
+    writeFileSync(join(dir, EXTRA_CA.file), root()!.toString())
+    const before = calls.length
+    expect(runLinkCheckProcess(dir, env, fake({ status: 0, stdout: 'OK (73 links)' }))).toMatch(/^FAIL: .* is not the pinned/)
+    expect(calls.length, 'a swapped certificate still started the link check').toBe(before)
+  })
+
+  it('refuses, in the real child, to check a link with verification off or without exactly the pinned certificate', () => {
+    // The child's guards run before any request, so these need no network.
+    // HTTPS_PROXY is cleared so the child takes Node's fetch path, where
+    // the certificate matters.
+    const child = (extra: Record<string, string | undefined>) => {
+      const env: Record<string, string> = {}
+      for (const [k, v] of Object.entries({ ...process.env, ...extra })) if (v !== undefined && k !== 'HTTPS_PROXY' && k !== 'https_proxy') env[k] = v
+      return spawnSync(process.execPath, [join(repo, 'scripts', 'content-links.mjs')], { cwd: repo, env, encoding: 'utf8' }).stdout.trim()
+    }
+    const pinnedPath = join(repo, EXTRA_CA.file)
+    expect(child({ NODE_EXTRA_CA_CERTS: pinnedPath, NODE_TLS_REJECT_UNAUTHORIZED: '0' })).toMatch(/^FAIL: NODE_TLS_REJECT_UNAUTHORIZED is 0/)
+    expect(child({ NODE_EXTRA_CA_CERTS: undefined, NODE_TLS_REJECT_UNAUTHORIZED: undefined })).toMatch(/^FAIL: Node did not load the extra certificate/)
+    const dir = mkdtempSync(join(tmpdir(), 'dc-extra-ca-'))
+    writeFileSync(join(dir, 'two.pem'), readFileSync(pinnedPath, 'utf8') + root()!.toString())
+    expect(child({ NODE_EXTRA_CA_CERTS: join(dir, 'two.pem'), NODE_TLS_REJECT_UNAUTHORIZED: undefined })).toMatch(/^FAIL: Node did not load the extra certificate/)
+  })
+
+  it('reports the certificate in use only when Node loaded it and nothing else', () => {
     const pem = readFileSync(join(repo, EXTRA_CA.file), 'utf8')
     expect(loadedExtraCa(EXTRA_CA, () => [pem])?.fingerprint256).toBe(EXTRA_CA.sha256)
     expect(loadedExtraCa(EXTRA_CA, () => []), 'nothing loaded still read as in use').toBeNull()
     expect(loadedExtraCa(EXTRA_CA, () => [root()!.toString()]), 'another certificate read as the pinned one').toBeNull()
+    expect(loadedExtraCa(EXTRA_CA, () => [pem, root()!.toString()]), 'a certificate loaded beside the pinned one read as in use').toBeNull()
     // This test process was not given the variable, so its own store has
-    // no extra certificate: the real loader sees none.
+    // no extra certificate: the real loader sees none. A process given it
+    // does see it, through the same loader the child uses.
     expect(loadedExtraCa()).toBeNull()
+    const probe = spawnSync(
+      process.execPath,
+      ['--input-type=module', '-e', "const m = await import('./scripts/link-check.mjs'); console.log(m.loadedExtraCa()?.fingerprint256 ?? 'none')"],
+      { cwd: repo, env: { ...process.env, NODE_EXTRA_CA_CERTS: join(repo, EXTRA_CA.file) }, encoding: 'utf8' },
+    )
+    expect(probe.stdout.trim()).toBe(EXTRA_CA.sha256)
     expect(extraCaLine()).toContain(EXTRA_CA.sha256)
   })
 
+  it('never reads a certificate that did not verify as offline', () => {
+    // Every link failing its certificate is a FAIL, not a green SKIP: the
+    // host answered and its chain did not verify.
+    for (const code of ['UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'SELF_SIGNED_CERT_IN_CHAIN', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'CERT_HAS_EXPIRED', 'ERR_TLS_CERT_ALTNAME_INVALID', 'curl exit 60']) {
+      expect(isCertificateError(code), code).toBe(true)
+    }
+    for (const code of ['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'curl exit 6', 'curl exit 28', undefined]) {
+      expect(isCertificateError(code), String(code)).toBe(false)
+    }
+    const tlsFailed = ['https://a.example/', 'https://b.example/'].map((url) => ({ url, network: true, tls: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' }))
+    expect(isOffline(tlsFailed)).toBe(false)
+    expect(isOffline(tlsFailed.map(({ url }) => ({ url, network: true })))).toBe(true)
+    expect(classify(tlsFailed).unreachable).toHaveLength(2)
+    // A page listed as blocking runners is excused for a timeout, never for
+    // a certificate.
+    expect(isRunnerBlocked({ url: RUNNER_BLOCKED[0].url, network: true })).toBe(true)
+    expect(isRunnerBlocked({ url: RUNNER_BLOCKED[0].url, network: true, tls: 'CERT_HAS_EXPIRED' })).toBe(false)
+  })
+
   it('never turns verification off anywhere in scripts/', () => {
-    // An assignment of NODE_TLS_REJECT_UNAUTHORIZED, or rejectUnauthorized
-    // false, anywhere in the scripts would make the link check pass on
-    // links whose certificates do not verify. A comparison (===) or a
-    // delete is how the scripts guard against it, and is allowed.
+    // Every mention of a verification switch in the scripts must be one of
+    // the guards listed here, line for line: an assignment in any form
+    // (=, ||=, ??=, Reflect.set), rejectUnauthorized in any form, a custom
+    // checkServerIdentity, or curl's -k or --insecure would make the link
+    // check pass on links whose certificates do not verify. A new mention
+    // fails until someone adds it here on purpose.
+    const ALLOWED = new Set([
+      "if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {",
+      "console.log('FAIL: NODE_TLS_REJECT_UNAUTHORIZED is 0 in the link check, so a link could resolve without a verified certificate')",
+      'delete out.NODE_TLS_REJECT_UNAUTHORIZED',
+      '// NODE_TLS_REJECT_UNAUTHORIZED of 0 left in a shell would make every link',
+    ])
+    const SWITCHES = /NODE_TLS_REJECT_UNAUTHORIZED|rejectUnauthorized|checkServerIdentity|allowPartialTrustChain|--insecure|--proxy-insecure|['"]-k['"]/
     const dir = join(repo, 'scripts')
     const files = readdirSync(dir, { recursive: true, withFileTypes: true })
       .filter((d) => d.isFile() && /\.(m?js|cjs|sh)$|^pre-push$/.test(d.name))
@@ -591,9 +679,9 @@ describe('link check: the extra certificate (v1.3 R0b)', () => {
     expect(files.length).toBeGreaterThan(3)
     const offenders: string[] = []
     for (const f of files) {
-      const text = readFileSync(f, 'utf8')
-      if (/NODE_TLS_REJECT_UNAUTHORIZED['"\]]*\s*(=(?!=)|:)/.test(text)) offenders.push(`${f}: sets NODE_TLS_REJECT_UNAUTHORIZED`)
-      if (/rejectUnauthorized\s*:\s*false/.test(text)) offenders.push(`${f}: rejectUnauthorized false`)
+      for (const line of readFileSync(f, 'utf8').split('\n')) {
+        if (SWITCHES.test(line) && !ALLOWED.has(line.trim())) offenders.push(`${f}: ${line.trim()}`)
+      }
     }
     expect(offenders.join('\n')).toBe('')
   })
