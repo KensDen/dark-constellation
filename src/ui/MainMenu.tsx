@@ -19,6 +19,7 @@
 
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { dailyNumber, msUntilNextDaily } from '../engine/daily'
+import { STALE_SAVE_MESSAGE } from '../persistence'
 import PixelHash from './PixelHash'
 import Wordmark from './Wordmark'
 
@@ -54,9 +55,14 @@ const BASE_ITEMS: Item[] = [
 export default function MainMenu({
   onSelect,
   resumeAvailable,
+  staleSave = false,
 }: {
   onSelect: (t: MenuTarget) => void
   resumeAvailable: boolean
+  // The autosave is from an earlier version (v1.3 brief 6.10): it cannot
+  // resume under the six-turn rules, so the menu says so and offers PLAY
+  // rather than dropping it without a word.
+  staleSave?: boolean
 }) {
   // The Daily Op's number, read from the clock and read again at the next
   // local midnight, so a menu left open overnight offers the new day's
@@ -134,6 +140,14 @@ export default function MainMenu({
           A turn-based space and drone cybersecurity strategy sim.
         </p>
       </div>
+      {staleSave && (
+        <div role="status" data-stale-save className="mt-8 max-w-md w-full mx-auto border border-alert-amber/50 bg-panel p-3">
+          <p className="font-mono text-sm text-alert-amber">{STALE_SAVE_MESSAGE}.</p>
+          <button onClick={() => onSelect('game')} className="mt-2 min-h-11 border border-phosphor px-3 font-display text-[10px] text-phosphor">
+            PLAY
+          </button>
+        </div>
+      )}
       <nav className="mt-8 space-y-2 max-w-md w-full mx-auto">
         {withKeys.map((item) => (
           <Fragment key={item.target}>

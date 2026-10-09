@@ -17,9 +17,10 @@ import type { GameState } from '../engine/types'
 // the learning state on the game (the defense streak, points saved, what
 // the player can now say). A v1.2 save cannot resume under those rules,
 // so v1 to v3 are REFUSED, never migrated: a load says "This save is from
-// an earlier version and cannot be resumed" (StaleSaveError, so the shell
-// can offer PLAY beside it), and the history below is the record of what
-// those versions were.
+// an earlier version and cannot be resumed" (StaleSaveError: the menu
+// shows it with PLAY for an old autosave, and the save-code box shows it
+// for a pasted code), and the history below is the record of what those
+// versions were.
 //
 // v1 (R4): no difficulty field, all campaigns were the Standard tuning.
 // v2 (R5): adds difficulty. v1 saves migrate forward as Standard.

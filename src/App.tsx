@@ -154,7 +154,9 @@ function App() {
                 a detour shows the same thing whichever one it is. Menu and
                 Game render inside it and never suspend. */}
             <Suspense fallback={<ScreenLoading />}>
-              {screen === 'menu' && <MainMenu onSelect={onSelect} resumeAvailable={!!store.loadAutosave()} />}
+              {screen === 'menu' && (
+                <MainMenu onSelect={onSelect} resumeAvailable={!!store.loadAutosave()} staleSave={store.autosaveIsStale()} />
+              )}
               {screen === 'game' && (
                 <Game
                   key={gameInitial ? 'resume' : 'new'}
