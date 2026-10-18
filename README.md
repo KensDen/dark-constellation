@@ -128,6 +128,11 @@ with AI tools under the author's direction and selection. The interface art (wor
 event icons, layer badges, constellation frame) was authored as original vector work for this
 project.
 
+## Releases
+
+- v1.1.0, 23 September 2026: the sound and feel pass.
+- v1.0.0, 22 July 2026: first release.
+
 ## Licensing
 
 - **Code: copyright 2026 Ken Connell, all rights reserved.** Source, build configuration, tests,
