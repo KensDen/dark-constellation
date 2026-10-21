@@ -36,6 +36,7 @@ function Entry({ entry, filed, note }: { entry: LibraryEntry; filed: boolean; no
       )}
       <a className="font-mono text-sm font-bold text-dc-ink underline" href={entry.url} target="_blank" rel="noopener noreferrer">
         {entry.title}
+        {/\.pdf$/i.test(entry.url) && <span className="font-normal text-dc-muted"> (PDF)</span>}
         <span aria-hidden="true"> ↗</span>
         <span className="dc-offscreen"> (opens in a new tab)</span>
       </a>
@@ -54,6 +55,8 @@ function Entry({ entry, filed, note }: { entry: LibraryEntry; filed: boolean; no
     </li>
   )
 }
+
+const HANDS_ON = 'Hands-on'
 
 export default function FieldLibrary({
   onBack,
@@ -127,6 +130,14 @@ export default function FieldLibrary({
           <Sub className="font-display text-[10px] leading-none text-dc-go">
             {shelf.n}. {shelf.name.toUpperCase()}
           </Sub>
+          {/* Shelf note, UI text rather than entry data, so the approved list
+              and its hashes stand (QC gauntlet Q27). */}
+          {shelf.name === HANDS_ON && (
+            <p data-shelf-note className="mt-2 text-xs text-alert-amber">
+              Practice only on equipment you own or are authorized to test. Listening to other people&apos;s satellite
+              traffic can be illegal where you live.
+            </p>
+          )}
           {/* role="list": Safari drops list semantics from an unstyled list. */}
           <ul role="list">
             {shelf.entries.map((entry) => (
