@@ -3,13 +3,14 @@
 // muting effects is an accessibility path that principle 4 requires to
 // leave a complete game behind.
 //
-// One word each. The labels come from brief.ts, where the chrome word
-// budget is counted, so the count and the screen cannot disagree; the on
-// and off state rides aria-pressed rather than a second word, which is how
-// two controls fit in the two words chrome had to spend.
+// The labels come from brief.ts, where they were counted while the
+// toggles sat on the board. They live in SYSTEM now, styled as its other
+// buttons, and say ON or OFF as well as carrying it on aria-pressed (Ken,
+// 21 October 2026).
 
 import { SOUND_TOGGLE_LABELS } from '../brief'
 import type { SoundPrefs } from '../../audio'
+import { SHEET_TOGGLE } from '../board/Sheet'
 
 export interface SoundTogglesProps {
   prefs: SoundPrefs
@@ -20,10 +21,6 @@ export interface SoundTogglesProps {
   className?: string
 }
 
-const toggleClass = (on: boolean) =>
-  `font-mono text-xs border px-3 min-h-11 ${
-    on ? 'border-phosphor bg-phosphor/15 text-phosphor' : 'border-phosphor/40 text-ink-dim hover:bg-phosphor/10'
-  }`
 
 export default function SoundToggles({ prefs, onChange, className }: SoundTogglesProps) {
   return (
@@ -31,18 +28,18 @@ export default function SoundToggles({ prefs, onChange, className }: SoundToggle
       <button
         type="button"
         aria-pressed={prefs.effects}
-        className={toggleClass(prefs.effects)}
+        className={SHEET_TOGGLE(prefs.effects)}
         onClick={() => onChange((prev) => ({ ...prev, effects: !prev.effects }))}
       >
-        {SOUND_TOGGLE_LABELS.effects}
+        {SOUND_TOGGLE_LABELS.effects} {prefs.effects ? 'ON' : 'OFF'}
       </button>
       <button
         type="button"
         aria-pressed={prefs.music}
-        className={toggleClass(prefs.music)}
+        className={SHEET_TOGGLE(prefs.music)}
         onClick={() => onChange((prev) => ({ ...prev, music: !prev.music }))}
       >
-        {SOUND_TOGGLE_LABELS.music}
+        {SOUND_TOGGLE_LABELS.music} {prefs.music ? 'ON' : 'OFF'}
       </button>
     </span>
   )

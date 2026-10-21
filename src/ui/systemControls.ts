@@ -27,7 +27,7 @@ export const SYSTEM_CONTROLS: readonly SystemControl[] = [
   { id: 'import', name: 'Load save code' },
   { id: 'replay', name: 'Replay a seed' },
   { id: 'scoreboard', name: 'Scoreboard' },
-  { id: 'credits', name: 'Credits and licence' },
+  { id: 'credits', name: 'Credits and license' },
   { id: 'title', name: 'Back to title' },
 ]
 

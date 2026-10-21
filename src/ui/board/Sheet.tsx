@@ -26,6 +26,9 @@ export interface SheetProps {
 export const SHEET_BUTTON =
   'dc-tile font-display uppercase text-[10px] border-2 border-dc-line bg-dc-panel text-dc-ink px-3 min-h-11 shadow-press active:shadow-none disabled:opacity-40 disabled:cursor-not-allowed'
 export const SHEET_PRIMARY = `${SHEET_BUTTON} border-dc-go text-dc-go`
+// A choice or a switch in SYSTEM (Ken, 21 October): the selected or ON
+// state is filled, so it reads at a glance and not by a border alone.
+export const SHEET_TOGGLE = (on: boolean) => (on ? `${SHEET_BUTTON} border-dc-go! bg-dc-go! text-dc-ground!` : `${SHEET_BUTTON} text-dc-muted!`)
 
 export default function Sheet({ id, title, step, steps, onClose, onBack, children }: SheetProps) {
   const stepped = step !== undefined && steps !== undefined

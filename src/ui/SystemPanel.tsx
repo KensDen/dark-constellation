@@ -1,6 +1,6 @@
 // What SYSTEM holds (v1.3 R1, brief 5.8), on the title and on the board:
 // difficulty, sound and motion, the save code both ways, Replay a seed,
-// the scoreboard, credits and licence, and on the board BACK TO TITLE.
+// the scoreboard, credits and license, and on the board BACK TO TITLE.
 // The named slots left with M21: a game is the autosave plus one code.
 //
 // The list of controls, with the names the tests find them by, is
@@ -10,7 +10,7 @@ import { useState } from 'react'
 import type { SoundPrefs } from '../audio'
 import type { Difficulty } from '../engine/types'
 import { DIFFICULTIES } from '../engine/rules'
-import { SHEET_BUTTON, SHEET_PRIMARY } from './board/Sheet'
+import { SHEET_BUTTON, SHEET_PRIMARY, SHEET_TOGGLE } from './board/Sheet'
 import { MOTION_TOGGLE_LABEL, SYSTEM_CONTROLS, type SystemControl } from './systemControls'
 import SoundToggles from './cues/SoundToggles'
 import { useMotionSettingOff, setMotionSettingOff } from './cues/motion'
@@ -57,7 +57,7 @@ export default function SystemPanel(p: SystemPanelProps) {
         <p className={LABEL}>DIFFICULTY</p>
         <div className="mt-1 flex flex-wrap gap-2">
           {(Object.keys(DIFFICULTIES) as Difficulty[]).map((d) => (
-            <button key={d} type="button" aria-pressed={p.difficulty === d} className={p.difficulty === d ? SHEET_PRIMARY : SHEET_BUTTON} onClick={() => pick(d)}>
+            <button key={d} type="button" aria-pressed={p.difficulty === d} data-selected={p.difficulty === d || undefined} className={SHEET_TOGGLE(p.difficulty === d)} onClick={() => pick(d)}>
               {DIFFICULTIES[d].label}
             </button>
           ))}
@@ -86,12 +86,10 @@ export default function SystemPanel(p: SystemPanelProps) {
             type="button"
             data-system-control="motion"
             aria-pressed={!motionOff}
-            className={`font-mono text-xs border px-3 min-h-11 ${
-              !motionOff ? 'border-phosphor bg-phosphor/15 text-phosphor' : 'border-phosphor/40 text-ink-dim hover:bg-phosphor/10'
-            }`}
+            className={SHEET_TOGGLE(!motionOff)}
             onClick={() => setMotionSettingOff(!motionOff)}
           >
-            {MOTION_TOGGLE_LABEL}
+            {MOTION_TOGGLE_LABEL} {motionOff ? 'OFF' : 'ON'}
           </button>
         </div>
       </section>

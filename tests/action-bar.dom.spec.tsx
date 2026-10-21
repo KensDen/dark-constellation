@@ -481,7 +481,7 @@ describe('the SYSTEM sheet (v1.2 R1b; v1.3 R1, brief 5.8)', () => {
     // A control is there by its name: as a button's text, or as the label
     // of the group that holds it (DIFFICULTY, REPLAY A SEED), in any case.
     const names = [...sheet!.querySelectorAll('button, p, span, section')].flatMap((el) => [
-      (el.children.length === 0 ? (el.textContent ?? '') : '').trim().toLowerCase(),
+      (el.children.length === 0 ? (el.textContent ?? '') : '').trim().toLowerCase().replace(/ (on|off)$/, ''),
       (el.getAttribute('aria-label') ?? '').toLowerCase(),
     ])
     for (const control of SYSTEM_CONTROLS) {
@@ -499,7 +499,7 @@ describe('the SYSTEM sheet (v1.2 R1b; v1.3 R1, brief 5.8)', () => {
     while (state.status === 'playing') state = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
     render(state, 'aftermath')
     click(container.querySelector('button[aria-label="System"]')!)
-    expect(byText(/^Sound$/)).toBeDefined()
+    expect(byText(/^Sound (ON|OFF)$/)).toBeDefined()
     expect(byText(/^Save$/)).toBeUndefined()
   })
 })

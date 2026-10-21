@@ -566,8 +566,8 @@ describe('the mute control, asserted by execution', () => {
   it('is on screen while the campaign is playing', () => {
     render(gameAt(3))
     openSystem()
-    expect(byText(new RegExp(`^${SOUND_TOGGLE_LABELS.effects}$`)), 'no effects toggle').toBeDefined()
-    expect(byText(new RegExp(`^${SOUND_TOGGLE_LABELS.music}$`)), 'no music toggle').toBeDefined()
+    expect(byText(new RegExp(`^${SOUND_TOGGLE_LABELS.effects} (ON|OFF)$`)), 'no effects toggle').toBeDefined()
+    expect(byText(new RegExp(`^${SOUND_TOGGLE_LABELS.music} (ON|OFF)$`)), 'no music toggle').toBeDefined()
   })
 
   it('is still on screen once the campaign has been decided', () => {
@@ -584,7 +584,7 @@ describe('the mute control, asserted by execution', () => {
     render(state, 'aftermath')
     openSystem()
     expect(
-      byText(new RegExp(`^${SOUND_TOGGLE_LABELS.effects}$`)),
+      byText(new RegExp(`^${SOUND_TOGGLE_LABELS.effects} (ON|OFF)$`)),
       'the mute control vanished when the campaign was decided',
     ).toBeDefined()
     // And the campaign-only controls are correctly gone, so this is not

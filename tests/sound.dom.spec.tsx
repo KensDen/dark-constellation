@@ -218,7 +218,7 @@ describe('sound follows the hidden-page policy through the real document event',
   })
 })
 
-describe('the two toggles are the two chrome words', () => {
+describe('the two sound toggles', () => {
   function Host() {
     const [prefs, setPrefs] = useSoundPrefs()
     return <SoundToggles prefs={prefs} onChange={setPrefs} />
@@ -228,24 +228,23 @@ describe('the two toggles are the two chrome words', () => {
     act(() => root.render(<Host />))
     const buttons = [...container.querySelectorAll('button')]
     const byName = (name: string) => {
-      const found = buttons.find((b) => b.textContent?.trim() === name)
+      const found = buttons.find((b) => b.textContent?.trim().replace(/ (ON|OFF)$/, '') === name)
       if (!found) throw new Error(`no control named ${name}`)
       return found
     }
     return { buttons, byName }
   }
 
-  it('renders exactly the names the chrome budget counts', () => {
-    // The budget counts SOUND_TOGGLE_LABELS. If the screen said anything
-    // else, the count would be honest about a screen that does not exist.
+  it('renders the names in SOUND_TOGGLE_LABELS, each with its state', () => {
+    // The names are read from SOUND_TOGGLE_LABELS, so the list and the
+    // screen cannot disagree. Since the v1.3 R1 fixes each also says ON
+    // or OFF (Ken, 21 October 2026): they live in SYSTEM, off the board's
+    // counted chrome.
     const { buttons } = renderHost()
-    expect(buttons.map((b) => b.textContent?.trim())).toEqual([
-      SOUND_TOGGLE_LABELS.effects,
-      SOUND_TOGGLE_LABELS.music,
-    ])
+    expect(buttons.map((b) => b.textContent?.trim())).toEqual([`${SOUND_TOGGLE_LABELS.effects} ON`, `${SOUND_TOGGLE_LABELS.music} ON`])
   })
 
-  it('carries its state in aria-pressed rather than in a second word', () => {
+  it('says ON or OFF, and carries the same state in aria-pressed', () => {
     const { byName } = renderHost()
     const effects = byName(SOUND_TOGGLE_LABELS.effects)
     expect(effects.getAttribute('aria-pressed')).toBe('true')
@@ -253,9 +252,7 @@ describe('the two toggles are the two chrome words', () => {
       effects.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     expect(effects.getAttribute('aria-pressed')).toBe('false')
-    expect(effects.textContent?.trim(), 'the label changed, which would cost a word it does not have').toBe(
-      SOUND_TOGGLE_LABELS.effects,
-    )
+    expect(effects.textContent?.trim()).toBe(`${SOUND_TOGGLE_LABELS.effects} OFF`)
   })
 
   it('silences the graph when effects are switched off, and not before', () => {
