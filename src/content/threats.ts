@@ -697,7 +697,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'Uncontrolled debris on a crossing orbit. Nobody attacked you; orbital mechanics does not care. SSA subscriptions and maneuver fuel compete with security spend, and both are mission assurance.',
+      'Uncontrolled debris on a crossing orbit. Nobody attacked you; orbital mechanics does not care. SSA services and maneuver fuel compete with security spend, and both are mission assurance.',
     learnMoreCards: [
       {
         title: 'Kessler syndrome, the real one',

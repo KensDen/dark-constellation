@@ -105,7 +105,7 @@ export const COUNTERMEASURES: Countermeasure[] = [
   },
   {
     id: 'ssaManeuver',
-    name: 'SSA subscription and maneuver budget',
+    name: 'SSA service and maneuver budget',
     cost: 10,
     counters: ['debris-conjunction'],
     spartaCms: [

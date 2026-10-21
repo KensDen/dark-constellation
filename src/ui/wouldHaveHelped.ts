@@ -37,7 +37,7 @@ export function full(ev: ResolvedEvent, state: GameState, scenario: Scenario): s
     // free; nothing makes a hold safe.
     return missing.length > 0
       ? `What would have helped: ${nameOf(scenario, 'ssaManeuver')} (makes the avoidance burn free instead of ${BURN_FUEL_CREDITS} CR).`
-      : 'The subscription was owned, so a burn would have moved the satellite clear for nothing. The hold played the odds.'
+      : 'The SSA service was owned, so a burn would have moved the satellite clear for nothing. The hold played the odds.'
   }
   if (missing.length > 0) {
     const worth = (c: CountermeasureId): string =>

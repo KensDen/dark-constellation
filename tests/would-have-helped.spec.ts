@@ -85,7 +85,7 @@ describe('the worth of a missing defense', () => {
       `What would have helped: ${nameOf('ssaManeuver')} (makes the avoidance burn free instead of 10 CR).`,
     )
     expect(full(evOf(debris!.id), { ...nothing, counters: ['ssaManeuver'] }, scenario)).toBe(
-      'The subscription was owned, so a burn would have moved the satellite clear for nothing. The hold played the odds.',
+      'The SSA service was owned, so a burn would have moved the satellite clear for nothing. The hold played the odds.',
     )
   })
 })
