@@ -5,6 +5,7 @@
 import { useMemo, useState } from 'react'
 import { LocalScoreSink } from '../persistence'
 import { DIFFICULTIES } from '../engine/reducer'
+import { localDate } from './localTime'
 
 const sink = new LocalScoreSink()
 
@@ -58,7 +59,7 @@ export default function Scoreboard({ onBack }: { onBack: () => void }) {
                   {e.turnsSurvived}/{e.totalTurns}
                 </td>
                 <td className="p-1.5 text-right text-ink-dim hidden sm:table-cell">{e.seed}</td>
-                <td className="p-1.5 text-right text-ink-dim hidden sm:table-cell">{e.recordedAt.slice(0, 10)}</td>
+                <td className="p-1.5 text-right text-ink-dim hidden sm:table-cell">{localDate(e.recordedAt)}</td>
               </tr>
             ))}
           </tbody>

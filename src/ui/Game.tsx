@@ -33,6 +33,7 @@ import {
   type SavePhase,
 } from '../persistence'
 import { copyToClipboard } from './clipboard'
+import { localDateTime } from './localTime'
 import { LearnMore } from './learnMore'
 import { DC_BTN } from './buttons'
 import DirectorView from '../director/DirectorView'
@@ -931,7 +932,7 @@ export default function Game({
                 {slots.map((s) => (
                   <li key={s.id} className="flex flex-wrap items-center gap-2 mt-1 text-sm">
                     <span className="font-mono">{s.name}</span>
-                    <span className="text-ink-dim text-xs">{s.savedAt.slice(0, 16).replace('T', ' ')}</span>
+                    <span className="text-ink-dim text-xs">{localDateTime(s.savedAt)}</span>
                     <button className={`${btn} px-2 py-0 text-xs`} onClick={() => loadSlot(s.id)}>
                       load
                     </button>
