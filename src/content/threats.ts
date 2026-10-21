@@ -77,7 +77,7 @@ export const THREATS: ThreatEvent[] = [
       {
         title: 'Satellite links under attack',
         body:
-          'After real-world attacks on commercial satellite communications in 2022, US agencies issued joint guidance urging satcom providers and customers to harden links, monitor for interference, and plan for degraded operation. Command link denial is not hypothetical; it is documented, and the mitigations are published.',
+          'After real-world attacks on commercial satellite communications in 2022, US agencies issued joint guidance urging satcom providers and customers to harden links, monitor their networks, and plan for degraded operation. Attacks on satellite links are not hypothetical; they are documented, and the mitigations are published.',
         sources: [
           {
             title: 'CISA AA22-076A: Strengthening Cybersecurity of SATCOM Network Providers and Customers',
@@ -237,7 +237,7 @@ export const THREATS: ThreatEvent[] = [
       {
         title: 'Phantom objects, real research',
         body:
-          'Peer-reviewed work has demonstrated spoofing attacks that inject fake obstacles into LiDAR point clouds and steer the perception models behind them. The first systematic study appeared at ACM CCS in 2019, and follow-up work at USENIX Security 2020 generalized the attack in black-box settings and proposed countermeasures. This is a laboratory-demonstrated class of attack, not speculation.',
+          'Peer-reviewed work has demonstrated spoofing attacks that inject fake obstacles into LiDAR point clouds and steer the perception models behind them. By its authors\' account, the first security study of LiDAR-based perception in self-driving appeared at ACM CCS in 2019, and follow-up work at USENIX Security 2020 generalized the attack in black-box settings and proposed countermeasures. This is a laboratory-demonstrated class of attack, not speculation.',
         sources: [
           {
             title: 'Cao et al., Adversarial Sensor Attack on LiDAR-based Perception in Autonomous Driving (CCS 2019)',
@@ -490,9 +490,9 @@ export const THREATS: ThreatEvent[] = [
       'Nobody transmits, nobody intrudes; a receiver on a roof just listens. Anything sent in the clear on a wide downlink beam belongs to everyone under the beam. Passive collection leaves no logs to find.',
     learnMoreCards: [
       {
-        title: 'An $800 dish and half the sky in the clear',
+        title: 'A few hundred dollars and links in the clear',
         body:
-          'A three-year academic study presented at ACM CCS 2025 used roughly 800 dollars of consumer receiver hardware to survey geostationary satellite links and found that a large share of the signals surveyed carried unencrypted traffic, including telecom backhaul and critical infrastructure data. Passive interception at continental range is a documented reality, and link encryption is the countermeasure.',
+          'An academic study presented at ACM CCS 2025 used a few hundred dollars of consumer receiver hardware to survey geostationary satellite links and found that a large share of the signals surveyed carried unencrypted traffic, including telecom backhaul and critical infrastructure data. Passive interception at continental range is a documented reality, and link encryption is the countermeasure.',
         sources: [
           {
             title: 'UCSD and UMD, Don\'t Look Up: There Are Sensitive Internal Links in the Clear on GEO Satellites (CCS 2025)',
