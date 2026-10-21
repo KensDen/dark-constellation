@@ -213,9 +213,19 @@ async function checkTitle(b, url, [w, h]) {
   const where = `${w}x${h}`
   if (!(await fresh(b, url, [w, h]))) return [`${where}: the title never showed PLAY`]
   const failures = []
-  const tag = await b.evaluate(`(() => { const e = document.querySelector('[data-tagline]'); const cs = getComputedStyle(e); return { fs: parseFloat(cs.fontSize), lh: parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.6, h: e.getBoundingClientRect().height, sw: e.scrollWidth, cw: e.clientWidth } })()`)
-  if (tag.fs < 10) failures.push(`${where}: the tagline is ${tag.fs}px, under 10`)
-  if (tag.sw > tag.cw + 0.5 || tag.h > tag.lh * 1.5) failures.push(`${where}: the tagline does not fit one line (${tag.sw} of ${tag.cw}px wide, ${Math.round(tag.h)}px tall)`)
+  // The tagline's width depends on the system font (SF, Roboto, DejaVu on
+  // a CI runner), so it is checked as served and again in a deliberately
+  // wide font, which the title must refit on a resize: one line, 10px or
+  // more, whatever the font.
+  const TAG = `(() => { const e = document.querySelector('[data-tagline]'); const cs = getComputedStyle(e); return { fs: parseFloat(cs.fontSize), lh: parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.6, h: e.getBoundingClientRect().height, sw: e.scrollWidth, cw: e.clientWidth } })()`
+  for (const font of [null, 'Verdana, "DejaVu Sans", sans-serif']) {
+    if (font) await b.evaluate(`document.querySelector('[data-tagline]').style.fontFamily = ${JSON.stringify(font)}; dispatchEvent(new Event('resize')); true`)
+    const tag = await b.evaluate(TAG)
+    const as = font ? ' in a wide font' : ''
+    if (tag.fs < 10) failures.push(`${where}: the tagline is ${tag.fs}px${as}, under 10`)
+    if (tag.sw > tag.cw + 0.5 || tag.h > tag.lh * 1.5) failures.push(`${where}: the tagline does not fit one line${as} (${tag.sw} of ${tag.cw}px wide, ${Math.round(tag.h)}px tall)`)
+  }
+  await b.evaluate(`document.querySelector('[data-tagline]').style.fontFamily = ''; dispatchEvent(new Event('resize')); true`)
 
   // SCROLL RESET, from a scrolled title and from a scrolled Glossary.
   await b.evaluate('window.scrollTo(0, document.documentElement.scrollHeight); document.querySelector(\'[data-read="dossier"]\').click(); true')

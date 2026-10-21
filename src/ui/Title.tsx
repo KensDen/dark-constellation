@@ -9,7 +9,7 @@
 // The Field Manual, How to Play and the menu's function keys are gone:
 // the briefing and FIRST ORDERS teach the rules (M5, M20).
 
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { DEFAULT_SCENARIO } from '../content'
 import { dailyNumber, msUntilNextDaily } from '../engine/daily'
 import { DIFFICULTIES } from '../engine/rules'
@@ -124,6 +124,22 @@ export default function Title(p: TitleProps) {
   // The difficulty chip opens SYSTEM at its Difficulty row (Ken, 21
   // October), with the selected level focused.
   const dialog = useRef<HTMLDivElement | null>(null)
+  // The tagline on one line whatever the font (Ken, 21 October). Its size
+  // follows the width, and the width a line takes follows the font: SF on
+  // an iPhone, Roboto on Android, DejaVu on a CI runner. So once laid out
+  // it steps down half a pixel at a time until it fits, never under 10px.
+  const tagline = useRef<HTMLParagraphElement | null>(null)
+  useLayoutEffect(() => {
+    const el = tagline.current
+    if (!el) return
+    const fit = () => {
+      el.style.fontSize = ''
+      for (let px = parseFloat(getComputedStyle(el).fontSize); el.scrollWidth > el.clientWidth && px > 10; ) el.style.fontSize = `${(px = Math.max(10, px - 0.5))}px`
+    }
+    fit()
+    window.addEventListener('resize', fit)
+    return () => window.removeEventListener('resize', fit)
+  }, [])
   const [atDifficulty, setAtDifficulty] = useState(false)
   useEffect(() => {
     if (!system || !atDifficulty) return
@@ -197,8 +213,9 @@ export default function Title(p: TitleProps) {
         </h1>
         <p className="mt-3 font-mono text-xs tracking-widest text-dc-friendly">OP {DEFAULT_SCENARIO.name}</p>
         {/* One line on a phone (Ken, 21 October): the size follows the
-            width, never under 10px. */}
-        <p data-tagline className="mt-2 whitespace-nowrap text-[clamp(10px,3.2vw,14px)] text-dc-muted">
+            width, and the effect above fits it to the font, never under
+            10px. */}
+        <p ref={tagline} data-tagline className="mt-2 whitespace-nowrap text-[clamp(10px,3.2vw,14px)] text-dc-muted">
           {TITLE_TAGLINE}
         </p>
       </div>
