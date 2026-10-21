@@ -1,18 +1,48 @@
-// Reading diet for the intel brief (brief v0.5 section 5). Before first
-// input on a normal turn the player sees a headline of eight words or
-// fewer, a one-line threat vector, a technique tag, and the HUD numbers;
-// the full forecast moves behind EXPAND. Every line here is derived from
-// the scenario and the engine's own forecast, so the copy cannot drift
-// from the deck, and the word budget is enforced by a battery test rather
-// than trusted.
+// Reading diet (brief v0.5 section 5; re-pointed at the v1.3 board in R2).
+// Every line here is derived from the scenario and the engine, so the copy
+// cannot drift from the deck, and the word budgets are enforced by battery
+// tests rather than trusted.
 
-import { ADVERSARY, SQUADRON } from '../config'
+import { ADVERSARY } from '../config'
 import { briefFree, gnssDenied } from '../engine/reducer'
+import { planFor } from '../engine/rules'
 import { coverage, maiScore } from '../engine/scoring'
-import type { GameState, ThreatEvent } from '../engine/types'
+import type { GameState, ThreatEvent, TurnActions } from '../engine/types'
 import { coverageFigure, kindLabels, techniqueLabel, vectorLabels } from './labels'
 import { LAYERS } from '../engine/types'
-import { ACTIONS, SKIP_TIPS, fKeyOf, openingObjective, resolveLabel } from './board/actions'
+import { ACTIONS } from './board/actions'
+import {
+  BUDGET_LABEL,
+  CHAIN_ARMED_LINE,
+  chainLine,
+  FULL_BRIEF_OPEN,
+  INTEL_ROW,
+  KEY_BLOCKED,
+  KEY_EXPOSED,
+  REMAINING,
+  REVEAL,
+  SCORE_LABEL,
+  STATUS,
+  FIRST_ORDERS_SET,
+  SECOND_ORDER,
+  TONIGHT_HIDDEN,
+  TONIGHT_REASON,
+  UNIDENTIFIED,
+  WILL_HIT,
+  WORST_CASE,
+  briefButton,
+  confirmedNote,
+  firstOrders,
+  marginChip,
+  shortName,
+  ordersDone,
+  streakChip,
+  strengthLine,
+  tapHint,
+  tonightSlots,
+  vectorTo,
+  winLineLabel,
+} from './board/boardModel'
 
 // The budget the brief is designed against (brief v0.7 section 5):
 // "Before first input on a normal turn: 60 words or fewer of reading
@@ -46,8 +76,18 @@ import { ACTIONS, SKIP_TIPS, fKeyOf, openingObjective, resolveLabel } from './bo
 // technique tag at once: 54 words of the 60. Round 4d's two audio toggles
 // are chrome, not reading load: they took two of the four words chrome had
 // spare, and two remain.
+// THE READING BUDGET, re-baselined in v1.3 Round 2 (to confirm with Ken).
+// From v1.1 to v1.3 R1 it bounded the intel brief's banner at 60 words:
+// a headline, a vector line, a technique tag and the HUD's meters. The
+// v1.3 board (brief 5.3) replaces that banner with the TONIGHT card and the
+// orders card, which say more on purpose: each move by name with its
+// status, the key on turns 1 and 2, and the turn's orders. Measured over
+// every swept line of play the board reads at most 142 words (the
+// prepared line, turn 5; turn 1 reads 124), so the bound is 150. The
+// chrome bound stays 40: the board's labels and controls measure 29 at
+// worst. The headline cap stays for the full brief's own lines.
 export const HEADLINE_WORD_MAX = 8
-export const FIRST_INPUT_WORD_BUDGET = 60
+export const FIRST_INPUT_WORD_BUDGET = 150
 // THE CHROME BOUND, 40 since v1.2 R2b, raised from 32 as Ken ruled on
 // 2026-09-26, in a commit of its own ahead of the round that needs it.
 // The need, measured: R2b turns the action bar into a turn stepper that
@@ -63,16 +103,10 @@ export const FIRST_INPUT_WORD_BUDGET = 60
 // of it assigned to nothing. It leaves 4 words spare.
 export const CHROME_WORD_BUDGET = 40
 
-// The two audio toggles (Round 4d). One word each, and that is the design
-// constraint rather than a preference for brevity: chrome had four words
-// spare and these take two of them. The on and off state rides
-// aria-pressed, which costs no words at all.
-//
-// They live here rather than in the component so the chrome count below is
-// the same constant the screen renders, instead of a second copy of it
-// that can drift; tests/sound.dom.spec.tsx asserts the rendered buttons
-// carry exactly these names.
-export const SOUND_TOGGLE_LABELS = { effects: 'Sound', music: 'Music' } as const
+// The two audio toggles' names live in ./systemControls.ts with SYSTEM's
+// other controls since v1.3 R2, so this module stays out of the first
+// download; re-exported for the suites that read them here.
+export { SOUND_TOGGLE_LABELS } from './systemControls'
 
 export function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length
@@ -92,7 +126,6 @@ export interface BriefCopy {
   framing: string[]
 }
 
-const shortName = (ev: ThreatEvent) => ev.name.split(' (')[0]
 
 function plannedEvents(state: GameState, turn: number): ThreatEvent[][] {
   const plan = state.scenario.campaign.find((p) => p.turn === turn)
@@ -135,8 +168,8 @@ function postureLines(state: GameState): string[] {
   const min = scenario.slaBonus.coverageMin
   lines.push(
     cov >= min
-      ? `Coverage ${coverageFigure(cov)}, clear of the ${min} the SLA pays at.`
-      : `Coverage ${coverageFigure(cov)}. The SLA pays ${scenario.slaBonus.credits} a turn from ${min}.`,
+      ? `Coverage ${coverageFigure(cov)}, clear of the ${min} the coverage bonus pays at.`
+      : `Coverage ${coverageFigure(cov)}. The coverage bonus pays ${scenario.slaBonus.credits} a turn from ${min}.`,
   )
 
   // THREE POPULATIONS, not one. The first version computed only the
@@ -202,9 +235,9 @@ function postureLines(state: GameState): string[] {
 // cannot drift from mechanics.
 export function jobFramingLines(scenario: GameState['scenario']): string[] {
   return [
-    `Finish turn ${scenario.totalTurns} with the Mission Assurance Index (MAI) at ${scenario.winThreshold} or higher.`,
+    `Finish turn ${scenario.totalTurns} with the mission assurance score at ${scenario.winThreshold} or higher.`,
     `You start above the win line. ${ADVERSARY} spends ${scenario.totalTurns} turns eroding it.`,
-    `Spend credits on fleet and defenses to slow it. MAI under ${scenario.collapseThreshold} or a negative budget ends the campaign.`,
+    `Procure fleet and defenses to slow it. A score under ${scenario.collapseThreshold} or a negative budget ends the operation.`,
     `Some attacks become conditions that press every turn until they lift. Deployments take turns to arrive. Each defense costs ${scenario.upkeepPerDefense} CR a turn.`,
   ]
 }
@@ -224,62 +257,6 @@ export const JOB_FRAMING_HEADING = 'Your job'
 // turn yet.
 export function showsJobFraming(state: GameState): boolean {
   return state.turn === 1 && state.history.length === 0
-}
-
-// The "Posture detail" disclosure's lines (Round 7), built here so the
-// budget can sweep every state rather than seven a test happened to name.
-// The fleet line used to list every asset one by one, so a large fleet grew
-// the panel without limit: three lenses found it at 115 to 139 words in
-// legal play against a budget of 110 and a pinned "worst" of 93. Grouped by
-// kind it is bounded by the deck's four kinds, not the fleet size (by kind
-// and tier until the tiers left in v1.3 Round 0).
-export type PostureTone = 'dim' | 'blue' | 'amber'
-export interface PostureLine {
-  text: string
-  // The colour carries meaning (defences blue, the surge rule amber), so it
-  // travels with the line instead of being chosen by position on the screen:
-  // Round 7's first version coloured by index and painted the allied intel
-  // boost, a good thing, in the warning colour.
-  tone: PostureTone
-}
-
-export function postureDetailLines(state: GameState): PostureLine[] {
-  const { scenario } = state
-  const alive = state.assets.filter((a) => a.integrity > 0)
-  const counterName = (id: string) => scenario.countermeasures.find((c) => c.id === id)?.name ?? id
-  const grouped = (labels: string[]) => {
-    const counts = new Map<string, number>()
-    for (const l of labels) counts.set(l, (counts.get(l) ?? 0) + 1)
-    return [...counts].map(([l, n]) => `${n} ${l}`).join(', ')
-  }
-  const lines: PostureLine[] = [
-    { text: `Fleet: ${alive.length} operational${alive.length ? `: ${grouped(alive.map((a) => kindLabels[a.kind]))}` : ''}.`, tone: 'dim' },
-    { text: `Countermeasures: ${state.counters.length ? state.counters.map(counterName).join('; ') : 'none'}.`, tone: 'blue' },
-  ]
-  if (state.pipeline.length) {
-    // Grouped by kind with the SOONEST arrival, so the line is bounded by
-    // the deck's kinds. Grouping by ETA as well split one kind into
-    // several groups and left the line unbounded.
-    const soonest = new Map<string, { n: number; eta: number }>()
-    for (const p of state.pipeline) {
-      const key = kindLabels[p.kind]
-      const cur = soonest.get(key)
-      soonest.set(key, { n: (cur?.n ?? 0) + 1, eta: Math.min(cur?.eta ?? Infinity, p.etaTurns) })
-    }
-    const parts = [...soonest].map(([k, { n, eta }]) => `${n} ${k}, next in ${eta}`)
-    lines.push({ text: `In transit (turns to arrive): ${parts.join('; ')}.`, tone: 'dim' })
-  }
-  // The upkeep the defenses cost at every turn close (brief 6.1), amber as
-  // the surge rule was: it is the line that can end the operation.
-  if (state.counters.length > 0) {
-    const upkeep = state.counters.length * scenario.upkeepPerDefense
-    lines.push({ text: `Keeping ${state.counters.length} defense${state.counters.length === 1 ? '' : 's'} costs ${upkeep} at every turn close.`, tone: 'amber' })
-  }
-  if (state.briefFreeThrough > state.turn) {
-    const left = state.briefFreeThrough - state.turn
-    lines.push({ text: `Allied intel: the brief is free for ${left} more turn${left === 1 ? '' : 's'}.`, tone: 'blue' })
-  }
-  return lines
 }
 
 // Every text block the "Expand full brief" disclosure renders, in order.
@@ -395,181 +372,104 @@ export function briefCopy(state: GameState, briefed = briefFree(state)): BriefCo
   }
 }
 
-// The HUD strings, built here so the render and the battery measure the
-// same words. The budget rule counts what is on screen before the first
-// input: the headline, the vector line, the technique tag, and the HUD's
-// labels and numbers (brief v0.5 section 5).
-export interface HudLabels {
-  mai: string
-  credits: string
-  coverage: string
-  link: string
-  data: string
-  sensor: string
-}
-
-export function hudLabels(state: GameState): HudLabels {
-  return {
-    mai: `MAI, win at ${state.scenario.winThreshold}`,
-    credits: 'Credits',
-    coverage: 'Coverage',
-    link: 'Link',
-    data: 'Data',
-    sensor: 'Sensor',
-  }
-}
-
-// The status line in its three parts, so the HUD can set the intel eye
-// beside the intel part (v1.2 R2) and still print exactly this line. The
-// intel part says whether tonight's brief is free since the intel levels
-// left (D2 a).
-export function hudStatusParts(state: GameState, difficultyLabel: string, displayTurn: number): [turn: string, intel: string, difficulty: string] {
-  return [`Turn ${displayTurn} of ${state.scenario.totalTurns}`, briefFree(state) ? 'Brief free' : `Brief ${state.scenario.prices.intelBrief} CR`, difficultyLabel]
-}
-
-export function hudStatusLine(state: GameState, difficultyLabel: string, displayTurn: number): string {
-  return hudStatusParts(state, difficultyLabel, displayTurn).join(' | ')
-}
-
 // Every string on screen before the player's first input on a turn.
 // Built from the fiction constant, so a rename stays a one-constant change
 // and the battery never measures copy the screen no longer renders.
-export const CHAIN_ARMED_LINE = `BLACKOUT CHAIN ARMED: ${SQUADRON} is on LiDAR alone.`
+export { CHAIN_ARMED_LINE, chainLine }
 
-// Every disclosure the brief screen renders, bounded (Round 7, brief v2.4
-// section 5).
+// Every disclosure the board renders, bounded (Round 7, brief v2.4
+// section 5). Keyed by the summary the player taps, so the set is the
+// screen's own: tests/game.dom.spec.tsx walks every disclosure the board
+// carries and fails on one with no entry here, so a disclosure added later
+// is bounded by default. The figure is a MEASURED worst plus room, and the
+// test pins the measured worst exactly, so re-baselining is a deliberate
+// edit:
 //
-// Keyed by the summary the player taps, so the set is the screen's own:
-// tests/game.dom.spec.tsx walks every <details> the rendered brief screen
-// carries and fails on one with no entry here, which means a disclosure
-// added later is bounded by default rather than silently unmeasured.
+//   Expand full brief   119 on turn 1, where the job framing sits under
+//                       its heading above the posture lines (v1.3 R2: the
+//                       retired words came back two longer, and three were
+//                       cut from the framing to keep under the cap)
 //
-// Round 7b bounded ONE of these and named the constant as though it
-// covered them all. The other three sat unmeasured, the largest at 263
-// words, which is the shape of the defect 7b's own first ceiling had: a
-// bound that covers part of what is behind a tap. Every figure below is a
-// MEASURED worst plus room, and the test pins the measured worst exactly
-// so re-baselining is a deliberate edit:
-//
-//   Expand full brief          119 on turn 1, where the job framing sits
-//                              under its heading above the posture panel
-//                              (v1.3 Round 0; 115 before, cut back under
-//                              the cap after the upkeep sentence came in)
-//   What these numbers mean    257 (263 before v1.3), the HUD's own
-//                              reference: each line a real mechanic, each
-//                              interpolated from the deck. Bounded, not
-//                              trimmed; it is the deep-reading layer the
-//                              brief puts one tap away
-//   Posture detail             111 (164 before v1.3), the DECK'S
-//                              structural maximum: every countermeasure
-//                              owned, every kind deployed and in transit,
-//                              the upkeep line. Set from that rather
-//                              than from lines of play, which twice produced a
-//                              "worst" legal play beat (93, then 96, against
-//                              139 and 132). Raised from 110 on the record in
-//                              Round 7; most of it is the countermeasure list
-//   BLACKOUT CHAIN ARMED       23 (26 before v1.3), rendered only while
-//                              the chain is armed
+// "What these numbers mean" and "Posture detail" left with the board's
+// reference panel in v1.3 R2, and the BLACKOUT CHAIN line is a line of the
+// TONIGHT card now, counted with its reading (firstInputCopy).
 export const DISCLOSURE_WORD_BUDGETS: Record<string, number> = {
   'Expand full brief': 120,
-  'What these numbers mean': 280,
-  'Posture detail': 170,
-  [CHAIN_ARMED_LINE]: 40,
 }
 
-export function firstInputCopy(state: GameState, difficultyLabel: string): string[] {
-  const copy = briefCopy(state)
-  const labels = hudLabels(state)
-  const turn = Math.min(state.turn, state.scenario.totalTurns)
-  return [
-    copy.headline,
-    copy.vector,
-    // Rendered whenever the chain is armed, so it is measured then too.
-    ...(gnssDenied(state.conditions, state.scenario) ? [CHAIN_ARMED_LINE] : []),
-    ...(copy.tag ? [`Technique: ${copy.tag}`] : []),
-    labels.mai,
-    String(maiScore(state)),
-    labels.credits,
-    String(state.credits),
-    labels.coverage,
-    String(coverageFigure(coverage(state.assets))),
-    labels.link,
-    String(state.meters.linkAvailability),
-    labels.data,
-    String(state.meters.dataIntegrity),
-    labels.sensor,
-    String(state.meters.sensorIntegrity),
-    hudStatusLine(state, difficultyLabel, turn),
+// THE BOARD'S WORDS (v1.3 R2). Everything the deciding board prints, in
+// two lists: the reading (what the turn says) and the chrome (what the
+// controls and labels say), each built from the strings the components
+// render (./board/boardModel.ts), so the count and the screen cannot
+// disagree. tests/game.dom.spec.tsx renders the board and fails on any
+// line here the screen does not show.
+//
+// The reading is the HUD's figures, the TONIGHT card and the orders card;
+// the chrome is the HUD's labels, SYSTEM, the full brief's toggle, each
+// move's "defend ›", "details ›" or "reveal ›", the brief's price button,
+// and the dock.
+const NO_ORDERS: TurnActions = { buyAssets: [], buyCounters: [], intelBrief: false }
+
+export function firstInputCopy(state: GameState, actions: TurnActions = NO_ORDERS): string[] {
+  const { scenario } = state
+  const score = maiScore(state)
+  const free = briefFree(state)
+  const out = [
+    `OP ${scenario.name}`,
+    `TURN ${Math.min(state.turn, scenario.totalTurns)} OF ${scenario.totalTurns}`,
+    String(score),
+    '/ 100',
+    marginChip(score, scenario.winThreshold).text,
+    ...(state.streak >= 2 ? [streakChip(state.streak)] : []),
+    `${state.credits} CR`,
+    '0',
+    winLineLabel(scenario.winThreshold),
+    '100',
+    `TONIGHT${free ? ' · INTEL BRIEF FREE' : ''}`,
+    planFor(scenario, state.turn)?.intro ?? '',
+    ...(gnssDenied(state.conditions, scenario) ? [chainLine()] : []),
   ]
+  for (const slot of tonightSlots(state, actions)) {
+    if (slot.fixed) out.push(`CONFIRMED · ${confirmedNote(slot.moves[0].ev)}`)
+    else {
+      out.push(WILL_HIT(slot.moves.length), slot.hidden ? TONIGHT_HIDDEN : TONIGHT_REASON)
+      if (!slot.hidden && state.turn <= 2) out.push(`${STATUS.exposed.word} ${KEY_EXPOSED}`, `${STATUS.blocked.word} ${KEY_BLOCKED}`)
+    }
+    for (const { ev, status, flag } of slot.moves) {
+      if (slot.hidden) out.push(UNIDENTIFIED, vectorTo(ev))
+      else out.push(...(flag ? [flag] : []), shortName(ev), vectorTo(ev), strengthLine(ev), STATUS[status].word)
+    }
+  }
+  if (!free) out.push(INTEL_ROW[actions.intelBrief ? 'ordered' : 'none'])
+  if (state.turn === 1) {
+    const lines = firstOrders(state, actions)
+    const done = lines.filter((l) => l.done).length
+    out.push(...(done === lines.length ? [FIRST_ORDERS_SET] : ['FIRST ORDERS', ordersDone(done, lines.length), ...lines.map((l) => l.text)]))
+  } else if (state.turn === 2) out.push('SECOND ORDERS', SECOND_ORDER)
+  return out
 }
 
-export function firstInputWords(state: GameState, difficultyLabel: string): number {
-  return firstInputCopy(state, difficultyLabel).reduce((n, line) => n + countWords(line), 0)
+export function firstInputWords(state: GameState, actions: TurnActions = NO_ORDERS): number {
+  return firstInputCopy(state, actions).reduce((n, line) => n + countWords(line), 0)
 }
 
-// The navigation words on screen alongside the brief: the heading, the
-// transmission label, the two disclosure summaries, the button that leaves
-// the phase, and the menu and save controls the campaign screen carries.
-// Listed here so the words excluded from the reading budget are still
-// counted against a budget of their own.
-//
-// The last four were not counted until v0.9, which is what a bound
-// satisfied by not counting things looks like. The save row renders while
-// the campaign is playing and the menu button whenever the game was
-// entered from the menu, which is every normal turn.
-//
-// The two audio toggles join the save row in Round 4d and are read from
-// SOUND_TOGGLE_LABELS rather than spelled again, so this list cannot
-// disagree with what the screen renders.
-//
-// v1.2 Round 1 replaced the numbered sections with the board: the section
-// heading and the phase button are gone, the five action-bar labels are
-// on the first screen instead. The labels are the buttons' visible text,
-// read from the one action array; RESOLVE also carries "Hold to resolve
-// turn n" for assistive technology, which is not reading load on the
-// screen and is not counted here. R1b put the step numbers and the HOLD
-// caption on the bar and moved Save, Copy save code, Back to menu, the two
-// toggles and the playback speed off the board into the SYSTEM sheet
-// behind the gear, whose one word is what the first screen shows of them
-// (src/ui/board/SystemSheet.tsx lists the six by name).
-//
-// R2b made the bar a turn stepper. The four steps keep their labels;
-// RESOLVE's label is now the instruction "Hold to resolve turn n", which
-// replaces both the word RESOLVE and the HOLD caption; and the objective
-// line over the bar adds a tag and a sentence, which are counted as the
-// first screen shows them (openingObjective, the same function the bar's
-// objective is built from). Turn 1 is charged the longer of its two
-// lines: the walkthrough and its "Skip tips" button on a device's first
-// game, the suggestion otherwise.
-//
-// v1.3 Round 0 left two actions on the bar, PROCURE and EXECUTE (brief 5.3,
-// critique row M6), and EXECUTE's label is the instruction "Execute turn
-// n", a tap rather than a hold (brief 5.5). The SYSTEM sheet lists five
-// controls: the playback speed went with the auto-advancing director.
-export const ACTION_BAR_LABELS: readonly string[] = ACTIONS.filter((a) => a.sheet !== null).map((a) => a.label)
 export const SYSTEM_GEAR_LABEL = 'System'
 
-export function chromeCopy(state: GameState, wide = false): string[] {
-  const objective = (guided: boolean) => {
-    const o = openingObjective(state, guided)
-    return [o.tag, o.sentence, ...(guided ? [SKIP_TIPS] : [])]
-  }
-  const words = (lines: string[]) => lines.reduce((n, line) => n + countWords(line), 0)
-  const plain = objective(false)
-  const walkthrough = state.turn === 1 ? objective(true) : plain
+export function chromeCopy(state: GameState, actions: TurnActions = NO_ORDERS): string[] {
+  const slots = tonightSlots(state, actions)
   return [
-    '> INCOMING TRANSMISSION_',
-    'Expand full brief',
-    ...ACTIONS.map((a) => (wide ? fKeyOf(a) : String(a.number))),
-    ...ACTION_BAR_LABELS,
-    resolveLabel(state.turn),
-    ...(words(walkthrough) > words(plain) ? walkthrough : plain),
-    'What these numbers mean',
-    'Posture detail',
+    SCORE_LABEL,
+    BUDGET_LABEL,
     SYSTEM_GEAR_LABEL,
+    FULL_BRIEF_OPEN,
+    ...slots.flatMap((slot) => slot.moves.map((m) => (slot.hidden ? REVEAL : tapHint(m.status)))),
+    ...(briefFree(state) ? [] : [briefButton(state.scenario.prices.intelBrief, actions.intelBrief)]),
+    REMAINING,
+    WORST_CASE,
+    ...ACTIONS.map((a) => a.label),
   ]
 }
 
-export function chromeWords(state: GameState, wide = false): number {
-  return chromeCopy(state, wide).reduce((n, line) => n + countWords(line), 0)
+export function chromeWords(state: GameState, actions: TurnActions = NO_ORDERS): number {
+  return chromeCopy(state, actions).reduce((n, line) => n + countWords(line), 0)
 }

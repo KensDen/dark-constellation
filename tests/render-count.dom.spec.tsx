@@ -4,15 +4,15 @@
 // timed out because every director tick and every HUD change re-rendered
 // every sprite and backdrop rect on the board: R2 took it from 214
 // elements to 832. The fix makes a sprite render when its own props
-// change and a backdrop render once per board mount; this suite holds
-// both.
+// change; this suite holds it on the v1.3 AssetStrip. (It also held each
+// backdrop to one render per board mount, until v1.3 R2 took the backdrops
+// off the board.)
 //
-// HOW A RENDER IS COUNTED. Each renderer looks its geometry up on every
-// render: PixelSprite calls spriteRects(sprite) and Backdrop calls
-// sceneFor(layer). Both are cached lookups, so they are the cheapest
-// honest probe there is: the modules are mocked with their own real
-// functions wrapped in a spy, and nothing else about them changes. A
-// render that the memo skips never reaches the lookup.
+// HOW A RENDER IS COUNTED. PixelSprite looks its geometry up on every
+// render by calling spriteRects(sprite), a cached lookup, so it is the
+// cheapest honest probe there is: the module is mocked with its own real
+// function wrapped in a spy, and nothing else about it changes. A render
+// that the memo skips never reaches the lookup.
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -23,19 +23,14 @@ vi.mock('../src/ui/sprites/sprite', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/ui/sprites/sprite')>()
   return { ...actual, spriteRects: vi.fn(actual.spriteRects) }
 })
-vi.mock('../src/ui/sprites/scenery', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/ui/sprites/scenery')>()
-  return { ...actual, sceneFor: vi.fn(actual.sceneFor) }
-})
 
 import Game from '../src/ui/Game'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
-import { LAYERS, type GameState } from '../src/engine/types'
+import type { AssetKind, GameState } from '../src/engine/types'
 import { STRIKE_MS } from '../src/ui/board/strike'
-import { ASSET_SPRITES } from '../src/ui/sprites/assets'
-import { sceneFor } from '../src/ui/sprites/scenery'
+import { ASSET_MAPS, assetSprite } from '../src/ui/sprites/assets'
 import { spriteRects, type Sprite } from '../src/ui/sprites/sprite'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
@@ -83,7 +78,6 @@ beforeEach(() => {
   root = createRoot(container)
   unlisten = installGestureUnlock()
   vi.mocked(spriteRects).mockClear()
-  vi.mocked(sceneFor).mockClear()
 })
 
 afterEach(() => {
@@ -103,10 +97,16 @@ const click = (el: Element) => {
 }
 const byText = (re: RegExp) => [...container.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''))
 
-// Every sprite a tile can draw.
-const TILE_SPRITES = new Set<Sprite>(Object.values(ASSET_SPRITES).flatMap((states) => Object.values(states)))
+// Every sprite a tile can draw: each kind at every integrity, and in
+// transit. assetSprite hands out one object per picture, so the set holds
+// the very objects the tiles pass PixelSprite.
+const TILE_SPRITES = new Set<Sprite>(
+  (Object.keys(ASSET_MAPS) as AssetKind[]).flatMap((kind) => [
+    ...Array.from({ length: 101 }, (_, integrity) => assetSprite(kind, integrity)),
+    assetSprite(kind, 100, 'transit'),
+  ]),
+)
 const tileSpriteRenders = () => vi.mocked(spriteRects).mock.calls.filter(([sprite]) => TILE_SPRITES.has(sprite)).length
-const backdropRenders = () => vi.mocked(sceneFor).mock.calls.length
 
 function mount(state: GameState) {
   act(() => {
@@ -114,34 +114,36 @@ function mount(state: GameState) {
   })
 }
 
-describe('render counts on the board (v1.2 R2 fix)', () => {
+describe('render counts on the board (v1.2 R2 fix, v1.3 R2 strip)', () => {
   it("GUARD: a tile's sprite does not re-render when an unrelated HUD value changes", () => {
     const state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
     mount(state)
     // The positive control: the probe sees renders at all, one per tile.
+    expect(container.querySelectorAll('[data-strip] [data-asset-id]').length, 'the strip has no tiles').toBe(state.assets.length)
     expect(tileSpriteRenders(), 'tile sprite renders at mount').toBe(state.assets.length)
     vi.mocked(spriteRects).mockClear()
-    vi.mocked(sceneFor).mockClear()
 
-    // Change the credits on the HUD without touching the fleet: queue a
-    // defense in PROCURE's DEFENSES (the HARDEN sheet until v1.3 Round 0).
-    // Opening the sheet re-renders the board too, which is the point.
-    const credits = () => container.querySelector('[aria-label^="Credits"]')?.getAttribute('aria-label')
-    const before = credits()
-    click(container.querySelector('nav[aria-label="Actions"] [data-action="procure"]')!)
-    const box = [...container.querySelectorAll<HTMLInputElement>('[data-sheet="procure"] [data-procure-defenses] input[type="checkbox"]')].find((b) => !b.disabled)
-    expect(box, 'no defense to queue').toBeDefined()
-    click(box!)
+    // Change the money on screen without touching the fleet: queue a
+    // defense in PROCURE. Since v1.3 R2 the HUD's BUDGET is the engine
+    // balance and the cart shows as the Dock's REMAINING, so that is the
+    // value that moves. Opening the sheet re-renders the board too, which
+    // is the point.
+    const remaining = () => container.querySelector('[data-dock] [data-remaining]')?.textContent
+    const before = remaining()
+    expect(before, 'no REMAINING on the Dock').toMatch(/REMAINING/)
+    click(container.querySelector('[data-dock] button[data-action="procure"]')!)
+    const defense = [...container.querySelectorAll<HTMLButtonElement>('[data-sheet="procure"] button[data-procure-defense]')].find((b) => !b.disabled)
+    expect(defense, 'no defense to queue').toBeDefined()
+    click(defense!)
     act(() => {
       vi.advanceTimersByTime(1000)
     })
-    expect(credits(), 'the HUD credits did not change, so nothing was tested').not.toBe(before)
+    expect(remaining(), 'REMAINING did not change, so nothing was tested').not.toBe(before)
 
     expect(tileSpriteRenders(), 'tile sprites re-rendered for a HUD change').toBe(0)
-    expect(backdropRenders(), 'backdrops re-rendered for a HUD change').toBe(0)
   })
 
-  it('renders each backdrop once per board mount, and no tile sprite through a quiet turn of director steps', () => {
+  it('renders no tile sprite through a quiet turn of director steps', () => {
     // The fixture: a turn that touches no asset, so every tile's sprite
     // should hold still for the whole playback. v1.2's turn 1 scripted no
     // move and was that turn for free; v1.3's turn 1 scripts one, so the
@@ -155,9 +157,8 @@ describe('render counts on the board (v1.2 R2 fix)', () => {
     expect(record.events.map((e) => e.outcome), 'turn 1 is no longer held outright by these defenses').toEqual(record.events.map(() => 'held'))
     expect(after.assets.map((a) => a.integrity), 'turn 1 is no longer quiet on this seed').toEqual(state.assets.map((a) => a.integrity))
     mount(state)
-    expect(backdropRenders(), 'backdrop renders at mount').toBe(LAYERS.length)
+    expect(tileSpriteRenders(), 'tile sprite renders at mount').toBe(state.assets.length)
     vi.mocked(spriteRects).mockClear()
-    vi.mocked(sceneFor).mockClear()
 
     const execute = container.querySelector('button[data-execute]')
     expect(execute, 'the commit control is not on screen').not.toBeNull()
@@ -178,7 +179,7 @@ describe('render counts on the board (v1.2 R2 fix)', () => {
     expect(byText(/^NEXT TURN/), 'the playback never reached the aftermath').toBeDefined()
     expect(taps, 'no director steps ran').toBeGreaterThan(1)
 
-    expect(backdropRenders(), 'backdrops re-rendered during playback').toBe(0)
+    expect(container.querySelector('[data-strip]'), 'the strip left the board during playback').not.toBeNull()
     expect(tileSpriteRenders(), 'tile sprites re-rendered during a turn that touched no asset').toBe(0)
   })
 })

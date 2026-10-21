@@ -36,7 +36,7 @@ export function verdictFor(record: TurnRecord, scenario: Scenario): string {
   if (heldAll) {
     const countered = threats.filter((ev) => ev.mitigation > 0).length
     return countered > 0
-      ? 'Posture held; every attempt was mitigated below threshold.'
+      ? 'Posture held; every attempt was blocked.'
       : 'Nothing landed this turn.'
   }
 

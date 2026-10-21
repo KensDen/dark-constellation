@@ -3,7 +3,10 @@
 // so neither imports the other.
 
 import { COUNTERMEASURE_COUNT, OPPORTUNITY_EVENT_COUNT, SOURCE_COUNT, TECHNIQUE_REF_COUNT, THREAT_EVENT_COUNT } from '../content'
-import { SOUND_TOGGLE_LABELS } from './brief'
+
+// The two audio toggles (Round 4d), one word each, ON or OFF beside them
+// since the v1.3 R1 fixes.
+export const SOUND_TOGGLE_LABELS = { effects: 'Sound', music: 'Music' } as const
 
 export const SYSTEM_TITLE = 'SYSTEM'
 

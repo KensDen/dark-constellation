@@ -32,7 +32,7 @@ export function opsLogRows(shown: GameState): OpsLogRow[] {
     .map((r) => ({ turn: r.turn, mai: r.maiScore, verdict: verdictFor(r, shown.scenario) }))
 }
 
-export const opsLogLine = (row: OpsLogRow) => `T${row.turn} MAI ${row.mai}`
+export const opsLogLine = (row: OpsLogRow) => `T${row.turn} SCORE ${row.mai}`
 
 // Every line the log puts on screen, in order, for the reading diet.
 export function opsLogCopy(shown: GameState): string[] {

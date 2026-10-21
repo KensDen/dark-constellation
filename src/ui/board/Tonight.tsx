@@ -1,0 +1,263 @@
+// THE TONIGHT CARD (v1.3 brief 5.3 item 3). COLDVEIL, the watch officer's
+// line for the turn, then each slot: a fixed slot is CONFIRMED; a drawn one
+// reads "COLDVEIL WILL HIT 1 OF N" with "They go for the one you've
+// covered least." and, on turns 1 and 2, the key (⚠ EXPOSED will hit ·
+// ✓ BLOCKED is safe). Each move is a card: its name, vector → layer,
+// strength, a status (icon and word, never a control) and what a tap does,
+// "defend ›" or "details ›". LIKELY TARGET, EITHER and CONFIRMED come from
+// ./tonight, which is the engine's own pick.
+//
+// Without an intel brief a drawn slot's moves are Unidentified: a noise
+// field, the vector and layer, and "reveal ›", which brings the intel row
+// into view and pulses it. With the brief ordered the names decode in.
+//
+// The full brief stays one tap away at the foot (QC G-026: it reads "Hide
+// full brief" while open, and it is closed whenever the card is not on
+// screen, so playback never squeezes it; G-099: a cue says when it scrolls).
+
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { gnssDenied, planFor } from '../../engine/rules'
+import type { GameState, ThreatEvent } from '../../engine/types'
+import { useCueClass, usePageVisible, useReducedMotion } from '../cues/motion'
+import PixelSprite from '../sprites/PixelSprite'
+import { ICON_WARN, tinted } from '../sprites/icons'
+import {
+  FULL_BRIEF_CLOSE,
+  FULL_BRIEF_OPEN,
+  INTEL_ROW,
+  briefButton,
+  KEY_BLOCKED,
+  KEY_EXPOSED,
+  REVEAL,
+  STATUS,
+  TONIGHT_HIDDEN,
+  TONIGHT_REASON,
+  UNIDENTIFIED,
+  WILL_HIT_LEAD,
+  willHitCount,
+  vectorTo,
+  confirmedNote,
+  shortName,
+  tapHint,
+  type MoveRead,
+  type MoveStatus,
+  type SlotView,
+  chainLine,
+} from './boardModel'
+
+// The full brief and ../brief.ts load as their own chunk (see ./FullBrief),
+// fetched as soon as the card mounts.
+const FullBrief = lazy(() => import('./FullBrief'))
+const preloadFullBrief = () => import('./FullBrief').catch(() => undefined)
+
+
+const TONE_TEXT: Record<string, string> = { hostile: 'text-dc-hostile', warn: 'text-dc-warn', go: 'text-dc-go' }
+
+export function StatusTag({ status }: { status: MoveStatus }) {
+  const s = STATUS[status]
+  return (
+    <span data-status={status} className={`inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] tracking-wider ${TONE_TEXT[s.token]}`}>
+      <PixelSprite sprite={tinted(s.icon, s.token)} scale={1} name={`status-${status}`} />
+      {s.word}
+    </span>
+  )
+}
+
+
+// The noise over an unnamed move: a field of grey pixels, redrawn about 8
+// times a second, one still field under reduced motion or a hidden tab.
+function Noise() {
+  const ref = useRef<HTMLCanvasElement | null>(null)
+  const reduced = useReducedMotion()
+  const visible = usePageVisible()
+  useEffect(() => {
+    const cv = ref.current
+    let ctx: CanvasRenderingContext2D | null = null
+    try {
+      ctx = cv?.getContext('2d') ?? null
+    } catch {
+      ctx = null
+    }
+    if (!cv || !ctx) return
+    const c = ctx
+    const paint = (seed: number) => {
+      const w = (cv.width = Math.max(1, Math.round(cv.clientWidth / 3)))
+      const h = (cv.height = Math.max(1, Math.round(cv.clientHeight / 3)))
+      let a = seed
+      for (let y = 0; y < h; y += 1)
+        for (let x = 0; x < w; x += 1) {
+          a = (a * 1103515245 + 12345) & 0x7fffffff
+          c.fillStyle = `rgba(139,152,168,${((a >> 16) % 100) / 900})`
+          c.fillRect(x, y, 1, 1)
+        }
+    }
+    paint(7)
+    if (reduced || !visible) return
+    let n = 7
+    const id = window.setInterval(() => paint((n += 1)), 120)
+    return () => window.clearInterval(id)
+  }, [reduced, visible])
+  return <canvas ref={ref} aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full [image-rendering:pixelated]" />
+}
+
+function MoveCard({ read, onMove }: { read: MoveRead; onMove: (ev: ThreatEvent) => void }) {
+  const { ev, status, flag } = read
+  // The status changes the moment an order lands; a short highlight says so,
+  // and only then: not when the card first appears.
+  const first = useRef(status)
+  const changed = useCueClass(status === first.current ? null : status, 'dc-flash-good', useReducedMotion())
+  const likely = flag === 'LIKELY TARGET' || flag === 'EITHER'
+  return (
+    <button
+      type="button"
+      data-move={ev.id}
+      data-flag={flag ?? undefined}
+      onClick={() => onMove(ev)}
+      className={`dc-tile relative flex min-w-0 flex-col gap-1 border bg-dc-chrome p-2 text-left ${likely ? 'border-dc-hostile' : 'border-dc-line'}`}
+    >
+      {flag && (
+        <span data-flag-tag className={`absolute -top-2 right-2 px-1 font-mono text-[10px] tracking-wider ${flag === 'CONFIRMED' ? 'bg-dc-warn' : 'bg-dc-hostile'} text-dc-ground`}>
+          {flag}
+        </span>
+      )}
+      <span className="text-[13px] font-semibold leading-tight text-dc-ink">{shortName(ev)}</span>
+      <span className="flex flex-wrap gap-x-2 font-mono text-[10px] text-dc-muted">
+        <span>{vectorTo(ev)}</span>
+        <span>
+          STRENGTH <span className="text-dc-hostile">{'●'.repeat(ev.baseSeverity)}</span>
+        </span>
+      </span>
+      <span className="mt-auto flex flex-wrap items-center justify-between gap-1">
+        <span className={changed}>
+          <StatusTag status={status} />
+        </span>
+        <span className="font-mono text-[10px] text-dc-friendly">{tapHint(status)}</span>
+      </span>
+    </button>
+  )
+}
+
+function UnknownCard({ ev, onReveal }: { ev: ThreatEvent; onReveal: () => void }) {
+  return (
+    <button type="button" data-move-unknown onClick={onReveal} className="dc-tile relative flex min-w-0 flex-col gap-1 overflow-hidden border border-dc-line bg-dc-chrome p-2 text-left">
+      <Noise />
+      <span className="relative text-[13px] font-semibold leading-tight text-dc-muted">{UNIDENTIFIED}</span>
+      <span className="relative font-mono text-[10px] text-dc-muted">{vectorTo(ev)}</span>
+      <span className="relative mt-auto font-mono text-[10px] text-dc-friendly">{REVEAL}</span>
+    </button>
+  )
+}
+
+export interface TonightProps {
+  state: GameState
+  slots: SlotView[]
+  // The brief is free tonight, ordered, or neither.
+  brief: 'free' | 'ordered' | 'none'
+  briefPrice: number
+  onMove: (ev: ThreatEvent) => void
+  onToggleBrief: () => void
+  onIntel: () => void
+  onTag: (tag: string) => void
+  // Nonces that, when they change, pulse the intel row or the moves.
+  pulseIntel: number
+  pulseMoves: number
+  onReveal: () => void
+}
+
+export default function Tonight({ state, slots, brief, briefPrice, onMove, onToggleBrief, onIntel, onTag, pulseIntel, pulseMoves, onReveal }: TonightProps) {
+  const named = brief !== 'none'
+  const intro = planFor(state.scenario, state.turn)?.intro ?? ''
+  const reduced = useReducedMotion()
+  const decode = useCueClass(named ? 'named' : null, 'dc-manifest-in', reduced)
+  const pulse = useCueClass(pulseIntel || null, 'dc-pulse-friendly', reduced)
+  // Each turn's intro arrives as a transmission (the turn-start cue).
+  const arriving = useCueClass(state.turn, 'dc-transmission-in', reduced)
+  const flashMoves = useCueClass(pulseMoves || null, 'dc-pulse-hostile', reduced)
+  const card = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (pulseMoves) card.current?.querySelector('[data-move]')?.scrollIntoView?.({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
+  }, [pulseMoves, reduced])
+  const intelRow = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (pulseIntel) intelRow.current?.scrollIntoView?.({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
+  }, [pulseIntel, reduced])
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    void preloadFullBrief()
+  }, [])
+  const chain = gnssDenied(state.conditions, state.scenario)
+  return (
+    <section ref={card} aria-label="Tonight" data-tonight className="flex-none border border-dc-line bg-dc-panel px-3 py-1">
+      <div className="flex items-center justify-between gap-2">
+        <p className="whitespace-nowrap font-mono text-[10px] tracking-widest text-dc-muted">
+          TONIGHT{brief === 'free' && <span className="text-dc-go"> · INTEL BRIEF FREE</span>}
+        </p>
+        <button type="button" data-full-brief aria-expanded={open} onClick={() => setOpen((o) => !o)} className="-my-3 min-h-11 whitespace-nowrap font-mono text-[10px] text-dc-friendly">
+          {open ? FULL_BRIEF_CLOSE : FULL_BRIEF_OPEN}
+        </button>
+      </div>
+      <p data-intro className={`${arriving} mt-1 border-l-2 border-dc-hostile pl-2 text-xs leading-snug text-dc-ink`}>
+        {intro}
+      </p>
+      {chain && (
+        <p data-chain className="mt-1 inline-flex items-center gap-1 font-mono text-[10px] text-dc-hostile">
+          <PixelSprite sprite={tinted(ICON_WARN, 'hostile')} scale={1} name="status-exposed" />
+          {chainLine()}
+        </p>
+      )}
+      {slots.map((slot, i) => (
+        <div key={i} data-slot={slot.fixed ? 'fixed' : 'draw'} className="mt-1.5">
+          {slot.fixed ? (
+            <p className="font-mono text-[10px] tracking-widest text-dc-warn">
+              CONFIRMED <span className="text-dc-muted">· {confirmedNote(slot.moves[0].ev)}</span>
+            </p>
+          ) : (
+            <>
+              <p className="font-mono text-[11px] tracking-widest text-dc-ink">
+                {WILL_HIT_LEAD}
+                <b className="text-dc-hostile">{willHitCount(slot.moves.length)}</b>
+              </p>
+              <p className="text-xs text-dc-muted">{slot.hidden ? TONIGHT_HIDDEN : TONIGHT_REASON}</p>
+              {!slot.hidden && state.turn <= 2 && (
+                <p data-key className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[10px] text-dc-muted">
+                  <span className="inline-flex items-center gap-1">
+                    <StatusTag status="exposed" /> {KEY_EXPOSED}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <StatusTag status="blocked" /> {KEY_BLOCKED}
+                  </span>
+                </p>
+              )}
+            </>
+          )}
+          <div className={`mt-1.5 grid gap-2 ${slot.moves.length === 1 ? 'grid-cols-1' : slot.moves.length === 2 ? 'grid-cols-2' : 'grid-cols-3'} ${slot.hidden ? '' : `${decode} ${flashMoves}`}`}>
+            {slot.moves.map((read) =>
+              slot.hidden ? <UnknownCard key={read.ev.id} ev={read.ev} onReveal={onReveal} /> : <MoveCard key={read.ev.id} read={read} onMove={onMove} />,
+            )}
+          </div>
+        </div>
+      ))}
+      {brief !== 'free' && (
+        <div ref={intelRow} data-intel-row className={`mt-2 flex items-center justify-between gap-2 ${pulse}`}>
+          <p className="text-xs text-dc-muted">{INTEL_ROW[brief === 'ordered' ? 'ordered' : 'none']}</p>
+          <button
+            type="button"
+            data-brief-toggle
+            aria-pressed={brief === 'ordered'}
+            onClick={onToggleBrief}
+            className={`dc-tile min-h-11 flex-none border px-2 font-mono text-[10px] tracking-wider ${brief === 'ordered' ? 'border-dc-friendly text-dc-friendly' : 'border-dc-line text-dc-ink'}`}
+          >
+            {briefButton(briefPrice, brief === 'ordered')}
+          </button>
+        </div>
+      )}
+      <div>
+        {open && (
+          <Suspense fallback={<p className="font-mono text-[10px] text-dc-muted">Loading</p>}>
+            <FullBrief state={state} named={named} onIntel={onIntel} onTag={onTag} />
+          </Suspense>
+        )}
+      </div>
+    </section>
+  )
+}

@@ -377,34 +377,41 @@ describe('the prelude controls', () => {
       .filter((line) => !/^\s*\/\//.test(line))
       .join('\n')
     // The resolve control is EXECUTE, a plain button since v1.3 Round 0
-    // (the hold went with brief 4: "EXECUTE ends the turn"). Its click
-    // sweeps and then resolves, in that order and in the one handler, so
-    // a mouse click, a tap and a keyboard activation all reach both. The
-    // element is bounded at its own closing tag, so a sweep or a resolve
-    // belonging to some neighbouring control cannot satisfy this.
-    const execute = /<button\b(?:(?!<\/button>)[\s\S])*?\bdata-execute\b[\s\S]*?<\/button>/.exec(game)
-    expect(execute, 'the resolve control must be the EXECUTE button').not.toBeNull()
-    expect(execute![0], 'EXECUTE must sweep and then resolve on its click').toMatch(
-      /onClick=\{\s*\(\)\s*=>\s*\{[^}]*?\bplay\(\s*'execute-sweep'\s*\)[^}]*?\bresolve\(\s*\)/,
+    // (the hold went with brief 4: "EXECUTE ends the turn"). Since v1.3 R2
+    // the button lives in the dock (src/ui/board/Dock.tsx) and calls the
+    // onExecute prop Game.tsx hands it. That handler sweeps and then
+    // resolves, in that order and in the one handler, so a mouse click, a
+    // tap and a keyboard activation all reach both. Each element is bounded
+    // at its own end, so a sweep or a resolve belonging to some
+    // neighbouring control cannot satisfy this.
+    const dockTag = /<Dock\b[\s\S]*?\/>/.exec(game)
+    expect(dockTag, 'the resolve control must be the dock\'s EXECUTE').not.toBeNull()
+    expect(dockTag![0], 'EXECUTE must sweep and then resolve on its click').toMatch(
+      /onExecute=\{\s*\(\)\s*=>\s*\{[^}]*?\bplay\(\s*'execute-sweep'\s*\)[^}]*?\bresolve\(\s*\)/,
     )
+    const dock = readFileSync(join(SRC, 'ui', 'board', 'Dock.tsx'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .split('\n')
+      .filter((line) => !/^\s*\/\//.test(line))
+      .join('\n')
+    const execute = /<button\b(?:(?!<\/button>)[\s\S])*?\bdata-execute\b[\s\S]*?<\/button>/.exec(dock)
+    expect(execute, 'the dock must render the EXECUTE button').not.toBeNull()
+    expect(execute![0], 'EXECUTE\'s click must reach the handler').toMatch(/onClick=\{p\.onExecute\}/)
+    // The dock hands the handler to EXECUTE and to nothing else.
+    expect([...dock.matchAll(/\bp\.onExecute\b/g)].length, 'the dock calls onExecute from a second place').toBe(1)
     // And it is the only control that resolves, however the handler is
     // spelled: an arrow, a bare reference handed to some other prop, or a
     // keyboard path of its own. Every use of the identifier is counted
-    // except its declaration and the ActionBar render prop that happens to
-    // share the name, and the one that remains must be EXECUTE's. String
-    // literals are blanked to the same length first, so the error copy
-    // ("Turn could not resolve") is not mistaken for a call and every
+    // except its declaration, and the one that remains must be EXECUTE's.
+    // String literals are blanked to the same length first, so the error
+    // copy ("Turn could not resolve") is not mistaken for a call and every
     // index still points into the source above.
     const code = game.replace(/'[^'\n]*'|"[^"\n]*"|`[^`]*`/g, (literal) => ' '.repeat(literal.length))
     const uses = [...code.matchAll(/(?<![\w.])\bresolve\b(?!\w|\s*=(?!=))/g)]
     expect(uses.length, 'a second control resolves the turn beside EXECUTE').toBe(1)
     const at = uses[0].index!
-    expect(at > execute!.index && at < execute!.index + execute![0].length, 'the one resolve is not inside EXECUTE').toBe(
+    expect(at > dockTag!.index && at < dockTag!.index + dockTag![0].length, 'the one resolve is not inside EXECUTE').toBe(
       true,
-    )
-    // The manifest entrance is applied to the entry that was just added.
-    expect(game, 'the manifest cue must be keyed to the entry that was added').toMatch(
-      /arrived\?\.index === i \? manifestCue : undefined/,
     )
     // The adversary phase enters through the dim, and the dim is keyed to
     // the turn being played. Pinning the wrapper alone left the key free
@@ -414,6 +421,20 @@ describe('the prelude controls', () => {
     )
     expect(game, 'the dim must be keyed to the turn it plays').toMatch(
       /useCueClass\(\s*phase === 'playback' \? `dim-\$\{state\?\.turn \?\? 0\}` : null\s*,\s*'dc-phase-dim'/,
+    )
+  })
+
+  it('keys the manifest entrance to the order that was just queued', () => {
+    // Split out in v1.3 R2 so the EXECUTE wiring above is not hostage to
+    // it. The entrance was applied in Game.tsx to the queued tile of the
+    // asset just ordered; the R2 strip (src/ui/board/AssetStrip.tsx)
+    // renders the queued tile with no entrance, and the brief for R2 does
+    // not list the cue as retired, so this stays red until it is wired
+    // again or retired on the record.
+    const game = readFileSync(join(SRC, 'ui', 'Game.tsx'), 'utf8')
+    const strip = readFileSync(join(SRC, 'ui', 'board', 'AssetStrip.tsx'), 'utf8')
+    expect(game + strip, 'the manifest cue must be keyed to the entry that was added').toMatch(
+      /arrived\?\.index === i \? manifestCue : undefined/,
     )
   })
 })

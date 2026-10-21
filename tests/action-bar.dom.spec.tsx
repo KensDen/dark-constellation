@@ -1,24 +1,24 @@
 // @vitest-environment jsdom
 //
-// The action bar (brief 4.1 and 4.4). R1b made it read as steps and put
-// the system controls behind the gear; R2b made it a turn stepper, with
-// an objective line over the steps and the commit full width under them,
-// and a guided first turn. v1.3 Round 0 cut it to two actions, PROCURE
-// and EXECUTE, and made EXECUTE a tap. The guards, by round:
-//   R1b (a) the numbers, hotkeys and sheets derive from the one action
-//       array, so the rendered order follows the array's order;
-//   R1b (b) a step's check appears when its sheet opens and is gone once
-//       the next turn begins;
-//   R1b (d) the SYSTEM sheet renders all five controls, pinned by count;
-//   R2b (b) the glowing step and the objective sentence name the same
-//       step, because they come from one call;
-//   R2b (c) EXECUTE's label carries the turn number;
-//   R2b (d) the walkthrough advances on an order of any kind or a skip,
-//       ends on execute or "Skip tips", and never shows again once its
-//       key is set;
-//   R2b (e) EXECUTE keeps its accessible name, and one tap plays the turn
-//       (the hold and its short-tap hint went in v1.3 Round 0).
-// (tests/next-step.spec.ts holds R2b (a), the suggestion's table.)
+// The action bar (brief 4.1 and 4.4), the Dock since v1.3 R2 (brief 5.3
+// item 5). R1b made it read as steps and put the system controls behind
+// the gear; R2b made it a turn stepper with an objective line and a
+// guided first turn; v1.3 Round 0 cut it to two actions, PROCURE and
+// EXECUTE, and made EXECUTE a tap; R2 made it the Dock, with REMAINING and
+// WORST CASE over the two buttons, and took the step numbers, the checks,
+// the objective line, its glow and the walkthrough off it (FIRST ORDERS
+// teaches the turn now). The guards, by round:
+//   R1b (a) the dock renders the one action array's actions in its order,
+//       and the digit hotkeys resolve through it;
+//   R1b (b) rewritten per QC G-025: PROCURE shows no tick or badge until
+//       an order is queued, and none again once the next turn begins (the
+//       badge's count is GUARD R2 (e) in tests/board-r2.dom.spec.tsx);
+//   R1b (d) the SYSTEM sheet renders all its controls, pinned by count;
+//   R2b (c) and (e) EXECUTE's accessible name carries the turn number,
+//       and one tap plays the turn (the hold and its short-tap hint went
+//       in v1.3 Round 0).
+// (R2b (a), (b) and (d), the suggestion, the glow and the walkthrough,
+// went with the objective line and src/ui/firstTurn.ts in v1.3 R2.)
 // The fixture is the one tests/game.dom.spec.tsx documents; the same
 // masking constants apply.
 
@@ -29,10 +29,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 
 import Game from '../src/ui/Game'
-import ActionBar from '../src/ui/board/ActionBar'
-import { ACTIONS, GUIDE, SKIP_TIPS, resolveLabel, type BoardAction, type Objective, type StepId } from '../src/ui/board/actions'
+import { ACTIONS, resolveLabel } from '../src/ui/board/actions'
 import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
-import { FIRST_TURN_DONE_KEY } from '../src/ui/firstTurn'
 import { STRIKE_MS } from '../src/ui/board/strike'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
@@ -117,8 +115,8 @@ function render(state: GameState, phase: 'brief' | 'procure' | 'aftermath' = 'br
   })
 }
 
-const bar = () => container.querySelector('nav[aria-label="Actions"]')!
-const slots = () => [...bar().querySelectorAll('[data-action]')] as HTMLElement[]
+const bar = () => container.querySelector('nav[aria-label="Actions"][data-dock]')!
+const slots = () => [...bar().querySelectorAll('button[data-action]')] as HTMLButtonElement[]
 const buttons = () => [...container.querySelectorAll('button')]
 const byText = (re: RegExp) => buttons().find((b) => re.test(b.textContent ?? ''))
 const click = (el: Element) => {
@@ -131,18 +129,16 @@ const key = (k: string, target: EventTarget = window) => {
     target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }))
   })
 }
+const procureButton = () => bar().querySelector('button[data-action="procure"]') as HTMLButtonElement
 const executeButton = () => bar().querySelector('button[data-execute]') as HTMLButtonElement
-const objectiveTag = () => bar().querySelector('[data-objective-tag]')?.textContent ?? ''
-const objectiveSentence = () => bar().querySelector('[data-objective-sentence]')?.textContent ?? ''
-const glowing = () => [...bar().querySelectorAll('[data-glow]')].map((el) => el.getAttribute('data-action'))
-const mark = (el: Element) => el.querySelector('[data-step]')!
+const procureSheet = () => container.querySelector('[data-sheet="procure"]')
 const advance = (ms: number) =>
   act(() => {
     vi.advanceTimersByTime(ms)
   })
-// Tap the playback through to the aftermath: nothing advances on its own
-// since v1.3 Round 0, so each beat waits for its Next. The timers run a
-// strike's length between taps, as a player's look at the beat would.
+// Tap the playback through to the end of the turn: nothing advances on
+// its own since v1.3 Round 0, so each beat waits for its Next. The timers
+// run a strike's length between taps, as a player's look at the beat would.
 const afterword = () => byText(/^(NEXT TURN|FINAL REPORT)$/)
 const playOut = () => {
   for (let i = 0; i < 100 && !afterword(); i++) {
@@ -151,90 +147,33 @@ const playOut = () => {
     click(next!)
     advance(STRIKE_MS)
   }
-  expect(afterword(), 'tapping Next did not reach the aftermath').toBeDefined()
+  expect(afterword(), 'tapping Next did not reach the end of the turn').toBeDefined()
+}
+// A tick or a badge on PROCURE: the v1.2 check mark, its done marker, or
+// the order count.
+const procureMarks = () => {
+  const b = procureButton()
+  return [b.querySelector('[data-order-badge]'), b.querySelector('[data-step-done]'), /✓/.test(b.textContent ?? '') ? b : null].filter(Boolean)
 }
 
-// What each slot shows, in DOM order: its visible label, number badge and
-// hotkey. The label is read off the element that renders it, so a label
-// spelled in the component rather than read from the array is caught.
-function rendered(): { id: string; label: string; mark: string; hotkey: string }[] {
-  return slots().map((slot) => ({
-    id: slot.getAttribute('data-action')!,
-    label: (slot.querySelector('[data-label]')?.textContent ?? '').trim(),
-    mark: mark(slot).textContent ?? '',
-    hotkey: slot.getAttribute('data-hotkey')!,
-  }))
-}
-
-// The order the bar renders an array in: the steps in the array's order,
-// then the action with no sheet, full width under them.
-const barOrder = (actions: readonly BoardAction[]) => [...actions.filter((a) => a.sheet !== null), ...actions.filter((a) => a.sheet === null)]
-const quietObjective: Objective = { tag: 'T', sentence: 'S', step: null }
-
-describe('the action bar reads as steps (v1.2 R1b, a stepper since R2b)', () => {
-  it('GUARD R1b (a): renders numbers, hotkeys and labels in the order of the one action array', () => {
+describe('the dock carries the one action array (v1.2 R1b, the Dock since v1.3 R2)', () => {
+  it('GUARD R1b (a): renders the actions in the order of the one action array, PROCURE by its label and EXECUTE named for the turn', () => {
     const state = gameAt(2)
     render(state, 'brief')
-    expect(rendered()).toEqual(
-      barOrder(ACTIONS).map((a) => ({
-        id: a.id,
-        label: a.sheet ? a.label : resolveLabel(state.turn),
-        mark: String(a.number),
-        hotkey: a.hotkey,
-      })),
-    )
-    // And the chrome mirror counts the same numbers and labels, from the
-    // same array, so it cannot disagree with the bar.
-    const chrome = chromeCopy(state)
+    expect(slots().map((b) => b.getAttribute('data-action')), 'the dock does not follow ACTIONS').toEqual(ACTIONS.map((a) => a.id))
     for (const a of ACTIONS) {
-      expect(chrome).toContain(a.sheet ? a.label : resolveLabel(state.turn))
-      expect(chrome).toContain(String(a.number))
+      const b = bar().querySelector(`button[data-action="${a.id}"]`)!
+      // The visible label is the array's; EXECUTE's accessible name is the
+      // instruction for this turn.
+      expect((b.childNodes[0]?.textContent ?? '').trim(), `${a.id} does not print its label`).toBe(a.label)
+      if (!a.sheet) expect(b.getAttribute('aria-label')).toBe(resolveLabel(state.turn))
     }
-  })
-
-  it('GUARD R1b (a), the other half: a reordered array reorders the bar', () => {
-    // The bar is rendered standalone with the array rotated, so a number
-    // or a key spelled in the component rather than read from the array
-    // shows up as a slot that did not move with its action. Two actions
-    // since v1.3 Round 0: one step, and the commit always under the row,
-    // so rotating ACTIONS alone would move nothing. A second step goes in
-    // ahead of PROCURE, and every action takes a number and key that is
-    // neither its own, nor its index in the array, nor its place on the
-    // bar, so a component that counted positions instead of reading the
-    // array would render a badge this test does not expect.
-    const probe: BoardAction = { ...ACTIONS[0], id: 'probe' as string as StepId, label: 'PROBE' }
-    const rotated: BoardAction[] = [...ACTIONS.slice(1), probe, ACTIONS[0]].map((a, i) => ({ ...a, number: i + 4, hotkey: String(i + 4) }))
-    expect(
-      rotated.filter((a) => a.id !== 'probe').every((a) => ACTIONS.find((b) => b.id === a.id)!.number !== a.number),
-      'the reordered array left an action on its own number',
-    ).toBe(true)
-    expect(
-      rotated.every((a, i) => a.number !== i + 1 && a.number !== barOrder(rotated).indexOf(a) + 1),
-      'a badge equals a position, so counting positions would pass',
-    ).toBe(true)
-    act(() => {
-      root.render(
-        <ActionBar
-          actions={rotated}
-          phase="deciding"
-          openSheet={null}
-          done={new Set()}
-          objective={quietObjective}
-          onToggle={() => {}}
-          disabledFor={() => false}
-          captionFor={() => ''}
-          resolve={() => (
-            <button type="button">
-              <span data-label>EXECUTE</span>
-            </button>
-          )}
-          nextLabel="NEXT TURN"
-          onNext={() => {}}
-          pulseNext={false}
-        />,
-      )
-    })
-    expect(rendered()).toEqual(barOrder(rotated).map((a) => ({ id: a.id, label: a.label, mark: String(a.number), hotkey: a.hotkey })))
+    // The step numbers, checks and F-key chips left the bar in R2.
+    expect(bar().querySelector('[data-step], [data-hotkey]'), 'a step number or key chip is back on the dock').toBeNull()
+    // And the chrome mirror counts the same labels, from the same array,
+    // so it cannot disagree with the dock.
+    const chrome = chromeCopy(state)
+    for (const a of ACTIONS) expect(chrome).toContain(a.label)
   })
 
   it('opens each step by its digit, through the array, and moves focus to EXECUTE on the last', () => {
@@ -248,217 +187,86 @@ describe('the action bar reads as steps (v1.2 R1b, a stepper since R2b)', () => 
       } else {
         expect(document.activeElement, `${a.hotkey} did not focus EXECUTE`).toBe(executeButton())
         // Focus, not a commit: the turn is still being decided.
-        expect(container.textContent).not.toMatch(/beat \d+ of \d+/)
+        expect(bar().querySelector('[data-playback-note]')).toBeNull()
       }
     }
   })
 
-  it('GUARD R1b (b): a step shows its check once its sheet opens, and is numbered again on the next turn', () => {
-    localStorage.setItem(FIRST_TURN_DONE_KEY, '1')
+  it('GUARD R1b (b): PROCURE shows no tick or badge until an order is queued, and none again on the next turn (QC G-025)', () => {
+    // v1.2 ticked a step the moment its sheet opened, which told the
+    // player they had done something when they had only looked. G-025: a
+    // mark on PROCURE means an order. How many is GUARD R2 (e) in
+    // tests/board-r2.dom.spec.tsx; this holds the looking, and the turn.
     render(gameAt(2), 'brief')
-    const procure = slots()[0]
-    expect(mark(procure).textContent).toBe('1')
-    click(procure)
-    expect(mark(slots()[0]).textContent, 'opening PROCURE left it numbered').toBe('✓')
-    expect(slots()[0].querySelector('[data-step-done]')).not.toBeNull()
-    // EXECUTE, not yet pressed, stays numbered.
-    expect(mark(slots()[1]).textContent).toBe('2')
-    // Execute, tap the playback out, and the aftermath keeps the record,
-    // with the executed turn on the objective line.
+    expect(procureMarks(), 'PROCURE is marked before anything was done').toEqual([])
+    click(procureButton())
+    expect(procureSheet(), 'PROCURE did not open').not.toBeNull()
+    expect(procureMarks(), 'opening PROCURE marked it').toEqual([])
+    click(procureSheet()!.querySelector('button[data-confirm]')!)
+    expect(procureSheet()).toBeNull()
+    expect(procureMarks(), 'opening and closing PROCURE with nothing queued marked it').toEqual([])
+    expect(procureButton().textContent).toBe('PROCURE')
+    // The positive control: an order does mark it, so the empty checks
+    // above are not blind.
+    click(procureButton())
+    click(procureSheet()!.querySelector('button[data-procure-kind="drone"]')!)
+    click(procureSheet()!.querySelector('button[data-confirm]')!)
+    expect(procureMarks().length, 'a queued order left PROCURE unmarked').toBeGreaterThan(0)
+    // Execute, tap the playback out, and the next turn starts unmarked.
     click(executeButton())
     playOut()
-    expect(objectiveTag()).toMatch(/^TURN \d+ RESOLVED$/)
-    expect(mark(slots()[0]).textContent, 'the aftermath lost the record of the step').toBe('✓')
-    click(byText(/^NEXT TURN/)!)
-    expect(mark(slots()[0]).textContent, "the next turn began with last turn's check").toBe('1')
-    expect(bar().textContent).not.toMatch(/RESOLVED/)
+    click(afterword()!)
+    expect(procureMarks(), "the next turn began with last turn's mark").toEqual([])
   })
 
-  it('pulses NEXT TURN in the aftermath, full width where EXECUTE was, and not under reduced motion', () => {
+  it('pulses NEXT TURN at the end of the turn, full width where the two buttons were, and not under reduced motion', () => {
     render(gameAt(2), 'aftermath')
-    const next = byText(/^NEXT TURN/)!
+    const next = bar().querySelector('button[data-next]')!
+    expect(next.textContent).toBe('NEXT TURN')
     expect(next.className).toMatch(/dc-next-pulse/)
-    expect(next.closest('[data-action="resolve"]'), 'NEXT TURN is not in the EXECUTE slot').not.toBeNull()
     expect(next.className).toMatch(/w-full/)
+    expect(slots(), 'PROCURE or EXECUTE is still on the dock after the turn').toEqual([])
     setReducedMotion(true)
     render(gameAt(2), 'aftermath')
-    expect(byText(/^NEXT TURN/)!.className).not.toMatch(/dc-next-pulse/)
+    expect(bar().querySelector('button[data-next]')!.className).not.toMatch(/dc-next-pulse/)
   })
 
-  it('draws EXECUTE outlined until the player has done anything, and solid after', () => {
-    localStorage.setItem(FIRST_TURN_DONE_KEY, '1')
+  it('draws EXECUTE outlined until an order is queued, and solid after', () => {
+    // With nothing queued PROCURE is the way in and takes the emphasis;
+    // once an order is queued EXECUTE takes it (brief 5.3 item 5).
     render(gameAt(2), 'brief')
-    expect(glowing(), 'the fixture should start on another step').not.toContain('resolve')
-    expect(executeButton().className).toMatch(/bg-dc-go\/5/)
-    click(slots()[0])
+    expect(executeButton().className).toMatch(/shadow-press/)
+    expect(executeButton().className).not.toMatch(/bg-dc-go /)
+    expect(procureButton().className).toMatch(/bg-dc-go /)
+    // Looking is not an order.
+    click(procureButton())
+    click(procureButton())
+    expect(executeButton().className, 'opening PROCURE made EXECUTE solid').toMatch(/shadow-press/)
+    click(procureButton())
+    click(procureSheet()!.querySelector('button[data-procure-kind="drone"]')!)
     expect(executeButton().className).toMatch(/bg-dc-go /)
     expect(executeButton().className).toMatch(/shadow-hard/)
-  })
-})
-
-describe('the objective line and the glow (v1.2 R2b)', () => {
-  // The step a sentence names, by its label in capitals.
-  const named = (sentence: string) => ACTIONS.filter((a) => sentence.includes(a.label)).map((a) => a.id)
-
-  it('GUARD R2b (b): the glowing step and the objective sentence name the same step, in every state', () => {
-    const seen = new Set<string>()
-    const agree = (where: string) => {
-      const sentence = objectiveSentence()
-      expect(named(sentence), `${where}: the sentence names no single step: ${sentence}`).toHaveLength(1)
-      expect(glowing(), `${where}: "${sentence}"`).toEqual(named(sentence))
-      seen.add(named(sentence)[0])
-    }
-    // The walkthrough, turn 1 on a fresh device: once after a buy, and
-    // once, on a fresh mount, after a skip.
-    render(gameAt(1), 'brief')
-    agree('walkthrough, start')
-    click(slots()[0])
-    click(container.querySelector('button[data-procure-kind="sat"]')!)
-    click(container.querySelector('button[data-procure-buy]')!)
-    agree('walkthrough, after a buy')
-    render(gameAt(1), 'brief')
-    click(bar().querySelector('[data-action="procure"]')!)
-    click(bar().querySelector('[data-action="procure"]')!)
-    agree('walkthrough, after a skip')
-    // The suggestion, on a later turn: it moves as steps are opened.
-    localStorage.setItem(FIRST_TURN_DONE_KEY, '1')
-    render(gameAt(2), 'brief')
-    agree('turn 2, first screen')
-    for (const a of ACTIONS.filter((x) => x.sheet !== null)) {
-      click(bar().querySelector(`[data-action="${a.id}"]`)!)
-      click(bar().querySelector(`[data-action="${a.id}"]`)!)
-      agree(`turn 2, ${a.id} opened`)
-    }
-    // Both steps were pointed at along the way, so the check is not
-    // passing on one hard-coded answer.
-    expect([...seen].sort()).toEqual(['procure', 'resolve'])
-  })
-
-  it('shows the credits the HUD shows, as "n CR LEFT", in a polite live region', () => {
-    localStorage.setItem(FIRST_TURN_DONE_KEY, '1')
-    render(gameAt(2), 'brief')
-    const hud = container.querySelector('[aria-label^="Credits"]')!.getAttribute('aria-label')!
-    const credits = /(-?\d+)/.exec(hud)![1]
-    expect(objectiveTag()).toBe(`${credits} CR LEFT`)
-    expect(bar().querySelector('[data-objective] [role="status"]')?.getAttribute('aria-live')).toBe('polite')
+    expect(procureButton().className).toMatch(/shadow-press/)
   })
 })
 
 describe('EXECUTE says what it does (v1.2 R2b, a tap since v1.3 Round 0)', () => {
-  it('GUARD R2b (c): the label carries the turn number', () => {
+  it('GUARD R2b (c) and (e): the accessible name carries the turn number, and one tap plays the turn', () => {
     for (const turn of [2, 5]) {
       const state = gameAt(turn)
       render(state, 'brief')
-      const b = executeButton()
-      expect(b.textContent, `turn ${state.turn}`).toContain(`Execute turn ${state.turn}`)
-      expect(b.querySelector('[data-label]')?.className, 'the label is not set in capitals').toMatch(/uppercase/)
+      // Since R2 the dock prints EXECUTE and the name is the instruction,
+      // resolveLabel's "Execute turn n".
+      expect(executeButton().textContent, `turn ${state.turn}`).toBe('EXECUTE')
+      expect(executeButton().getAttribute('aria-label'), `turn ${state.turn}`).toBe(`Execute turn ${state.turn}`)
     }
-  })
-
-  it('GUARD R2b (e): keeps "Execute turn n" as the accessible name, and one tap plays the turn', () => {
-    localStorage.setItem(FIRST_TURN_DONE_KEY, '1')
     const state = gameAt(2)
     render(state, 'brief')
-    // The name is the visible text: nothing hidden repeats it, and no
-    // label stands in for it.
-    expect(executeButton().textContent).toBe(`Execute turn ${state.turn}`)
-    expect(executeButton().hasAttribute('aria-label'), 'an aria-label overrides the visible name').toBe(false)
-    expect(container.textContent, 'the turn is playing before EXECUTE was pressed').not.toMatch(/beat \d+ of \d+/)
+    expect(bar().querySelector('[data-playback-note]'), 'the turn is playing before EXECUTE was pressed').toBeNull()
     // A tap, not a hold: one click resolves the turn and its playback is up.
     click(executeButton())
-    expect(container.textContent, 'one tap on EXECUTE did not play the turn').toMatch(/beat \d+ of \d+/)
-    expect(objectiveTag()).toBe(`TURN ${state.turn}`)
-  })
-})
-
-describe('the guided first turn (v1.2 R2b)', () => {
-  const procure = () => bar().querySelector('[data-action="procure"]')!
-  const procureSheet = () => container.querySelector('[data-sheet="procure"]')
-  // The kinds of order PROCURE takes on turn 1, one from each section that
-  // sells anything that night, and whether placing it closes the sheet. A
-  // buy does; a checkbox leaves the sheet open, so the walkthrough moving
-  // on there is the order and not a skip. INTEL sells nothing on turn 1
-  // since v1.3 Round 0: the intel brief is free that night (brief D2 a,
-  // src/ui/board/ProcureSheet.tsx ticks and locks its row), and the
-  // walkthrough runs on turn 1 only, so the brief is never an order it
-  // could move on. The test below pins that the free brief does not count.
-  const ORDERS: [string, () => void, boolean][] = [
-    [
-      'an asset',
-      () => {
-        click(procure())
-        click(container.querySelector('button[data-procure-kind="sat"]')!)
-        click(container.querySelector('button[data-procure-buy]')!)
-      },
-      true,
-    ],
-    [
-      'a defense',
-      () => {
-        click(procure())
-        const box = [...container.querySelectorAll<HTMLInputElement>('[data-procure-defenses] input[type="checkbox"]')].find((b) => !b.disabled)
-        expect(box, 'turn 1 offers no defense to order').toBeDefined()
-        click(box!)
-      },
-      false,
-    ],
-  ]
-  const line = () => [objectiveTag(), objectiveSentence()]
-  const skipTips = () => byText(new RegExp(`^${SKIP_TIPS}$`))
-
-  it('GUARD R2b (d): advances on an order of any kind, ends on execute, and never shows again', () => {
-    // The free brief first: ticked and locked on turn 1, and not an order,
-    // so tapping its row leaves the walkthrough where it was.
-    render(gameAt(1), 'brief')
-    expect(line(), 'the walkthrough did not start').toEqual([GUIDE.start.tag, GUIDE.start.sentence])
-    click(procure())
-    const intelRow = container.querySelector('[data-procure-intel]')
-    expect(intelRow, 'PROCURE has no INTEL row').not.toBeNull()
-    expect(intelRow!.textContent, 'the INTEL row does not say the brief is free tonight').toMatch(/free tonight/)
-    const brief = intelRow!.querySelector<HTMLInputElement>('input[type="checkbox"]')!
-    expect([brief.checked, brief.disabled], 'the free brief is not ticked and locked on turn 1').toEqual([true, true])
-    click(brief)
-    expect(brief.checked, 'tapping the free brief unticked it').toBe(true)
-    expect(procureSheet(), 'tapping the free brief closed the sheet').not.toBeNull()
-    expect(line(), 'the free brief moved the walkthrough on as if it were an order').toEqual([GUIDE.start.tag, GUIDE.start.sentence])
-    for (const [what, order, closes] of ORDERS) {
-      render(gameAt(1), 'brief')
-      expect(line(), `${what}: the walkthrough did not start`).toEqual([GUIDE.start.tag, GUIDE.start.sentence])
-      expect(skipTips(), 'no way out of the tips').toBeDefined()
-      order()
-      expect(procureSheet() === null, `${what}: the sheet ${closes ? 'stayed open' : 'closed'}`).toBe(closes)
-      expect(line(), `${what} did not move the walkthrough on`).toEqual([GUIDE.last.tag, GUIDE.last.sentence])
-    }
-    // Nothing blocks: EXECUTE takes the tap.
-    expect(executeButton().disabled).toBe(false)
-    expect(localStorage.getItem(FIRST_TURN_DONE_KEY), 'the key was set before any execute').toBeNull()
-    click(executeButton())
-    expect(localStorage.getItem(FIRST_TURN_DONE_KEY), 'the first execute did not set the key').toBe('1')
-    playOut()
-    expect(objectiveTag()).not.toBe(GUIDE.last.tag)
-    // A new campaign on the same device starts without it.
-    render(gameAt(1), 'brief')
-    expect(objectiveTag(), 'the walkthrough came back on a device that has executed a turn').not.toBe(GUIDE.start.tag)
-    expect(skipTips()).toBeUndefined()
-  })
-
-  it('advances on a skip: PROCURE opened and closed with nothing queued', () => {
-    render(gameAt(1), 'brief')
-    expect(objectiveTag()).toBe(GUIDE.start.tag)
-    click(procure())
-    expect(objectiveTag(), 'opening PROCURE alone counted as a skip').toBe(GUIDE.start.tag)
-    click(procure())
-    expect(line()).toEqual([GUIDE.last.tag, GUIDE.last.sentence])
-  })
-
-  it('ends at "Skip tips", and shows only on turn 1', () => {
-    render(gameAt(1), 'brief')
-    click(skipTips()!)
-    expect(objectiveTag()).toMatch(/CR LEFT$/)
-    expect(skipTips()).toBeUndefined()
-    // A fresh device on a later turn (a loaded code) gets the suggestion.
-    render(gameAt(3), 'brief')
-    expect(objectiveTag()).toMatch(/CR LEFT$/)
+    expect(bar().querySelector('[data-playback-note]'), 'one tap on EXECUTE did not play the turn').not.toBeNull()
+    expect(executeButton(), 'EXECUTE stayed on the dock during playback').toBeNull()
   })
 })
 

@@ -31,7 +31,6 @@ export type VisualCue =
   | 'asset-light'
   | 'outcome-sweep'
   | 'tile-press'
-  | 'shake-flash'
 
 // The synthesized voices the audio layer implements, one function per cue
 // (brief section 7). 'silent' is a real decision exactly as it is on the
@@ -98,7 +97,6 @@ export const VISUAL_CLASS: Record<VisualCue, string> = {
   'asset-light': 'dc-asset-light',
   'outcome-sweep': 'dc-card-in',
   'tile-press': '',
-  'shake-flash': 'dc-shake',
 }
 
 // How long each treatment runs, matching the stylesheet. The cue helper
@@ -122,7 +120,6 @@ export const VISUAL_MS: Record<VisualCue, number> = {
   'asset-light': 900,
   'outcome-sweep': 260,
   'tile-press': 0,
-  'shake-flash': 320,
 }
 
 // How long each voice runs, in milliseconds. The audio layer schedules
@@ -503,7 +500,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     // measurement found one of them by finding the other.
     kinds: ['turn-start'],
     visual: 'transmission',
-    where: 'ui/cues/Teletype.tsx',
+    where: 'ui/board/Tonight.tsx (the turn intro arrives as a transmission)',
     sound: 'data-burst',
     haptic: 'none',
     soundWhere: 'director/DirectorView.tsx',
@@ -539,23 +536,25 @@ export const SECTION_6_ROWS: Section6Row[] = [
   {
     beat: 'Buy fleet or countermeasure',
     visual: 'tile-press',
-    // A fleet buy slides into its layer panel as a queued tile (the
-    // manifest, since the v1.2 board); a countermeasure has no tile to
-    // slide into and carries its selected state in the HARDEN sheet
-    // instead. Recorded so the row is not read as promising an entrance
-    // the countermeasure half never had.
-    where: 'ui/Game.tsx procurement controls (fleet buys slide into their layer panel as queued tiles; countermeasure tiles hold their state in place)',
+    // A fleet order slides into its column of the strip as an ORDERED tile
+    // (the manifest); a defense has no tile to slide into and carries its
+    // ordered state on its PROCURE line instead.
+    where: 'ui/Game.tsx procurement controls (fleet orders slide into the strip as ORDERED tiles; defenses hold their state on their PROCURE line)',
     sound: 'buy-click',
     haptic: 'light',
     soundWhere: 'ui/Game.tsx',
   },
   {
     beat: 'Cannot afford',
-    visual: 'shake-flash',
-    where: 'ui/Game.tsx procurement controls',
+    // Since v1.3 R2 PROCURE turns off an order it cannot afford, so there
+    // is no refused tile to shake; a toggle refused anyway still buzzes.
+    visual: 'tile-press',
+    where: 'ui/board/Procure.tsx (an order it cannot afford is disabled; ui/Game.tsx buzzes a refused toggle)',
     sound: 'denied-buzz',
     haptic: 'double',
     soundWhere: 'ui/Game.tsx',
+    deferred:
+      'a refusal the player can reach: since v1.3 R2 PROCURE disables an order the budget cannot take, and the TONIGHT brief toggle never refuses (it turns EXECUTE off instead), so the buzz waits for a control that can refuse',
   },
   {
     beat: 'EXECUTE TURN',

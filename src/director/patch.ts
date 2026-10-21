@@ -167,7 +167,7 @@ export function describePatch(patch: Patch, state: GameState, kind?: BeatKind): 
   }
   if (patch.credits) {
     const spent = kind === 'procurement'
-    out.push({ text: `Credits ${signed(patch.credits)}`, tone: patch.credits > 0 ? 'good' : spent ? 'neutral' : 'bad' })
+    out.push({ text: `Budget ${signed(patch.credits)}`, tone: patch.credits > 0 ? 'good' : spent ? 'neutral' : 'bad' })
   }
   for (const a of patch.assetsAdd ?? []) {
     // The arrival beat's own title already says this; repeating it below

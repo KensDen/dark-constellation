@@ -15,7 +15,7 @@ vi.mock('../src/ui/board/WideBoard', () => {
 })
 
 import { ACTIONS, fKeyOf } from '../src/ui/board/actions'
-import { chips, click, container, gameAt, press, render, setWide, settle, sheetOpen, installWideBoardHarness } from './wideHarness'
+import { click, container, gameAt, press, render, setWide, settle, sheetOpen, installWideBoardHarness } from './wideHarness'
 
 installWideBoardHarness()
 
@@ -28,8 +28,6 @@ describe('the wide board degrades to the phone board when its chunk cannot load'
     expect(tried.n, 'the chunk was never asked for, so this proves nothing').toBeGreaterThanOrEqual(1)
     expect(container.querySelector('[data-inspector], [data-ops-log]')).toBeNull()
     expect(container.querySelector('main[data-board]')!.hasAttribute('data-wide')).toBe(false)
-    // No chip promises a key that is not bound.
-    for (const a of ACTIONS) expect(chips()).not.toContain(fKeyOf(a))
     expect(press(fKeyOf(ACTIONS[0])), 'an F key was taken with no wide board').toBe(false)
     // The digits need no chunk.
     expect(press(ACTIONS[0].hotkey)).toBe(true)

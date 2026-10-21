@@ -51,7 +51,7 @@ import {
   type SoundCue,
   type VisualCue,
 } from '../src/director'
-import { DIFFICULTIES, briefFree, candidatesTonight, newGame, orderCost, resolveTurn } from '../src/engine/reducer'
+import { briefFree, candidatesTonight, newGame, orderCost, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import { planFor } from '../src/engine/rules'
 import { METER_CAP, coverage, maiScore } from '../src/engine/scoring'
@@ -545,11 +545,11 @@ describe('the opening: the turn-1 card tells the truth (Round 7b)', () => {
     }
   })
 
-  it('tells a player below the coverage minimum that the SLA exists', () => {
+  it('tells a player below the coverage minimum that the coverage bonus exists', () => {
     // A new player starts at 58 against a minimum of 60 (44 before v1.3)
     // and loses the bonus every turn until they notice. The title
-    // interpolated the SLA only when it was EARNED, so the miss was
-    // silent. Since v1.3 Round 0 the bonus is paid at the close, after
+    // interpolated the bonus (the SLA until v1.3 R2) only when it was
+    // EARNED, so the miss was silent. Since v1.3 Round 0 the bonus is paid at the close, after
     // tonight's arrivals, and the turn card says nothing when the fleet
     // stands at the minimum; the miss line is the one it owes.
     const { slaBonus } = DEFAULT_SCENARIO
@@ -584,9 +584,9 @@ describe('the opening: the turn-1 card tells the truth (Round 7b)', () => {
             // also accepted 59.96 printed as "60" beside "is under the 60".
             const figure = coverageFigure(cov)
             const line = start.lines.find((l) => l.startsWith('Coverage '))
-            expect(line, `${at}: below the SLA minimum and never told`).toBeDefined()
+            expect(line, `${at}: below the coverage minimum and never told`).toBeDefined()
             expect(line, `${at}: coverage ${cov} misreported`).toBe(
-              `Coverage ${figure} is under the ${slaBonus.coverageMin} the SLA pays ${slaBonus.credits} at.`,
+              `Coverage ${figure} is under the ${slaBonus.coverageMin} the coverage bonus pays ${slaBonus.credits} at.`,
             )
             // What a player reads, checked without the helper, so a change
             // to coverageFigure itself cannot carry the line with it: a
@@ -617,12 +617,12 @@ describe('the opening: the turn-1 card tells the truth (Round 7b)', () => {
     expect(sawRoundedDown, 'no opening miss told rounding down from rounding to nearest').toBe(true)
     // The real claim behind the fix, rather than the tautology that stood
     // here first and that oxlint was right to flag: a player who does
-    // nothing NEVER earns the SLA inside the opening. That is why the miss
+    // nothing NEVER earns the coverage bonus inside the opening. That is why the miss
     // has to be legible. If the starting fleet is ever retuned above the
     // minimum, this fails and the copy stops being needed.
     expect(
       sawPaid,
-      'a passive player now clears the coverage SLA in the opening, so the miss line has nothing to report',
+      'a passive player now earns the coverage bonus in the opening, so the miss line has nothing to report',
     ).toBe(false)
   })
 
@@ -632,7 +632,7 @@ describe('the opening: the turn-1 card tells the truth (Round 7b)', () => {
     // tenth reads "60" (Math.round(59.95 * 10) / 10 is 60) beside "is
     // under the 60". The branch is taken on the exact coverage and the
     // figure is rounded down, so both surfaces that print coverage at the
-    // SLA line (the turn-start card and the brief's posture panel) say
+    // bonus line (the turn-start card and the brief's posture panel) say
     // 59.9 and the under branch there, and 60 and the clear branch at 60.
     // The starter fleet covers 58 (5800 hundredths: sats 13, RPO sat 8,
     // drones 9, ground station 6, times integrity); each case adds to it.
@@ -682,15 +682,15 @@ describe('the opening: the turn-1 card tells the truth (Round 7b)', () => {
           false,
         )
         expect(posture, `${at}: the posture panel says "${posture}"`).toContain(
-          `Coverage ${printed}, clear of the ${coverageMin} the SLA pays at.`,
+          `Coverage ${printed}, clear of the ${coverageMin} the coverage bonus pays at.`,
         )
-        expect(posture, `${at}: the posture panel takes the under branch`).not.toContain(`The SLA pays ${credits} a turn from`)
+        expect(posture, `${at}: the posture panel takes the under branch`).not.toContain(`The coverage bonus pays ${credits} a turn from`)
       } else {
         expect(start.lines, `${at}: the turn-start card says "${said}"`).toContain(
-          `Coverage ${printed} is under the ${coverageMin} the SLA pays ${credits} at.`,
+          `Coverage ${printed} is under the ${coverageMin} the coverage bonus pays ${credits} at.`,
         )
         expect(posture, `${at}: the posture panel says "${posture}"`).toContain(
-          `Coverage ${printed}. The SLA pays ${credits} a turn from ${coverageMin}.`,
+          `Coverage ${printed}. The coverage bonus pays ${credits} a turn from ${coverageMin}.`,
         )
         expect(posture, `${at}: the posture panel calls a fleet under the minimum clear of it`).not.toContain('clear of the')
         for (const text of [said, posture]) {
@@ -760,7 +760,8 @@ describe('the opening: the reading diet has a floor as well as a ceiling (Round 
     // is here so a change that moves it has to say so.
     //
     // NOT a word floor, and that is the point: the HUD contributes a
-    // constant 24 words to every state in the sweep, so a word floor is
+    // constant 21 words to every state in the sweep (24 before v1.3 R2;
+    // 23 with the streak chip), so a word floor is
     // satisfied by the HUD alone while the brief says nothing. The floors
     // that can fail for the reason they name are in
     // tests/reading-diet.spec.ts, which bounds what the disclosure ADDS.
@@ -770,7 +771,7 @@ describe('the opening: the reading diet has a floor as well as a ceiling (Round 
       for (let seed = 1; seed <= SEEDS; seed += 1) {
         let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
         for (let t = 0; t < OPENING_TURNS && state.status === 'playing'; t += 1) {
-          const words = firstInputWords(state, DIFFICULTIES[difficulty].label)
+          const words = firstInputWords(state)
           if (words < shortest) {
             shortest = words
             at = `turn ${state.turn}, ${difficulty}, seed ${seed}`
@@ -786,6 +787,14 @@ describe('the opening: the reading diet has a floor as well as a ceiling (Round 
     // signature."), 13 words above the HUD's 24. The dark turns after it
     // run longer, because their vector line also says what the brief
     // would add.
-    expect(shortest, `shortest opening screen: ${shortest} words at ${at}`).toBe(37)
+    //
+    // 100 since v1.3 R2, on turn 3 (Easy, seed 2), a dark night: the new
+    // board names every move's vector and layer even unnamed, so the
+    // shortest screen is the one with no orders card (turns 1 and 2 carry
+    // one) and the brief not bought: the HUD's 21, the intro, two
+    // drawn slots of five Unidentified cards with the hidden-names line
+    // under each, and the intel row. Turn 1 is no longer the shortest
+    // because FIRST ORDERS sits under it.
+    expect(shortest, `shortest opening screen: ${shortest} words at ${at}`).toBe(100)
   })
 })

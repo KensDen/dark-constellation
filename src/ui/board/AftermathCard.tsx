@@ -33,7 +33,7 @@ export default function AftermathCard({ record, state, scenario, reducedMotion, 
   const signs = callSigns(state)
   return (
     <section aria-label={`Aftermath, turn ${record.turn}`} className="border-2 border-dc-line bg-dc-panel p-2 shadow-hard">
-      <p className="font-display text-[10px] text-dc-muted">AFTERMATH · TURN {record.turn}</p>
+      <p className="font-display text-[10px] text-dc-muted">END OF TURN {record.turn}</p>
       <p className="mt-1 text-sm text-dc-ink">{verdictFor(record, scenario)}</p>
       {helped && (
         <p data-would-have-helped className="mt-1 text-sm font-bold text-alert-amber">
@@ -117,11 +117,11 @@ export default function AftermathCard({ record, state, scenario, reducedMotion, 
                 </span>
               </h3>
               <p className={`text-sm font-mono mt-1 ${landed ? 'text-hero-magenta' : 'text-ink-dim'}`}>
-                Severity {ev.baseSeverity} base
+                Strength {ev.baseSeverity}
                 {ev.debris && !ev.debris.lost && ev.debris.assetId ? (ev.debris.choice === 'burn' ? ', burned clear' : ', missed') : ''}{' '}
                 {ev.chainBonus > 0 ? `+ ${ev.chainBonus} chain ` : ''}
-                {ev.mitigation > 0 ? `- ${ev.mitigation} mitigated ` : ''}= {ev.effectiveSeverity} effective.
-                {ev.repairCost > 0 ? ` Repairs, due at the turn close: ${ev.repairCost} credits.` : ''}
+                {ev.mitigation > 0 ? `- ${ev.mitigation} blocked ` : ''}= {ev.effectiveSeverity} landed.
+                {ev.repairCost > 0 ? ` Repairs, due at the turn close: ${ev.repairCost} CR.` : ''}
               </p>
               {ev.notes.map((n, j) => (
                 <p key={j} className="text-sm mt-1">

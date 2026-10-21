@@ -8,7 +8,7 @@
 // buttons, and say ON or OFF as well as carrying it on aria-pressed (Ken,
 // 21 October 2026).
 
-import { SOUND_TOGGLE_LABELS } from '../brief'
+import { SOUND_TOGGLE_LABELS } from '../systemControls'
 import type { SoundPrefs } from '../../audio'
 import { SHEET_TOGGLE } from '../board/Sheet'
 

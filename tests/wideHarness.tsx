@@ -15,7 +15,6 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
-import { FIRST_TURN_DONE_KEY } from '../src/ui/firstTurn'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 import { NO_OP, WIN_SCRIPT } from './scripts'
@@ -77,7 +76,6 @@ export function installWideBoardHarness() {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     vi.useFakeTimers()
     vi.stubGlobal('localStorage', memoryStorage())
-    localStorage.setItem(FIRST_TURN_DONE_KEY, '1')
     media.wide = false
     media.listeners = []
     installMedia()
@@ -160,6 +158,7 @@ export function press(key: string, init: KeyboardEventInit = {}, target: EventTa
   })
   return e.defaultPrevented
 }
+// The dock (v1.3 R2), which kept the action bar's landmark.
 export const bar = () => container.querySelector('nav[aria-label="Actions"]')!
 export const execute = () => bar().querySelector('button[data-execute]') as HTMLButtonElement
 export const sheetOpen = (id: string) => container.querySelector(`[data-sheet="${id}"]`) !== null
@@ -184,4 +183,3 @@ export function playOut() {
   }
   expect(afterword(), 'tapping Next did not reach the aftermath').toBe(true)
 }
-export const chips = () => [...bar().querySelectorAll('[data-step]')].map((m) => m.textContent)

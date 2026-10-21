@@ -55,6 +55,7 @@ vi.mock('../src/ui/Constellation', () => ({
 import Game from '../src/ui/Game'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { gnssDenied, newGame, resolveTurn } from '../src/engine/reducer'
+import { eventById, planFor } from '../src/engine/rules'
 import { maiScore } from '../src/engine/scoring'
 import { RECAP_MAX, recapTechniques } from '../src/ui/cues/Scene'
 import { LOSS_LABEL } from '../src/ui/cues/defeat'
@@ -64,7 +65,8 @@ import { glossaryEntries } from '../src/ui/reference'
 import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
 import { newOperation } from '../src/ui/session'
 import { STRIKE_MS } from '../src/ui/board/strike'
-import { CHAIN_ARMED_LINE, DISCLOSURE_WORD_BUDGETS, JOB_FRAMING_HEADING, briefCopy, countWords, disclosureBlocks, jobFramingBlocks, postureDetailLines } from '../src/ui/brief'
+import { DISCLOSURE_WORD_BUDGETS, JOB_FRAMING_HEADING, briefCopy, countWords, disclosureBlocks, jobFramingBlocks } from '../src/ui/brief'
+import { FULL_BRIEF_OPEN, chainLine } from '../src/ui/board/boardModel'
 import type { AssetKind, GameState, TurnActions } from '../src/engine/types'
 import {
   CONDITION_CUES,
@@ -79,7 +81,7 @@ import {
   type BeatKind,
 } from '../src/director'
 import DirectorView from '../src/director/DirectorView'
-import { SOUND_TOGGLE_LABELS, chromeCopy } from '../src/ui/brief'
+import { SOUND_TOGGLE_LABELS, chromeCopy, firstInputCopy } from '../src/ui/brief'
 import { getAudioEngine, installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { CROSSING_SOUND } from '../src/ui/cues/Meter'
 import { FakeAudioContext, installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
@@ -246,24 +248,32 @@ async function settle() {
   })
 }
 
-// The credits readout's own span, which is where the flash class lands.
-function creditsSpan(): HTMLElement {
-  const el = container.querySelector('[aria-label^="Credits"]')
-  if (!el) throw new Error('the credits readout is not on screen')
+// The budget readout's own span on the HUD, which is where the flash class
+// lands. Since v1.3 R2 it shows the engine's balance, not the cart: an
+// order moves REMAINING on the dock and leaves this figure where it was,
+// so the player's own spend reaches it only when a turn plays out.
+function budgetSpan(): HTMLElement {
+  const el = container.querySelector('span[aria-label^="BUDGET"]')
+  if (!el) throw new Error('the budget readout is not on screen')
   return el as HTMLElement
 }
+const readBudget = () => Number(/BUDGET (-?\d+)/.exec(budgetSpan().getAttribute('aria-label') ?? '')?.[1] ?? NaN)
+// REMAINING on the dock: the balance less tonight's orders.
+function readRemaining(): number {
+  const el = container.querySelector('span[data-remaining]')
+  if (!el) throw new Error('the dock shows no REMAINING')
+  return Number(/REMAINING\s*(-?\d+)/.exec(el.textContent ?? '')?.[1] ?? NaN)
+}
 
-// THE BOARD'S CONTROLS (v1.2 R1; one sheet since v1.3 Round 0). The
-// numbered sections had one buy button per fleet tile; the board has a
-// PROCURE sheet behind a pinned action bar. Its first step holds ASSETS,
-// DEFENSES and INTEL, which were three sheets (PROCURE, HARDEN, INTEL)
-// until v1.3 Round 0 merged them, and an asset opens a confirm step that
-// carries its price: there is no tier step since D2 retired the tiers,
-// and an asset has one price. These drive the sheet the way
-// a thumb does, by the attributes it carries for exactly this, so the
-// tests above the board read the same as they did above the sections. A
-// test that renders at 'procure' lands with PROCURE already open, which is
-// what an autosave from that phase does too.
+// THE BOARD'S CONTROLS (v1.3 R2, brief 5.4). PROCURE is one sheet behind
+// the dock's PROCURE button, with ASSETS, DEFENSES and INTEL on it, and
+// every line on it is a toggle: a tap orders one, a second tap cancels it.
+// There is no confirm step and no refusal any more: an order the budget
+// cannot take is disabled on the sheet. These drive the sheet the way a
+// thumb does, by the attributes it carries for exactly this, so the tests
+// above the board read the same as they did above the sections. A test
+// that renders at 'procure' lands with PROCURE already open, which is what
+// an autosave from that phase does too.
 //
 // Each selector names its tag (v1.2 R2 fix, after CI run #19). jsdom's
 // selector engine answers a bare attribute selector by walking every
@@ -273,32 +283,43 @@ function creditsSpan(): HTMLElement {
 const sheetOpen = (id: string) => container.querySelector(`section[data-sheet="${id}"]`)
 function openSheet(label: 'PROCURE') {
   if (sheetOpen(label.toLowerCase())) return
-  const control = byText(new RegExp(`^${label}`))
+  const control = container.querySelector(`button[data-action="${label.toLowerCase()}"]`)
   if (!control) throw new Error(`no ${label} control on screen`)
   click(control)
 }
-// Walk the PROCURE sheet to its confirm step for one kind and return the
-// confirm control WITHOUT pressing it, since that press is what several
-// tests inspect. A sheet already on its confirm step (after a refusal) is
-// left there.
-function reachBuy(kind: AssetKind): HTMLButtonElement {
+// The PROCURE line for one asset kind, WITHOUT pressing it, since that
+// press is what several tests inspect.
+function procureKind(kind: AssetKind): HTMLButtonElement {
   openSheet('PROCURE')
-  const k = container.querySelector(`button[data-procure-kind="${kind}"]`)
-  if (k) click(k)
-  const confirm = container.querySelector('button[data-procure-buy]') as HTMLButtonElement | null
-  if (!confirm) throw new Error('the PROCURE sheet never reached its confirm step')
-  return confirm
+  const k = container.querySelector(`button[data-procure-kind="${kind}"]`) as HTMLButtonElement | null
+  if (!k) throw new Error(`PROCURE offers no ${kind}`)
+  return k
 }
+// Order one asset of a kind (a tap on a line already ordered would cancel
+// it, so an ordered line is left alone). Returns the line.
 function buy(kind: AssetKind): HTMLButtonElement {
-  const confirm = reachBuy(kind)
-  click(confirm)
-  return confirm
+  const k = procureKind(kind)
+  if (k.getAttribute('aria-pressed') !== 'true') click(k)
+  return k
 }
-// The checkboxes PROCURE's first step carries, by section: the defenses
-// (the IR retainer among them) and the intel order.
-const defenseBoxes = () => [...container.querySelectorAll('ul[data-procure-defenses] input[type="checkbox"]')] as HTMLInputElement[]
-const intelBox = () => container.querySelector('p[data-procure-intel] input[type="checkbox"]') as HTMLInputElement | null
-const isRetainer = (b: HTMLInputElement) => /Incident response retainer/i.test(b.closest('label')?.textContent ?? '')
+// The lines PROCURE carries, by section: the defenses (the IR retainer
+// among them) and the intel order, which is a button on a night the brief
+// is not free and a line of text on one it is.
+const defenseButtons = () => [...container.querySelectorAll('button[data-procure-defense]')] as HTMLButtonElement[]
+const intelButton = () => container.querySelector('button[data-procure-intel]') as HTMLButtonElement | null
+const isRetainer = (b: HTMLButtonElement) => b.getAttribute('data-procure-defense') === 'irRetainer'
+const pressed = (b: Element) => b.getAttribute('aria-pressed') === 'true'
+
+// The full brief behind the TONIGHT card's toggle, opened the way a player
+// opens it. It is its own chunk since v1.3 R2, so the open waits for the
+// import to settle, as the Glossary's does below.
+async function openFullBrief() {
+  const toggle = container.querySelector('button[data-full-brief]')
+  expect(toggle, 'the TONIGHT card has no full brief toggle').not.toBeNull()
+  if (toggle!.getAttribute('aria-expanded') !== 'true') click(toggle!)
+  await settle()
+  expect(container.querySelector('div[data-brief-scroll]'), 'the full brief did not open').not.toBeNull()
+}
 
 // THE COMMIT AND THE PLAYBACK (v1.3 Round 0, brief 5.5). EXECUTE is a
 // plain button that ends the turn on a click; the hold-to-resolve control
@@ -355,20 +376,79 @@ function dcClassed(): Element[] {
   }
   return out
 }
-// The dearest thing on offer, which a refusal drive buys until the cart
-// refuses: the RPO servicer, at the one price there is since the tiers
-// went.
-const DEAREST: AssetKind = 'rpoSat'
-// The control that moves on after a turn, on the action bar.
+// The control that moves on after a turn, on the dock.
 const NEXT_TURN = /^NEXT TURN|^FINAL REPORT/
 
 describe('the fixture renders the real campaign screen', () => {
   it('mounts a turn in progress without a browser', () => {
     render(gameAt(3))
-    expect(container.textContent, 'the HUD did not render').toMatch(/Credits/)
+    expect(container.querySelector('header[data-hud]'), 'the HUD did not render').not.toBeNull()
+    expect(container.textContent, 'the HUD did not render its budget').toMatch(/BUDGET/)
     expect(buttons().length, 'no controls rendered').toBeGreaterThan(0)
   })
 })
+
+// THE DECLARATION, driven through a whole turn. Search turns 1 to 8 for one
+// whose playback folds the player's order with a non-negative unchosen
+// part, and report the tone the budget took on the beat that moved it.
+// `order` places the order through the controls; the spend is read off
+// REMAINING, which is where an order shows while the player decides
+// (v1.3 R2: the HUD's budget is the engine's balance until the turn plays).
+function declarationSweep(order: () => void, sweep: 'playback' | 'skip') {
+  const attempt = (turn: number) => {
+    const state = gameAt(turn)
+    if (state.status !== 'playing') return null
+    render(state, 'procure')
+    const pre = readRemaining()
+    order()
+    const spend = pre - readRemaining()
+    if (spend <= 0) return null
+    const execute = executeControl()
+    if (!execute || execute.disabled) return null
+    const tone = () => {
+      const span = budgetSpan()
+      return /dc-flash-bad/.test(span.className) ? 'bad' : /dc-flash-good/.test(span.className) ? 'good' : 'neutral'
+    }
+    // The balance the HUD showed while the player decided, which is where
+    // the playback starts from: the fold can land on the very first beat.
+    const steps: { credits: number; tone: string }[] = [{ credits: readBudget(), tone: tone() }]
+    click(execute)
+    if (!inPlayback()) return null
+    if (sweep === 'skip') {
+      const beforeSkip = readBudget()
+      const skip = byText(/^Skip/i)
+      if (!skip) return null
+      click(skip)
+      act(() => {
+        vi.advanceTimersByTime(50)
+      })
+      if (inPlayback()) return null
+      const delta = readBudget() - beforeSkip
+      return { turn, spend, delta, unchosen: delta + spend, tone: tone() }
+    }
+    // EXECUTE commits on a tap since v1.3 Round 0, and the playback is
+    // tapped through beat by beat, sampled between the strike's steps.
+    const sample = () => {
+      if (!container.querySelector('span[aria-label^="BUDGET"]')) return
+      steps.push({ credits: readBudget(), tone: tone() })
+    }
+    sample()
+    playOut(sample)
+    const moved = steps.findIndex((st, i) => i > 0 && st.credits !== steps[i - 1].credits)
+    if (moved <= 0) return null
+    const delta = steps[moved].credits - steps[moved - 1].credits
+    return { turn, spend, delta, unchosen: delta + spend, tone: steps[moved].tone }
+  }
+  const tried: string[] = []
+  let found: ReturnType<typeof attempt> = null
+  for (let turn = 1; turn <= 8 && !found; turn += 1) {
+    const r = attempt(turn)
+    if (!r) continue
+    tried.push(`turn ${r.turn}: moved ${r.delta} with ${r.spend} chosen, unchosen ${r.unchosen}`)
+    if (r.unchosen >= 0) found = r
+  }
+  return { found, tried }
+}
 
 describe('the declaration chain, asserted by execution', () => {
   // The chain runs Director to DirectorView to Game to Readout to the pure
@@ -377,19 +457,23 @@ describe('the declaration chain, asserted by execution', () => {
   // all green. It was pinned by four regular expressions over two source
   // files, and named the highest-risk of the eight because of it.
   //
-  // What it protects: spending credits is a decision, not damage. Playback
-  // folds the player's own purchase into the next visible beat, so without
-  // the declaration reaching the readout ungated, every turn in which the
+  // What it protects: spending is a decision, not damage. Playback folds
+  // the player's own purchase into the next visible beat, so without the
+  // declaration reaching the readout ungated, every turn in which the
   // player bought anything paints the spend in the damage colour.
   it('does not paint the player-s own spend as damage', () => {
     const state = gameAt(2)
     render(state, 'procure')
-    // Buy the cheapest thing on offer.
+    const before = budgetSpan().getAttribute('aria-label')
+    const remaining = readRemaining()
+    // Order the cheapest thing on offer.
     buy('sat')
-    // The ticker shows the cart during procurement, so the number falls.
-    // It must not carry the damage colour: the fall is the player's own.
-    expect(creditsSpan().className, 'a purchase was painted as damage').not.toMatch(/dc-flash-bad/)
-    expect(creditsSpan().className, 'a purchase was painted as a gain').not.toMatch(/dc-flash-good/)
+    // The order shows on REMAINING; the HUD's budget is the balance and
+    // holds still while the player decides (v1.3 R2, QC G-102).
+    expect(readRemaining(), 'the order did not reach REMAINING').toBeLessThan(remaining)
+    expect(budgetSpan().getAttribute('aria-label'), 'the HUD budget moved with the cart, which R2 retired').toBe(before)
+    expect(budgetSpan().className, 'a purchase was painted as damage').not.toMatch(/dc-flash-bad/)
+    expect(budgetSpan().className, 'a purchase was painted as a gain').not.toMatch(/dc-flash-good/)
   })
 
   it('carries the declaration through a real playback, beat by beat', () => {
@@ -401,51 +485,7 @@ describe('the declaration chain, asserted by execution', () => {
     // damage either way. The fixture searches for a turn whose fold is the
     // purchase and nothing else, and fails if it finds none, so it can
     // never quietly stand on a blind turn and report success.
-    const attempt = (turn: number) => {
-      const state = gameAt(turn)
-      if (state.status !== 'playing') return null
-      render(state, 'procure')
-      const read = () => Number(/Credits (\d+)/.exec(creditsSpan().getAttribute('aria-label') ?? '')?.[1] ?? 0)
-      const beforeBuy = read()
-      buy('sat')
-      const spend = beforeBuy - read()
-      if (spend <= 0) return null
-
-      // EXECUTE commits on a tap since v1.3 Round 0, and the playback is
-      // tapped through beat by beat, sampled between the strike's steps.
-      const execute = executeControl()
-      if (!execute) return null
-      click(execute)
-
-      const steps: { credits: number; bad: boolean; good: boolean }[] = []
-      const sample = () => {
-        const el = container.querySelector('[aria-label^="Credits"]')
-        if (el) {
-          const m = /Credits (\d+)/.exec(el.getAttribute('aria-label') ?? '')
-          steps.push({
-            credits: m ? Number(m[1]) : -1,
-            bad: /dc-flash-bad/.test(el.className),
-            good: /dc-flash-good/.test(el.className),
-          })
-        }
-      }
-      sample()
-      playOut(sample)
-      const moved = steps.findIndex((st, i) => i > 0 && st.credits !== steps[i - 1].credits)
-      if (moved <= 0) return null
-      const delta = steps[moved].credits - steps[moved - 1].credits
-      const tone = steps[moved].bad ? 'bad' : steps[moved].good ? 'good' : 'neutral'
-      return { turn, spend, delta, unchosen: delta + spend, tone }
-    }
-
-    const tried: string[] = []
-    let found: ReturnType<typeof attempt> = null
-    for (let turn = 1; turn <= 8 && !found; turn += 1) {
-      const r = attempt(turn)
-      if (!r) continue
-      tried.push(`turn ${r.turn}: moved ${r.delta} with ${r.spend} chosen, unchosen ${r.unchosen}`)
-      if (r.unchosen >= 0) found = r
-    }
+    const { found, tried } = declarationSweep(() => buy('sat'), 'playback')
     expect(
       found,
       `no turn in the sweep folds a purchase with a non-negative unchosen part, so none of them can tell a working declaration from a severed one. Tried:\n${tried.join('\n')}`,
@@ -457,7 +497,7 @@ describe('the declaration chain, asserted by execution', () => {
     const expected = found!.unchosen > 0 ? 'good' : 'neutral'
     expect(
       found!.tone,
-      `turn ${found!.turn}: credits moved ${found!.delta} with ${found!.spend} of it chosen, so the unchosen part is ${found!.unchosen}`,
+      `turn ${found!.turn}: the budget moved ${found!.delta} with ${found!.spend} of it chosen, so the unchosen part is ${found!.unchosen}`,
     ).toBe(expected)
   })
 })
@@ -472,21 +512,26 @@ describe('the declaration covers the defenses as well as the assets', () => {
     // flashing magenta and ticking down like damage, with the suite green.
     //
     // Since v1.3 Round 0 the defenses are ordered in PROCURE beside the
-    // assets, through their own control (a checkbox, not the asset
-    // confirm). The 'harden' phase left the save format with its sheet in
-    // the same round (a save that carries it is refused as stale), so the
-    // arrival rendered here is the 'procure' one, which opens the sheet
-    // the defenses now live on.
-    render(gameAt(3), 'procure')
-    expect(sheetOpen('procure'), 'a procurement-phase arrival did not open PROCURE').not.toBeNull()
-    const before = creditsSpan().getAttribute('aria-label')
-    const box = defenseBoxes().find((b) => !b.disabled && !b.checked)
-    expect(box, 'PROCURE offered no defense to order').toBeDefined()
-    act(() => {
-      box!.click()
-    })
-    expect(creditsSpan().getAttribute('aria-label'), 'the defense order did not move the ticker').not.toBe(before)
-    expect(creditsSpan().className, 'a defense order was painted as damage').not.toMatch(/dc-flash-bad/)
+    // assets, through their own lines. Since v1.3 R2 an order no longer
+    // moves the HUD's budget while the player decides, so the defense
+    // order is carried through the playback that folds it, as the asset
+    // buy is above: the same sweep, with a defense as the order.
+    const orderDefense = () => {
+      openSheet('PROCURE')
+      const line = defenseButtons().find((b) => !b.disabled && !pressed(b))
+      expect(line, 'PROCURE offered no defense to order').toBeDefined()
+      click(line!)
+    }
+    const { found, tried } = declarationSweep(orderDefense, 'playback')
+    expect(
+      found,
+      `no turn in the sweep folds a defense order with a non-negative unchosen part. Tried:\n${tried.join('\n')}`,
+    ).not.toBeNull()
+    const expected = found!.unchosen > 0 ? 'good' : 'neutral'
+    expect(
+      found!.tone,
+      `turn ${found!.turn}: a defense order of ${found!.spend} folded into a ${found!.delta} move was painted ${found!.tone}`,
+    ).toBe(expected)
   })
 })
 
@@ -504,45 +549,7 @@ describe('the declaration survives leaving playback early', () => {
     // completion test does: on most turns the remainder carries a repair
     // bill too, so the tone reads as damage whether or not the declaration
     // survived, and the assertion would prove nothing.
-    const attempt = (turn: number) => {
-      const state = gameAt(turn)
-      if (state.status !== 'playing') return null
-      render(state, 'procure')
-      const read = () => Number(/Credits (\d+)/.exec(creditsSpan().getAttribute('aria-label') ?? '')?.[1] ?? 0)
-      const pre = read()
-      buy('sat')
-      const spend = pre - read()
-      if (spend <= 0) return null
-      const execute = executeControl()
-      if (!execute) return null
-      click(execute)
-      if (!inPlayback()) return null
-      const beforeSkip = read()
-      const skip = byText(/^Skip/i)
-      if (!skip) return null
-      click(skip)
-      act(() => {
-        vi.advanceTimersByTime(50)
-      })
-      if (inPlayback()) return null
-      const delta = read() - beforeSkip
-      const span = creditsSpan()
-      const tone = /dc-flash-bad/.test(span.className)
-        ? 'bad'
-        : /dc-flash-good/.test(span.className)
-          ? 'good'
-          : 'neutral'
-      return { turn, spend, delta, unchosen: delta + spend, tone }
-    }
-
-    const tried: string[] = []
-    let found: ReturnType<typeof attempt> = null
-    for (let turn = 1; turn <= 8 && !found; turn += 1) {
-      const r = attempt(turn)
-      if (!r) continue
-      tried.push(`turn ${r.turn}: skipped out on a ${r.delta} move with ${r.spend} chosen, unchosen ${r.unchosen}`)
-      if (r.unchosen >= 0) found = r
-    }
+    const { found, tried } = declarationSweep(() => buy('sat'), 'skip')
     expect(
       found,
       `no turn lets the player skip out onto a non-negative unchosen part, so none can tell a surviving declaration from a cleared one. Tried:\n${tried.join('\n')}`,
@@ -550,7 +557,7 @@ describe('the declaration survives leaving playback early', () => {
     const expected = found!.unchosen > 0 ? 'good' : 'neutral'
     expect(
       found!.tone,
-      `turn ${found!.turn}: skipping out moved credits ${found!.delta} with ${found!.spend} of it chosen`,
+      `turn ${found!.turn}: skipping out moved the budget ${found!.delta} with ${found!.spend} of it chosen`,
     ).toBe(expected)
   })
 })
@@ -602,6 +609,10 @@ describe('the procurement sounds, asserted by execution', () => {
     // version of this guard pressed one control and asserted only that
     // SOME sound happened, which cannot tell buy-click from the refusal
     // buzz. Identified by pitch now, since that is what reaches the graph.
+    //
+    // Turn 3 because its intel brief is not free, so both of the brief's
+    // controls (PROCURE's INTEL line and the TONIGHT card's intel row) are
+    // live and each is pressed.
     const state = gameAt(3)
     render(state, 'procure')
     const engine = getAudioEngine()
@@ -618,45 +629,45 @@ describe('the procurement sounds, asserted by execution', () => {
     const buyVoice = fingerprint('buy-click')
     const denyVoice = fingerprint('denied-buzz')
     expect(buyVoice, 'the two voices are indistinguishable, so this proves nothing').not.toEqual(denyVoice)
-
-    const pressed: string[] = []
-    // Call site one: a fleet buy, through the PROCURE sheet's confirm.
-    const confirm = reachBuy('sat')
-    ctx().reset()
-    click(confirm)
-    expect(ctx().oscillators().map((o) => o.frequency.first()), 'the fleet buy did not sound the buy voice').toEqual(
-      buyVoice,
-    )
-    pressed.push('fleet buy')
-
-    // Call site two: taking it back out again, which is the same control.
-    const remove = byText(/^Remove$|^remove$/i) ?? buttons().find((b) => /remove/i.test(b.textContent ?? ''))
-    if (remove) {
+    const voiced = (what: string, press: () => void) => {
       ctx().reset()
-      click(remove)
-      expect(
-        ctx().oscillators().map((o) => o.frequency.first()),
-        'removing from the cart did not sound the buy voice',
-      ).toEqual(buyVoice)
-      pressed.push('remove')
+      press()
+      expect(ctx().oscillators().map((o) => o.frequency.first()), `${what} did not sound the buy voice`).toEqual(buyVoice)
+      done.push(what)
     }
 
-    // Call site three: the intel upgrade, a different control entirely,
-    // in PROCURE's INTEL section since v1.3 Round 0 (its own sheet on the
-    // v1.2 board).
+    const done: string[] = []
+    // Call site one: a fleet order, a tap on its PROCURE line.
+    const sat = procureKind('sat')
+    expect(pressed(sat), 'the fixture already ordered a sat').toBe(false)
+    voiced('the fleet order', () => click(sat))
+    expect(pressed(sat), 'the tap did not order the sat').toBe(true)
+
+    // Call site two: taking it back out again, a second tap on the same
+    // line (removeAsset since v1.3 R2).
+    voiced('cancelling the order on its line', () => click(sat))
+    expect(pressed(sat), 'the second tap did not cancel the order').toBe(false)
+
+    // The same cancel from the board: the queued tile on the asset strip,
+    // which is a different control on the same handler.
+    click(sat)
+    const queued = container.querySelector('button[data-queued="sat"]')
+    expect(queued, 'the ordered sat put no queued tile on the strip').not.toBeNull()
+    voiced('cancelling the order from the strip', () => click(queued!))
+    expect(container.querySelector('button[data-queued="sat"]'), 'the strip tile did not cancel the order').toBeNull()
+
+    // Call site three: the intel brief, a different control entirely, in
+    // PROCURE's INTEL section since v1.3 Round 0 (its own sheet on the
+    // v1.2 board), and on the TONIGHT card's intel row since v1.3 R2.
     openSheet('PROCURE')
-    const intel = intelBox()
-    if (intel && !intel.disabled) {
-      ctx().reset()
-      act(() => {
-        intel.click()
-      })
-      expect(
-        ctx().oscillators().map((o) => o.frequency.first()),
-        'the intel upgrade did not sound the buy voice',
-      ).toEqual(buyVoice)
-      pressed.push('intel')
-    }
+    const intel = intelButton()
+    expect(intel, 'the intel brief is free tonight, so its order goes unheard').not.toBeNull()
+    voiced('the intel brief in PROCURE', () => click(intel!))
+    expect(pressed(intel!), 'the tap did not order the brief').toBe(true)
+    const row = container.querySelector('button[data-brief-toggle]')
+    expect(row, 'the TONIGHT card has no intel row').not.toBeNull()
+    voiced('the intel row on the TONIGHT card', () => click(row!))
+    expect(pressed(intelButton()!), 'the intel row did not cancel the brief').toBe(false)
 
     // Call sites four and five lived in the HARDENING phase, which the
     // first render never reached. Two of the five were therefore still
@@ -665,229 +676,135 @@ describe('the procurement sounds, asserted by execution', () => {
     // countermeasure purchase with the suite green. On the v1.2 board both
     // were the HARDEN sheet (the IR retainer was the INTEL sheet's second
     // step until critique row M8 moved it there); since v1.3 Round 0 both
-    // are PROCURE's DEFENSES section, on the step already open.
-    const counter = defenseBoxes().find((b) => !b.disabled && !b.checked && !isRetainer(b))
+    // are PROCURE's DEFENSES section.
+    const counter = defenseButtons().find((b) => !b.disabled && !pressed(b) && !isRetainer(b))
     expect(counter, 'PROCURE offered no defense').toBeDefined()
-    ctx().reset()
-    act(() => {
-      counter!.click()
-    })
-    expect(
-      ctx().oscillators().map((o) => o.frequency.first()),
-      'a countermeasure purchase did not sound the buy voice',
-    ).toEqual(buyVoice)
-    pressed.push('countermeasure')
+    voiced('a countermeasure order', () => click(counter!))
 
-    const retainer = defenseBoxes().find(isRetainer)
+    const retainer = defenseButtons().find(isRetainer)
     expect(retainer, 'the retainer is not among the defenses').toBeDefined()
     expect(retainer!.disabled, 'the fixture already owns the retainer, so its voice goes unheard').toBe(false)
-    if (retainer && !retainer.disabled && !retainer.checked) {
-      ctx().reset()
-      act(() => {
-        retainer.click()
-      })
-      expect(
-        ctx().oscillators().map((o) => o.frequency.first()),
-        'the retainer did not sound the buy voice',
-      ).toEqual(buyVoice)
-      pressed.push('retainer')
+    voiced('the retainer', () => click(retainer!))
+
+    expect(done.length, `only pressed ${done.join(', ')}`).toBe(7)
+  })
+})
+
+// THE REFUSAL, since v1.3 R2. The cannot-afford cue (the tile's shake,
+// the spend line's flash and the buzz) left with the two-step sheet:
+// PROCURE turns off an order it cannot afford instead of refusing it on a
+// tap (brief 5.4). What the retired shake guards protected still applies,
+// in the form the sheet allows: the control that cannot be afforded is
+// the one that says so, and only it. A sheet that greyed out every line
+// at once, or none, or keyed off the cart rather than the price of the
+// line, is the mis-attribution those guards existed to prevent.
+//
+// Checks every order line on the open sheet against REMAINING: a line
+// not yet ordered (and not owned, and not arriving after the last turn) is
+// off exactly when its price is more than REMAINING. Returns the ids the
+// budget turned off, so a caller can say which ones it needs refused.
+function affordGate(label: string): string[] {
+  const left = readRemaining()
+  const refused: string[] = []
+  const lines = [
+    ...[...container.querySelectorAll('button[data-procure-kind]')].map((b) => [b, b.getAttribute('data-procure-kind')!] as const),
+    ...defenseButtons().map((b) => [b, b.getAttribute('data-procure-defense')!] as const),
+    ...(intelButton() ? [[intelButton()!, 'intel'] as const] : []),
+  ] as (readonly [HTMLButtonElement, string])[]
+  for (const [b, id] of lines) {
+    if (pressed(b)) continue
+    if (/Arrives after the last turn/.test(b.textContent ?? '')) {
+      expect(b.disabled, `${label}: ${id} arrives too late and is still offered`).toBe(true)
+      continue
     }
-
-    expect(
-      pressed.length,
-      `only pressed ${pressed.join(', ')}; the old pin already covered one, and two of the five are defense orders`,
-    ).toBeGreaterThanOrEqual(4)
-  })
-})
-
-describe('the cannot-afford cue, asserted by execution', () => {
-  it('shakes the tile, flashes the spend line and buzzes when the cart cannot take it', () => {
-    // Pinned before by reading Game.tsx for the class names. The cue is
-    // three channels at once and the point is that they fire together.
-    const broke: GameState = { ...gameAt(2), credits: 1 }
-    render(broke, 'procure')
-    const buy = reachBuy('sat')
-    act(() => {
-      buy.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
-    })
-    const before = ctx() ? ctx().startedCount() : 0
-    const balanceBefore = creditsSpan().getAttribute('aria-label')
-    click(buy)
-    // Scoped to the elements that own each channel. Asked container-wide
-    // at first, which proved only that the nonce fired once: both classes
-    // hang off the same nonce, so moving the flash onto the tile beside
-    // the shake left both queries satisfied while the spend line never
-    // flashed, and the failure message named an element nothing inspected.
-    const tile = buy.closest('.dc-tile') ?? buy
-    expect(tile.className, 'the refused tile did not shake').toMatch(/dc-shake/)
-    // The spend line is identified by WHAT IT IS, not by what it is not.
-    // Scoped negatively at first ("some paragraph carrying the flash that
-    // is not an ancestor of the pressed button"), which any other
-    // paragraph on the screen satisfies: moving the flash onto the intel
-    // tile left the budget line silent on every refusal and passed.
-    const spendLine = [...container.querySelectorAll('p')].find((el) => /Planned spend/i.test(el.textContent ?? ''))
-    expect(spendLine, 'the planned-spend line is not on screen').toBeDefined()
-    expect(spendLine!.className, 'the spend line did not flash').toMatch(/dc-flash-bad/)
-    expect(spendLine!.contains(buy), 'the spend line and the tile are the same element').toBe(false)
-    expect(ctx().startedCount(), 'the refusal was silent').toBeGreaterThan(before)
-    // And nothing was added to the cart: a cue that fired alongside a
-    // successful buy would be a different bug wearing the same clothes.
-    expect(creditsSpan().getAttribute('aria-label'), 'the refusal still took the credits').toBe(balanceBefore)
-  })
-})
+    const price = Number(/\+ ADD · (\d+) CR/.exec(b.textContent ?? '')?.[1] ?? NaN)
+    expect(Number.isNaN(price), `${label}: ${id} shows no price`).toBe(false)
+    expect(b.disabled, `${label}: ${id} at ${price} CR against ${left} remaining`).toBe(price > left)
+    if (b.disabled) refused.push(id)
+  }
+  return refused
+}
 
 describe('every refusable control answers for its own refusal', () => {
-  it('shakes the control the player actually touched, not just the fleet tiles', () => {
-    // afford() is called with four tile ids, and only two of them were
-    // ever matched in the tree: a refused intel upgrade or IR retainer
-    // buzzed and flashed the spend line while the control the player
-    // touched sat still, so the refusal was not attributable to it. The
-    // brief's shake-flash row is three channels; those two had two.
-    // The cart is filled to force the refusal rather than the credits
-    // zeroed, which is how a player actually reaches this. (Through v1.2
-    // the budget was credits PLUS the turn's income, so zeroing was not
-    // even enough; funding arrives at the close since v1.3 Round 0.)
-    //
-    // Since the board (v1.2 R1) the fleet buy's refusal is no longer on
-    // screen when the intel control is examined. The intel control had a
-    // sheet of its own on the v1.2 board; since v1.3 Round 0 it sits on
-    // PROCURE's first step, while the refused fleet buy stays on the
-    // confirm step, so the player steps back to reach it. The exclusivity
-    // claim is kept in the form the board allows, that a refusal elsewhere
-    // leaves this control still, and the attribution claim, that the
-    // control touched is the one that shakes, is as it was.
-    // The cart is filled with sats, as the numbered layout's first tile
-    // was, so what is left is less than the intel brief.
-    //
-    // Turn 2 since v1.3 Round 0. The budget is the balance alone now
-    // (funding arrives at the close), and the turn has to leave less than
-    // the brief's 8 CR once the sats fill it: on this line turn 3 opens on
-    // 103 CR, three sats leave 13 and the brief is simply bought, while
-    // turn 2 opens on 91 and three sats leave 1. Turn 1 cannot serve,
-    // because its brief is free and its control is disabled. The leftover
-    // is asserted below, so a retuned price fails here by name.
+  it('turns off the intel brief the filled budget cannot take, and only what it cannot take', () => {
+    // The intel brief was the second refusable control the retired guard
+    // covered, after the fleet tiles. Turn 2 since v1.3 Round 0: turn 1's
+    // brief is free, so it has no control to refuse.
     render(gameAt(2), 'procure')
-    for (let i = 0; i < 12; i += 1) {
-      buy('sat')
-      if (container.querySelector('.dc-shake')) break
+    expect(affordGate('nothing ordered'), 'the empty cart already refused something').toEqual([])
+    // Fill the budget the way a player does, the fleet first and then the
+    // defenses in the order the sheet lists them, until nothing more fits.
+    for (const kind of ['sat', 'groundStation', 'drone'] as AssetKind[]) {
+      const k = procureKind(kind)
+      if (!k.disabled) click(k)
     }
-    expect(container.querySelector('.dc-shake'), 'the loop did not leave a refusal on screen').not.toBeNull()
-    const planned = /Planned spend: (\d+) of (\d+)/.exec(container.textContent ?? '')
-    expect(planned, 'the spend line is not on screen').not.toBeNull()
+    for (const b of defenseButtons()) if (!b.disabled && !pressed(b) && !isRetainer(b)) click(b)
+    const refused = affordGate('a filled cart')
+    expect(refused.length, 'the filled cart refused nothing, so the gate was never exercised').toBeGreaterThan(0)
     expect(
-      Number(planned![2]) - Number(planned![1]),
-      'the filled cart still covers the intel brief, so its refusal is never reached',
-    ).toBeLessThan(DEFAULT_SCENARIO.prices.intelBrief)
-    const back = container.querySelector('button[aria-label="Back a step"]')
-    expect(back, 'the refused confirm step offers no way back to the first step').not.toBeNull()
-    click(back!)
-    const intel = intelBox()
-    expect(intel, 'the intel brief is not on screen').not.toBeNull()
-    expect(intel!.disabled, 'the intel brief is free tonight, so it cannot be refused').toBe(false)
-    // EXCLUSIVITY: a refusal on the fleet buy must not have left this
-    // control shaking. Without this the tile could key off
-    // `denied !== null` and shake for every refusal anywhere, which is the
-    // mis-attribution the fix exists to prevent.
-    const before = intel!.closest('.dc-tile')
-    expect(before, 'the intel brief is not on a tile that can carry a cue').not.toBeNull()
-    expect(before!.className, 'the intel tile shook for a refusal on a different control').not.toMatch(/dc-shake/)
-    act(() => {
-      intel!.click()
-    })
-    // A second refusal replays the same animation, and useCueClass drops
-    // the class for RESTART_GAP_MS first so the browser will restart it.
-    // Without advancing past that gap the class is legitimately absent and
-    // the assertion below reads a frame that never reaches a player.
-    act(() => {
-      vi.advanceTimersByTime(40)
-    })
-    const tile = intel!.closest('.dc-tile')
-    expect(tile, 'the intel brief is not on a tile that can carry a cue').not.toBeNull()
-    expect(tile!.className, 'a refused intel brief did not shake').toMatch(/dc-shake/)
-    expect(intel!.checked, 'the refusal still bought it').toBe(false)
-    // And the shake is on the intel tile specifically, not inherited from
-    // the fleet tile that filled the cart.
-    // The colour channel too, because the shake is motion and a
-    // reduced-motion player never sees it. Carried by the shake alone at
-    // first, so the fix reached nobody with the preference set.
-    expect(tile!.className, 'the refused tile has no channel that survives reduced motion').toMatch(
-      /border-hero-magenta/,
-    )
+      refused,
+      `the filled cart still covers the intel brief (${readRemaining()} CR left), so its refusal is never reached`,
+    ).toContain('intel')
+    // A tap on the refused control orders nothing.
+    const before = readRemaining()
+    click(intelButton()!)
+    expect(pressed(intelButton()!), 'the refused brief was still ordered').toBe(false)
+    expect(readRemaining(), 'the refused brief still took the budget').toBe(before)
+    // And cancelling an order gives the room back, so the gate follows the
+    // budget rather than latching.
+    const ordered = defenseButtons().find((b) => pressed(b) && !b.disabled)
+    expect(ordered, 'nothing ordered to cancel').toBeDefined()
+    click(ordered!)
+    affordGate('after a cancel')
   })
 
-  it('shakes the retainer tile too, which sits among the defenses', () => {
+  it('turns off the retainer too, which sits among the defenses', () => {
     // The IR retainer is the fourth refusable id and the only one that
-    // lived in the hardening phase. Guarding the intel tile alone left
-    // this one's fix unguarded, which a mutation showed. It was a HARDEN
-    // tile since critique row M8 (the INTEL sheet's second step before
-    // that), and since v1.3 Round 0 it is one of PROCURE's DEFENSES; the
-    // budget is filled with the other defenses in that section first, as
-    // it was through the hardening phase.
+    // lived in the hardening phase. Guarding the intel control alone left
+    // this one unguarded, which a mutation showed. Since v1.3 Round 0 it is
+    // one of PROCURE's DEFENSES, and the budget is filled with the other
+    // defenses in that section first.
     //
-    // Turn 1 since v1.3 Round 0, measured: the budget is the balance
-    // alone, and on this line turn 3 opens on 103 CR owning three
-    // defenses, so the other seven (71 CR) never fill it and the retainer
-    // is simply bought. Turn 1 owns none, and the other ten cost 103
-    // against 100, so the last of them refuses with 5 CR left, under the
+    // Turn 1, measured: on this line it owns no defense, and the other ten
+    // cost 103 against 100, so the fill stops with less left than the
     // retainer's price. The refusal is asserted, so this cannot pass on a
     // budget that never filled.
     render(gameAt(1), 'brief')
     openSheet('PROCURE')
-    // Fill the budget with the other countermeasures until one refuses.
-    for (const box of defenseBoxes()) {
-      if (box.disabled || box.checked || isRetainer(box)) continue
-      act(() => {
-        box.click()
-      })
-      if (container.querySelector('.dc-shake')) break
-    }
-    expect(container.querySelector('.dc-shake'), 'the other defenses never filled the budget').not.toBeNull()
-    const retainer = defenseBoxes().find(isRetainer)
-    expect(retainer, 'the retainer is not on screen').toBeDefined()
-    expect(retainer!.disabled, 'the retainer is already active, so it cannot be refused').toBe(false)
-    const before = retainer!.closest('.dc-tile')
-    expect(before, 'the retainer is not on a tile that can carry a cue').not.toBeNull()
-    expect(before!.className, 'the retainer shook for a refusal on a different control').not.toMatch(/dc-shake/)
-    act(() => {
-      retainer!.click()
-    })
-    act(() => {
-      vi.advanceTimersByTime(40)
-    })
-    const tile = retainer!.closest('.dc-tile')
-    expect(tile!.className, 'a refused retainer did not shake').toMatch(/dc-shake/)
-    expect(tile!.className, 'the refused retainer has no channel that survives reduced motion').toMatch(
-      /border-hero-magenta/,
-    )
-    expect(retainer!.checked, 'the refusal still bought it').toBe(false)
+    const retainer = () => defenseButtons().find(isRetainer)!
+    expect(retainer(), 'the retainer is not on screen').toBeDefined()
+    expect(retainer().disabled, 'the retainer is off before anything was ordered').toBe(false)
+    for (const b of defenseButtons()) if (!b.disabled && !pressed(b) && !isRetainer(b)) click(b)
+    const refused = affordGate('the other defenses ordered')
+    expect(refused, `the other defenses never filled the budget (${readRemaining()} CR left)`).toContain('irRetainer')
+    click(retainer())
+    expect(pressed(retainer()), 'the refused retainer was still ordered').toBe(false)
   })
 })
 
 describe('the chrome the reading budget counts, asserted by execution', () => {
-  it('renders every control the bound claims to cover', () => {
-    // reading-diet.spec.ts bounds chromeCopy and pins its strings against
-    // Game.tsx as text, which cannot tell a rendered control from one
-    // inside a branch nothing reaches. The first version of this guard
-    // hand-copied seven of the twelve entries, so it had the same blind
-    // spot for the other five: wrapping the Posture detail disclosure in
-    // `{false && ...}` kept charging its words against the budget and
-    // passed both guards.
-    //
-    // Derived from chromeCopy itself now, so a control added to the count
-    // is a control this has to find on screen.
-    const state = gameAt(3)
+  // reading-diet.spec.ts bounds chromeCopy and firstInputCopy, which are
+  // module return values, and nothing there can tell a rendered line from
+  // one inside a branch nothing reaches. The first version of this guard
+  // hand-copied seven of the twelve entries, so it had the same blind
+  // spot for the other five: wrapping the Posture detail disclosure in
+  // `{false && ...}` kept charging its words against the budget and
+  // passed both guards.
+  //
+  // Derived from the two lists themselves, so a line added to the count is
+  // a line this has to find on the deciding board. Turns 1, 2 and 3 cover
+  // FIRST ORDERS, SECOND ORDERS and a paid brief night with its intel row.
+  const missingOn = (state: GameState, lines: string[]) => {
     render(state, 'brief')
     const text = container.textContent ?? ''
-    const missing: string[] = []
-    for (const line of chromeCopy(state)) {
-      // The transmission label is rendered by the teletype bar as its own
-      // entity, so it is matched by shape below rather than by exact
-      // string. (The numbered section heading left with the board.)
-      if (line.startsWith('>')) continue
-      if (!text.includes(line)) missing.push(line)
+    return lines.filter((line) => !text.includes(line))
+  }
+
+  it('renders every control the bound claims to cover', () => {
+    for (const turn of [1, 2, 3]) {
+      const state = gameAt(turn)
+      expect(missingOn(state, chromeCopy(state)).join(', '), `turn ${turn}: chrome charges the budget for controls the screen does not render`).toBe('')
     }
-    expect(missing.join(', '), 'chrome charges the budget for controls the screen does not render').toBe('')
-    expect(text).toContain('INCOMING TRANSMISSION_')
     // The count itself, so this cannot pass by chromeCopy shrinking.
     // Eighteen since v1.2 R1: the five action-bar labels and the playback
     // speed control joined the first screen, the heading and the phase
@@ -901,7 +818,33 @@ describe('the chrome the reading budget counts, asserted by execution', () => {
     // Eleven since v1.3 Round 0: HARDEN, INTEL and SURGE left the bar with
     // their three labels and three step numbers, and the commit's label
     // became "Execute turn n", one line as its hold instruction was.
-    expect(chromeCopy(state).length, 'the chrome list changed size without this guard noticing').toBe(11)
+    // Fourteen on turn 3 since v1.3 R2, which rebuilt the list from the new
+    // board: the HUD's two labels and SYSTEM, the full brief's toggle, one
+    // "reveal ›" for each of the night's five unnamed moves, the brief's
+    // price button, and the dock's REMAINING, WORST CASE, PROCURE and
+    // EXECUTE.
+    expect(chromeCopy(gameAt(3)).length, 'the chrome list changed size without this guard noticing').toBe(14)
+  })
+
+  it('renders every reading line the first-input budget counts', () => {
+    // The same join for the reading: every line firstInputCopy charges
+    // against FIRST_INPUT_WORD_BUDGET is on the deciding board, so the
+    // budget measures the screen rather than a list beside it.
+    for (const turn of [1, 2, 3]) {
+      const state = gameAt(turn)
+      expect(missingOn(state, firstInputCopy(state)).join(' | '), `turn ${turn}: the reading budget counts lines the board does not render`).toBe('')
+    }
+    // And with an order placed, which changes what the TONIGHT card and
+    // the orders card say (a brief ordered names the moves).
+    const state = gameAt(3)
+    render(state, 'brief')
+    click(container.querySelector('button[data-brief-toggle]')!)
+    const text = container.textContent ?? ''
+    const ordered = { buyAssets: [], buyCounters: [], intelBrief: true }
+    expect(
+      firstInputCopy(state, ordered).filter((line) => !text.includes(line)).join(' | '),
+      'with the brief ordered, the reading budget counts lines the board does not render',
+    ).toBe('')
   })
 })
 
@@ -2017,10 +1960,10 @@ describe('the save code is on the screen, not only on the clipboard', () => {
 // slot is a draw, so turn 1 carries no tag although its brief is free; the
 // fixed slots are turn 4's conjunction and turn 6's chain. The screen
 // arrives with nothing in the cart, so the search asks briefCopy what the
-// banner shows on arrival (briefed only when the brief is free tonight),
+// full brief shows on arrival (briefed only when the brief is free tonight),
 // not what it would show if the brief were ordered. The search as v1.2
 // left it passed a truthy string as `briefed`, which asks the latter, and
-// returned a turn whose banner carried no tag. A free brief on a fixed
+// returned a turn whose brief carried no tag. A free brief on a fixed
 // turn needs the data share, which is a draw, so the seeds searched run on
 // past the four named ones (seed 11 is the first that has it today).
 function turnWithATag(): GameState {
@@ -2040,11 +1983,15 @@ describe('the technique tag opens the GLOSSARY entry', () => {
   // twice and Glossary.tsx has existed since Round 3.5; the audit called
   // it brief-stale and was wrong, because no ruling in eighteen versions
   // reversed it.
+  //
+  // Since v1.3 R2 the tag sits in the full brief behind the TONIGHT card's
+  // toggle, so each test opens it first, as a player does.
   const tag = () => container.querySelector('[data-technique-tag]') as HTMLElement | null
   const overlay = () => container.querySelector('[data-glossary-overlay]')
 
   it('opens the glossary in place, without leaving the game', async () => {
     render(turnWithATag(), 'brief')
+    await openFullBrief()
     const el = tag()
     expect(el, 'the intel brief renders no technique tag').not.toBeNull()
     // A button, not a link out. The old shape is the defect.
@@ -2063,6 +2010,7 @@ describe('the technique tag opens the GLOSSARY entry', () => {
 
   it('lands on the entry for the technique that was tapped', async () => {
     render(turnWithATag(), 'brief')
+    await openFullBrief()
     const key = tag()!.getAttribute('data-technique-tag')!
     click(tag()!)
     await settle()
@@ -2075,6 +2023,7 @@ describe('the technique tag opens the GLOSSARY entry', () => {
     // Both halves matter. Keeping the player in the game is worth nothing
     // if the live-verified framework reference is dropped on the way.
     render(turnWithATag(), 'brief')
+    await openFullBrief()
     const key = tag()!.getAttribute('data-technique-tag')!
     click(tag()!)
     await settle()
@@ -2106,6 +2055,7 @@ describe('the technique tag opens the GLOSSARY entry', () => {
     // the save-code paste box is on the start screen rather than this one,
     // so both would have failed for reasons unrelated to what is asserted.
     render(turnWithATag(), 'brief')
+    await openFullBrief()
     // Copy save code lives in the SYSTEM sheet since R1b; the sheet stays
     // open across the glossary round trip, like the cart does.
     click(container.querySelector('button[aria-label="System"]')!)
@@ -2129,9 +2079,11 @@ describe('the technique tag opens the GLOSSARY entry', () => {
       container.textContent,
       'opening a glossary entry threw away state the component was holding',
     ).toContain(noticeBefore![0].trim())
-    // The board has no "intel brief" heading; the transmission bar is
-    // the landmark the brief lives under now.
-    expect(container.textContent, 'coming back landed somewhere other than the brief').toContain('INCOMING TRANSMISSION_')
+    // The board has no "intel brief" heading; the TONIGHT card is the
+    // landmark the brief lives under since v1.3 R2, and its full brief is
+    // still open where the player left it.
+    expect(container.querySelector('section[data-tonight]'), 'coming back landed somewhere other than the brief').not.toBeNull()
+    expect(tag(), 'coming back closed the full brief the tag was read from').not.toBeNull()
   })
 })
 
@@ -2149,6 +2101,7 @@ describe('the glossary overlay is a dialog a keyboard can use', () => {
 
   it('closes on Escape pressed where the player actually is', async () => {
     render(turnWithATag(), 'brief')
+    await openFullBrief()
     const el = tag()!
     click(el)
     expect(overlay(), 'the overlay did not open').not.toBeNull()
@@ -2165,6 +2118,7 @@ describe('the glossary overlay is a dialog a keyboard can use', () => {
 
   it('moves focus into the dialog and gives it back', async () => {
     render(turnWithATag(), 'brief')
+    await openFullBrief()
     const el = tag()!
     act(() => el.focus())
     expect(document.activeElement, 'the tag never took focus, so this asserts nothing').toBe(el)
@@ -2182,6 +2136,7 @@ describe('the glossary overlay is a dialog a keyboard can use', () => {
 
   it('makes the game behind it inert rather than only covering it', async () => {
     render(turnWithATag(), 'brief')
+    await openFullBrief()
     const main = container.querySelector('main')!
     expect(main.hasAttribute('inert'), 'the game is inert before anything opened').toBe(false)
     click(tag()!)
@@ -2195,6 +2150,12 @@ describe('the glossary overlay is a dialog a keyboard can use', () => {
 
   it('does not nest a second main or a second h1 in the document', async () => {
     render(turnWithATag(), 'brief')
+    await openFullBrief()
+    // The deciding board carries no h1 of its own since v1.3 R2 (the HUD's
+    // line is a paragraph), so the count is taken from the page before the
+    // overlay opens rather than written down.
+    const h1s = container.querySelectorAll('h1').length
+    expect(h1s, 'the board already carries more than one h1').toBeLessThanOrEqual(1)
     click(tag()!)
     // While the chunk loads too: the fallback is a block, not a landmark.
     expect(container.querySelectorAll('main').length, 'the loading fallback put a second main on the page').toBe(1)
@@ -2202,7 +2163,7 @@ describe('the glossary overlay is a dialog a keyboard can use', () => {
     const mains = container.querySelectorAll('main')
     expect(mains.length, 'the overlay put a second main landmark on the page').toBe(1)
     expect(mains[0].querySelector('[data-glossary-overlay]'), 'the overlay is nested inside the game main').toBeNull()
-    expect(container.querySelectorAll('h1').length, 'the overlay added a second h1').toBe(1)
+    expect(container.querySelectorAll('h1').length, 'the overlay added an h1 to the page').toBe(h1s)
   })
 })
 
@@ -2309,7 +2270,7 @@ describe('a loaded campaign is not a campaign that was played here', () => {
     act(() => {
       root.render(<Game key={`m${mounts}`} initial={newOperation('standard', 20260712)} onExit={() => {}} />)
     })
-    expect(container.querySelector('[aria-label^="Credits"]'), 'the campaign did not start').not.toBeNull()
+    expect(container.querySelector('span[aria-label^="BUDGET"]'), 'the campaign did not start').not.toBeNull()
 
     for (let turn = 0; turn < DEFAULT_SCENARIO.totalTurns + 2; turn += 1) {
       const execute = executeControl()
@@ -2392,36 +2353,51 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
   // was painted and what was played, beat by beat.
   //
   // A drive either places a SCRIPT's orders for the turn through the
-  // controls (each asset through the PROCURE confirm, each defense through
-  // its DEFENSES checkbox, the intel brief through its INTEL row), so the
-  // engine can replay exactly what was ordered and a seed chosen by engine
-  // search lands where it was chosen; or, with no script, it buys the
-  // first thing on offer and over-buys, as a new player does.
+  // controls (each asset and each defense through its PROCURE line, the
+  // intel brief through PROCURE's INTEL line), so the engine can replay
+  // exactly what was ordered and a seed chosen by engine search lands
+  // where it was chosen; or, with no script, it orders the first thing on
+  // offer and then everything else the budget lets it, as a new player
+  // does.
   type DriveOpts = { seed?: number; script?: Record<number, TurnActions>; overbuy?: boolean }
   function placeOrders(orders: TurnActions) {
     for (const b of orders.buyAssets) {
-      buy(b.kind)
-      expect(container.querySelector('.dc-shake'), `the drive could not order a ${b.kind}, so the engine search does not describe this drive`).toBeNull()
+      expect(pressed(buy(b.kind)), `the drive could not order a ${b.kind}, so the engine search does not describe this drive`).toBe(true)
     }
     if (orders.buyCounters.length === 0 && !orders.intelBrief) return
     openSheet('PROCURE')
     for (const id of orders.buyCounters) {
-      const name = DEFAULT_SCENARIO.countermeasures.find((c) => c.id === id)!.name
-      const box = defenseBoxes().find((b) => (b.closest('label')?.querySelector('span.text-sm')?.textContent ?? '').startsWith(name))
-      expect(box, `PROCURE offers no "${name}" to order`).toBeDefined()
-      act(() => {
-        box!.click()
-      })
-      expect(box!.checked, `the drive could not order "${name}", so the engine search does not describe this drive`).toBe(true)
+      const line = container.querySelector(`button[data-procure-defense="${id}"]`) as HTMLButtonElement | null
+      expect(line, `PROCURE offers no "${id}" to order`).not.toBeNull()
+      if (!pressed(line!)) click(line!)
+      expect(pressed(line!), `the drive could not order "${id}", so the engine search does not describe this drive`).toBe(true)
     }
     if (orders.intelBrief) {
-      const ib = intelBox()
-      if (ib && !ib.disabled) {
-        act(() => {
-          ib.click()
-        })
-        expect(ib.checked, 'the drive could not order the intel brief').toBe(true)
+      const ib = intelButton()
+      if (ib && !ib.disabled && !pressed(ib)) {
+        click(ib)
+        expect(pressed(ib), 'the drive could not order the intel brief').toBe(true)
       }
+    }
+  }
+  // Every line PROCURE still leaves on, the fleet first and then the
+  // defenses, ordered until nothing more fits: the player who spends it
+  // all. The refusal they used to tap into left with the cannot-afford cue
+  // (v1.3 R2); the sheet turns those lines off instead. The defenses that
+  // stop one of tonight's moves are left alone, because this player's
+  // night has to land: the old over-buyer spent everything on servicers
+  // and no defense, and the badge control below needs a condition to
+  // attach.
+  function spendItAll(turn: number) {
+    const stops = new Set(
+      (planFor(DEFAULT_SCENARIO, turn)?.slots ?? []).flatMap((slot) =>
+        (slot.fixed ? [slot.fixed] : (slot.drawFrom ?? [])).flatMap((id) => eventById(DEFAULT_SCENARIO, id).counters),
+      ),
+    )
+    openSheet('PROCURE')
+    for (const k of [...container.querySelectorAll('button[data-procure-kind]')] as HTMLButtonElement[]) if (!k.disabled && !pressed(k)) click(k)
+    for (const b of defenseButtons()) {
+      if (!b.disabled && !pressed(b) && !stops.has(b.getAttribute('data-procure-defense') as never)) click(b)
     }
   }
   function driveTurn(turn: number, opts: DriveOpts = {}): {
@@ -2455,17 +2431,17 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
 
     // A scripted drive places the script's orders and nothing else. An
     // unscripted one buys the first thing on offer, because a new player
-    // buys something, and the procurement cues are five of the seventeen
-    // rows.
+    // buys something, and the procurement cues are rows of their own.
     const orders = opts.script?.[turn]
     if (opts.script) {
       if (orders) placeOrders(orders)
     } else buy('sat')
-    // Then try to buy more than the turn can take. A new player taps past
-    // their balance, and that refusal is a section 6 row of its own:
-    // driving it is the difference between the row being MET and the row
-    // being excused because the fixture was too careful to trip it.
-    if (opts.overbuy ?? !opts.script) for (let i = 0; i < 12; i += 1) buy(DEAREST)
+    // Then spend everything the turn can take. Until v1.3 R2 a new player
+    // tapped past their balance here, and that refusal was a section 6 row
+    // of its own; PROCURE turns an order it cannot afford off since then,
+    // so the drive spends to the floor instead, which is what reaches the
+    // insolvency below.
+    if (opts.overbuy ?? !opts.script) spendItAll(turn)
     // The drive spent surge authority here from Round 7 until v1.3 Round
     // 0, through the SURGE sheet on the board. SURGE left the game in that
     // round (D2), and its section 6 row with it.
@@ -2647,12 +2623,17 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     //     nights are HELD: the quiet beat and the defense streak exist only
     //     when nothing gets through, which v1.2 gave away on a turn that
     //     scripted no move and v1.3 makes the player earn (brief 6.2, M2).
-    //   - THE OVER-BUYER, on the fixture's seed, buys and then taps past
-    //     the balance, which is what trips the cannot-afford row. Spending
-    //     all 100 CR on turn 1 leaves nothing for the repair bill when a
-    //     point gets through, and the close below zero ends the campaign
-    //     in insolvency (brief 6.1), so this drive is one turn long and it
-    //     meets "Campaign lost", which v1.3 play reaches inside the opening.
+    //   - THE OVER-BUYER, on the fixture's seed, spends everything PROCURE
+    //     leaves on, short of the defenses that would hold the night.
+    //     Spending all 100 CR on turn 1 leaves nothing for the repair bill
+    //     when a point gets through, and the close below zero ends the
+    //     campaign in insolvency (brief 6.1), so this drive is one turn
+    //     long and it meets "Campaign lost", which v1.3 play reaches inside
+    //     the opening. Until v1.3 R2 it also tapped past the balance, which
+    //     tripped the cannot-afford row; PROCURE disables an order it
+    //     cannot afford since then, so no control on the board can reach
+    //     that row, and this test fails on it by name until the row is
+    //     retired or deferred in SECTION_6_ROWS (src/director/cues.ts).
     // Every row v1.3 play can produce in three turns is required of at
     // least one of them. The alternative, excusing whichever row a single
     // drive misses, is the "unreached, not unreachable" error 7b's
@@ -2783,16 +2764,23 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
   })
 
   // The start screen that also carried the job framing left in v1.3 R1
-  // (brief 5.1): the framing now renders only in the brief's disclosure,
-  // which the guards above read.
+  // (brief 5.1): the framing now renders only in the full brief, which the
+  // guards below read.
 
-  it('bounds every disclosure the brief screen renders, not only the one the round touched', () => {
+  // THE DISCLOSURES SINCE v1.3 R2. The deciding board carries one: the
+  // full brief behind the TONIGHT card's toggle. "What these numbers mean"
+  // and "Posture detail" left with the v1.2 board's reference and nothing
+  // replaces them, and the BLACKOUT CHAIN line is no longer a disclosure:
+  // it is a line on the TONIGHT card, counted by the reading budget.
+  const RETIRED_DISCLOSURES: string[] = []
+
+  it('bounds every disclosure the brief screen renders, not only the one the round touched', async () => {
     // Round 7b bounded the "Expand full brief" panel and named the constant
     // as though it covered every disclosure. Three more sat unmeasured on
     // the same screen, the largest at 263 words. The set is derived from
     // the rendered DOM: every <details> the brief screen carries must have
-    // a budget, so a disclosure added later fails here until someone says
-    // how long it may be.
+    // a budget, and so must the full brief, so a disclosure added later
+    // fails here until someone says how long it may be.
     const states: [string, GameState][] = []
     const push = (label: string, script: Record<number, TurnActions>, turn: number, seed = 20260712) => {
       let st = newGame(DEFAULT_SCENARIO, seed, 'standard')
@@ -2806,11 +2794,9 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     push('turn 1', {}, 1)
     push('prepared, turn 4', WIN_SCRIPT, 4)
     push('prepared, turn 6', WIN_SCRIPT, 6)
-    // Where Posture detail worsts, measured over 64 seeds of every script
-    // and sweep policy: seed 20's prepared fleet at turn 6, 74 words, the
-    // full fleet and nine defenses with their upkeep. Without it the set
-    // records whatever these few states happen to reach, which is a lower
-    // number than the game produces.
+    // The fullest posture: seed 20's prepared fleet at turn 6, the full
+    // fleet and nine defenses with their upkeep, which the full brief's
+    // posture lines list.
     push('prepared, turn 6, seed 20', WIN_SCRIPT, 6, 20)
     // The allied data share's free-brief line, which renders only while the
     // brief is free for turns still to come: seed 1's share covers turns 5
@@ -2822,7 +2808,7 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     push('a sat in transit, turn 2', { 1: { ...NO_OP, buyAssets: [{ kind: 'sat' }] } }, 2)
     push('top intel, turn 5', TOP_INTEL_SCRIPT, 5)
     push('passive, turn 5', LOSS_SCRIPT, 5)
-    // The chain disclosure renders only while the chain is armed, so find a
+    // The chain line renders only while the chain is armed, so find a
     // state that arms it rather than hoping one of the above does. Armed
     // means GNSS denial is live (state.flags.lidarFallback until v1.3
     // Round 0), and a prepared line never arms it, because its anti-jam
@@ -2836,108 +2822,59 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
       }
       if (st.status === 'playing' && armed(st)) states.push([`chain armed, seed ${seed}`, st])
     }
-    expect(states.some(([, st]) => armed(st)), 'no state armed the chain, so its disclosure was never measured').toBe(true)
+    expect(states.some(([, st]) => armed(st)), 'no state armed the chain, so its line was never checked').toBe(true)
 
-    const keyOf = (summary: string) => (summary.startsWith('BLACKOUT CHAIN ARMED') ? CHAIN_ARMED_LINE : summary)
-    const worst = new Map<string, number>()
+    const rendered = new Set<string>()
     const unbudgeted = new Set<string>()
+    const measure = (label: string, key: string, root: Element) => {
+      // Block by block, and only this disclosure's own blocks: textContent
+      // merges sibling items and a nested <details> would be counted twice.
+      const words = countWords(bodyText(root))
+      const budget = DISCLOSURE_WORD_BUDGETS[key]
+      if (budget === undefined) {
+        unbudgeted.add(`"${key}" (${words} words, ${label})`)
+        return
+      }
+      expect(words, `${label}: "${key}" renders ${words} words against ${budget}`).toBeLessThanOrEqual(budget)
+      rendered.add(key)
+    }
     for (const [label, st] of states) {
       render(st, 'brief')
-      for (const d of container.querySelectorAll('details')) {
-        const summary = d.querySelector('summary')?.textContent?.trim() ?? ''
-        const key = keyOf(summary)
-        // Block by block, and only this disclosure's own blocks: textContent
-        // merges sibling items and a nested <details> would be counted twice.
-        const body = bodyText(d)
-        const words = countWords(body)
-        const budget = DISCLOSURE_WORD_BUDGETS[key]
-        if (budget === undefined) {
-          unbudgeted.add(`"${summary}" (${words} words, ${label})`)
-          continue
-        }
-        expect(words, `${label}: "${key}" renders ${words} words against ${budget}`).toBeLessThanOrEqual(budget)
-        worst.set(key, Math.max(worst.get(key) ?? 0, words))
+      for (const d of container.querySelectorAll('details')) measure(label, d.querySelector('summary')?.textContent?.trim() ?? '', d)
+      await openFullBrief()
+      measure(label, FULL_BRIEF_OPEN, container.querySelector('div[data-brief-scroll]')!)
+      // The chain line, where it renders, is the TONIGHT card's and the
+      // reading budget's: the card prints exactly the line firstInputCopy
+      // counts.
+      if (armed(st)) {
+        const chain = container.querySelector('p[data-chain]')
+        expect(chain, `${label}: the chain is armed and the TONIGHT card does not say so`).not.toBeNull()
+        expect((chain!.textContent ?? '').trim(), `${label}: the chain line is not the one the reading budget counts`).toBe(chainLine())
+        expect(firstInputCopy(st), `${label}: the reading budget does not count the chain line`).toContain(chainLine())
       }
     }
     expect([...unbudgeted].join('\n'), 'a disclosure on the brief screen has no budget').toBe('')
     // Every budget must correspond to something the screen renders, or the
-    // map is bounding a disclosure that no longer exists.
-    for (const key of Object.keys(DISCLOSURE_WORD_BUDGETS)) {
-      expect(worst.has(key), `"${key}" has a budget but never rendered on the brief screen`).toBe(true)
-    }
-    // Pinned HERE only where the text does not depend on the state, so a
-    // handful of rendered states is the whole population. The two that vary
-    // are swept over every line of play in tests/reading-diet.spec.ts, and
-    // pinning them from seven named states is what produced a "worst" of 93
-    // for a panel that reached 139 in legal play.
-    // 257 since v1.3 Round 0 (263 before): the reference was rewritten to
-    // the v1.3 rules. The surge and commendation lines and the sats' slip
-    // left with their mechanics; the defense streak line, the upkeep and
-    // insolvency order of the close, coverage per kind and the deploy lead
-    // times came in.
-    // 262 since the QC gauntlet (Q20, 21 October 2026): collapse is judged
-    // "at a turn close" (G-030), and the conditions list names GNSS denial
-    // and data leaks (G-115).
-    expect(worst.get('What these numbers mean')).toBe(262)
-    // 23 since v1.3 Round 0 (26 before): the chain's line no longer says
-    // a fusion stack or an all-Tier-A drone fleet cancels the bonus, since
-    // the tiers are gone and every defense now takes a share (brief 6.7).
-    expect(worst.get(CHAIN_ARMED_LINE)).toBe(23)
-    // The varying panels are JOINED instead: what renders must be exactly
-    // what the swept function builds, so the sweep measures the screen.
-    for (const [label, st] of states) {
-      render(st, 'brief')
-      const panel = [...container.querySelectorAll('details')].find(
-        (d) => d.querySelector('summary')?.textContent?.trim() === 'Posture detail',
-      )!
-      // EXACT text, in order, with its tone. The first version compared word
-      // COUNTS, so reordered lines, a lost colour and the reverted "any
-      // phase" wording all passed a guard named for what renders.
-      const rendered = [...panel.querySelectorAll('[data-posture-tone]')].map((el) => ({
-        text: (el.textContent ?? '').trim(),
-        tone: el.getAttribute('data-posture-tone'),
-      }))
-      expect(rendered, `${label}: Posture detail renders something postureDetailLines did not build`).toEqual(
-        postureDetailLines(st).map((l) => ({ text: l.text, tone: l.tone })),
-      )
-      // The COLOUR, by meaning, stated here as a second structure: the
-      // attribute above is what the code says the tone is, and a mutation
-      // that repainted the class while leaving the attribute alone slept.
-      // Since v1.3 Round 0 the amber line is the defenses' upkeep (the line
-      // that can end the operation, as the surge rule was) and the blue
-      // allied line is the free brief (it was the intel level boost).
-      const meaning: [RegExp, string][] = [
-        [/^Countermeasures:/, 'text-hero-blue'],
-        [/^Allied intel:/, 'text-hero-blue'],
-        [/^Keeping \d+ defenses? costs/, 'text-alert-amber'],
-        [/^(Fleet|In transit)/, 'text-ink-dim'],
-      ]
-      for (const el of panel.querySelectorAll('[data-posture-tone]')) {
-        const text = (el.textContent ?? '').trim()
-        const want = meaning.find(([re]) => re.test(text))?.[1]
-        expect(want, `${label}: no stated colour for "${text}"`).toBeDefined()
-        expect(el.className, `${label}: "${text}" is not painted ${want}`).toContain(want!)
-      }
-      // And nothing else is in the panel beside those lines and the summary.
-      expect(bodyText(panel), `${label}: Posture detail carries text outside its lines`).toBe(
-        postureDetailLines(st).map((l) => l.text).join(' '),
-      )
-    }
+    // map is bounding a disclosure that no longer exists. The three the
+    // R2 board retired are named, so a fourth stale key fails here, and so
+    // does removing one of the three without editing this line.
+    const stale = Object.keys(DISCLOSURE_WORD_BUDGETS).filter((key) => !rendered.has(key))
+    expect(stale.sort(), 'a budget bounds a disclosure the brief screen never rendered').toEqual([...RETIRED_DISCLOSURES].sort())
   })
 
-  it('puts a disclosure on the brief screen that adds to what is above it', () => {
+  it('puts a disclosure on the brief screen that adds to what is above it', async () => {
     // Item 2, from the player's seat rather than from briefCopy. The panel
     // used to expand into a longer copy of its own summary; on three of
     // four intel levels it expanded into a SHORTER one.
     render(newGame(DEFAULT_SCENARIO, 20260712, 'standard'), 'brief')
-    const summary = [...container.querySelectorAll('summary')].find((s) =>
-      /Expand full brief/i.test(s.textContent ?? ''),
-    )
-    expect(summary, 'the brief screen offers no expand control').toBeDefined()
     // The panel, found through the control the player taps rather than by
-    // querySelector over the page: three <details> render on this screen
-    // and the first one is not this one.
-    const panel = summary!.parentElement as HTMLElement
+    // querySelector over the page.
+    const toggle = container.querySelector('button[data-full-brief]')
+    expect(toggle, 'the brief screen offers no expand control').not.toBeNull()
+    expect(toggle!.textContent, 'the expand control does not say what it opens').toBe(FULL_BRIEF_OPEN)
+    await openFullBrief()
+    expect(toggle!.getAttribute('aria-expanded'), 'the open full brief does not say it is open').toBe('true')
+    const panel = container.querySelector('div[data-brief-scroll]') as HTMLElement
     // Read the panel BLOCK BY BLOCK, not as one textContent string.
     // textContent concatenates sibling elements with no separator, so
     // "<li>...at full integrity.</li><li>Nothing in transit.</li>" comes
@@ -2968,14 +2905,14 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     // THE CEILING, MEASURED ON THE RENDERED PANEL. tests/reading-diet.spec.ts
     // bounds briefCopy().full, which is a module's return value: nothing
     // joins that string to the element the player opens, so JSX rendered
-    // inside this <details> is invisible to it. That is exactly how the
+    // inside this panel is invisible to it. That is exactly how the
     // turn-1 job framing sat unmeasured while the bound read 90 of 100,
     // and moving the framing into brief.ts fixed the instance without
     // fixing the mechanism. This measures the subtree.
     expect(
       countWords(body),
       `the expand panel renders ${countWords(body)} words: "${body.trim().slice(0, 200)}"`,
-    ).toBeLessThanOrEqual(DISCLOSURE_WORD_BUDGETS['Expand full brief'])
+    ).toBeLessThanOrEqual(DISCLOSURE_WORD_BUDGETS[FULL_BRIEF_OPEN])
     // And the two figures must agree, which is the join: if they diverge,
     // something renders in the panel that briefCopy does not know about.
     expect(
@@ -3007,10 +2944,9 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
       .filter((el) => el.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING)
       .map((el) => (el.textContent ?? '').trim())
     expect(jobBlocks).toEqual([JOB_FRAMING_HEADING, ...jobFramingBlocks(DEFAULT_SCENARIO)])
-    // And it is THIS panel, not some other <details> on the screen: the
-    // body must carry what briefCopy built, so rendering the engine's
-    // forecast here fails rather than reading as a different-but-fine
-    // disclosure.
+    // And it is THIS panel, not some other block on the screen: the body
+    // must carry what briefCopy built, so rendering the engine's forecast
+    // here fails rather than reading as a different-but-fine disclosure.
     expect(body, 'the expand panel is not rendering the brief the screen built').toContain(copy.full[0])
   })
 })

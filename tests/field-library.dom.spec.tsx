@@ -29,11 +29,10 @@ import { briefFree, resolveTurn, newGame } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
 import { captureGame, encodeSaveCode } from '../src/persistence'
-import { FIRST_TURN_DONE_KEY } from '../src/ui/firstTurn'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
-import { NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
+import { NO_OP, WIN_SCRIPT } from './scripts'
 import { briefCopy } from '../src/ui/brief'
 
 declare global {
@@ -65,7 +64,6 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.stubGlobal('localStorage', memoryStorage())
   localStorage.setItem(INTRO_SEEN_KEY, '1')
-  localStorage.setItem(FIRST_TURN_DONE_KEY, '1')
   vi.stubGlobal('matchMedia', (query: string) => ({
     matches: false,
     media: query,
@@ -274,7 +272,7 @@ describe("the event cards' learn more", () => {
     return state
   }
   // A night on which the intel brief is free and names a fixed move, so
-  // the banner carries the lead's technique tag and its card the lead's
+  // the TONIGHT card's full brief carries the lead's technique tag and its card the lead's
   // REAL WORLD line: since v1.3 Round 0 the brief is on or off, free on
   // turn 1 (which has no fixed slot) and on the turns an allied data share
   // covers, and the empty cart these tests commit orders nothing. Found in
@@ -412,9 +410,14 @@ describe("the event cards' learn more", () => {
   })
 
   it('from the intel card, closes the card, opens the library, and returns focus to what opened the card', async () => {
-    // Under the intel brief the banner's card names the lead threat with its REAL WORLD line.
+    // Under the intel brief COLDVEIL's card names the lead threat with its
+    // REAL WORLD line. Its button is in the TONIGHT card's full brief since
+    // v1.3 R2, a chunk of its own.
     render(briefedWithLead())
+    click(container.querySelector('button[data-full-brief]')!)
+    await settle()
     const banner = container.querySelector<HTMLButtonElement>('button[aria-label="Threat intel"]')!
+    expect(banner, 'the full brief has no intel button').not.toBeNull()
     banner.focus()
     click(banner)
     await settle()
@@ -434,7 +437,9 @@ describe("the event cards' learn more", () => {
     execute()
     const held = beatShown()
     expect(held).toBeDefined()
-    click(container.querySelector('button[aria-label="Threat intel"]')!)
+    // A tile's card: COLDVEIL's is off the board with the TONIGHT card
+    // while a night plays (v1.3 R2).
+    click(container.querySelector('button[data-asset-id]')!)
     await settle()
     expect(container.querySelector('section[data-intel-card]'), 'the intel card did not open').not.toBeNull()
     space()
@@ -444,31 +449,6 @@ describe("the event cards' learn more", () => {
     expect(container.querySelector('section[data-intel-card]')).toBeNull()
     space()
     expect(beatShown() !== held || !byText(/^Skip/), 'a Space with no card open did not step the playback').toBe(true)
-  })
-
-  it('closes the Glossary on Escape during playback without skipping the turn it holds', async () => {
-    // The Glossary joined the board dialogs this round: it holds playback,
-    // so its Escape must stop there rather than reach the playback's.
-    // A turn whose brief names its lead technique as a tag: the intel
-    // brief on and a fixed slot, found by search on the top-intel line.
-    // The brief must be free that night (an allied data share), since the
-    // empty cart committed here orders nothing and the playback's banner
-    // reads the night's free brief.
-    const withTag = briefedWithLead(TOP_INTEL_SCRIPT)
-    render(withTag)
-    execute()
-    const tag = container.querySelector<HTMLButtonElement>('button[data-technique-tag]')
-    expect(tag, 'no technique tag on the banner during playback').not.toBeNull()
-    click(tag!)
-    await settle()
-    expect(container.querySelector('[data-glossary-overlay]')).not.toBeNull()
-    const held = beatShown()
-    expect(held, 'no beat on screen, so holding it proves nothing').toBeDefined()
-    space()
-    expect(beatShown(), 'playback ran on behind the Glossary').toBe(held)
-    escape()
-    expect(container.querySelector('[data-glossary-overlay]'), 'Escape did not close the Glossary').toBeNull()
-    expect(byText(/^Skip/), 'Escape on the Glossary skipped the playback').toBeDefined()
   })
 
   it('carries the link on the aftermath card, the only event card a skipped playback leaves', () => {

@@ -379,12 +379,20 @@ describe('the controls the player triggers themselves (Round 4d)', () => {
     walk(SRC)
     expect(sites, 'the sweep must be played from exactly one place').toEqual([join(row!.soundWhere)])
 
+    // Since v1.3 R2 the button lives in the dock (src/ui/board/Dock.tsx),
+    // which hands its click to the prop Game.tsx passes; so the sweep is
+    // joined to EXECUTE in two halves: Game.tsx's onExecute plays it, and
+    // the dock's data-execute button calls onExecute on click.
     const source = withoutComments(readFileSync(join(SRC, row!.soundWhere), 'utf8'))
-    const execute = /<button\b(?:(?!<\/button>)[\s\S])*?\bdata-execute\b[\s\S]*?<\/button>/.exec(source)
-    expect(execute, `${row!.soundWhere} renders no EXECUTE button`).not.toBeNull()
-    expect(execute![0], 'the sweep must sound on the EXECUTE click').toMatch(
-      /onClick=\{[^}]*?\bplay\(\s*'execute-sweep'\s*\)/,
+    const dockTag = /<Dock\b[\s\S]*?\/>/.exec(source)
+    expect(dockTag, `${row!.soundWhere} renders no dock`).not.toBeNull()
+    expect(dockTag![0], 'the sweep must sound from the dock\'s EXECUTE handler').toMatch(
+      /onExecute=\{[^}]*?\bplay\(\s*'execute-sweep'\s*\)/,
     )
+    const dock = withoutComments(readFileSync(join(SRC, 'ui', 'board', 'Dock.tsx'), 'utf8'))
+    const execute = /<button\b(?:(?!<\/button>)[\s\S])*?\bdata-execute\b[\s\S]*?<\/button>/.exec(dock)
+    expect(execute, 'ui/board/Dock.tsx renders no EXECUTE button').not.toBeNull()
+    expect(execute![0], 'the EXECUTE click must reach the handler that sweeps').toMatch(/onClick=\{p\.onExecute\}/)
   })
 
   it('names both sides of the MAI crossing', () => {

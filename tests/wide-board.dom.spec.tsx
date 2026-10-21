@@ -23,25 +23,21 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 
 import IntelCard from '../src/ui/board/IntelCard'
-import ActionBar from '../src/ui/board/ActionBar'
 import { ACTIONS, fKeyOf, type BoardAction } from '../src/ui/board/actions'
 import { briefCopy } from '../src/ui/brief'
 import { WIDE_QUERY } from '../src/ui/cues/motion'
 import { OPS_LOG_TURNS, opsLogCopy, opsLogRows } from '../src/ui/board/wide'
 import { kindLabels } from '../src/ui/labels'
-import { assetPrice } from '../src/engine/scoring'
 import { verdictFor } from '../src/ui/verdict'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { briefFree, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
-import { LIMB, PX } from '../src/ui/sprites/scenery'
 import { STRIKE_MS } from '../src/ui/board/strike'
 import { NO_OP, TOP_INTEL_SCRIPT } from './scripts'
 import {
   bar,
   beatText,
-  chips,
   click,
   conditionFixture,
   container,
@@ -53,7 +49,6 @@ import {
   playOut,
   press,
   render,
-  root,
   setWide,
   settle,
   sheetOpen,
@@ -211,7 +206,7 @@ describe('GUARD R6 (c): the F keys drive the actions through the one array', () 
   })
 })
 
-describe('GUARD R6 (d): the keys stand down when they must, and the chips with them', () => {
+describe('GUARD R6 (d): the keys stand down when they must', () => {
   // Whether each F key is live right now, pressed and undone.
   function liveKeys(): boolean[] {
     return ACTIONS.map((a) => {
@@ -220,35 +215,27 @@ describe('GUARD R6 (d): the keys stand down when they must, and the chips with t
       return taken
     })
   }
-  const chipsShown = () => ACTIONS.map((a) => chips().includes(fKeyOf(a)))
   const all = ACTIONS.map(() => true)
   const none = ACTIONS.map(() => false)
 
-  it('live while deciding, with the chips showing and announced (the positive control)', async () => {
+  it('live while deciding (the positive control)', async () => {
     setWide(true)
     render(gameAt(2))
     await settle()
-    expect(chipsShown()).toEqual(all)
     expect(liveKeys()).toEqual(all)
-    for (const a of ACTIONS) {
-      const control = a.sheet ? bar().querySelector(`button[data-action="${a.id}"]`) : execute()
-      expect(control!.getAttribute('aria-keyshortcuts'), a.id).toBe(`${fKeyOf(a)} ${a.hotkey}`)
-    }
   })
 
-  it('down during playback and the aftermath, and the chips are gone', async () => {
+  it('down during playback and the aftermath', async () => {
     setWide(true)
     render(gameAt(2))
     await settle()
     executeNow()
     step(100)
     expect(beatText(), 'not in playback').not.toBeNull()
-    expect(chipsShown()).toEqual(none)
     expect(liveKeys()).toEqual(none)
     playOut()
     expect(beatText(), 'still in playback').toBeNull()
     expect(bar().textContent).toMatch(/NEXT TURN/)
-    expect(chipsShown()).toEqual(none)
     expect(liveKeys()).toEqual(none)
   })
 
@@ -263,10 +250,10 @@ describe('GUARD R6 (d): the keys stand down when they must, and the chips with t
     }
   })
 
-  it('down with the intel card or the Glossary open, chips and all', async () => {
-    // A turn whose banner carries a technique tag, the Glossary's way in:
-    // since v1.3 Round 0 the tag shows when the intel brief is on and a
-    // slot is fixed, and with the empty cart the board opens on, only a
+  it('down with the intel card or the Glossary open', async () => {
+    // A turn whose full brief carries a technique tag, the Glossary's way
+    // in: since v1.3 Round 0 the tag shows when the intel brief is on and
+    // a slot is fixed, and with the empty cart the board opens on, only a
     // free brief is on. So the top-intel line is searched over seeds for a
     // night an allied data share makes the brief free on a fixed move.
     const found = (() => {
@@ -283,18 +270,20 @@ describe('GUARD R6 (d): the keys stand down when they must, and the chips with t
     render(found!)
     await settle()
     expect(liveKeys(), 'the control: live before any dialog').toEqual(all)
+    // The intel button and the tag sit in the TONIGHT card's full brief
+    // since v1.3 R2, a chunk of its own.
+    click(container.querySelector('button[data-full-brief]')!)
+    await settle()
     click(container.querySelector('button[aria-label="Threat intel"]')!)
     await settle()
     expect(container.querySelector('section[data-intel-card]')).not.toBeNull()
     expect(liveKeys()).toEqual(none)
-    expect(chipsShown()).toEqual(none)
     press('Escape')
     expect(container.querySelector('section[data-intel-card]')).toBeNull()
     click(container.querySelector('[data-technique-tag]')!)
     await settle()
     expect(container.querySelector('[data-glossary-overlay]'), 'the Glossary did not open').not.toBeNull()
     expect(liveKeys()).toEqual(none)
-    expect(chipsShown()).toEqual(none)
   })
 
   it('down on the score screen, which is not the board', async () => {
@@ -325,39 +314,6 @@ describe('GUARD R6 (d): the keys stand down when they must, and the chips with t
     press(fKeyOf(first))
     // The control: a digit from the checkbox is left alone, as it always was.
     expect(press(first.hotkey, {}, box), 'the digit from a checkbox changed with R6').toBe(false)
-  })
-
-  it('the chips move with their actions when the array is reordered', () => {
-    // Rotated AND renumbered, so a chip spelled by position or by id in
-    // the bar, rather than read from the action, is a chip that is wrong.
-    const rotated: BoardAction[] = [...ACTIONS.slice(1), ACTIONS[0]].map((a, i) => ({ ...a, number: 11 + i }))
-    act(() => {
-      root.render(
-        <ActionBar
-          actions={rotated}
-          phase="deciding"
-          openSheet={null}
-          done={new Set()}
-          objective={{ tag: 'T', sentence: 'S', step: null }}
-          onToggle={() => {}}
-          disabledFor={() => false}
-          captionFor={() => ''}
-          resolve={() => <button type="button">R</button>}
-          nextLabel="NEXT TURN"
-          onNext={() => {}}
-          pulseNext={false}
-          keyChips
-        />,
-      )
-    })
-    const slots = [...container.querySelectorAll('[data-action]')]
-    expect(slots.length).toBe(rotated.length)
-    for (const slot of slots) {
-      const a = rotated.find((x) => x.id === slot.getAttribute('data-action'))!
-      expect(slot.querySelector('[data-step]')!.textContent).toBe(fKeyOf(a))
-      // The digit is untouched: the chip replaces the badge, not the key.
-      expect(slot.getAttribute('data-hotkey')).toBe(a.hotkey)
-    }
   })
 })
 
@@ -446,7 +402,7 @@ describe('GUARD R6 (e): the inspector says what the tile card says, and leaves t
     // Nothing in the columns that the beam or the dialog opener look up by
     // first match, so neither can land on a column instead of the board.
     for (const aside of container.querySelectorAll('[data-ops-log], [data-inspector]')) {
-      expect(aside.querySelector('[data-asset-id], svg[data-sprite="coldveil"], [data-beat-card], section[aria-labelledby^="layer-"], #intel-title')).toBeNull()
+      expect(aside.querySelector('[data-asset-id], svg[data-sprite="coldveil"], [data-beat-card], [data-layer], #intel-title')).toBeNull()
     }
   })
 
@@ -461,13 +417,13 @@ describe('GUARD R6 (e): the inspector says what the tile card says, and leaves t
     procure.focus()
     click(procure)
     const sheet = () => container.querySelector('[data-sheet]')!
-    expect(sheet().getAttribute('aria-label')).toMatch(/PROCURE, step 2 of 2/)
-    expect(sheet().textContent).toContain(kindLabels[asset.kind])
-    // The order for this kind, at its price; no tier step since v1.3
-    // Round 0 (brief D2).
-    const order = sheet().querySelector('[data-procure-buy]')
-    expect(order, 'step 2 offers no order').not.toBeNull()
-    expect(order!.textContent).toBe(`ORDER · ${assetPrice(DEFAULT_SCENARIO, asset.kind)} CR`)
+    expect(sheet().getAttribute('aria-label')).toBe('PROCURE')
+    // The one sheet since v1.3 R2 (brief 5.4), opened at the order for
+    // this kind, which it marks, and that order alone.
+    const order = sheet().querySelector(`button[data-procure-kind="${asset.kind}"]`)
+    expect(order, 'PROCURE offers no order for this kind').not.toBeNull()
+    expect(order!.hasAttribute('data-match'), 'PROCURE did not land at the order for this kind').toBe(true)
+    expect(sheet().querySelectorAll('[data-match]').length).toBe(1)
     expect(sheet().contains(document.activeElement), 'focus stayed under the panel').toBe(true)
     press('Escape')
     expect(document.activeElement, 'focus did not come back to PROCURE').toBe(procure)
@@ -526,7 +482,7 @@ describe('GUARD R6 (f): the ops log reads the history the board shows', () => {
     // Each row's line and verdict, spelled here from the record itself.
     for (const r of after.history.slice(-OPS_LOG_TURNS)) {
       const row = container.querySelector(`[data-ops-row="${r.turn}"]`)!
-      expect(row.querySelector('[data-ops-line]')!.textContent).toBe(`T${r.turn} MAI ${r.maiScore}`)
+      expect(row.querySelector('[data-ops-line]')!.textContent).toBe(`T${r.turn} SCORE ${r.maiScore}`)
       expect(row.textContent).toContain(verdictFor(r, DEFAULT_SCENARIO))
     }
     // And the screen is the copy the reading diet counts, line for line.
@@ -604,8 +560,9 @@ describe('GUARD R6 (g): crossing the breakpoint remounts nothing', () => {
     const main = container.querySelector('main[data-board]')!
     const nodes = () => [
       main.querySelector(':scope > div'),
-      main.querySelector('section[aria-label="Threat forecast"]'),
-      ...main.querySelectorAll('section[aria-labelledby^="layer-"]'),
+      main.querySelector('section[data-strip]'),
+      ...main.querySelectorAll('[data-strip] [data-layer]'),
+      ...main.querySelectorAll('button[data-asset-id]'),
       bar(),
     ]
     const before = nodes()
@@ -651,37 +608,36 @@ describe('GUARD R6 (h): the stylesheet is the wide board and nothing else', () =
     const dead = selectors(applyCss(true).cssRules).filter((s) => document.querySelector(s) === null)
     expect(dead).toEqual([])
     // The negative control: the check can see a selector match nothing.
-    expect(document.querySelector('main[data-board][data-wide] section[aria-labelledby="layer-NOWHERE"]')).toBeNull()
+    expect(document.querySelector('main[data-board][data-wide] [data-layer="NOWHERE"]')).toBeNull()
   })
 
-  it('lays the board out in three columns, ORBIT four across and the sheets at the side, only when wide', async () => {
+  it('lays the board out in three columns with the sheets at the side, only when wide', async () => {
+    // The R2 strip has no ORBIT grid to set four across: its columns sit
+    // side by side and each wraps its own tiles (brief 5.3 item 2).
     setWide(true)
     render(gameAt(2))
     await settle()
     const main = container.querySelector('main[data-board]')!
     const body = main.querySelector(':scope > div')!
-    const orbit = container.querySelector('section[aria-labelledby="layer-ORBIT"] > .grid')!
     press(fKeyOf(ACTIONS[0]))
     const sheet = container.querySelector('[data-sheet]')!
     applyCss(true)
     const cols = getComputedStyle(body).gridTemplateColumns.split(' ')
     expect(cols[0]).toBe('300px')
     expect(cols[cols.length - 1]).toBe('300px')
-    expect(getComputedStyle(orbit).gridTemplateColumns).toBe('repeat(4, minmax(0, 1fr))')
     expect(getComputedStyle(sheet).width).toBe('375px')
-    const maxWidth = Number.parseFloat(getComputedStyle(main).maxWidth)
-    expect(maxWidth - 600, 'the centre is wider than the ORBIT limb').toBeLessThanOrEqual(LIMB.cols * PX)
+    expect(getComputedStyle(main).maxWidth).toBe('1200px')
+    // The ops log on the left, the scroll column (the strip, TONIGHT and
+    // the orders) in the centre, the inspector on the right.
     for (const [el, col] of [
-      [main.querySelector('section[aria-label="Threat forecast"]')!, '1'],
       [main.querySelector('[data-ops-log]')!, '1'],
-      [body.querySelector(':scope > div')!, '2'],
+      [main.querySelector('[data-board-body]')!, '2'],
       [main.querySelector('[data-inspector]')!, '3'],
     ] as const) {
       expect(getComputedStyle(el).gridColumn, `${el.tagName} ${el.getAttribute('aria-label') ?? ''}`).toBe(col)
     }
     applyCss(false)
     expect(getComputedStyle(body).display).not.toBe('grid')
-    expect(getComputedStyle(orbit).gridTemplateColumns).not.toBe('repeat(4, minmax(0, 1fr))')
     expect(getComputedStyle(sheet).width).not.toBe('375px')
   })
 })

@@ -19,23 +19,16 @@ vi.mock('../src/ui/board/actions', async (importOriginal) => {
 })
 
 import { ACTIONS, fKeyOf } from '../src/ui/board/actions'
-import { bar, execute, gameAt, installWideBoardHarness, press, render, setWide, settle, sheetOpen } from './wideHarness'
+import { execute, gameAt, installWideBoardHarness, press, render, setWide, settle, sheetOpen } from './wideHarness'
 
 installWideBoardHarness()
 
 describe("GUARD R6 (c), the other half: the keys follow the array's numbers", () => {
-  it('each renumbered action opens on its own F key, and its chip says so', async () => {
+  it('each renumbered action opens on its own F key', async () => {
     setWide(true)
     render(gameAt(2))
     await settle()
     expect(ACTIONS.every((a, i) => a.number !== i + 1), 'an action kept its shipped number').toBe(true)
-    // Each chip on its own action's slot.
-    const slots = [...bar().querySelectorAll('[data-action]')]
-    expect(slots.length).toBe(ACTIONS.length)
-    for (const slot of slots) {
-      const a = ACTIONS.find((x) => x.id === slot.getAttribute('data-action'))!
-      expect(slot.querySelector('[data-step]')!.textContent, a.id).toBe(fKeyOf(a))
-    }
     for (const a of ACTIONS) {
       expect(press(fKeyOf(a)), fKeyOf(a)).toBe(true)
       if (!a.sheet) {

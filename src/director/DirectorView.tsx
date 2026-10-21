@@ -346,10 +346,10 @@ export default function DirectorView({ before, after, beats, onPresented, onDone
             )}
             {beat.severity && (
               <p className="font-mono text-xs text-ink-dim">
-                Severity {beat.severity.base} base{beat.severity.chain > 0 ? ` + ${beat.severity.chain} chain` : ''}
-                {beat.severity.mitigation > 0 ? ` - ${beat.severity.mitigation} mitigated` : ''}
+                Strength {beat.severity.base}{beat.severity.chain > 0 ? ` + ${beat.severity.chain} chain` : ''}
+                {beat.severity.mitigation > 0 ? ` - ${beat.severity.mitigation} blocked` : ''}
                 {beat.severity.avoided ? `, ${beat.severity.avoided}` : ''} ={' '}
-                {beat.severity.effective} effective
+                {beat.severity.effective} landed
               </p>
             )}
             {helped && (

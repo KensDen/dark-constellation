@@ -1,0 +1,198 @@
+// THE ASSET STRIP (v1.3 brief 5.3 item 2): ORBIT, AIR and GROUND side by
+// side under the HUD, each column as wide as its count asks. A tile is the
+// sprite, the call sign and four pips, or ETA n, OFFLINE or LOST; a wound
+// scorches the sprite (8.2). Condition chips on a column's head give the
+// turns left (JAMMED · 2T). Tapping a tile opens its intel card (v1.2 4.8,
+// kept). An asset ordered tonight sits in its column as ORDERED, and a tap
+// cancels the order.
+//
+// While a turn plays back, the struck tile carries the lock-on and the
+// burst it has had since v1.2 R3, and a layer that held flashes HELD.
+
+import type { ActiveCondition, Layer } from '../../engine/types'
+import { LAYERS } from '../../engine/types'
+import { kindLabels } from '../labels'
+import { assetSprite } from '../sprites/assets'
+import { HIT_BURST, LOCK_ON, SHIELD_FLASH } from '../sprites/effects'
+import PixelSprite from '../sprites/PixelSprite'
+import { STATE_WORD, pipsFor, type SpriteState, type TileModel } from './board'
+import type { Strike } from './strike'
+
+export interface ChipModel {
+  condition: ActiveCondition
+  remaining?: number
+}
+
+const PIP_TONE: Record<SpriteState, string> = {
+  intact: 'text-dc-friendly',
+  wounded: 'text-dc-warn',
+  critical: 'text-dc-hostile',
+  lost: 'text-dc-muted',
+}
+
+// Four pips, lit by integrity. The ones a landed hit just took pop red over
+// their place (v1.2 R3), keyed on the hit so a second hit pops again.
+function Pips({ lit, tone, popFrom = 0, beat }: { lit: number; tone: string; popFrom?: number; beat?: string }) {
+  return (
+    <span aria-hidden="true" className={`flex font-mono text-[10px] leading-none ${tone}`}>
+      {[0, 1, 2, 3].map((i) => (
+        <span key={i} className="relative">
+          {i < lit ? '●' : '○'}
+          {i >= lit && i < popFrom && <span key={beat} data-pip-pop className="dc-pip-pop absolute inset-0 text-dc-hostile">●</span>}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+const TILE = 'dc-tile relative flex min-h-11 flex-col items-center gap-0.5 border border-transparent px-0.5 pt-0.5 pb-0.5'
+
+interface TileHit {
+  id: string
+  landed: boolean
+  // The pips the tile showed before the hit.
+  fromPips: number
+}
+
+function Art({ tile, hit }: { tile: TileModel; hit?: TileHit | null }) {
+  const kind = tile.kind === 'asset' ? tile.asset.kind : tile.kind === 'transit' ? tile.pending.kind : tile.buy.kind
+  const sprite = tile.kind === 'asset' ? assetSprite(kind, tile.asset.integrity) : assetSprite(kind, 100, 'transit')
+  return (
+    <span aria-hidden="true" className="relative block">
+      <PixelSprite sprite={sprite} name={`${kind}.${tile.kind === 'asset' ? tile.state : 'transit'}`} className="block" />
+      {hit && <PixelSprite key={hit.id} sprite={LOCK_ON} name="lock-on" className="dc-lock-on absolute inset-0 m-auto" />}
+      {hit?.landed &&
+        HIT_BURST.map((frame, i) => (
+          <PixelSprite key={`${hit.id}-${i}`} sprite={frame} name={`hit-burst-${i}`} className={`dc-burst dc-burst-${i} absolute inset-0 m-auto`} />
+        ))}
+    </span>
+  )
+}
+
+function Tile({
+  tile,
+  hit,
+  selected,
+  inspect,
+  onSelect,
+  onCancel,
+}: {
+  tile: TileModel
+  hit?: TileHit | null
+  selected: boolean
+  inspect?: boolean
+  onSelect: () => void
+  onCancel: () => void
+}) {
+  if (tile.kind === 'asset') {
+    const { asset, callSign, state } = tile
+    return (
+      <button
+        type="button"
+        data-asset-id={asset.id}
+        data-state={state}
+        data-struck={hit ? (hit.landed ? 'hit' : 'lock') : undefined}
+        // On the wide board a tile selects for the inspector beside it; on
+        // a phone it opens its intel card.
+        aria-haspopup={inspect ? undefined : 'dialog'}
+        aria-pressed={inspect ? selected : undefined}
+        aria-controls={inspect ? 'dc-inspector' : undefined}
+        aria-label={`${callSign}, ${kindLabels[asset.kind]}, integrity ${asset.integrity}%${STATE_WORD[state]}`}
+        onClick={onSelect}
+        className={`${TILE} ${selected ? 'border-dc-go' : ''}`}
+      >
+        {hit?.landed && <span key={hit.id} aria-hidden="true" data-strobe className="dc-hit-strobe pointer-events-none absolute inset-0 bg-dc-hostile/45" />}
+        <Art tile={tile} hit={hit} />
+        <span className={`whitespace-nowrap font-mono text-[10px] leading-none ${state === 'lost' ? 'text-dc-muted' : 'text-dc-ink'}`}>{callSign}</span>
+        {state === 'lost' ? (
+          <span className="whitespace-nowrap font-mono text-[10px] leading-none text-dc-muted">LOST</span>
+        ) : (
+          <Pips lit={pipsFor(asset.integrity)} tone={PIP_TONE[state]} popFrom={hit?.landed ? hit.fromPips : 0} beat={hit?.id} />
+        )}
+      </button>
+    )
+  }
+  if (tile.kind === 'transit') {
+    return (
+      <div data-asset-id={tile.pending.id} data-state="transit" className={TILE} aria-label={`${tile.callSign}, ${kindLabels[tile.pending.kind]}, arriving in ${tile.pending.etaTurns}`}>
+        <Art tile={tile} />
+        <span className="whitespace-nowrap font-mono text-[10px] leading-none text-dc-muted">{tile.callSign}</span>
+        <span className="whitespace-nowrap font-mono text-[10px] leading-none text-dc-muted">ETA {tile.pending.etaTurns}</span>
+      </div>
+    )
+  }
+  return (
+    <button
+      type="button"
+      data-queued={tile.buy.kind}
+      aria-label={`Cancel the order for ${tile.callSign}, ${kindLabels[tile.buy.kind]}`}
+      onClick={onCancel}
+      className={`${TILE} border-dashed border-dc-friendly/60! ${tile.cue ?? ''}`}
+    >
+      <Art tile={tile} />
+      <span className="whitespace-nowrap font-mono text-[10px] leading-none text-dc-friendly">{tile.callSign}</span>
+      <span className="whitespace-nowrap font-mono text-[10px] leading-none text-dc-friendly">ORDERED</span>
+    </button>
+  )
+}
+
+export interface AssetStripProps {
+  tiles: Record<Layer, TileModel[]>
+  chips: (layer: Layer) => ChipModel[]
+  selectedKey: string | null
+  // The wide board: tiles select for the inspector instead of opening.
+  inspect?: boolean
+  onSelect: (key: string | null) => void
+  onCancelQueued: (index: number) => void
+  hit?: Extract<Strike, { kind: 'hit' }> | null
+  held?: Extract<Strike, { kind: 'held' }> | null
+}
+
+export default function AssetStrip({ tiles, chips, selectedKey, inspect, onSelect, onCancelQueued, hit, held }: AssetStripProps) {
+  const struck = hit ? hit.before.assets.find((a) => a.id === hit.assetId) : undefined
+  const tileHit: TileHit | null = hit && struck ? { id: hit.id, landed: hit.landed, fromPips: pipsFor(struck.integrity) } : null
+  // Each column starts as wide as its tiles. When the fleet outgrows the
+  // row, the fullest column gives way and its tiles wrap; the others keep
+  // one row.
+  const most = Math.max(...LAYERS.map((layer) => tiles[layer].length))
+  return (
+    <section aria-label="Assets" data-strip className="flex flex-none gap-1.5">
+      {LAYERS.map((layer) => {
+        const list = tiles[layer]
+        const layerChips = chips(layer)
+        const heldHere = held && held.layers.includes(layer) ? held.id : null
+        return (
+          <div key={layer} data-layer={layer} className="min-w-0 border border-dc-line bg-dc-panel px-1 pt-0.5" style={{ flex: `${Math.max(1, list.length)} ${list.length === most ? 1 : 0} auto` }}>
+            <div className="flex flex-wrap items-center gap-1">
+              <h2 className="font-mono text-[10px] tracking-widest text-dc-muted">{layer}</h2>
+              {heldHere && (
+                <span key={heldHere} data-held className="dc-shield-flash inline-flex items-center gap-1 font-mono text-[10px] text-dc-go">
+                  <PixelSprite sprite={SHIELD_FLASH} scale={1} name="shield-flash" />
+                  HELD
+                </span>
+              )}
+              {layerChips.map((chip) => (
+                <span key={chip.condition.instanceId} data-condition-chip className="whitespace-nowrap font-mono text-[10px] leading-none text-dc-hostile">
+                  {chip.condition.name} · {chip.remaining ?? chip.condition.remainingTurns}T
+                </span>
+              ))}
+            </div>
+            <div className="mt-0.5 flex flex-wrap gap-0.5">
+              {list.map((tile) => (
+                <Tile
+                  key={tile.key}
+                  tile={tile}
+                  selected={tile.key === selectedKey}
+                  hit={tile.kind === 'asset' && hit && tile.key === hit.assetId ? tileHit : null}
+                  inspect={inspect}
+                  onSelect={() => onSelect(tile.key === selectedKey ? null : tile.key)}
+                  onCancel={() => tile.kind === 'queued' && onCancelQueued(tile.index)}
+                />
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </section>
+  )
+}

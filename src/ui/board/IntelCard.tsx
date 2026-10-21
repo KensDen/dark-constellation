@@ -21,7 +21,7 @@ import { kindLabels } from '../labels'
 import RealWorld from '../RealWorld'
 import { realWorldFor } from '../realWorldLine'
 import { STATE_WORD, callSigns, conditionsOn, spriteState } from './board'
-import { assetRole } from './ProcureSheet'
+import { assetRole } from './board'
 
 export type IntelSubject = { kind: 'tile'; assetId: string } | { kind: 'banner' }
 

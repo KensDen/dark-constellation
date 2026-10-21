@@ -19,7 +19,7 @@ playback with v1.3 Round 0.
 
 Each turn you read what COLDVEIL could hit tonight, order fleet and defenses, then EXECUTE and
 see what your posture absorbed. The adversary reacts: it takes the move you have covered least.
-Finish turn 6 with the Mission Assurance Index (MAI) at 70 or higher to win; let it collapse, or run the budget
+Finish turn 6 with the mission assurance score at 70 or higher to win; let it collapse, or run the budget
 below zero at a turn close, and the operation ends early. There is no dominant strategy: every
 defense costs upkeep, repairs come due at the turn close, and coverage, trust, and redundancy
 trade off against each other.
@@ -40,7 +40,7 @@ trade off against each other.
 
 ## The mechanics in brief
 
-- **Mission Assurance Index.** A weighted blend of Coverage, Link availability, Data integrity,
+- **Mission assurance score.** A weighted blend of Coverage, Link availability, Data integrity,
   and Sensor integrity. It is the score and the loss condition at once.
 - **Active conditions.** GNSS denial, jamming, spoofing, eavesdropping, data leaks, and ransomware do not resolve and
   vanish. They persist for a set number of turns, shown on the board, press the meters every

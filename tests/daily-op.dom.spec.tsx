@@ -131,7 +131,8 @@ const dailyLabel = () => dailyEntry()?.querySelector('span')?.textContent ?? ''
 const titleSystem = () => click(buttons().find((b) => b.getAttribute('aria-haspopup') === 'dialog' && (b.textContent ?? '').trim() === 'SYSTEM')!)
 const ledger = () => JSON.parse(localStorage.getItem('dc-daily') ?? '{}') as Record<string, { n: number; turns: number }>
 const standing = () => container.querySelector('[data-standing]')?.textContent ?? null
-const onBoard = () => container.querySelector('[aria-label^="Credits"]') !== null
+// The deciding board, which the score screen is not.
+const onBoard = () => container.querySelector('main[data-board]') !== null
 const openSystem = () => click(container.querySelector('button[aria-label="System"]')!)
 
 // One turn through the controls: tap EXECUTE, tap the playback through

@@ -16,6 +16,7 @@ import { countersAfter, newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
 import { POLICIES } from './policies'
+import { tonightSlots } from '../src/ui/board/boardModel'
 
 const SEEDS = 200
 
@@ -36,6 +37,9 @@ describe("GUARD R0 (a): the board's LIKELY TARGET equals the engine's pick", () 
               // The board's read: the queued orders included, on a fresh
               // deck stream, as the TONIGHT card computes it.
               const board = adversaryPicks(state, countersAfter(state, actions))
+              // And the flags the TONIGHT card prints (v1.3 R2), which must
+              // name exactly the engine's least-covered moves.
+              const card = tonightSlots(state, actions)
               const after = resolveTurn(state, actions, turnRng(state.seed, state.turn))
               const played = after.history.at(-1)!.events.slice(0, board.length).map((e) => e.eventId)
               board.forEach((read, i) => {
@@ -43,6 +47,10 @@ describe("GUARD R0 (a): the board's LIKELY TARGET equals the engine's pick", () 
                 if (read.fixed) fixed += 1
                 else if (read.least.length === 1) likely += 1
                 else either += 1
+                const flagged = card[i].moves.filter((m) => m.flag).map((m) => m.ev.id)
+                const word = read.fixed ? 'CONFIRMED' : read.least.length === 1 ? 'LIKELY TARGET' : 'EITHER'
+                if (flagged.join() !== read.least.join() || card[i].moves.some((m) => m.flag && m.flag !== word))
+                  wrong.push(`${where}: the card flagged ${flagged.join(' or ')} where the engine reads ${read.least.join(' or ')}`)
                 if (!read.least.includes(played[i])) wrong.push(`${where}: board flagged ${read.least.join(' or ')}, engine played ${played[i]}`)
                 else if (read.pick !== played[i]) wrong.push(`${where}: board's tie-break said ${read.pick}, engine played ${played[i]}`)
               })

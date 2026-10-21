@@ -5,6 +5,7 @@
 // of their own.
 
 import { SQUADRON } from '../../config'
+import { COVERAGE_PER_KIND } from '../../engine/scoring'
 import {
   LAYERS,
   type ActiveCondition,
@@ -60,12 +61,16 @@ export function purchaseOrder(id: string): { turn: number; place: number } | nul
   return null
 }
 
-// An engine note names an asset by its id (the notes are the hashed log and
-// stay as written); shown to a player, each id reads as the call sign its
-// tile carries (QC gauntlet Q16, G-027). Longest ids first, so no id is
-// replaced inside a longer one.
+// An engine note names an asset by its id and spends in credits (the notes
+// are the hashed log and stay as written); shown to a player, each id reads
+// as the call sign its tile carries (QC gauntlet Q16, G-027), and an amount
+// reads in CR, the budget's unit (v1.3 section 4: "credits" is retired from
+// player view). Longest ids first, so no id is replaced inside a longer one.
+export const inCr = (line: string) => line.replace(/\b(\d+) credits\b/g, '$1 CR').replace(/\bthe slot resold\b/g, 'the launch place resold')
+    .replace(/\bThe attempt was mitigated below effect threshold\b/g, 'The attempt was blocked')
+
 export function withCallSigns(line: string, signs: Map<string, string>): string {
-  let out = line
+  let out = inCr(line)
   for (const id of [...signs.keys()].sort((a, b) => b.length - a.length)) out = out.split(id).join(signs.get(id)!)
   return out
 }
@@ -110,17 +115,18 @@ export function pipsFor(integrity: number): number {
   return Math.max(0, Math.min(4, Math.ceil(integrity / 25)))
 }
 
-// Sprite state by integrity (brief 4.2): intact 67 to 100, damaged 34 to
-// 66, critical 1 to 33, knocked out at 0. THE ONE TABLE: each state and
-// the lowest integrity that still shows it, highest first. spriteState
+// Sprite state by integrity (v1.3 brief 8.2): intact at 100, wounded
+// below it, critical at 50 or below, lost at 0. THE ONE TABLE: each state
+// and the lowest integrity that still shows it, highest first. spriteState
 // reads it, the sprite set is keyed by it, and the suite sweeps every
-// state it lists, so a boundary is moved here or nowhere.
-export type SpriteState = 'intact' | 'damaged' | 'critical' | 'out'
+// state it lists, so a boundary is moved here or nowhere. The picture
+// itself scorches by the exact integrity (../sprites/assets.ts).
+export type SpriteState = 'intact' | 'wounded' | 'critical' | 'lost'
 export const SPRITE_STATES: readonly { state: SpriteState; from: number }[] = [
-  { state: 'intact', from: 67 },
-  { state: 'damaged', from: 34 },
+  { state: 'intact', from: 100 },
+  { state: 'wounded', from: 51 },
   { state: 'critical', from: 1 },
-  { state: 'out', from: -Infinity },
+  { state: 'lost', from: -Infinity },
 ]
 export function spriteState(integrity: number): SpriteState {
   return SPRITE_STATES.find((s) => integrity >= s.from)!.state
@@ -129,9 +135,9 @@ export function spriteState(integrity: number): SpriteState {
 // How a tile's accessible name, and its intel card, say the state.
 export const STATE_WORD: Record<SpriteState, string> = {
   intact: '',
-  damaged: ', damaged',
+  wounded: ', wounded',
   critical: ', critical',
-  out: ', knocked out',
+  lost: ', lost',
 }
 
 export type TileModel =
@@ -244,3 +250,12 @@ export const retainerLine = (scenario: Scenario) =>
 export function turnBudget(state: Pick<GameState, 'credits'>): number {
   return state.credits
 }
+
+// What an asset adds and does, for its intel card: its coverage and, where
+// it has one, its role in the scenario.
+const ROLE: Partial<Record<AssetKind, string>> = {
+  rpoSat: 'hosts the docking LiDAR',
+  drone: 'flies the LiDAR mapping sorties',
+  groundStation: 'ground ops capacity',
+}
+export const assetRole = (kind: AssetKind) => `+${COVERAGE_PER_KIND[kind]} coverage${ROLE[kind] ? `; ${ROLE[kind]}` : ''}`

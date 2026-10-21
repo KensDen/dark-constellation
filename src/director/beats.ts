@@ -117,7 +117,7 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
     if (countersAdd.length) patch.countersAdd = countersAdd
     if (ordered.length) patch.pipelineAdd = ordered
     if (record.purchases.length || record.ledger.ordered) {
-      push({ kind: 'procurement', visible: false, title: `Orders confirmed: ${record.ledger.ordered} credits`, lines: [...record.purchases], patch })
+      push({ kind: 'procurement', visible: false, title: `Orders confirmed: ${record.ledger.ordered} CR`, lines: [...record.purchases], patch })
     }
   }
 
@@ -130,7 +130,7 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
     // checked at the close, after tonight's arrivals.
     const cov = coverage(shadow.assets)
     const { coverageMin, credits } = scenario.slaBonus
-    const short = cov < coverageMin ? [`Coverage ${coverageFigure(cov)} is under the ${coverageMin} the SLA pays ${credits} at.`] : []
+    const short = cov < coverageMin ? [`Coverage ${coverageFigure(cov)} is under the ${coverageMin} the coverage bonus pays ${credits} at.`] : []
     push({ kind: 'turn-start', title: `Turn ${turn}: COLDVEIL is moving`, lines: intro ? [intro, ...short] : short })
   }
 
@@ -376,7 +376,7 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
         : after.lossReason === 'insolvency'
           ? 'MISSION FAILED: budget insolvency'
           : after.lossReason === 'maiCollapse'
-            ? 'MISSION FAILED: Mission Assurance Index collapse'
+            ? 'MISSION FAILED: mission assurance collapse'
             : 'MISSION FAILED: below the win line at the end of the operation'
     // The field, not the title, decides the treatment downstream.
     push({ kind: 'outcome', title: reason, lost: after.status !== 'won' })

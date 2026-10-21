@@ -15,6 +15,7 @@ import { turnRng } from '../src/engine/rng'
 import { LAYERS, type GameState, type Layer, type TurnActions } from '../src/engine/types'
 import {
   KIND_LAYER,
+  assetRole,
   callSigns,
   cartCallSigns,
   conditionsOn,
@@ -24,7 +25,6 @@ import {
   spriteState,
   vectorsOf,
 } from '../src/ui/board/board'
-import { assetEffects } from '../src/ui/board/ProcureSheet'
 import { LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
@@ -84,14 +84,15 @@ describe('the board (v1.2 R1)', () => {
     // not from the two places they used to be: a parenthetical moved to
     // a content file or a sheet would be the same defect elsewhere.
     const strings = playerStrings()
-    // The positive controls: the walker sees the copy the sheet renders,
-    // so an empty scan cannot pass this. The effect line is built from
-    // parts since R3, and the drone's role is a plain literal among them
-    // that the rendered line ends with; the spend line is JSX text.
+    // The positive controls: the walker sees the copy the board renders,
+    // so an empty scan cannot pass this. An asset's role line on its intel
+    // card is built from parts, and the drone's role is a plain literal
+    // among them that the rendered line ends with; PROCURE's spend line is
+    // JSX text.
     const role = 'flies the LiDAR mapping sorties'
-    expect(assetEffects.drone.endsWith(role), 'the drone effect line no longer ends with its role').toBe(true)
-    expect(strings.some((s) => s.file === 'ui/board/ProcureSheet.tsx' && s.text === role), 'the string walker did not find the procure copy').toBe(true)
-    expect(strings.some((s) => s.file === 'ui/Game.tsx' && /Planned spend/.test(s.text)), 'the walker missed the JSX text').toBe(true)
+    expect(assetRole('drone').endsWith(role), 'the drone role line no longer ends with its role').toBe(true)
+    expect(strings.some((s) => s.file === 'ui/board/board.ts' && s.text === role), 'the string walker did not find the role copy').toBe(true)
+    expect(strings.some((s) => s.file === 'ui/board/Procure.tsx' && /Planned spend/.test(s.text)), 'the walker missed the JSX text').toBe(true)
     const offenders = strings.filter((s) => /in this build/i.test(s.text)).map((s) => `${s.file}: ${JSON.stringify(s.text)}`)
     expect(offenders.join('\n'), 'a developer parenthetical is back in player copy').toBe('')
   })
@@ -151,7 +152,9 @@ describe('the board (v1.2 R1)', () => {
 
   it('lights pips and picks a sprite state at the brief-s boundaries', () => {
     expect([100, 76, 75, 51, 50, 26, 25, 1, 0].map(pipsFor)).toEqual([4, 4, 3, 3, 2, 2, 1, 1, 0])
-    expect([100, 67, 66, 34, 33, 1, 0].map(spriteState)).toEqual(['intact', 'intact', 'damaged', 'damaged', 'critical', 'critical', 'out'])
+    // v1.3 brief 8.2: intact at 100, wounded 51 to 99, critical 1 to 50,
+    // lost at 0.
+    expect([100, 99, 51, 50, 1, 0].map(spriteState)).toEqual(['intact', 'wounded', 'wounded', 'critical', 'critical', 'lost'])
   })
 
   it('puts a chip on every layer its condition touches, and a defense on every layer its counters touch', () => {
@@ -181,7 +184,7 @@ describe('the board (v1.2 R1)', () => {
   })
 
   it('names a defense by its vectors, and never by the events it answers', () => {
-    // The answer-key fix (brief 4.4): the harden sheet renders what
+    // The answer-key fix (brief 4.4): PROCURE's defenses render what
     // vectorsOf returns, and this is the derivation's own half of the
     // guard. The rendered half is in tests/board.dom.spec.tsx.
     const scenario = DEFAULT_SCENARIO

@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 //
-// The sprites on the board (v1.2 R2, brief 4.2, 5.1 and 5.3): the round's
-// guards (b), (c) and (d).
+// The sprites on the board (v1.2 R2, brief 4.2, 5.1 and 5.3; v1.3 R2,
+// brief 8.2): the round's guards (b), (c) and (d).
 //
-//   (b) The tiles render the sprite SPRITE_STATES picks, at the seven
-//       integrities either side of each boundary, and the table picks the
-//       brief's states there.
+//   (b) The tiles render the sprite SPRITE_STATES picks, scorched for the
+//       exact integrity, at the integrities either side of each boundary,
+//       and the table picks the v1.3 states there.
 //   (c) The renderer merges runs: eight identical pixels are one rect.
 //   (d) Under reduced motion, and with the board's hidden-tab class set,
 //       nothing on the board has a running animation.
@@ -43,8 +43,7 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame } from '../src/engine/reducer'
 import type { GameState } from '../src/engine/types'
 import { SPRITE_STATES, callSigns, spriteState } from '../src/ui/board/board'
-import { ASSET_SPRITES } from '../src/ui/sprites/assets'
-import { PANEL_FILL } from '../src/ui/sprites/scenery'
+import { assetSprite } from '../src/ui/sprites/assets'
 import PixelSprite from '../src/ui/sprites/PixelSprite'
 import { runs, type Sprite } from '../src/ui/sprites/sprite'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
@@ -139,13 +138,14 @@ const rectsOf = (svg: Element) =>
   [...svg.querySelectorAll('rect')].map((r) => `${r.getAttribute('x')},${r.getAttribute('y')},${r.getAttribute('width')}`).sort()
 const runsOf = (sprite: Sprite) => runs(sprite.rows).map((r) => `${r.x},${r.y},${r.width}`).sort()
 
-describe('the sprites on the board (v1.2 R2)', () => {
-  it('GUARD (b): tiles render the sprite SPRITE_STATES picks at 100, 67, 66, 34, 33, 1 and 0', () => {
-    // The brief's boundaries (4.2): intact 67 to 100, damaged 34 to 66,
-    // critical 1 to 33, knocked out at 0. The table must pick these; the
-    // tiles must draw what the table picks, rect for rect.
-    const points = [100, 67, 66, 34, 33, 1, 0]
-    const brief = ['intact', 'intact', 'damaged', 'damaged', 'critical', 'critical', 'out']
+describe('the sprites on the board (v1.2 R2, v1.3 R2)', () => {
+  it('GUARD (b): tiles render the sprite SPRITE_STATES picks at 100, 99, 51, 50, 1 and 0', () => {
+    // The v1.3 boundaries (8.2): intact at 100, wounded 51 to 99, critical
+    // 1 to 50, lost at 0. The table must pick these; the tiles must name
+    // the state the table picks and draw the picture for the exact
+    // integrity, rect for rect.
+    const points = [100, 99, 51, 50, 1, 0]
+    const brief = ['intact', 'wounded', 'wounded', 'critical', 'critical', 'lost']
     expect(points.map(spriteState), 'SPRITE_STATES no longer picks the brief states at its boundaries').toEqual(brief)
     expect(SPRITE_STATES.length).toBe(4)
     for (const integrity of points) {
@@ -159,8 +159,9 @@ describe('the sprites on the board (v1.2 R2)', () => {
         )
         expect(tile, `no tile for ${asset.id} at ${integrity}`).toBeDefined()
         const svg = tile!.querySelector('svg[data-sprite]')!
+        expect(tile!.getAttribute('data-state'), `${asset.id} at ${integrity}`).toBe(expected)
         expect(svg.getAttribute('data-sprite'), `${asset.id} at ${integrity}`).toBe(`${asset.kind}.${expected}`)
-        expect(rectsOf(svg), `${asset.id} at ${integrity} draws other art`).toEqual(runsOf(ASSET_SPRITES[asset.kind][expected]))
+        expect(rectsOf(svg), `${asset.id} at ${integrity} draws other art`).toEqual(runsOf(assetSprite(asset.kind, integrity)))
       }
     }
   })
@@ -189,32 +190,30 @@ describe('the sprites on the board (v1.2 R2)', () => {
     ])
   })
 
-  it('puts every piece of panel text on PANEL_FILL, so the backdrop never sits directly under a letter', () => {
+  it('draws nothing behind the strip: every piece of strip text sits on a column on the opaque panel colour', () => {
+    // v1.3 R2 dropped the scenery backdrops behind the tiles, so the
+    // strip's text sits on the panel colour itself (tests/sprites.spec.ts
+    // holds that colour pair to 4.5:1). This pins both halves: no backdrop
+    // on the strip, and no letter outside a column on the panel.
     render(mixedFleet())
-    // Open a tile's detail line too, so it is checked.
-    act(() => {
-      container.querySelector('button[data-asset-id]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-    const panels = [...container.querySelectorAll('section[aria-labelledby^="layer-"]')]
-    expect(panels.length).toBe(3)
+    const strip = container.querySelector('[data-strip]')!
+    expect(strip.querySelector('[data-backdrop]'), 'a backdrop renders on the strip').toBeNull()
+    const columns = [...strip.querySelectorAll('[data-layer]')]
+    expect(columns.map((c) => c.getAttribute('data-layer'))).toEqual(['ORBIT', 'AIR', 'GROUND'])
+    for (const column of columns) expect((column.getAttribute('class') ?? '').split(/\s+/), 'a column is not on the panel colour').toContain('bg-dc-panel')
+    // Every sprite on the strip is a tile's own.
+    const loose = [...strip.querySelectorAll('svg[data-sprite]')].filter((svg) => !svg.closest('[data-asset-id], [data-queued]'))
+    expect(loose.map((svg) => svg.getAttribute('data-sprite')), 'a sprite on the strip outside a tile').toEqual([])
     const bare: string[] = []
     let checked = 0
-    for (const panel of panels) {
-      const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT)
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        if (!node.textContent?.trim()) continue
-        const el = node.parentElement!
-        if (el.closest('.sr-only')) continue
-        checked += 1
-        let onFill = false
-        for (let a: Element | null = el; a && a !== panel; a = a.parentElement) {
-          if ((a.getAttribute('class') ?? '').split(/\s+/).includes(PANEL_FILL)) onFill = true
-        }
-        if (!onFill) bare.push(`"${node.textContent.trim()}"`)
-      }
+    const walker = document.createTreeWalker(strip, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (!node.textContent?.trim()) continue
+      checked += 1
+      if (!node.parentElement!.closest('[data-layer]')) bare.push(`"${node.textContent.trim()}"`)
     }
-    expect(checked, 'no panel text found').toBeGreaterThan(10)
-    expect(bare, 'panel text sitting directly on the backdrop').toEqual([])
+    expect(checked, 'no strip text found').toBeGreaterThan(10)
+    expect(bare, 'strip text outside a panel column').toEqual([])
   })
 
   describe('GUARD (d): the idle life stops under reduced motion and while the tab is hidden', () => {
@@ -260,12 +259,19 @@ describe('the sprites on the board (v1.2 R2)', () => {
 
     it('runs the idle life with no preference and the tab visible (the positive control)', () => {
       render(mixedFleet())
+      // Idle means at rest: the one-shot cues the board plays as it mounts
+      // (the TONIGHT move cards' status flash) run out first.
+      act(() => {
+        vi.advanceTimersByTime(2000)
+      })
       const board = container.querySelector('[data-board]')!
       const sheet = applyCss(false)
       const running = runningOn(board, keyframeNames(sheet))
       const classes = new Set(running.flatMap(({ el }) => (el.getAttribute('class') ?? '').split(/\s+/)))
-      // Every piece brief 5.3 and the round name, present and moving.
-      for (const idle of ['dc-twinkle', 'dc-beacon', 'dc-bob', 'dc-rotor', 'dc-drift', 'dc-orbit', 'dc-spark', 'dc-smoke']) {
+      // The idle life left on the v1.3 board: the beacons on the sprites
+      // (the backdrops' twinkle, drift and orbit, the bob, and the damage
+      // sparks and smoke left with R2's strip and scorched sprites).
+      for (const idle of ['dc-beacon']) {
         expect(classes.has(idle), `${idle} is not running on the board`).toBe(true)
       }
       // And every animation running on the idle board moves transform or

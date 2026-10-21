@@ -10,9 +10,10 @@
 //       integrity after is under its integrity before;
 //   (c) the REAL WORLD line on an event card is the event's own technique
 //       and source (the content half is in real-world.spec.ts);
-//   (d) the banner's intel card with no intel brief names no event, vector
+//   (d) COLDVEIL's intel card with no intel brief names no event, vector
 //       or technique (the intel levels left with v1.3 Round 0: the brief
-//       is on or off);
+//       is on or off). Since v1.3 R2 that card opens from the TONIGHT
+//       card's full brief, where the threat banner's button used to be;
 //   (e) under reduced motion nothing shakes, strobes or floats.
 // And the intel card behaves as a dialog: a real button opens it, focus
 // comes back to that button, and Escape closes it without skipping the
@@ -42,9 +43,8 @@ import type { GameState } from '../src/engine/types'
 import { FORECAST_DARK, briefCopy, forecastLead } from '../src/ui/brief'
 import { techniqueLabel, vectorLabels } from '../src/ui/labels'
 import { realWorldFor } from '../src/ui/realWorldLine'
-import { assetRole } from '../src/ui/board/ProcureSheet'
+import { assetRole } from '../src/ui/board/board'
 import { STRIKE_MS } from '../src/ui/board/strike'
-import { FIRST_TURN_DONE_KEY } from '../src/ui/firstTurn'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
@@ -89,7 +89,6 @@ beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   vi.useFakeTimers()
   vi.stubGlobal('localStorage', memoryStorage())
-  localStorage.setItem(FIRST_TURN_DONE_KEY, '1')
   setReducedMotion(false)
   resetAudioEngineForTests()
   installFakeAudioContext()
@@ -173,6 +172,15 @@ const execute = () => {
   const button = container.querySelector('nav[aria-label="Actions"] button[data-execute]')
   expect(button, 'EXECUTE is not on screen').not.toBeNull()
   click(button!)
+}
+// The TONIGHT card's full brief, opened if it is not, and its chunk let
+// in: COLDVEIL's intel button and the technique tag live there (v1.3 R2).
+async function openFullBrief() {
+  const toggle = container.querySelector('button[data-full-brief]')
+  expect(toggle, 'the TONIGHT card is not on screen').not.toBeNull()
+  if (toggle!.getAttribute('aria-expanded') !== 'true') click(toggle!)
+  await settle()
+  expect(container.querySelector('button[aria-label="Threat intel"]'), 'the full brief has no intel button').not.toBeNull()
 }
 const tiles = () => [...container.querySelectorAll('button[data-asset-id]')]
 const inTiles = (selector: string) => tiles().filter((t) => t.querySelector(selector)).map((t) => t.getAttribute('data-asset-id'))
@@ -259,7 +267,7 @@ describe('hits land on their tiles (v1.2 R3)', () => {
     execute()
     let seen: string[] = []
     tapThrough(() => {
-      seen = [...container.querySelectorAll('span[data-held]')].map((el) => el.closest('section')!.getAttribute('aria-labelledby')!.replace('layer-', ''))
+      seen = [...container.querySelectorAll('span[data-held]')].map((el) => el.closest('[data-layer]')!.getAttribute('data-layer')!)
       return seen.length > 0
     }, 20)
     expect(seen.sort()).toEqual([...(held!.layers ?? [])].sort())
@@ -374,6 +382,7 @@ describe('the intel cards (v1.2 R3)', () => {
     const fixed = DEFAULT_SCENARIO.campaign.find((p) => p.turn === state.turn)!.slots.find((s) => s.fixed)!.fixed
     const named = DEFAULT_SCENARIO.events.find((e) => e.id === fixed)!
     render(state)
+    await openFullBrief()
     const opener = container.querySelector('button[aria-label="Threat intel"]') as HTMLButtonElement
     expect(opener).not.toBeNull()
     act(() => opener.focus())
@@ -398,6 +407,7 @@ describe('the intel cards (v1.2 R3)', () => {
     expect(DEFAULT_SCENARIO.campaign.find((p) => p.turn === 1)!.slots.every((s) => !s.fixed)).toBe(true)
     expect(briefFree(state), 'the fixture has no brief, so the dark card would pass for the wrong reason').toBe(true)
     render(state)
+    await openFullBrief()
     click(container.querySelector('button[aria-label="Threat intel"]')!)
     await settle()
     const card = container.querySelector('section[data-intel-card="banner"]')
@@ -448,14 +458,15 @@ describe('the intel cards (v1.2 R3)', () => {
     expect(container.querySelector('main')!.hasAttribute('inert')).toBe(true)
   })
 
-  // THE CARD AND THE BANNER GIVE ONE ANSWER (v1.3 Round 0). Whether
-  // tonight's moves are named is the cart's brief while the player decides
-  // and the record of the night during its playback (src/ui/Game.tsx
-  // briefedTonight, passed to the banner and to the card). Before that fix
-  // the card read the free brief alone, so a brief ordered in the cart left
-  // it saying NO BRIEF beside a banner that named the move; and the banner
-  // fell back to the free brief during playback, so a night the player
-  // paid to name went dark the moment EXECUTE was pressed.
+  // THE CARD AND THE TONIGHT CARD GIVE ONE ANSWER (v1.3 Round 0, re-pointed
+  // in R2). Whether tonight's moves are named is the cart's brief while the
+  // player decides (src/ui/Game.tsx briefedTonight for the intel card, the
+  // TONIGHT card's own brief state for its full brief). Before the Round 0
+  // fix the card read the free brief alone, so a brief ordered in the cart
+  // left it saying NO BRIEF beside a banner that named the move. The
+  // playback half of that fix (the banner going dark once EXECUTE was
+  // pressed) has no surface since R2: the TONIGHT card, and the intel
+  // button in its full brief, are off the board while the night plays.
   //
   // The fixture is the first turn of the prepared line, before the last,
   // whose brief is NOT free and which has a fixed slot, so the brief names
@@ -468,34 +479,33 @@ describe('the intel cards (v1.2 R3)', () => {
     }
     throw new Error('no turn of the prepared line before the last has a paid brief and a fixed move')
   }
-  const banner = () => container.querySelector('section[aria-label="Threat forecast"]')!
-  // The whole headline, from the line the teletype keeps for screen
-  // readers, so the reading does not wait on the typing.
-  const bannerHeadline = () => banner().querySelector('span.sr-only')?.textContent ?? ''
-  const bannerTag = () => banner().querySelector('[data-technique-tag]')?.getAttribute('data-technique-tag') ?? null
-  const intelRow = () => container.querySelector('p[data-procure-intel]')
-  const intelBox = () => intelRow()?.querySelector<HTMLInputElement>('input[type="checkbox"]') ?? null
+  // What the TONIGHT card's full brief says: its lines and its technique
+  // tag, both read from briefCopy with the card's brief state.
+  const tonightLines = () => [...container.querySelectorAll('[data-brief-scroll] li')].map((li) => li.textContent)
+  const tonightTag = () => container.querySelector('[data-brief-scroll] [data-technique-tag]')?.getAttribute('data-technique-tag') ?? null
+  const intelOrder = () => container.querySelector<HTMLButtonElement>('[data-sheet="procure"] button[data-procure-intel]')
   const toggleProcure = () => {
     const step = container.querySelector('nav[aria-label="Actions"] button[data-action="procure"]')
-    expect(step, 'PROCURE is not on the action bar').not.toBeNull()
+    expect(step, 'PROCURE is not on the dock').not.toBeNull()
     click(step!)
   }
-  // Orders the brief in PROCURE's INTEL section (or takes it back out),
-  // through its checkbox as a player does, and closes the sheet again.
+  // Orders the brief in PROCURE's INTEL section (or takes it back out), by
+  // its button as a player does, and closes the sheet again.
   function setBrief(on: boolean) {
     toggleProcure()
-    const box = intelBox()
-    expect(box, 'PROCURE has no INTEL row').not.toBeNull()
-    expect(box!.disabled, 'the brief is free tonight, so ordering it proves nothing').toBe(false)
-    expect(intelRow()!.textContent, 'the INTEL row does not price the brief').toContain(`${DEFAULT_SCENARIO.prices.intelBrief} CR`)
-    if (box!.checked !== on) act(() => box!.click())
-    expect(box!.checked, `the brief could not be ${on ? 'ordered' : 'taken out of the cart'}`).toBe(on)
+    const order = intelOrder()
+    expect(order, 'PROCURE has no INTEL order: the brief is free tonight, so ordering it proves nothing').not.toBeNull()
+    expect(order!.textContent, 'the INTEL order does not price the brief').toContain(`${DEFAULT_SCENARIO.prices.intelBrief} CR`)
+    if ((order!.getAttribute('aria-pressed') === 'true') !== on) click(order!)
+    expect(intelOrder()!.getAttribute('aria-pressed'), `the brief could not be ${on ? 'ordered' : 'taken out of the cart'}`).toBe(String(on))
     toggleProcure()
     expect(container.querySelector('[data-sheet="procure"]'), 'PROCURE did not close').toBeNull()
   }
-  // Opens the banner's card by its button, reads it, and closes it on
-  // Escape (which does not skip a playback, as the test below pins).
+  // Opens COLDVEIL's card by its button in the full brief, reads it, and
+  // closes it on Escape (which does not skip a playback, as the test below
+  // pins).
   async function readCard() {
+    await openFullBrief()
     click(container.querySelector('button[aria-label="Threat intel"]')!)
     await settle()
     const card = container.querySelector('section[data-intel-card="banner"]')
@@ -512,98 +522,82 @@ describe('the intel cards (v1.2 R3)', () => {
     return read
   }
   const nextTurn = () => {
-    const button = [...container.querySelectorAll('nav[aria-label="Actions"] button')].find((b) => b.querySelector('[data-label]')?.textContent === 'NEXT TURN')
-    expect(button, 'no NEXT TURN after the playback').toBeDefined()
+    const button = container.querySelector('nav[aria-label="Actions"] button[data-next]')
+    expect(button?.textContent, 'no NEXT TURN after the playback').toBe('NEXT TURN')
     click(button!)
   }
 
-  it('reads THREAT INTEL · BRIEFED and names what the banner names once the brief is ordered in the cart, and NO BRIEF without it', async () => {
+  it('reads THREAT INTEL · BRIEFED and names what the TONIGHT card names once the brief is ordered in the cart, and NO BRIEF without it', async () => {
     const state = paidNightWithLead()
     const named = briefCopy(state, true)
+    const dark = briefCopy(state, false)
     const lead = realWorldFor(forecastLead(state, true)!)!
     expect(named.headline, 'the briefed headline is the dark one, so the two readings cannot be told apart').not.toBe(FORECAST_DARK.headline)
+    expect(named.full, 'the briefed lines are the dark ones, so the two readings cannot be told apart').not.toEqual(dark.full)
     expect(named.tag, 'the brief names no technique tonight').toBeDefined()
     render(state)
-    // Not ordered: the banner and the card are both dark.
-    expect(bannerHeadline()).toBe(FORECAST_DARK.headline)
+    // Not ordered: the TONIGHT card and the intel card are both dark.
+    await openFullBrief()
+    expect(tonightLines()).toEqual(dark.full)
+    expect(tonightTag()).toBeNull()
     let card = await readCard()
     expect(card.heading, `turn ${state.turn}: the card claims a brief nobody ordered`).toBe('THREAT INTEL · NO BRIEF')
     expect(card.headline).toBe(FORECAST_DARK.headline)
     expect(card.line, 'the card with no brief carries an event line').toBeNull()
-    // Ordered in the cart, before EXECUTE: the banner names the move, and
-    // the card names exactly what the banner names.
+    // Ordered in the cart, before EXECUTE: the TONIGHT card names the
+    // move, and the intel card names exactly what it names.
     setBrief(true)
-    expect(bannerHeadline(), 'the banner ignored the brief ordered in the cart').toBe(named.headline)
-    expect(bannerTag()).toBe(named.tag!)
+    expect(tonightLines(), 'the TONIGHT card ignored the brief ordered in the cart').toEqual(named.full)
+    expect(tonightTag()).toBe(named.tag!)
     card = await readCard()
     expect(card.heading, `turn ${state.turn}: the card ignored the brief ordered in the cart`).toBe('THREAT INTEL · BRIEFED')
-    expect(card.headline, 'the card does not name what the banner names').toBe(bannerHeadline())
+    expect(card.headline, 'the card does not name what the brief names').toBe(named.headline)
     expect(card.line, 'the card does not carry the named event REAL WORLD line').toBe(`${lead.technique} · ${lead.source}`)
     // Taken back out of the cart: both dark again.
     setBrief(false)
-    expect(bannerHeadline()).toBe(FORECAST_DARK.headline)
+    expect(tonightLines()).toEqual(dark.full)
     card = await readCard()
     expect(card.heading, 'the card kept a brief taken out of the cart').toBe('THREAT INTEL · NO BRIEF')
     expect(card.line).toBeNull()
   })
 
-  it('keeps a briefed night named through its playback, from the record, and a night played without the brief dark', async () => {
+  it('leaves the night after a briefed one dark when it is played without the brief', async () => {
     const state = paidNightWithLead()
-    const named = briefCopy(state, true)
-    const lead = realWorldFor(forecastLead(state, true)!)!
     render(state)
     setBrief(true)
     execute()
     step(100)
     expect(playingOut(), 'the playback did not start').toBe(true)
-    // The engine's turn has moved on (and its brief is not free), so only
-    // the record of the night being played back can say it was briefed.
-    let card = await readCard()
-    expect(card.heading, `turn ${state.turn}: the card went dark during the playback of a briefed night`).toBe('THREAT INTEL · BRIEFED')
-    expect(card.headline).toBe(named.headline)
-    expect(card.line).toBe(`${lead.technique} · ${lead.source}`)
-    let looks = 0
-    tapThrough(() => {
-      expect(bannerHeadline(), `turn ${state.turn}, look ${looks}: the banner went dark during the playback of a briefed night`).toBe(named.headline)
-      looks += 1
-    }, STRIKE_MS)
+    tapThrough(() => {}, STRIKE_MS)
     expect(playingOut(), 'the playback never finished').toBe(false)
-    expect(looks, 'the playback was too short to mean anything').toBeGreaterThan(4)
 
-    // The next night, played WITHOUT the brief, after a night played with
-    // it: the record of the night being shown decides, not any night's.
+    // The next night, decided WITHOUT the brief, after a night played with
+    // it: the cart decides, not any earlier night's record.
     nextTurn()
     expect(playingOut()).toBe(false)
+    const next = state.turn + 1
+    await openFullBrief()
     // Ordering the brief would name something tonight (so dark is a real
-    // reading), and the INTEL row prices it (so tonight is not free).
+    // reading), and the INTEL order prices it (so tonight is not free).
     setBrief(true)
-    const wouldName = bannerHeadline()
-    expect(wouldName, 'the brief names nothing tonight, so the dark banner proves nothing').not.toBe(FORECAST_DARK.headline)
+    const wouldName = tonightLines()
     setBrief(false)
-    expect(bannerHeadline()).toBe(FORECAST_DARK.headline)
-    execute()
-    step(100)
-    expect(playingOut(), 'the second playback did not start').toBe(true)
-    card = await readCard()
-    expect(card.heading, 'the card named a night played without the brief').toBe('THREAT INTEL · NO BRIEF')
+    expect(tonightLines(), `turn ${next}: the brief names nothing, so the dark reading proves nothing`).not.toEqual(wouldName)
+    const card = await readCard()
+    expect(card.heading, 'the card named a night with no brief ordered').toBe('THREAT INTEL · NO BRIEF')
     expect(card.line).toBeNull()
-    let darkLooks = 0
-    tapThrough(() => {
-      expect(bannerHeadline(), `look ${darkLooks}: the banner named a night played without the brief`).toBe(FORECAST_DARK.headline)
-      darkLooks += 1
-    }, STRIKE_MS)
-    expect(playingOut(), 'the second playback never finished').toBe(false)
-    expect(darkLooks, 'the second playback was too short to mean anything').toBeGreaterThan(4)
   })
 
   it('closes on Escape during playback without skipping the playback', async () => {
     // The penultimate turn, as turn 11 of 12 was before the six-turn
-    // campaign of v1.3 Round 0.
+    // campaign of v1.3 Round 0. COLDVEIL's card is off the board during a
+    // playback since v1.3 R2 (it opens from the TONIGHT card), so a tile's
+    // card is the one a player can open here.
     render(gameAt(DEFAULT_SCENARIO.totalTurns - 1))
     execute()
     step(100)
     expect(playingOut()).toBe(true)
-    click(container.querySelector('button[aria-label="Threat intel"]')!)
+    click(container.querySelector('button[data-asset-id]')!)
     await settle()
     expect(container.querySelector('section[data-intel-card]')).not.toBeNull()
     act(() => {
@@ -645,7 +639,8 @@ describe('GUARD R3 (e): under reduced motion nothing shakes, strobes or floats',
     return out
   }
   // The first moment the hit has landed, with its whole treatment on the
-  // board: the shake on the root, the strobe on the tile, the float on MAI.
+  // board: the shake on the root, the strobe on the tile, the float on the
+  // score.
   // The turn is the prepared line's first with a hit on a tile, found from
   // the engine's beats (turn 11 of the twelve-turn campaign was pinned
   // before v1.3 Round 0 cut it to six).

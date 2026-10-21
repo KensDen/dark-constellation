@@ -135,10 +135,11 @@ export interface ReadoutProps {
   // theirs: playback folds the turn's purchase into a beat that may also
   // carry damage, and only the damage should flash.
   chosenDelta?: number
-  // The board's HUD (v1.2 R1) sets MAI as one big display-type number with
-  // its label above it, and the four meters as a compact column each.
-  // Presentation only: the count, the tones and the sounds are the same.
-  stacked?: boolean
+  // The board's HUD (v1.3 R2) prints its labels on a row of their own, so
+  // its readouts are the number alone; the label stays the number's
+  // accessible name. Presentation only: the count, the tones and the
+  // sounds are the same.
+  bare?: boolean
   valueClassName?: string
   // The count's duration (v1.2 R3): the board sets it from the playback
   // speed, so a hit's number runs as fast as the rest of the hit.
@@ -158,7 +159,7 @@ export default function Readout({
   suffix,
   chosen,
   chosenDelta,
-  stacked,
+  bare,
   valueClassName,
   countMs,
   odometer,
@@ -212,8 +213,8 @@ export default function Readout({
 
   return (
     <div className={`font-mono ${strobe}`}>
-      <div className={stacked ? 'flex flex-col items-start' : 'flex items-baseline justify-between gap-2'}>
-        <span className={`uppercase tracking-widest text-ink-dim ${stacked ? 'text-[9px]' : 'text-xs'}`}>{label}</span>
+      <div className={bare ? 'flex' : 'flex items-baseline justify-between gap-2'}>
+        {!bare && <span className="uppercase tracking-widest text-ink-dim text-xs">{label}</span>}
         <span
           className={`tabular-nums ${valueClassName ?? 'text-sm'} ${flash ? '' : warning ? 'text-alert-amber' : TONE_TEXT[tone]} ${flash}`}
           aria-label={`${label} ${value}${suffix ?? ''}`}

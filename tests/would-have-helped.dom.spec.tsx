@@ -3,9 +3,11 @@
 // What would have helped, where the player looks (critique row M3). The
 // sentence naming the missing defense used to render only inside the
 // aftermath's collapsed ledger, open by default only at INSTANT. Now the
-// short form is a line of its own on the hit card, under the severity
-// line, and the verdict's second line on a turn something landed; the
-// ledger keeps the full sentence. Rendered against the game's own beats
+// short form is a line of its own on the hit card, under the strength
+// line ("Strength n - n blocked = n landed" since v1.3 R2, the severity
+// line before), and the verdict's second line on a turn something landed;
+// the ledger keeps the full sentence. The aftermath card's heading has
+// read "END OF TURN n" since R2. Rendered against the game's own beats
 // and records, found by walking real play.
 
 import { act } from 'react'
@@ -92,7 +94,7 @@ const resolvedOf = (after: GameState, beat: Beat) => after.history.at(-1)!.event
 const landedThreat = (b: Beat) => b.kind === 'threat' && (b.severity?.effective ?? 0) > 0
 
 describe('the hit card (critique row M3)', () => {
-  it('names the missing defense in amber, on its own line under the severity line', () => {
+  it('names the missing defense in amber, on its own line under the strength line', () => {
     const f = beatWhere((b, after) => landedThreat(b) && short(resolvedOf(after, b), after, after.scenario) !== '')
     renderBeat(f)
     const expected = short(resolvedOf(f.after, f.beat), f.after, f.after.scenario)
@@ -100,7 +102,7 @@ describe('the hit card (critique row M3)', () => {
     expect(line(), 'the hit card has no would-have-helped line').not.toBeNull()
     expect(line()!.textContent).toBe(expected)
     expect(line()!.className).toContain('text-alert-amber')
-    expect(line()!.previousElementSibling?.textContent ?? '', 'the line is not under the severity line').toMatch(/^Severity /)
+    expect(line()!.previousElementSibling?.textContent ?? '', 'the line is not under the strength line').toMatch(/^Strength /)
   })
 
   it('says nothing on a threat that was held, or once every applicable defense was owned', () => {
@@ -108,12 +110,12 @@ describe('the hit card (critique row M3)', () => {
     // print and only the landed rule keeps them off the card.
     const held = beatWhere((b, after) => b.kind === 'threat' && b.severity?.effective === 0 && short(resolvedOf(after, b), after, after.scenario) !== '')
     renderBeat(held)
-    expect(container.textContent, 'the control: the held card did not render').toMatch(/Severity /)
+    expect(container.textContent, 'the control: the held card did not render').toMatch(/Strength /)
     expect(line(), 'a held threat claims something would have helped').toBeNull()
     const f = beatWhere(landedThreat)
     const def = DEFAULT_SCENARIO.events.find((e) => e.id === f.beat.subjectId)!
     renderBeat({ ...f, after: { ...f.after, counters: [...f.after.counters, ...def.counters] } })
-    expect(container.textContent, 'the control: the landed card did not render').toMatch(/Severity /)
+    expect(container.textContent, 'the control: the landed card did not render').toMatch(/Strength /)
     expect(line(), 'with everything owned the short line still names a defense').toBeNull()
   })
 })
@@ -170,14 +172,14 @@ describe('the verdict (critique row M3)', () => {
       return landed.length > 1 && short(landed[0], after, after.scenario) === '' && landed.slice(1).some((ev) => short(ev, after, after.scenario) !== '')
     })
     renderAftermath(record, state)
-    expect(container.textContent, 'the control: the aftermath did not render').toMatch(/AFTERMATH/)
+    expect(container.textContent, 'the control: the aftermath did not render').toMatch(/END OF TURN/)
     expect(line(), 'the verdict named a later threat than the first that landed').toBeNull()
   })
 
   it('has no second line on a turn nothing landed', () => {
     const { record, state } = recordWhere((r) => r.events.some((ev) => isThreat(ev.eventId)) && r.events.every((ev) => ev.effectiveSeverity === 0))
     renderAftermath(record, state)
-    expect(container.textContent, 'the control: the aftermath did not render').toMatch(/AFTERMATH/)
+    expect(container.textContent, 'the control: the aftermath did not render').toMatch(/END OF TURN/)
     expect(line()).toBeNull()
   })
 })

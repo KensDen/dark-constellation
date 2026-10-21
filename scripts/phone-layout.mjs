@@ -14,11 +14,19 @@
 //   starts left of x=0 or ends past the viewport, no text field is under
 //   16px (iOS Safari zooms the page on focusing one, and stays zoomed),
 //   and the title's SYSTEM is opaque and reaches the bottom of the screen.
-//   The difficulty chip opens it with the Difficulty row in view.
 //   SCROLL RESET: a screen opens at its top, whatever the last one's
 //   scroll (DOSSIER from a scrolled title; Back to title from a scrolled
 //   Glossary).
 //   TAGLINE: one line, never under 10px.
+//
+// GUARD R2 (a), THE BOARD FITS (v1.3 brief 5.3: "no page scroll on the
+// starter fleet at 375 x 667"): on turn 1 of a first game, at 375x667 and
+// 390x844, motion on and off, nothing scrolls, neither the page nor the
+// board's body, the dock is wholly on screen and no text leaves the width.
+// Checked as served and again with the sans and mono stacks forced to wide
+// fallbacks (Verdana or DejaVu Sans, Courier New or DejaVu Sans Mono): the
+// CI runner has no SF or Menlo, and a board that fits only in Apple's
+// fonts does not fit (the R1 lesson).
 //
 // Exit codes: 0 pass, 1 fail, 2 skipped (no Chrome on this machine). The
 // battery runs it after the build. GitHub's ubuntu-24.04 runner has
@@ -206,7 +214,10 @@ async function fresh(b, url, [w, h]) {
   await waitFor(b, 'document.readyState === "complete"')
   await b.evaluate('localStorage.clear(); location.reload(); true')
   await sleep(500)
-  return waitFor(b, 'document.querySelector("[data-play]")')
+  if (await waitFor(b, 'document.querySelector("[data-play]")')) return true
+  await b.send('Page.reload', {})
+  await sleep(500)
+  return waitFor(b, 'document.querySelector("[data-play]")', 15000)
 }
 
 async function checkTitle(b, url, [w, h]) {
@@ -240,10 +251,11 @@ async function checkTitle(b, url, [w, h]) {
   y = await b.evaluate('Math.round(scrollY + document.querySelector("[data-screen]").scrollTop)')
   if (y !== 0) failures.push(`${where}: Back to title opened ${y}px down`)
 
-  // The chip opens SYSTEM at Difficulty; SYSTEM stays in bounds, opaque
-  // and full height.
-  await b.evaluate('window.scrollTo(0, 400); document.querySelector("[data-difficulty-chip]").click(); true')
-  if (!(await waitFor(b, 'document.querySelector("[role=dialog]")'))) return [...failures, `${where}: the chip did not open SYSTEM`]
+  // SYSTEM stays in bounds, opaque and full height, with Difficulty in
+  // view. (The difficulty chip that opened it there left the title in v1.3
+  // R2: Ken's R1 phone pass, item 12.)
+  await b.evaluate('window.scrollTo(0, 400); [...document.querySelectorAll("button")].find((x) => x.getAttribute("aria-haspopup") === "dialog" && x.innerText.trim() === "SYSTEM").click(); true')
+  if (!(await waitFor(b, 'document.querySelector("[role=dialog]")'))) return [...failures, `${where}: SYSTEM did not open`]
   await sleep(300)
   const sys = await b.evaluate(`(() => {
     const d = document.querySelector('[role=dialog]')
@@ -252,7 +264,7 @@ async function checkTitle(b, url, [w, h]) {
     return { bad: ${OUT_OF_BOUNDS}(d), rowTop: row.top, rowBottom: row.bottom, panelBottom: panel.bottom, bg: getComputedStyle(d).backgroundColor }
   })()`)
   for (const x of sys.bad) failures.push(`${where}: title SYSTEM: ${x}`)
-  if (sys.rowTop < 0 || sys.rowBottom > h) failures.push(`${where}: the chip opened SYSTEM without Difficulty in view`)
+  if (sys.rowTop < 0 || sys.rowBottom > h) failures.push(`${where}: SYSTEM opened without Difficulty in view`)
   if (sys.panelBottom < h - 1) failures.push(`${where}: title SYSTEM ends at ${Math.round(sys.panelBottom)} of ${h}`)
   // Opaque: no alpha under 1, whichever colour syntax the browser reports
   // (rgba(), or color()/oklab() with a slash alpha from Tailwind's mixes).
@@ -277,6 +289,47 @@ async function checkBoardSystem(b, url, [w, h]) {
   return bad.map((x) => `${where}: board SYSTEM: ${x}`)
 }
 
+const WIDE_FONTS = `:root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; --font-mono: 'Courier New', 'DejaVu Sans Mono', monospace !important; }`
+
+async function checkBoard(b, url, [w, h], reduced, wideFonts) {
+  const where = `${w}x${h}, motion ${reduced ? 'off' : 'on'}${wideFonts ? ', wide fonts' : ''}`
+  await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: true })
+  await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduced ? 'reduce' : 'no-preference' }] })
+  await b.send('Page.navigate', { url })
+  await waitFor(b, 'document.readyState === "complete"')
+  await b.evaluate(`localStorage.clear(); localStorage.setItem('dc-intro-seen', '1'); location.reload(); true`)
+  await sleep(500)
+  // A reload can race the evaluate that asked for it; one more before
+  // calling the title missing.
+  if (!(await waitFor(b, 'document.querySelector("[data-play]")'))) {
+    await b.send('Page.reload', {})
+    await sleep(500)
+    if (!(await waitFor(b, 'document.querySelector("[data-play]")', 15000))) return [`${where}: the title never showed PLAY`]
+  }
+  await b.evaluate('document.querySelector("[data-play]").click(); true')
+  if (!(await waitFor(b, 'document.querySelector("[data-dock]") && document.querySelector("[data-tonight]")'))) return [`${where}: PLAY did not reach the board`]
+  if (wideFonts) await b.evaluate(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(WIDE_FONTS)}; document.head.appendChild(s); return true })()`)
+  await sleep(reduced ? 300 : 900)
+  const m = await b.evaluate(`(() => {
+    const body = document.querySelector('[data-board-body]')
+    const dock = document.querySelector('[data-dock]').getBoundingClientRect()
+    return {
+      page: document.documentElement.scrollHeight > innerHeight + 1,
+      body: [body.scrollHeight, body.clientHeight],
+      dockBottom: dock.bottom, vh: innerHeight,
+      orders: !!document.querySelector('[data-orders]'),
+      bad: ${OUT_OF_BOUNDS}(document.querySelector('[data-board]')),
+    }
+  })()`)
+  const failures = []
+  if (m.page) failures.push(`${where}: the page scrolls`)
+  if (m.body[0] > m.body[1] + 1) failures.push(`${where}: the board scrolls (${m.body[0]} of ${m.body[1]}px)`)
+  if (m.dockBottom > m.vh + 0.5) failures.push(`${where}: the dock ends at ${Math.round(m.dockBottom)} of ${m.vh}`)
+  if (!m.orders) failures.push(`${where}: no FIRST ORDERS on turn 1`)
+  for (const x of m.bad) failures.push(`${where}: ${x}`)
+  return failures
+}
+
 export async function phoneLayout(chrome) {
   const server = await serve()
   const url = `http://127.0.0.1:${server.address().port}${BASE}`
@@ -285,6 +338,7 @@ export async function phoneLayout(chrome) {
     const failures = []
     for (const vp of VIEWPORTS) for (const reduced of [false, true]) failures.push(...(await check(b, url, vp, reduced)))
     for (const vp of VIEWPORTS) failures.push(...(await checkTitle(b, url, vp)), ...(await checkBoardSystem(b, url, vp)))
+    for (const vp of VIEWPORTS) for (const reduced of [false, true]) for (const wide of [false, true]) failures.push(...(await checkBoard(b, url, vp, reduced, wide)))
     return failures
   } finally {
     b.close()
@@ -308,7 +362,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
         console.log(failures.join('\n'))
         process.exit(1)
       }
-      console.log(`briefing fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}`)
+      console.log(`briefing fits, board fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}`)
       process.exit(0)
     })
     .catch((e) => {

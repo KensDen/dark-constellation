@@ -1,9 +1,10 @@
 // Reading diet battery (brief v0.5 section 5, Round 3). The copy budget is
 // a design constraint with a number on it, so it is measured rather than
-// trusted: the headline stays inside eight words, the brief phase stays
-// inside sixty words before the player's first input, and the verdict line
-// stays one line. Every string is derived from the deck, so a content
-// change that would blow the budget fails here.
+// trusted: the headline stays inside eight words, the deciding board stays
+// inside its reading budget before the player's first input (150 words
+// since v1.3 R2, which re-baselined it for the TONIGHT and orders cards),
+// and the verdict line stays one line. Every string is derived from the
+// deck, so a content change that would blow the budget fails here.
 
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -12,37 +13,54 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { BEAT_KINDS, deriveBeats } from '../src/director'
-import { DIFFICULTIES, briefFree, gnssDenied, newGame, resolveTurn } from '../src/engine/reducer'
+import { briefFree, gnssDenied, newGame, resolveTurn } from '../src/engine/reducer'
+import { briefActive, countersAfter, eventById, planFor } from '../src/engine/rules'
 import { coverage, maiScore } from '../src/engine/scoring'
 import { turnRng } from '../src/engine/rng'
 import type { AssetKind, Difficulty, GameState, ResolvedEvent, TurnActions, TurnRecord } from '../src/engine/types'
 import {
-  CHAIN_ARMED_LINE,
+  chainLine,
   CHROME_WORD_BUDGET,
-  SOUND_TOGGLE_LABELS,
   DISCLOSURE_WORD_BUDGETS,
   FIRST_INPUT_WORD_BUDGET,
   HEADLINE_WORD_MAX,
   briefCopy,
   disclosureBlocks,
   jobFramingBlocks,
-  postureDetailLines,
   chromeCopy,
   chromeWords,
   countWords,
   firstInputCopy,
   firstInputWords,
-  hudLabels,
-  hudStatusLine,
-  ACTION_BAR_LABELS,
   SYSTEM_GEAR_LABEL,
 } from '../src/ui/brief'
-import { ACTIONS, SKIP_TIPS, fKeyOf, openingObjective, resolveLabel } from '../src/ui/board/actions'
+import { ACTIONS } from '../src/ui/board/actions'
+import {
+  BUDGET_LABEL,
+  FIRST_ORDERS_SET,
+  FULL_BRIEF_OPEN,
+  INTEL_ROW,
+  REMAINING,
+  REVEAL,
+  SCORE_LABEL,
+  SECOND_ORDER,
+  STATUS,
+  UNIDENTIFIED,
+  WORST_CASE,
+  briefButton,
+  firstOrders,
+  marginChip,
+  moveStatus,
+  shortName,
+  strengthLine,
+  tapHint,
+  vectorTo,
+  winLineLabel,
+} from '../src/ui/board/boardModel'
 import { NOTHING, OPS_LOG_HEADING, OPS_LOG_TURNS, opsLogCopy, opsLogLine } from '../src/ui/board/wide'
 import { coverageFigure } from '../src/ui/labels'
 import { VERDICT_WORD_MAX, verdictFor } from '../src/ui/verdict'
 import { short } from '../src/ui/wouldHaveHelped'
-import { buyEverything } from './policies'
 import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
@@ -87,6 +105,11 @@ const WORST_HIT_CARD_TITLE_AND_LINE = 20
 // more", the LiDAR dazzle alone (the debris call held its orbit) and
 // uplink jamming "and 1 more".
 const WORST_OPS_LOG = 50
+
+// The deciding board's reading at its longest over the swept lines of play
+// (v1.3 R2), pinned so a change that moves it comes here and says so;
+// src/ui/brief.ts quotes it as the reason FIRST_INPUT_WORD_BUDGET is 150.
+const WORST_BOARD = 142
 
 const tokensOf = (text: string) => new Set(text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
 
@@ -159,8 +182,9 @@ function playExtremes(): Campaign[] {
 // to 3 left in v1.3 Round 0 (D2 a): the brief now NAMES tonight's moves or
 // leaves them DARK. It names them on a night it is free (turn 1, and the
 // turns an allied data share covers) and on any night it is ordered, which
-// the banner shows at once (ThreatBanner's `briefed`), so a turn that is
-// not free can show either and a free one only the named copy.
+// the board shows at once (the TONIGHT card's `brief` since v1.3 R2), so
+// a turn that is not free can show either and a free one only the named
+// copy.
 const fidelities = (state: GameState): boolean[] => (briefFree(state) ? [true] : [false, true])
 const fidelityLabel = (briefed: boolean) => (briefed ? 'brief named' : 'brief dark')
 
@@ -169,6 +193,14 @@ const fidelityLabel = (briefed: boolean) => (briefed ? 'brief named' : 'brief da
 // copy before any input, which is the only way the named copy reaches
 // firstInputCopy after turn 1.
 const freeTonight = (state: GameState): GameState => ({ ...state, briefFreeThrough: Math.max(state.briefFreeThrough, state.turn) })
+
+// The board reads tonight's queued orders as well as the state (v1.3 R2:
+// a status turns BLOCKED, an order ticks, the intel row says ORDERED), so a
+// turn is measured as it opens and with the line's own orders queued.
+const ordersOf = (script: Record<number, TurnActions>, state: GameState): [string, TurnActions][] => [
+  ['no orders', NO_OP],
+  ["the line's orders", script[state.turn] ?? NO_OP],
+]
 
 describe('reading diet: the intel brief', () => {
   // Played in a hook rather than by the first test that needs them, so the
@@ -221,20 +253,28 @@ describe('reading diet: the intel brief', () => {
     expect(named, 'no state named a confirmed move, so the named-event headline was not measured').toBeGreaterThan(0)
   })
 
-  it('stays inside sixty words before the first input on every turn of a campaign', () => {
+  it('stays inside the reading budget before the first input on every turn of a campaign', () => {
+    // Since v1.3 R2 the first screen is the deciding board (brief 5.3): the
+    // HUD's figures, the TONIGHT card and the orders card, which
+    // firstInputCopy mirrors. The board also reads tonight's queued orders
+    // (a status turns BLOCKED, an order ticks, the intel row says ORDERED),
+    // so each turn is measured twice: as it opens, and with the line's own
+    // orders queued, which is what it reads just before EXECUTE.
     const overruns: string[] = []
     for (const [name, script] of LINES) {
       for (const difficulty of DIFFS) {
         for (let seed = 1; seed <= SEEDS; seed += 1) {
           for (const { before } of playTurns(seed, script, difficulty)) {
-            const words = firstInputWords(before, DIFFICULTIES[difficulty].label)
-            if (words > FIRST_INPUT_WORD_BUDGET) {
-              overruns.push(
-                `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}: ${words} words\n  ${firstInputCopy(
-                  before,
-                  DIFFICULTIES[difficulty].label,
-                ).join(' / ')}`,
-              )
+            for (const [queued, actions] of ordersOf(script, before)) {
+              const words = firstInputWords(before, actions)
+              if (words > FIRST_INPUT_WORD_BUDGET) {
+                overruns.push(
+                  `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, ${queued}: ${words} words\n  ${firstInputCopy(
+                    before,
+                    actions,
+                  ).join(' / ')}`,
+                )
+              }
             }
           }
         }
@@ -255,8 +295,8 @@ describe('reading diet: the intel brief', () => {
         const state = freeTonight(before)
         expect(briefFree(state), `turn ${state.turn}: the fixture did not free the brief`).toBe(true)
         expect(
-          firstInputWords(state, DIFFICULTIES.standard.label),
-          `turn ${state.turn}, seed ${seed}, brief free: ${firstInputCopy(state, DIFFICULTIES.standard.label).join(' / ')}`,
+          firstInputWords(state),
+          `turn ${state.turn}, seed ${seed}, brief free: ${firstInputCopy(state).join(' / ')}`,
         ).toBeLessThanOrEqual(FIRST_INPUT_WORD_BUDGET)
       }
     }
@@ -268,18 +308,15 @@ describe('reading diet: the intel brief', () => {
     // reached effective intel 3 (it reached 2 on nine of its 1,551 turns,
     // through the mixed line's allied intel boost), so the branch carrying
     // the named lead event, the "plus N more" suffix and the carried
-    // vector clause was measured nowhere. The separate top-intel test
-    // measured only turn-4 states and topped out at 39 words, and the
-    // campaign sweep's own worst was 46: between them they implied far
-    // more headroom than the game actually has, which is six words. This
-    // fails if that coverage goes.
+    // vector clause was measured nowhere. This fails if that coverage goes.
     //
-    // v1.3 Round 0: the fidelities are the brief NAMED or DARK (see
-    // `fidelities`), and the expensive branches the sweep must reach are
-    // the named copy with a confirmed move (the lead, "plus N more" and the
-    // technique tag at once), which the first screen carries only where an
-    // allied data share frees the brief on turn 4 or 6, and the dark copy
-    // under the BLACKOUT CHAIN banner. Each is required separately.
+    // v1.3 R2: the board names the moves where the brief is free or
+    // ordered and leaves them Unidentified otherwise, so the fidelity is
+    // briefActive with the queued orders. The expensive branches the sweep
+    // must reach are the named cards (a name, a vector, a strength and a
+    // status each), the dark cards with the intel row, a CONFIRMED slot
+    // beside the drawn one, the chain banner, and turn 1's FIRST ORDERS
+    // both open and set. Each is required separately.
     const reached = new Set<string>()
     let worst = 0
     let worstAt = ''
@@ -287,108 +324,113 @@ describe('reading diet: the intel brief', () => {
       for (const difficulty of DIFFS) {
         for (let seed = 1; seed <= SEEDS; seed += 1) {
           for (const { before } of playTurns(seed, script, difficulty)) {
-            const named = briefFree(before)
-            reached.add(fidelityLabel(named))
-            if (named && briefCopy(before).tag) reached.add('named lead with its tag')
-            if (!named && gnssDenied(before.conditions, before.scenario)) reached.add('dark under the chain banner')
-            const words = firstInputWords(before, DIFFICULTIES[difficulty].label)
-            if (words > worst) {
-              worst = words
-              worstAt = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, ${fidelityLabel(named)}`
+            for (const [queued, actions] of ordersOf(script, before)) {
+              const named = briefActive(before, actions)
+              reached.add(fidelityLabel(named))
+              const slots = planFor(before.scenario, before.turn)?.slots ?? []
+              if (named && slots.some((s) => s.fixed) && slots.some((s) => !s.fixed)) reached.add('named beside a confirmed move')
+              if (gnssDenied(before.conditions, before.scenario)) reached.add('under the chain banner')
+              if (before.turn === 1) {
+                const lines = firstOrders(before, actions)
+                reached.add(lines.every((l) => l.done) ? 'first orders set' : 'first orders open')
+              }
+              const words = firstInputWords(before, actions)
+              if (words > worst) {
+                worst = words
+                worstAt = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, ${queued}, ${fidelityLabel(named)}`
+              }
             }
           }
         }
       }
     }
-    for (const branch of ['brief named', 'brief dark', 'named lead with its tag', 'dark under the chain banner']) {
+    for (const branch of ['brief named', 'brief dark', 'named beside a confirmed move', 'under the chain banner', 'first orders open', 'first orders set']) {
       expect([...reached], `the sweep never reaches the ${branch} branch`).toContain(branch)
     }
     // Two-sided on purpose. The ceiling is the budget; the floor is the
     // reason the coverage matters, because a sweep that stopped producing
     // long copy would pass the budget while measuring nothing.
-    expect(worst, `worst brief measured: ${worst} words at ${worstAt}`).toBeLessThanOrEqual(FIRST_INPUT_WORD_BUDGET)
-    // The exact figure, because src/ui/brief.ts and the brief's section 5
-    // quote it as the reason the headroom is what it is. The message prints
-    // the new worst, so re-baselining is a one-line edit that forces those
-    // two to be updated with it.
+    expect(worst, `worst board measured: ${worst} words at ${worstAt}`).toBeLessThanOrEqual(FIRST_INPUT_WORD_BUDGET)
+    // The exact figure, because src/ui/brief.ts quotes it as the reason the
+    // budget is what it is. The message prints the new worst, so
+    // re-baselining is a one-line edit that forces that comment to be
+    // updated with it.
     //
-    // 54 through v1.2, at top intel. 56 since v1.3 Round 0, and on a DARK
-    // turn: the passive line on turn 4 on Easy, seed 3, where the vector
-    // line names four signatures over two layers and adds "Order an intel
-    // brief to name the moves.", under the BLACKOUT CHAIN banner that a
-    // turn-3 PNT jam left live. Four words of headroom, not six; the
-    // comment in src/ui/brief.ts still quotes 54.
-    expect(worst, `worst brief measured: ${worst} words at ${worstAt}`).toBe(56)
+    // 54 through v1.2, at top intel; 56 in v1.3 Round 0, on a dark turn.
+    // WORST_BOARD since v1.3 R2, on the new board (see the constant).
+    expect(worst, `worst board measured: ${worst} words at ${worstAt}`).toBe(WORST_BOARD)
   })
 
-  it('counts every line the brief is built from, so none can be dropped from the budget', () => {
+  it('counts every line the board is built from, so none can be dropped from the budget', () => {
     // firstInputCopy is a hand-written enumeration, and the suite is its
-    // only reader: a line the brief renders could be deleted from the
+    // only reader: a line the board renders could be deleted from the
     // measured set and every budget test would still pass, quieter and
-    // wrong. So the enumeration is checked against the pieces the brief is
-    // actually built from rather than trusted to list them.
-    let sawRawDiffers = false
+    // wrong. So the enumeration is checked against the pieces the board is
+    // actually built from rather than trusted to list them: the deck's plan
+    // for the turn, the engine's score and balance, and the orders.
     for (const [name, script] of LINES) {
       for (let seed = 1; seed <= SEEDS; seed += 1) {
         for (const { before } of playTurns(seed, script)) {
-          const label = DIFFICULTIES[before.difficulty].label
-          const measured = firstInputCopy(before, label)
-          const copy = briefCopy(before)
-          const labels = hudLabels(before)
-          const where = `${name}, turn ${before.turn}, seed ${seed}`
-          expect(measured, `${where}: headline missing`).toContain(copy.headline)
-          expect(measured, `${where}: vector line missing`).toContain(copy.vector)
-          if (copy.tag) expect(measured, `${where}: technique tag missing`).toContain(`Technique: ${copy.tag}`)
-          // The banner renders while GNSS denial is live (the lidarFallback
-          // flag until v1.3 Round 0).
-          if (gnssDenied(before.conditions, before.scenario)) {
-            expect(measured, `${where}: chain banner missing`).toContain(CHAIN_ARMED_LINE)
-          }
-          for (const hudLabel of Object.values(labels)) {
-            expect(measured, `${where}: HUD label ${hudLabel} missing`).toContain(hudLabel)
-          }
-          // The six numbers are reading load too, and they are exactly the
-          // size of the headroom the budget claims: dropping one from the
-          // enumeration would measure every turn a word light. Counted
-          // rather than merely found, so two meters showing the same value
-          // cannot cover for each other.
-          //
-          // Coverage as the HUD prints it: coverageFigure, one decimal
-          // rounded down (src/ui/labels.ts), since v1.3 weighs it by
-          // integrity and the raw figure carries two decimals.
-          const cov = coverage(before.assets)
-          const values = [
-            String(maiScore(before)),
-            String(before.credits),
-            String(coverageFigure(cov)),
-            String(before.meters.linkAvailability),
-            String(before.meters.dataIntegrity),
-            String(before.meters.sensorIntegrity),
-          ]
-          const counts = new Map<string, number>()
-          for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1)
-          for (const [v, n] of counts) {
-            const found = measured.filter((line) => line === v).length
-            expect(found, `${where}: HUD value ${v} appears ${found} times, expected ${n}`).toBe(n)
-          }
-          // And never the raw coverage where it differs from the figure:
-          // the enumeration must measure the words the HUD shows, not the
-          // float behind them.
-          if (!counts.has(String(cov))) {
-            sawRawDiffers = true
+          for (const [queued, actions] of ordersOf(script, before)) {
+            const measured = firstInputCopy(before, actions)
+            const where = `${name}, turn ${before.turn}, seed ${seed}, ${queued}`
+            const { scenario } = before
+            const has = (line: string, what: string) => expect(measured, `${where}: ${what} missing`).toContain(line)
+            // The HUD. The score is the one number the player steers by, and
+            // it is counted rather than merely found, exactly once, as the
+            // Readout prints it (one decimal while it has one).
+            const score = maiScore(before)
             expect(
-              measured.filter((line) => line === String(cov)).length,
-              `${where}: the raw coverage ${cov} is measured instead of the figure ${coverageFigure(cov)}`,
-            ).toBe(0)
+              measured.filter((line) => line === String(score)).length,
+              `${where}: the score ${score} is not counted exactly once`,
+            ).toBe(1)
+            has(`${before.credits} CR`, 'the budget')
+            has(marginChip(score, scenario.winThreshold).text, 'the margin chip')
+            has(winLineLabel(scenario.winThreshold), 'the win line')
+            has(`TURN ${before.turn} OF ${scenario.totalTurns}`, 'the turn')
+            // The TONIGHT card: the intro, the chain banner while GNSS
+            // denial is live, and every move the plan holds, named where the
+            // brief names it (or the slot is fixed) and Unidentified where it
+            // does not, each with its vector, and a named one with its
+            // strength and its status.
+            const plan = planFor(scenario, before.turn)
+            if (plan?.intro) has(plan.intro, 'the intro')
+            // The whole line the card prints, the strength it adds included.
+            if (gnssDenied(before.conditions, scenario)) has(chainLine(), 'the chain banner')
+            const named = briefActive(before, actions)
+            const counters = countersAfter(before, actions)
+            let unnamed = 0
+            const statusWords = new Map<string, number>()
+            for (const slot of plan?.slots ?? []) {
+              for (const id of slot.fixed ? [slot.fixed] : (slot.drawFrom ?? [])) {
+                const ev = eventById(scenario, id)
+                has(vectorTo(ev), `${id}'s vector`)
+                if (slot.fixed || named) {
+                  has(shortName(ev), `${id}'s name`)
+                  has(strengthLine(ev), `${id}'s strength`)
+                  const word = STATUS[moveStatus(before, ev, counters)].word
+                  statusWords.set(word, (statusWords.get(word) ?? 0) + 1)
+                } else unnamed += 1
+              }
+            }
+            expect(measured.filter((line) => line === UNIDENTIFIED).length, `${where}: unnamed moves miscounted`).toBe(unnamed)
+            // Each status counted once per card, so two cards reading the same
+            // word cannot cover for each other. The key on turns 1 and 2
+            // prints the word with its gloss, which is a different line.
+            for (const [word, n] of statusWords) {
+              expect(measured.filter((line) => line === word).length, `${where}: ${word} miscounted`).toBe(n)
+            }
+            if (!briefFree(before)) has(INTEL_ROW[actions.intelBrief ? 'ordered' : 'none'], 'the intel row')
+            // The orders card.
+            if (before.turn === 1) {
+              const lines = firstOrders(before, actions)
+              if (lines.every((l) => l.done)) has(FIRST_ORDERS_SET, 'first orders set')
+              else for (const l of lines) has(l.text, `the ${l.id} order`)
+            } else if (before.turn === 2) has(SECOND_ORDER, 'the second order')
           }
-          const turn = Math.min(before.turn, DEFAULT_SCENARIO.totalTurns)
-          expect(measured, `${where}: status line missing`).toContain(hudStatusLine(before, label, turn))
         }
       }
     }
-    expect(sawRawDiffers, 'coverage never printed differently from its raw value, so the figure was never told apart').toBe(
-      true,
-    )
   })
 
   it('counts every control the chrome bound claims to cover', () => {
@@ -399,84 +441,66 @@ describe('reading diet: the intel brief', () => {
     // uncounted until v0.9: the menu button, the two save controls and the
     // autosave line.
     //
-    // The authoritative list is what the screen renders. There is no DOM
-    // here, so it is pinned by name; Round 5's rendering environment is
-    // what will derive it instead.
-    // Since v1.2 R1 the chrome is the board's: the action-bar labels are
-    // on the first screen, and the numbered section heading and the phase
-    // button are gone. Since R1b the bar carries the step numbers, and
-    // the controls that are not a decision about the turn sit in the
-    // SYSTEM sheet behind the gear, so the first screen shows one word for
-    // all of them: since v1.3 Round 0 that is five, Save, Copy save code,
-    // Back to menu and the two toggles, the playback speed having gone
-    // with the auto-advancing director. Since R2b the commit's label is
-    // the instruction with the turn in it (it replaced the word RESOLVE
-    // and the HOLD caption), and since v1.3 Round 0 the bar has two
-    // actions, PROCURE and EXECUTE, whose label reads "Execute turn n".
-    // The objective line adds a tag and a sentence, which differ by state
-    // and so are required per turn.
-    const required = [
-      '> INCOMING TRANSMISSION_',
-      'Expand full brief',
-      ...ACTIONS.map((a) => String(a.number)),
-      ...ACTION_BAR_LABELS,
-      'What these numbers mean',
-      'Posture detail',
-      SYSTEM_GEAR_LABEL,
-    ]
-    for (let seed = 1; seed <= SEEDS; seed += 1) {
-      for (const { before } of playTurns(seed, WIN_SCRIPT)) {
-        const chrome = chromeCopy(before)
-        for (const control of [...required, resolveLabel(before.turn)]) {
-          expect(chrome, `chrome no longer counts "${control}"`).toContain(control)
-        }
-        // The objective line as the first screen shows it. Turn 1 may
-        // show either line, the walkthrough on a device's first game and
-        // the suggestion otherwise; the count must charge the longer.
-        const plain = openingObjective(before, false)
-        const guided = openingObjective(before, true)
-        const counts = (lines: string[]) => lines.every((line) => chrome.includes(line))
-        const words = (lines: string[]) => lines.reduce((n, line) => n + countWords(line), 0)
-        const plainLines = [plain.tag, plain.sentence]
-        const guidedLines = [guided.tag, guided.sentence, SKIP_TIPS]
-        if (before.turn === 1) {
-          const charged = counts(guidedLines) ? guidedLines : plainLines
-          expect(counts(charged), 'chrome counts neither objective line on turn 1').toBe(true)
-          expect(words(charged), 'chrome charges the shorter of turn 1\'s two lines').toBe(Math.max(words(plainLines), words(guidedLines)))
-        } else {
-          expect(counts(plainLines), `turn ${before.turn}: chrome does not count the objective line`).toBe(true)
+    // Since v1.3 R2 the chrome is the new board's: the HUD's two labels,
+    // SYSTEM, the full brief's toggle, each move's "defend ›", "details ›"
+    // or "reveal ›", the brief's price button on a night it is not free,
+    // and the dock's REMAINING, WORST CASE, PROCURE and EXECUTE. The step
+    // numbers, the F keys, the objective line, "Skip tips" and the two
+    // reference disclosures left the board with R2.
+    const required = [SCORE_LABEL, BUDGET_LABEL, SYSTEM_GEAR_LABEL, FULL_BRIEF_OPEN, REMAINING, WORST_CASE, ...ACTIONS.map((a) => a.label)]
+    for (const [name, script] of LINES) {
+      for (let seed = 1; seed <= SEEDS; seed += 1) {
+        for (const { before } of playTurns(seed, script)) {
+          for (const [queued, actions] of ordersOf(script, before)) {
+            const chrome = chromeCopy(before, actions)
+            const where = `${name}, turn ${before.turn}, seed ${seed}, ${queued}`
+            for (const control of required) {
+              expect(chrome, `${where}: chrome no longer counts "${control}"`).toContain(control)
+            }
+            // One tap hint per move card, counted from the plan rather than
+            // from the slots chromeCopy reads.
+            const named = briefActive(before, actions)
+            const slots = planFor(before.scenario, before.turn)?.slots ?? []
+            const cards = slots.reduce((n, s) => n + (s.fixed ? 1 : (s.drawFrom ?? []).length), 0)
+            const hidden = slots.reduce((n, s) => n + (s.fixed || named ? 0 : (s.drawFrom ?? []).length), 0)
+            const hints = chrome.filter((c) => c === tapHint('exposed') || c === tapHint('blocked')).length
+            expect(hints, `${where}: tap hints miscounted`).toBe(cards - hidden)
+            expect(chrome.filter((c) => c === REVEAL).length, `${where}: reveal hints miscounted`).toBe(hidden)
+            if (!briefFree(before)) {
+              expect(chrome, `${where}: chrome does not count the brief's price button`).toContain(
+                briefButton(before.scenario.prices.intelBrief, actions.intelBrief),
+              )
+            }
+          }
         }
       }
     }
     // The other direction: a control that leaves the screen but stays in
     // the list makes the bound look tighter than it is, which is the same
     // dishonesty in reverse. Pinned against the source that renders them,
-    // since there is no DOM here to ask; the board split the play screen
-    // into components, so each control is pinned where it actually lives.
-    // tests/game.dom.spec.tsx asserts the same list against a rendered
-    // DOM, which is what tells a rendered control from one in a branch
-    // nothing reaches.
+    // since there is no DOM here to ask; each control is pinned where it
+    // actually lives. tests/game.dom.spec.tsx asserts the counted lines
+    // against a rendered DOM, which is what tells a rendered control from
+    // one in a branch nothing reaches.
     const source = (...parts: string[]) => readFileSync(join(SRC, ...parts), 'utf8')
-    const renderedIn: Record<string, string> = {
-      'Expand full brief': source('ui', 'board', 'ThreatBanner.tsx'),
-      'What these numbers mean': source('ui', 'board', 'BoardReference.tsx'),
-      'Posture detail': source('ui', 'board', 'BoardReference.tsx'),
-      [SYSTEM_GEAR_LABEL]: source('ui', 'board', 'Hud.tsx'),
-    }
-    // The labels, numbers and the caption are read from the one action
-    // array by the bar and by chromeCopy alike, so what has to be true is
-    // that the bar renders from that array.
-    const actionBar = source('ui', 'board', 'ActionBar.tsx')
-    expect(actionBar.includes('action.label') && actionBar.includes('action.number'), 'the bar no longer renders the array').toBe(true)
-    // EXECUTE's label and the objective line, from the same functions the
-    // count reads: tests/game.dom.spec.tsx finds every counted line on a
-    // rendered screen.
-    expect(source('ui', 'Game.tsx').includes('{resolveLabel(state.turn)}'), 'the bar no longer renders EXECUTE\'s label').toBe(true)
-    for (const piece of ['{objective.tag}', '{objective.sentence}', '{SKIP_TIPS}']) {
-      expect(actionBar.includes(piece), `the objective line no longer renders ${piece}`).toBe(true)
-    }
-    for (const [control, file] of Object.entries(renderedIn)) {
-      expect(file.includes(control), `chrome counts "${control}", which the screen no longer renders`).toBe(true)
+    const hud = source('ui', 'board', 'BoardHud.tsx')
+    const tonight = source('ui', 'board', 'Tonight.tsx')
+    const dock = source('ui', 'board', 'Dock.tsx')
+    const renderedIn: [string, string, string][] = [
+      ['the score label', '{SCORE_LABEL}', hud],
+      ['the budget label', '{BUDGET_LABEL}', hud],
+      [SYSTEM_GEAR_LABEL, `aria-label="${SYSTEM_GEAR_LABEL}"`, hud],
+      ['the full brief toggle', 'FULL_BRIEF_OPEN}', tonight],
+      ['the tap hints', '{tapHint(status)}', tonight],
+      ['the reveal hint', '{REVEAL}', tonight],
+      ["the brief's price button", '{briefButton(briefPrice', tonight],
+      ['REMAINING', '{REMAINING}', dock],
+      ['WORST CASE', '{WORST_CASE}', dock],
+      // The dock spells its two actions; they must be the labels counted.
+      ...ACTIONS.map((a): [string, string, string] => [a.label, a.label, dock]),
+    ]
+    for (const [control, piece, file] of renderedIn) {
+      expect(file.includes(piece), `chrome counts ${control}, which the board no longer renders`).toBe(true)
     }
     // The system controls left the first screen for the sheet, which lists
     // them by name (src/ui/systemControls.ts since v1.3 R1, where Save left
@@ -487,14 +511,9 @@ describe('reading diet: the intel brief', () => {
     for (const name of ['Copy save code', 'Back to title']) {
       expect(systemList.includes(name), `the SYSTEM sheet no longer lists "${name}"`).toBe(true)
     }
-    // The transmission label is rendered as an entity by the teletype bar,
-    // which the banner mounts.
-    const teletype = source('ui', 'cues', 'Teletype.tsx')
-    expect(teletype.includes('INCOMING TRANSMISSION_'), 'chrome counts a transmission label nothing renders').toBe(true)
-    expect(source('ui', 'board', 'ThreatBanner.tsx').includes('<TransmissionBar'), 'the banner no longer mounts the transmission bar').toBe(true)
-    // The two audio toggles read their names from this same constant
-    // rather than spelling them, so the text pin would be circular. What
-    // has to be true is that Game.tsx mounts the control and that the
+    // The two audio toggles read their names from SOUND_TOGGLE_LABELS
+    // rather than spelling them, so a text pin would be circular. What has
+    // to be true is that the SYSTEM sheet mounts the control and that the
     // control renders those names, and the second half is asserted against
     // a rendered DOM in tests/sound.dom.spec.tsx rather than by grep.
     expect(systemSheet.includes('<SoundToggles'), 'the SYSTEM sheet does not mount the two toggles').toBe(true)
@@ -505,25 +524,33 @@ describe('reading diet: the intel brief', () => {
   })
 
   it('bounds the interface chrome that the reading budget excludes', () => {
-    // The budget counts the brief's reading load, not navigation. The
+    // The budget counts the board's reading load, not navigation. The
     // excluded words are still counted here, so the exclusion cannot grow
     // into a loophole.
-    for (let seed = 1; seed <= SEEDS; seed += 1) {
-      for (const { before } of playTurns(seed, WIN_SCRIPT)) {
-        expect(chromeWords(before), chromeCopy(before).join(' / ')).toBeLessThanOrEqual(CHROME_WORD_BUDGET)
+    for (const [, script] of LINES) {
+      for (let seed = 1; seed <= SEEDS; seed += 1) {
+        for (const { before } of playTurns(seed, script)) {
+          for (const [, actions] of ordersOf(script, before)) {
+            expect(chromeWords(before, actions), chromeCopy(before, actions).join(' / ')).toBeLessThanOrEqual(CHROME_WORD_BUDGET)
+          }
+        }
       }
     }
   })
 
-  it('keeps the brief and its chrome together under a hundred words on screen', () => {
-    // The two budgets added: a sanity ceiling on everything the brief
-    // phase puts in front of the player, badges aside.
-    for (let seed = 1; seed <= SEEDS; seed += 1) {
-      for (const { before } of playTurns(seed, WIN_SCRIPT)) {
-        const total = firstInputWords(before, DIFFICULTIES.standard.label) + chromeWords(before)
-        expect(total, `turn ${before.turn}, seed ${seed}`).toBeLessThanOrEqual(
-          FIRST_INPUT_WORD_BUDGET + CHROME_WORD_BUDGET,
-        )
+  it('keeps the board and its chrome together inside the two budgets on screen', () => {
+    // The two budgets added: a sanity ceiling on everything the deciding
+    // board puts in front of the player, badges aside.
+    for (const [, script] of LINES) {
+      for (let seed = 1; seed <= SEEDS; seed += 1) {
+        for (const { before } of playTurns(seed, script)) {
+          for (const [queued, actions] of ordersOf(script, before)) {
+            const total = firstInputWords(before, actions) + chromeWords(before, actions)
+            expect(total, `turn ${before.turn}, seed ${seed}, ${queued}`).toBeLessThanOrEqual(
+              FIRST_INPUT_WORD_BUDGET + CHROME_WORD_BUDGET,
+            )
+          }
+        }
       }
     }
   })
@@ -703,7 +730,8 @@ describe('reading diet: the intel brief', () => {
     // coverage readout prints, coverageFigure (one decimal rounded down,
     // src/ui/labels.ts). The first pass accepted any figure within a
     // rounding tolerance, which also accepted 59.96 printed as "60" beside
-    // a line saying the SLA pays from 60.
+    // a line saying the coverage bonus pays from 60 (the SLA until v1.3
+    // R2 retired the word).
     let sawMoved = false
     let sawFractional = false
     let sawRoundedDown = false
@@ -738,10 +766,10 @@ describe('reading diet: the intel brief', () => {
           expect(body.includes('clear of the'), `${at}: coverage ${cov} and the panel says "${body}"`).toBe(clear)
           if (clear) {
             sawClear = true
-            expect(body, `${at}: coverage ${cov}`).toContain(`Coverage ${figure}, clear of the ${coverageMin} the SLA pays at.`)
+            expect(body, `${at}: coverage ${cov}`).toContain(`Coverage ${figure}, clear of the ${coverageMin} the coverage bonus pays at.`)
           } else {
             sawUnder = true
-            expect(body, `${at}: coverage ${cov}`).toContain(`Coverage ${figure}. The SLA pays ${credits} a turn from ${coverageMin}.`)
+            expect(body, `${at}: coverage ${cov}`).toContain(`Coverage ${figure}. The coverage bonus pays ${credits} a turn from ${coverageMin}.`)
             expect(Number(shown), `${at}: coverage ${cov} under the minimum printed as "${shown}"`).toBeLessThan(coverageMin)
           }
         }
@@ -761,14 +789,14 @@ describe('reading diet: the intel brief', () => {
     // figure rounded to the nearest tenth reads "60" (Math.round(59.95 *
     // 10) / 10 is 60) and the panel would print the minimum it says the
     // fleet has not reached. Both readouts on the brief screen are held
-    // here: the posture panel and the HUD's coverage value (firstInputCopy
-    // mirrors the HUD's Readout). The turn-start card's line is held on
+    // here: the posture panel, and the board (firstInputCopy mirrors it),
+    // which since v1.3 R2 prints no coverage figure at all now the four
+    // meters have left the HUD. The turn-start card's line is held on
     // the same states in tests/opening.spec.ts. The starter fleet covers
     // 58 (5800 hundredths: sats 13, RPO sat 8, drones 9, ground station 6,
     // times integrity); each case adds to it.
     const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
     const { coverageMin, credits } = DEFAULT_SCENARIO.slaBonus
-    const label = DIFFICULTIES[base.difficulty].label
     const layerOf = (kind: AssetKind) => base.assets.find((x) => x.kind === kind)!.layer
     const rpo = base.assets.find((x) => x.kind === 'rpoSat')!.id
     const fleet = (extra: [AssetKind, number][], rpoIntegrity = 100): GameState => ({
@@ -803,22 +831,20 @@ describe('reading diet: the intel brief', () => {
       expect(body.includes('clear of the'), `${at}: the posture panel says "${body}"`).toBe(clear)
       expect(body, `${at}: the posture panel says "${body}"`).toContain(
         clear
-          ? `Coverage ${printed}, clear of the ${coverageMin} the SLA pays at.`
-          : `Coverage ${printed}. The SLA pays ${credits} a turn from ${coverageMin}.`,
+          ? `Coverage ${printed}, clear of the ${coverageMin} the coverage bonus pays at.`
+          : `Coverage ${printed}. The coverage bonus pays ${credits} a turn from ${coverageMin}.`,
       )
       if (!clear) {
         expect(body, `${at}: the posture panel prints the minimum as the coverage`).not.toContain(`Coverage ${coverageMin}`)
       }
 
-      // The HUD's value, exactly once: the measured copy is the HUD's
-      // mirror, and a fleet under the minimum must not read as the minimum
-      // in it either. (No other HUD value on these states is 59.9 or 60:
-      // MAI is in the eighties, credits and the meters at 100.)
-      const measured = firstInputCopy(state, label)
-      expect(measured.filter((line) => line === printed).length, `${at}: the HUD prints ${printed} ${measured}`).toBe(1)
-      if (!clear) {
-        expect(measured, `${at}: the HUD prints the minimum for a fleet under it`).not.toContain(String(coverageMin))
-      }
+      // The board: no coverage figure on it, so a fleet under the minimum
+      // cannot read as the minimum there either. (No other figure on the
+      // board on these states is 59.9 or 60: the score is in the eighties,
+      // the budget prints with CR.)
+      const measured = firstInputCopy(state)
+      expect(measured, `${at}: the board prints a coverage figure: ${measured}`).not.toContain(printed)
+      expect(measured, `${at}: the board prints the minimum as a figure`).not.toContain(String(coverageMin))
     }
   })
 
@@ -895,7 +921,15 @@ describe('reading diet: the intel brief', () => {
     // 120 since the QC gauntlet (Q20, G-100, 21 October 2026): the free
     // brief "names the candidate moves" rather than "every move", which it
     // never did. At the cap, with no word to spare.
-    expect(worst, `worst disclosure measured: ${worst} words at ${worstAt}`).toBe(120)
+    // 122 since v1.3 R2, on turn 1 again: the retired words came back
+    // longer. Line 1 says "the mission assurance score" (one word fewer
+    // than the Index and its abbreviation), line 3 "Procure fleet and
+    // defenses from your budget" and "A score under" (two more), and the
+    // posture's coverage line "the coverage bonus pays" where it said "the
+    // SLA pays" (one more). Two over the cap of 120, so R2 cut three words
+    // rather than raise it: line 3 reads "Procure fleet and defenses to
+    // slow it." 119, one under the cap.
+    expect(worst, `worst disclosure measured: ${worst} words at ${worstAt}`).toBe(119)
   })
 
   it('bounds the beat title, the other channel no budget measured', () => {
@@ -1001,27 +1035,6 @@ describe('reading diet: the intel brief', () => {
     expect(worstCard, `worst title and line measured: ${worstCard} words at ${worstCardAt}`).toBe(WORST_HIT_CARD_TITLE_AND_LINE)
   })
 
-  it('counts the wide board\'s chrome word for word: each step number becomes its F key (v1.2 R6)', () => {
-    // The chips replace the numbers one token for one, so the wide bar
-    // counts exactly what the phone bar counts; this holds the swap to
-    // that. The wide board's own columns are NOT in the chrome count: the
-    // ops log has its own bound below, and the inspector's heading and
-    // empty prompt are counted nowhere yet (raised for Ken in R6, since
-    // the phone chrome already sits at its budget). Read over the befores
-    // the EXTREME_SEEDS sweep already played.
-    expect(extremes).toHaveLength(LINES.length * DIFFS.length * EXTREME_SEEDS)
-    for (const { turns } of extremes) {
-      for (const { before } of turns) {
-        expect(chromeWords(before, true)).toBe(chromeWords(before))
-      }
-    }
-    const wide = chromeCopy(extremes[0].turns[0].before, true)
-    for (const a of ACTIONS) {
-      expect(wide).toContain(fKeyOf(a))
-      expect(wide).not.toContain(String(a.number))
-    }
-  })
-
   it('bounds the ops log, the wide board\'s own reading, and pins the measured worst (v1.2 R6)', () => {
     // Desktop-only copy that no phone budget counts, so it gets its own
     // bound, derived rather than picked: the heading, then per row the
@@ -1050,129 +1063,19 @@ describe('reading diet: the intel brief', () => {
     expect(worst, `worst ops log measured: ${worst} words at ${worstAt}`).toBe(WORST_OPS_LOG)
   })
 
-  it('introduces the MAI abbreviation before the job framing uses it', () => {
-    // Round 7b's move of the framing into this module dropped "(MAI)" from
-    // line 1, so the abbreviation first appeared unintroduced in line 3,
-    // "MAI below 35", while the HUD uses it on every screen. The claim is
-    // about reading order, so it is asserted as reading order: the first
-    // line to say MAI must be the one that says what it stands for.
+  it('says "mission assurance score" in the job framing, and never MAI', () => {
+    // Round 7 introduced the abbreviation in line 1, "Mission Assurance
+    // Index (MAI)", because the HUD used it on every screen. v1.3 R2
+    // retired the abbreviation from the player's words: the HUD reads
+    // MISSION ASSURANCE SCORE, and the framing names the score in full.
+    // The claim is about what the player reads, so every line is checked,
+    // and the first line, the one that sets the win condition, must name it.
     const lines = jobFramingBlocks(DEFAULT_SCENARIO)
-    const first = lines.findIndex((l) => /\bMAI\b/.test(l))
-    expect(first, 'the job framing never uses the abbreviation, so this proves nothing').toBeGreaterThanOrEqual(0)
-    expect(lines[first], `the first mention of MAI is "${lines[first]}"`).toContain('Mission Assurance Index (MAI)')
-  })
-
-  it('bounds Posture detail at the deck\'s structural maximum, not at a line of play', () => {
-    // Round 7 set this bound twice from lines of play and both were beaten:
-    // seven hand-named states gave 93 when legal play reached 139, then a
-    // "buy everything" line that only ever bought Tier B drones gave 96 when
-    // a mixed buyer reached 132. A line of play is a declared set. The deck's
-    // structure is not: every countermeasure owned, every kind and tier
-    // deployed and in transit, the one retrofit pending, surge full and the
-    // allied boost running. With the fleet and transit grouped by kind and
-    // tier, no legal state can say more than this one.
-    //
-    // v1.3 Round 0 took the tiers, the retrofit, SURGE and the intel
-    // investment out of the deck, and added the upkeep line. The structure
-    // is now: every defense owned (the IR retainer among them), every kind
-    // deployed and in transit, and an allied data share running (the free
-    // brief for its full span), which is every line the panel can print.
-    const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
-    const kinds = ['sat', 'rpoSat', 'drone', 'groundStation'] as const
-    const layerOf = (k: string) => (k === 'drone' ? 'AIR' : k === 'groundStation' ? 'GROUND' : 'ORBIT')
-    const allied = DEFAULT_SCENARIO.events.find((e) => e.benefit?.briefTurns)?.benefit?.briefTurns
-    expect(allied, 'the deck no longer frees the brief for later turns').toBeGreaterThan(0)
-    const worst: GameState = {
-      ...base,
-      counters: DEFAULT_SCENARIO.countermeasures.map((c) => c.id),
-      assets: kinds.map((kind, i) => ({ id: `max-${i}`, kind, layer: layerOf(kind), integrity: 100 })) as GameState['assets'],
-      pipeline: kinds.map((kind, i) => ({ id: `pipe-${i}`, kind, etaTurns: 2 })),
-      briefFreeThrough: base.turn + allied!,
+    expect(lines[0], `the job's first line is "${lines[0]}"`).toContain('mission assurance score')
+    for (const line of lines) {
+      expect(line, `the job framing still says MAI: "${line}"`).not.toMatch(/\bMAI\b/)
+      expect(line, `the job framing still says Mission Assurance Index: "${line}"`).not.toMatch(/Assurance Index/i)
     }
-    const words = countWords(postureDetailLines(worst).map((l) => l.text).join(' '))
-    expect(words, `structural maximum: ${words} words`).toBeLessThanOrEqual(DISCLOSURE_WORD_BUDGETS['Posture detail'])
-    // Pinned: the bound is this figure, derived from the deck. Most of it is
-    // the countermeasure list, eleven names at most. Re-argued on the record
-    // in Round 7 (the budget rose from 110 to 170) rather than trimmed,
-    // because cutting that list to a count removes information a player
-    // might want and is copy the author has not seen.
-    //
-    // 164 through v1.2. 111 since v1.3 Round 0: the fleet and transit lines
-    // group by four kinds where they grouped by seven kind and tier pairs,
-    // the retrofit and surge lines are gone, and the firmware attestation
-    // defense's name is two words shorter (brief 6.6); the upkeep line is
-    // the one addition (fleet 15, defenses 48, transit 29, upkeep 9, allied
-    // brief 10).
-    expect(words, `structural maximum: ${words} words`).toBe(111)
-  })
-
-  it('groups the fleet by kind, and says what keeping the defenses costs', () => {
-    // v1.3 Round 0: the tiers left, so the fleet groups by kind alone, and
-    // the amber rule line is the upkeep (brief 6.1) where it was the surge
-    // rule, the line that can end the operation.
-    const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
-    const st: GameState = {
-      ...base,
-      counters: ['antiJam', 'pntAuth'],
-      assets: [
-        { id: 'a', kind: 'drone', layer: 'AIR', integrity: 100 },
-        { id: 'b', kind: 'drone', layer: 'AIR', integrity: 60 },
-        { id: 'c', kind: 'groundStation', layer: 'GROUND', integrity: 100 },
-        { id: 'd', kind: 'sat', layer: 'ORBIT', integrity: 0 },
-      ],
-    }
-    const lines = postureDetailLines(st)
-    const text = lines.map((l) => l.text)
-    // The two drones grouped, the damaged one counted as operational, the
-    // destroyed sat not.
-    expect(text[0]).toBe('Fleet: 3 operational: 2 Drone, 1 Ground station.')
-    const upkeep = lines.find((l) => l.text.startsWith('Keeping '))
-    expect(upkeep, 'the panel does not say what the defenses cost to keep').toBeDefined()
-    expect(upkeep!.text).toBe(`Keeping 2 defenses costs ${2 * DEFAULT_SCENARIO.upkeepPerDefense} at every turn close.`)
-    expect(upkeep!.tone).toBe('amber')
-  })
-
-  it('bounds Posture detail over every state, including a player who buys everything', () => {
-    // Round 7's first version of this bound came from seven states a DOM
-    // test happened to name, and three lenses broke it in legal play at up
-    // to 139 words against 110. The set is swept here instead: every line
-    // of play, every difficulty, and a line that buys as much as each turn
-    // allows, which is the state the named seven never reached. Since v1.3
-    // Round 0 that line is the sweep gate's own BUY EVERYTHING policy
-    // (tests/policies.ts): every defense and the IR retainer as soon as
-    // affordable, then assets until nothing more fits.
-    const pickers: [string, (st: GameState) => TurnActions][] = [
-      ...LINES.map(([n, sc]) => [n, (st: GameState) => sc[st.turn] ?? NO_OP] as [string, (st: GameState) => TurnActions]),
-      ['buys everything', buyEverything],
-    ]
-    let worst = 0
-    let worstAt = ''
-    for (const [name, pick] of pickers) {
-      for (const difficulty of DIFFS) {
-        for (let seed = 1; seed <= SEEDS; seed += 1) {
-          let st = newGame(DEFAULT_SCENARIO, seed, difficulty)
-          while (st.status === 'playing') {
-            const words = countWords(postureDetailLines(st).map((l) => l.text).join(' '))
-            if (words > worst) {
-              worst = words
-              worstAt = `${name}, turn ${st.turn}, ${difficulty}, seed ${seed}`
-            }
-            let next: GameState
-            try {
-              next = resolveTurn(st, pick(st), turnRng(st.seed, st.turn))
-            } catch {
-              next = resolveTurn(st, NO_OP, turnRng(st.seed, st.turn))
-            }
-            st = next
-          }
-        }
-      }
-    }
-    expect(worst, `worst Posture detail: ${worst} words at ${worstAt}`).toBeLessThanOrEqual(DISCLOSURE_WORD_BUDGETS['Posture detail'])
-    // Breadth only, and not pinned. A line of play is a declared set, and
-    // pinning its worst is how this panel twice carried a "worst" it was not
-    // (93 from seven named states, then 96 from a line that only bought Tier
-    // B drones). The bound is the structural maximum in the test above.
   })
 
   it('never emits an em dash in generated copy', () => {
@@ -1254,7 +1157,7 @@ describe('reading diet: the damage report verdict', () => {
   it('names the heaviest landed event when anything lands, and says so plainly when nothing does', () => {
     let sawLanded = false
     let sawHeld = false
-    let sawMitigated = false
+    let sawBlocked = false
     let sawFizzled = false
     for (let seed = 1; seed <= SEEDS; seed += 1) {
       for (const { after } of playTurns(seed, WIN_SCRIPT)) {
@@ -1276,8 +1179,8 @@ describe('reading diet: the damage report verdict', () => {
           // covered because the other one did.
           const countered = threats.filter((ev) => ev.mitigation > 0).length
           if (countered > 0) {
-            sawMitigated = true
-            expect(verdict, `turn ${record.turn}`).toBe('Posture held; every attempt was mitigated below threshold.')
+            sawBlocked = true
+            expect(verdict, `turn ${record.turn}`).toBe('Posture held; every attempt was blocked.')
           } else {
             sawFizzled = true
             expect(verdict, `turn ${record.turn}`).toBe('Nothing landed this turn.')
@@ -1287,10 +1190,10 @@ describe('reading diet: the damage report verdict', () => {
     }
     expect(sawLanded, 'no seed produced a landed event').toBe(true)
     expect(sawHeld, 'no seed produced a fully held turn').toBe(true)
-    // Recorded, not required: the deck reaches the mitigated branch in
+    // Recorded, not required: the deck reaches the blocked branch in
     // play and does not reach the fizzle branch, which is why the two
     // branches below are covered directly instead.
-    expect(sawMitigated || sawFizzled).toBe(true)
+    expect(sawBlocked || sawFizzled).toBe(true)
   })
 
   it('reads as English on the branches the shipped deck never produces', () => {

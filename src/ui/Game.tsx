@@ -37,28 +37,29 @@ import { LearnMore } from './learnMore'
 import { DC_BTN } from './buttons'
 import DirectorView from '../director/DirectorView'
 import { useMusicState, useSound, useSoundPrefs } from '../audio'
-import { hasDoneFirstTurn, markFirstTurnDone } from './firstTurn'
 import { deriveBeats, type Beat } from '../director'
 import { useBadgePhases } from './cues/ConditionBadge'
-import { CUE_MS, WIDE_QUERY, useCueClass, useMediaQuery, usePageVisible, useReducedMotion } from './cues/motion'
-import Hud from './board/Hud'
-import ThreatBanner from './board/ThreatBanner'
-import LayerPanel, { type ChipModel } from './board/LayerPanel'
-import BoardReference from './board/BoardReference'
+import { WIDE_QUERY, useCueClass, useMediaQuery, usePageVisible, useReducedMotion } from './cues/motion'
+import BoardHud from './board/BoardHud'
+import AssetStrip, { type ChipModel } from './board/AssetStrip'
+import Tonight from './board/Tonight'
+import Orders, { type OrderId } from './board/Orders'
+import Dock from './board/Dock'
 import AftermathCard from './board/AftermathCard'
-import ProcureSheet, { type ProcurePick } from './board/ProcureSheet'
-import type { SheetId, StepSheet } from './board/actions'
-import { ACTIONS, GUIDE, creditsTag, fKeyOf, guideStage, resolveLabel, suggestNextStep, type Objective } from './board/actions'
-import ActionBar from './board/ActionBar'
+import Procure from './board/Procure'
+import type { SheetId } from './board/actions'
+import { ACTIONS, fKeyOf, resolveLabel } from './board/actions'
+import { tonightSlots } from './board/boardModel'
 import SystemSheet from './board/SystemSheet'
-import { conditionsOn, defensesOn, tilesByLayer, turnBudget } from './board/board'
+import { conditionsOn, tilesByLayer, turnBudget } from './board/board'
 import { COUNT_SHARE, LOCK_SHARE, STRIKE_MS, strikeFor, type Strike } from './board/strike'
 import { DEFAULT_SCENARIO } from '../content'
 import { briefActive, briefFree, orderCost, resolveTurn } from '../engine/reducer'
+import { worstCase } from '../engine/worstCase'
 import { defenseBonus } from '../engine/learning'
 import { turnRng } from '../engine/rng'
 import { assetPrice, maiScore } from '../engine/scoring'
-import { LAYERS, type AssetKind, type Difficulty, type GameState, type TurnActions } from '../engine/types'
+import { LAYERS, type AssetKind, type Difficulty, type GameState, type ThreatEvent, type TurnActions } from '../engine/types'
 
 import Wordmark from './Wordmark'
 
@@ -181,17 +182,6 @@ interface PlaybackSession {
 const btn =
   'font-mono border border-phosphor/60 text-phosphor px-3 py-1 hover:bg-phosphor/10 disabled:opacity-40 disabled:cursor-not-allowed'
 
-// THE BOARD'S CONTROLS (v1.2 R1). The confirm button in a sheet takes a
-// press: the scale is motion-only, the border and background carry the
-// press for reduced motion (brief v0.5 section 6). A refused control
-// swaps its colour utilities rather than appending others: Tailwind
-// resolves a conflict by stylesheet order, not by class order. The box is
-// otherwise identical, so a refusal never changes the control's size.
-const buyBtn = 'dc-tile font-display uppercase text-[10px] border-2 border-dc-go bg-dc-go/10 text-dc-go px-3 shadow-press active:shadow-none active:bg-dc-go/20'
-const buyBtnDenied = 'dc-tile font-display uppercase text-[10px] border-2 border-hero-magenta bg-hero-magenta/10 text-hero-magenta px-3'
-// The step sheet, as the action array names it.
-const isStep = (id: Sheet | null): id is StepSheet => id !== null && id !== 'system'
-
 // Which sheet is open. The sheet is presentation state, not a phase: the
 // v1.1 phase 'procure' still arrives in a save, and it opens PROCURE on a
 // board at 'brief'. ('harden', which opened HARDEN, left the save format
@@ -245,15 +235,15 @@ export default function Game({
   const [phase, setPhase] = useState<Phase>(() => arrive(initial?.phase as Phase | undefined).phase)
   const [sheet, setSheet] = useState<Sheet | null>(() => arrive(initial?.phase as Phase | undefined).sheet)
   // Where each sheet is in its steps, and what PROCURE has picked so far.
-  const [step, setStep] = useState(1)
-  const [pick, setPick] = useState<ProcurePick>({})
-  // The steps whose sheet was opened this turn (R1b): each shows a check
-  // in place of its number on the bar, as the turn's record, until the
-  // next turn begins.
-  const [stepsDone, setStepsDone] = useState<Set<string>>(() => new Set())
-  // The guided first turn (R2b): on until this device's first completed
-  // resolve, or until "Skip tips" is pressed.
-  const [guideOn, setGuideOn] = useState(() => !hasDoneFirstTurn())
+  // What PROCURE was opened from (v1.3 brief 5.4): a move, whose
+  // defenses it highlights, or the drone FIRST ORDERS points at.
+  const [focus, setFocus] = useState<{ move: ThreatEvent } | { kind: AssetKind } | null>(null)
+  // The WORST CASE sum, shown on a tap (brief section 4 rule 5).
+  const [showWorst, setShowWorst] = useState(false)
+  // Nonces that pulse the dock's line, the intel row, and the move cards.
+  const [pulseWorst, setPulseWorst] = useState(0)
+  const [pulseIntel, setPulseIntel] = useState(0)
+  const [pulseMoves, setPulseMoves] = useState(0)
   const executeRef = useRef<HTMLButtonElement | null>(null)
   const [actions, setActions] = useState<TurnActions>(EMPTY_ACTIONS)
   const [notice, setNotice] = useState('')
@@ -360,18 +350,11 @@ export default function Game({
   // The two audio toggles ride the save row, which is the only chrome the
   // campaign screen carries in every phase.
   const [soundPrefs, setSoundPrefs] = useSoundPrefs()
-  // Cannot-afford cue (brief v0.5 section 6): the tile shakes and the
-  // spend line flashes. A nonce restarts the animation on a repeat press.
-  const [denied, setDenied] = useState<{ id: string; nonce: number } | null>(null)
-  // The manifest entry a buy just added, so it can slide in (brief section
-  // 4: "item slides into the manifest"). Cleared when the cart empties.
+  // The ORDERED tile an order just added, so it slides into the strip (brief
+  // section 4: "item slides into the manifest"); cleared when it goes.
   const [arrived, setArrived] = useState<{ index: number; nonce: number } | null>(null)
-  const denialShake = useCueClass(denied?.nonce ?? null, 'dc-shake', reducedMotion)
-  // The colour half of the cue is not motion, so it plays under reduced
-  // motion too; the stylesheet drops only the animation there.
-  const denialFlash = useCueClass(denied?.nonce ?? null, 'dc-flash-bad', false)
-  // The manifest entrance, and the dim the adversary phase enters through.
   const manifestCue = useCueClass(arrived?.nonce ?? null, 'dc-manifest-in', reducedMotion, 320)
+  // The dim the adversary phase enters through.
   const phaseDim = useCueClass(phase === 'playback' ? `dim-${state?.turn ?? 0}` : null, 'dc-phase-dim', reducedMotion, 420)
   // THE HIT BEATS (v1.2 R3, brief 4.5). The strike's length sets every
   // duration on the board (the CSS reads it as --dc-beat). The lock-on
@@ -469,17 +452,6 @@ export default function Game({
     setIntel(null)
     setLibrary(eventId)
   }
-  // A refusal is a flash, not a state: it lifts on its own, and at once if
-  // the cart or the phase changes, so a fixed cart never carries a stale
-  // warning.
-  useEffect(() => {
-    if (!denied) return
-    const id = window.setTimeout(() => setDenied(null), CUE_MS)
-    return () => window.clearTimeout(id)
-  }, [denied])
-  useEffect(() => {
-    setDenied(null)
-  }, [actions, phase])
   // During playback the HUD follows the director's presented state, so the
   // badge cues fire on the beat that applies them rather than jumping to
   // the engine's end state. Computed here because hooks run before the
@@ -494,7 +466,7 @@ export default function Game({
   // top of the turn that will eventually arm it. Null is the start screen,
   // which gets the base layer only.
   useMusicState(shownOrNull)
-  const { badges, phases } = useBadgePhases(
+  const { badges } = useBadgePhases(
     shownOrNull?.conditions ?? EMPTY_CONDITIONS,
     reducedMotion,
     shownOrNull?.turn,
@@ -557,15 +529,6 @@ export default function Game({
 
   const flash = (msg: string) => setNotice(msg)
 
-  // Derived from content so the help text tracks any clock retune.
-  const durations = [...new Set(scenario.events.flatMap((e) => (e.condition ? [e.condition.turns] : [])))].sort((x, y) => x - y)
-  const conditionDurationRange =
-    durations.length === 0
-      ? 'a few turns'
-      : durations.length === 1
-        ? `${durations[0]} turns`
-        : `${durations[0]} to ${durations[durations.length - 1]} turns`
-
   // Item 1: the job framing (three numbered lines and a line of context), shown on the start screen and again
   // in the turn 1 brief so a skimming player can state the objective.
   // Round 7b: the lines come from ui/brief.ts, which is the module the
@@ -595,13 +558,11 @@ export default function Game({
     () => setGlossaryFocus(null),
   )
 
-  // Opening a sheet starts it at step one with nothing picked; the same
+  // Opening a sheet clears what PROCURE was last opened from; the same
   // button again closes it. PROCURE and SYSTEM are exclusive.
-  const openSheet = (next: Sheet | null) => {
+  const openSheet = (next: Sheet | null, from: typeof focus = null) => {
     setSheet(next)
-    setStep(1)
-    setPick({})
-    if (isStep(next)) setStepsDone((done) => (done.has(next) ? done : new Set(done).add(next)))
+    setFocus(next === 'procure' ? from : null)
   }
   const toggleSheet = (next: Sheet) => openSheet(sheet === next ? null : next)
   // A sheet opened from the wide board's inspector (v1.2 R6) covers the
@@ -677,7 +638,7 @@ export default function Game({
     setChosenSpend(0)
     setPhase(arrival.phase)
     openSheet(arrival.sheet)
-    setStepsDone(new Set(arrival.sheet ? [arrival.sheet] : []))
+    setShowWorst(false)
     setIntel(null)
     setInspected(null)
     setLibrary(null)
@@ -765,7 +726,6 @@ export default function Game({
   // and the orders are priced by the engine's own rule.
   const available = turnBudget(state)
   const cost = orderCost(state, actions)
-  const affordable = cost <= available
   const lastRecord = state.history[state.history.length - 1]
   const displayTurn =
     (phase === 'aftermath' || phase === 'playback') && lastRecord ? lastRecord.turn : Math.min(state.turn, scenario.totalTurns)
@@ -778,9 +738,6 @@ export default function Game({
     // a throw inside an event handler never reaches an error boundary.
     try {
       const next = resolveTurn(state, withDebrisCall(state, actions), turnRng(state.seed, state.turn))
-      // The first completed resolve on this device ends the walkthrough
-      // for good (R2b).
-      markFirstTurnDone()
       // Every event the turn drew, landed or held, is met on this device
       // (v1.2 R5b): the Field Library's FILED stamps read it. The threats
       // the intel brief named are met too (brief 6.9), in a key of their
@@ -788,7 +745,6 @@ export default function Game({
       const record = next.history[next.history.length - 1]
       recordMet(record.events.map((e) => e.eventId))
       recordNamed(record.named)
-      setGuideOn(false)
       // A new turn declares its own spend; nothing carries over.
       setChosenSpend(0)
       // The director derives its beats from the two states. It is
@@ -807,7 +763,7 @@ export default function Game({
       setActions(EMPTY_ACTIONS)
       openSheet(null)
       setIntel(null)
-      // The cart is gone, so the entry the cue pointed at is too.
+      // The orders are gone, so the entry the cue pointed at is too.
       setArrived(null)
       if (!beats) {
         setPlayback(null)
@@ -825,42 +781,43 @@ export default function Game({
     }
   }
 
-  // A new turn starts with every step numbered again; the aftermath kept
-  // the resolved turn's checks as its record.
   const nextTurn = () => {
-    setStepsDone(new Set())
+    setShowWorst(false)
     setPhase('brief')
   }
 
-  // The engine is the authority on affordability; this keeps the cart
-  // inside the same budget so the gate never has to refuse at resolve time.
-  const afforded = (kind: AssetKind): boolean => cost + assetPrice(scenario, kind) <= available
-  const afford = (price: number, tileId: string): boolean => {
+  // The engine is the authority on affordability; this keeps the orders
+  // inside the same budget so the gate never has to refuse at EXECUTE.
+  // PROCURE turns an order it cannot afford off; the buzz is for a call
+  // that gets here anyway.
+  const afford = (price: number): boolean => {
     if (cost + price <= available) return true
-    // Every refusal in the phase comes through here, so the buzz does too:
-    // a second copy at a call site is a copy that can be forgotten.
     play('denied-buzz')
-    setDenied((d) => ({ id: tileId, nonce: (d?.nonce ?? 0) + 1 }))
     return false
   }
 
-  const addAsset = (kind: AssetKind) => {
-    const price = assetPrice(scenario, kind)
-    if (!afford(price, kind)) return
+  // PROCURE orders one of each asset tonight: a tap adds it, a second tap
+  // cancels it (brief 5.4).
+  const toggleAsset = (kind: AssetKind) => {
+    const at = actions.buyAssets.findIndex((b) => b.kind === kind)
+    if (at >= 0) return removeAsset(at)
+    if (!afford(assetPrice(scenario, kind))) return
     play('buy-click')
-    // The new entry is the last one, and the nonce restarts the cue when
-    // the same kind is bought twice in a row.
     setArrived({ index: actions.buyAssets.length, nonce: (arrived?.nonce ?? 0) + 1 })
     setActions({ ...actions, buyAssets: [...actions.buyAssets, { kind }] })
   }
   const removeAsset = (index: number) => {
-    // Taking an item back out is the same control as putting it in. The
-    // brief's row names the buy, but a silent removal beside a clicking
-    // buy reads as a control that stopped working.
     play('buy-click')
-    // The cue points at a row by index, so a removal invalidates it.
+    // The cue points at an entry by index, so a removal invalidates it.
     setArrived(null)
     setActions({ ...actions, buyAssets: actions.buyAssets.filter((_, i) => i !== index) })
+  }
+  // The intel brief, from the TONIGHT card's row or from PROCURE. The row
+  // does not refuse: an order there that leaves REMAINING below zero is
+  // what turns EXECUTE off (brief 5.3 item 5).
+  const toggleBrief = () => {
+    play('buy-click')
+    setActions({ ...actions, intelBrief: !actions.intelBrief })
   }
   // The IR retainer sits in PROCURE with the defenses (critique row M8),
   // and since v1.3 Round 0 it is ordered like one.
@@ -868,7 +825,7 @@ export default function Game({
     const already = actions.buyCounters.includes(id)
     if (!already) {
       const price = scenario.countermeasures.find((c) => c.id === id)?.cost ?? 0
-      if (!afford(price, `cm-${id}`)) return
+      if (!afford(price)) return
     }
     play('buy-click')
     setActions({ ...actions, buyCounters: already ? actions.buyCounters.filter((c) => c !== id) : [...actions.buyCounters, id] })
@@ -885,9 +842,6 @@ export default function Game({
     ? briefActive(state, actions)
     : (state.history.find((h) => h.turn === shown.turn)?.briefed ?? briefFree(shown))
   const tiles = tilesByLayer(shown, actions.buyAssets)
-  // The queued tile that just slid in carries the manifest cue (brief
-  // section 4: "item slides into the manifest"); the manifest is the
-  // layer panel now.
   for (const layer of LAYERS) {
     for (const tile of tiles[layer]) {
       if (tile.kind === 'queued') {
@@ -896,41 +850,10 @@ export default function Game({
       }
     }
   }
-  // Condition chips per layer (brief 4.3), from the one badge hook above,
-  // with elapsed time counted from the engine's turn so the number does
-  // not jump when playback hands over to the aftermath, and the turns left
-  // since v1.3 Round 0 (brief 6.5: the player plans around the clock).
+  // Condition chips per layer (brief 5.3 item 2), with the turns left
+  // (brief 6.5: the player plans around the clock).
   const chipsOn = (layer: (typeof LAYERS)[number]): ChipModel[] =>
-    conditionsOn(layer, badges, scenario).map((c) => ({
-      condition: c,
-      phase: phases[c.instanceId] ?? 'attached',
-      elapsed: state.turn - c.startedTurn,
-      remaining: c.remainingTurns,
-    }))
-
-  // The spend line every decision sheet carries. It is the element the
-  // cannot-afford flash lands on (brief v0.5 section 6).
-  const spendLine = (
-    <p className={`text-xs font-mono text-dc-muted ${denialFlash}`}>
-      Planned spend: {cost} of {available} credits available. Funding arrives at the turn close.
-    </p>
-  )
-  // The colour channel of a refusal, which survives reduced motion; the
-  // shake is the motion channel. Both on the control that was touched.
-  const deniedTile = (id: string) => (denied?.id === id ? `${denialShake} border-hero-magenta/60` : 'border-transparent')
-
-  // The confirm step's control. The refused buy swaps its classes (see
-  // buyBtnDenied) and shakes.
-  const buyClass = pick.kind && denied?.id === pick.kind ? `${buyBtnDenied} ${denialShake}` : buyBtn
-  const buyPicked = () => {
-    if (!pick.kind) return
-    const ok = afforded(pick.kind)
-    addAsset(pick.kind)
-    // A buy closes the sheet, so the queued tile is seen sliding into its
-    // layer. A refused one stays on the confirm step, so the refusal is
-    // seen on the control that was pressed.
-    if (ok) openSheet(null)
-  }
+    conditionsOn(layer, badges, scenario).map((c) => ({ condition: c, remaining: c.remainingTurns }))
 
   // The deciding turn's playback and aftermath still render before the
   // score screen, exactly as the aftermath alone did in v1.0.
@@ -1000,34 +923,24 @@ export default function Game({
   }
 
   const displayRecord = phase === 'aftermath' && lastRecord ? lastRecord : null
-  // What PROCURE says under its label: how many orders are queued.
-  const orders = actions.buyAssets.length + actions.buyCounters.length + (actions.intelBrief && !briefFree(state) ? 1 : 0)
-  const captions: Record<string, string> = {
-    procure: orders > 0 ? `${orders} queued` : '',
-  }
+  // What PROCURE's badge counts: each order queued tonight (QC G-025). The
+  // brief is an order only on a night it is not free.
+  const free = briefFree(state)
+  const orders = actions.buyAssets.length + actions.buyCounters.length + (actions.intelBrief && !free ? 1 : 0)
   const sheetOpen = sheet !== null
-  // How far MAI fell on the hit that just landed, floated off the number.
+  // How far the score fell on the hit that just landed, floated off it.
   const fell = strike?.kind === 'hit' && strike.landed && presented ? Math.round((maiScore(strike.before) - maiScore(presented)) * 10) / 10 : 0
   const maiDrop = strike && fell > 0 ? { id: strike.id, delta: fell } : null
-  // WHAT TO DO NEXT (R2b): the objective line's tag and sentence and the
-  // step that glows, as one value from one call, so the bar cannot light
-  // one step and name another. While the turn is decided it is the
-  // walkthrough on this device's first turn, and the suggestion otherwise,
-  // with the credits the HUD shows; after that it says how to move on.
-  const creditsLeft = available - cost
-  const guided = guideOn && deciding && state.turn === 1
-  const orderedOrSkipped = orders > 0 || (stepsDone.has('procure') && sheet !== 'procure')
-  const objective: Objective = deciding
-    ? guided
-      ? GUIDE[guideStage(orderedOrSkipped)]
-      : { tag: creditsTag(creditsLeft), ...suggestNextStep(state, stepsDone, creditsLeft) }
-    : phase === 'playback'
-      ? { tag: `TURN ${displayTurn}`, sentence: playback?.beats.find((b) => b.id === beatId)?.title ?? 'Watch the turn play out.', step: null }
-      : {
-          tag: `TURN ${displayTurn} RESOLVED`,
-          sentence: state.status === 'playing' ? 'Tap NEXT TURN when ready.' : 'Tap FINAL REPORT to see how it ended.',
-          step: 'resolve',
-        }
+  const worst = worstCase(state, actions)
+  const slots = deciding ? tonightSlots(state, actions) : []
+  const onOrder = (id: OrderId) => {
+    if (id === 'drone') return openSheet('procure', { kind: 'drone' })
+    if (id === 'worst') {
+      setShowWorst(true)
+      return setPulseWorst((n) => n + 1)
+    }
+    setPulseMoves((n) => n + 1)
+  }
 
   return (
     <LearnMore.Provider value={learnMore}>
@@ -1044,47 +957,25 @@ export default function Game({
         data-wide={laidOut || undefined}
         {...(glossaryFocus || intelOpen || library ? { inert: true, 'aria-hidden': true } : {})}
       >
-      <Hud
+      <BoardHud
         shown={shown}
         displayTurn={displayTurn}
         drop={maiDrop}
         countMs={beatMs ? beatMs * COUNT_SHARE : undefined}
+        dailyNumber={daily?.n}
         onSystem={() => toggleSheet('system')}
         systemOpen={sheet === 'system'}
-        credits={{
-          // During the decision the ticker shows what the cart leaves, so
-          // a buy ticks the number down as the brief asks; at every other
-          // time it is the engine's balance. A buy is a decision, not
-          // damage, so the tone is dropped while the player is choosing.
-          value: deciding ? available - cost : shown.credits,
-          basis: deciding ? 'cart' : 'balance',
+        budget={{
+          // The engine's balance. A buy is a decision, not damage, so the
+          // tone is dropped while the player is choosing; REMAINING on the
+          // dock is what the orders leave (QC G-102).
+          value: shown.credits,
+          basis: 'balance',
           chosen: deciding,
           chosenDelta: chosenSpend,
         }}
       />
       <div ref={bodyRef} className="relative flex min-h-0 flex-1 flex-col">
-        {/* Keyed on the PRESENTED turn, so the teletype runs once when a
-            turn's transmission arrives and not again when the engine's
-            turn advances under a playback that is still showing this one. */}
-        <ThreatBanner
-          shown={shown}
-          cueKey={shown.turn}
-          onTag={(tag) => setGlossaryFocus(tag)}
-          onIntel={() => setIntel({ kind: 'banner' })}
-          briefed={briefedTonight}
-        />
-        {/* THE WIDE BOARD'S COLUMNS (v1.2 R6, brief 4.6): the ops log under
-            the banner and the inspector on the right, each a conditional
-            child in a fixed place, so crossing 1024 remounts none of their
-            siblings and a playback carries on at its beat. Both read the
-            board the player sees (`shown`) for its assets, conditions and
-            history; a condition's age counts from the engine's turn, as the
-            chips do. */}
-        {wide && (
-          <Suspense fallback={null}>
-            <WideBoard part="log" shown={shown} />
-          </Suspense>
-        )}
         {/* The dotted beam from the emblem to the struck tile, over
             everything in the body and taking no input. It draws while the
             hit locks on; the stylesheet shows it only when motion is
@@ -1098,46 +989,66 @@ export default function Game({
             style={{ left: beam.x, top: beam.y, width: beam.length, '--beam-angle': `${beam.angle}deg` } as CSSProperties}
           />
         )}
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1.5 flex flex-col gap-1.5">
+        {/* THE WIDE BOARD'S LOG (v1.2 R6, brief 4.6), on a screen 1024
+            wide and up: a direct child of the body, which wide.css makes
+            the grid, so it takes the left column. */}
+        {wide && (
+          <Suspense fallback={null}>
+            <WideBoard part="log" shown={shown} />
+          </Suspense>
+        )}
+        <div data-board-body className="min-h-0 flex-1 overflow-y-auto px-3 py-1 flex flex-col gap-1.5">
+          <AssetStrip
+            tiles={tiles}
+            chips={chipsOn}
+            selectedKey={laidOut ? inspected : intel?.kind === 'tile' ? intel.assetId : null}
+            onSelect={(key) => (laidOut ? setInspected(key) : setIntel(key ? { kind: 'tile', assetId: key } : null))}
+            onCancelQueued={removeAsset}
+            inspect={laidOut}
+            hit={strike?.kind === 'hit' ? strike : null}
+            held={strike?.kind === 'held' ? strike : null}
+          />
           {/* The adversary phase enters through a dim. It plays on the
               way in and blocks nothing: the engine resolved the turn
-              before this renders (principle 3). */}
-      {phase === 'playback' && playback && (
-        <div className={phaseDim}>
-          <DirectorView
-            before={playback.before}
-            after={playback.after}
-            beats={playback.beats}
-            onPresented={showPresented}
-            onDone={finishPlayback}
-            held={!!(glossaryFocus || intel || library)}
-          />
-        </div>
-      )}
+              before this renders (principle 3). The TONIGHT card is off
+              the board while the night plays, so its full brief is closed
+              when it comes back (QC G-026). */}
+          {phase === 'playback' && playback && (
+            <div className={phaseDim}>
+              <DirectorView
+                before={playback.before}
+                after={playback.after}
+                beats={playback.beats}
+                onPresented={showPresented}
+                onDone={finishPlayback}
+                held={!!(glossaryFocus || intel || library)}
+              />
+            </div>
+          )}
           {displayRecord && (
             <AftermathCard record={displayRecord} state={state} scenario={scenario} reducedMotion={reducedMotion} ledgerOpen={unplayed} />
           )}
-          {LAYERS.map((layer) => (
-            <LayerPanel
-              key={layer}
-              layer={layer}
-              tiles={tiles[layer]}
-              chips={chipsOn(layer)}
-              defenses={defensesOn(layer, shown.counters, scenario)}
-              selectedKey={laidOut ? inspected : intel?.kind === 'tile' ? intel.assetId : null}
-              onSelect={(key) => (laidOut ? setInspected(key) : setIntel(key ? { kind: 'tile', assetId: key } : null))}
-              inspect={laidOut}
-              onRemoveQueued={removeAsset}
-              hit={strike?.kind === 'hit' && strike.layer === layer ? strike : null}
-              held={strike?.kind === 'held' && strike.layers.includes(layer) ? strike.id : null}
-            />
-          ))}
-          <BoardReference shown={shown} conditionDurationRange={conditionDurationRange} />
+          {deciding && (
+            <>
+              <Tonight
+                state={state}
+                slots={slots}
+                brief={free ? 'free' : actions.intelBrief ? 'ordered' : 'none'}
+                briefPrice={scenario.prices.intelBrief}
+                onMove={(ev) => openSheet('procure', { move: ev })}
+                onToggleBrief={toggleBrief}
+                onIntel={() => setIntel({ kind: 'banner' })}
+                onTag={(tag) => setGlossaryFocus(tag)}
+                pulseIntel={pulseIntel}
+                pulseMoves={pulseMoves}
+                onReveal={() => setPulseIntel((n) => n + 1)}
+              />
+              <Orders state={state} actions={actions} onOrder={onOrder} />
+            </>
+          )}
           {/* The flash notice, when the SYSTEM sheet that carries it is not
-              open. Save, Copy save code, Back to menu and the toggles live
-              in that sheet since R1b, so the board ends at the action
-              bar. */}
-          {notice && sheet !== 'system' && <p className="font-mono text-xs text-alert-amber">{notice}</p>}
+              open. */}
+          {notice && sheet !== 'system' && <p className="font-mono text-xs text-dc-warn">{notice}</p>}
         </div>
         {wide && (
           <Suspense fallback={null}>
@@ -1149,44 +1060,29 @@ export default function Game({
               live={deciding}
               onProcure={(kind) => {
                 sheetFrom.current = document.activeElement as HTMLElement | null
-                openSheet('procure')
-                setPick({ kind })
-                setStep(2)
+                openSheet('procure', { kind })
               }}
               onIntel={(assetId) => setIntel({ kind: 'tile', assetId })}
               onReady={setWideReady}
             />
           </Suspense>
         )}
-        {/* THE SHEETS (brief 4.4), over the dimmed board and under the
-            action bar, which stays live so the next action is one tap
-            away from inside any sheet. The backdrop closes the sheet. */}
+        {/* THE SHEETS, over the dimmed board and under the dock, which
+            stays live so EXECUTE is one tap away from inside PROCURE. The
+            backdrop closes the sheet. */}
         {sheetOpen && <button type="button" aria-label="Close sheet" className="absolute inset-0 z-20 bg-dc-ground/80" onClick={() => openSheet(null)} />}
         {sheet === 'procure' && (
-          <ProcureSheet
-            scenario={scenario}
+          <Procure
             state={state}
-            step={step}
-            pick={pick}
-            onKind={(kind) => {
-              setPick({ kind })
-              setStep(2)
-            }}
-            onBuy={buyPicked}
-            onBack={() => setStep((n) => Math.max(1, n - 1))}
-            onClose={() => openSheet(null)}
-            buyClass={buyClass}
-            spendLine={spendLine}
-            queuedCounters={actions.buyCounters}
+            actions={actions}
+            focus={focus}
+            onToggleAsset={toggleAsset}
             onToggleCounter={toggleCounter}
-            deniedClassFor={(id) => deniedTile(`cm-${id}`)}
-            intelChecked={actions.intelBrief}
-            onIntel={(checked) => {
-              if (checked && !afford(scenario.prices.intelBrief, 'intel')) return
-              play('buy-click')
-              setActions({ ...actions, intelBrief: checked })
-            }}
-            intelClass={deniedTile('intel')}
+            onToggleBrief={toggleBrief}
+            onClose={() => openSheet(null)}
+            remaining={worst.remaining}
+            cost={cost}
+            orders={orders}
           />
         )}
         {sheet === 'system' && (
@@ -1212,48 +1108,24 @@ export default function Game({
           />
         )}
       </div>
-      {/* THE ACTION BAR (brief 4.1; a turn stepper since R2b): the
-          objective line, PROCURE, and EXECUTE full width under it. EXECUTE
-          is a tap since v1.3 Round 0 (brief 4: "EXECUTE ends the turn");
-          its label is the instruction and its accessible name, and after
-          playback the slot becomes the way to the next turn. */}
-      <ActionBar
-        actions={ACTIONS}
+      <Dock
         phase={deciding ? 'deciding' : phase === 'playback' ? 'playback' : 'aftermath'}
-        openSheet={isStep(sheet) ? sheet : null}
-        done={stepsDone}
-        objective={objective}
-        onSkipTips={guided ? () => setGuideOn(false) : undefined}
-        onToggle={toggleSheet}
-        disabledFor={() => !deciding}
-        captionFor={(action) => captions[action.id] ?? ''}
-        resolve={(look) => (
-          <button
-            ref={executeRef}
-            type="button"
-            data-execute
-            className={look.className}
-            aria-keyshortcuts={look.keyShortcuts}
-            disabled={!affordable}
-            onClick={() => {
-              play('execute-sweep')
-              resolve()
-            }}
-          >
-            <span data-label className="uppercase">
-              {resolveLabel(state.turn)}
-            </span>
-          </button>
-        )}
-        nextLabel={phase === 'playback' ? 'PLAYBACK' : state.status === 'playing' ? 'NEXT TURN' : 'FINAL REPORT'}
+        worst={worst}
+        orders={orders}
+        procureOpen={sheet === 'procure'}
+        onProcure={() => toggleSheet('procure')}
+        executeName={resolveLabel(state.turn)}
+        executeRef={executeRef}
+        onExecute={() => {
+          play('execute-sweep')
+          resolve()
+        }}
+        showWorst={showWorst}
+        onWorst={() => setShowWorst((v) => !v)}
+        pulseWorst={pulseWorst}
+        nextLabel={state.status === 'playing' ? 'NEXT TURN' : 'FINAL REPORT'}
         onNext={nextTurn}
-        keyChips={laidOut && !(glossaryFocus || intel || library)}
         pulseNext={phase === 'aftermath' && !reducedMotion}
-        note={
-          !affordable && deciding ? (
-            <p className="px-2 pb-1 font-mono text-[10px] text-alert-amber">Planned spend exceeds credits. Trim what you procure.</p>
-          ) : undefined
-        }
       />
     </main>
       {/* THE GLOSSARY OVERLAY, a sibling of the game rather than a child of
