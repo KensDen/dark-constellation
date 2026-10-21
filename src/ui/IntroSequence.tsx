@@ -1,95 +1,108 @@
-// The cold open (v1.2 R4, brief 6): four slides of hand-built pixel art,
-// the watch officer's line typing on under each, pixel-dissolving from one
-// to the next, with the music bed building under them.
+// THE BRIEFING (v1.2 R4 as the cold open; rebuilt in v1.3 R1, brief 5.2):
+// four beats, each an animated pixel scene on one canvas with a caption at
+// each top corner, the watch officer's line typing on under it at forty
+// characters a second, a four-segment progress bar, and the button pinned
+// at the bottom: CONTINUE, then BEGIN TURN 1, or BACK TO TITLE when the
+// title's BRIEFING replays it. SKIP top right.
+//
+// Tapping the text finishes the line. Tapping the picture finishes the
+// line, and a second tap moves on. CONTINUE always moves on. Escape is
+// SKIP; Enter and Space do what a tap on the picture does.
+//
+// It fits one phone screen with the safe areas subtracted: the picture
+// takes what the line, the bar and the button leave, so CONTINUE never
+// needs a scroll (Ken, 6 October). The line's block is as tall as the
+// longest beat's, so nothing moves as a line types or the beat changes.
 //
 // The seen-flag lives in ./introSeen: App reads it on startup and must not
-// import this module to do so, or the cold open rejoins the initial chunk
-// (v1.2 R0). Everything only this screen uses (the scenes, the officer,
-// the disaster zone, the stylesheet) is imported from here and nowhere
-// else, so it all arrives in this chunk.
+// import this module to do so, or the briefing rejoins the initial chunk.
+// Leaving a first viewing by SKIP or by BEGIN TURN 1 sets it; a replay
+// leaves it exactly as it was.
 //
-// A tap finishes the line; the next tap moves on. SKIP and Escape leave
-// at once, Enter and Space do what a tap does. Leaving by SKIP or by
-// BEGIN on the last slide sets the seen-flag, except on a replay from the
-// menu's BRIEFING, which leaves it exactly as it was.
-//
-// REDUCED MOTION is its own path, not the animated one with the timers
-// shortened: every line is whole on the first paint, slides crossfade
-// instead of dissolving, and no scene loops (the loops are CSS under the
-// no-preference guard). tests/cold-open.dom.spec.tsx holds all three.
+// REDUCED MOTION is its own path: one still frame per scene, no dissolve,
+// and every line whole on the first paint.
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from 'react'
 import { MENU_MUSIC_STATE, coldOpenMusicState, getAudioEngine, useSound } from '../audio'
-import ColdOpenScene from './ColdOpenScene'
-import {
-  CLICK_EVERY,
-  CROSSFADE_MS,
-  DISSOLVE_MS,
-  MS_PER_CHAR,
-  OPS_LABEL,
-  OP_LABEL,
-  SLIDES,
-  SPEAKER,
-} from './coldOpenSlides'
+import { BEATS, CLICK_EVERY, DISSOLVE_S, MS_PER_CHAR, SPEAKER } from './coldOpenSlides'
+import { SCENES, STILL_T, dissolve, readTokens } from './briefingScenes'
+import type { SceneName } from './coldOpenSlides'
 import { usePageVisible, useReducedMotion } from './cues/motion'
 import { markIntroSeen } from './introSeen'
-import './coldOpen.css'
-
-// The dissolve's grid, and the order its cells go in: a fixed shuffle, so
-// the dissolve is the same every time and a test can know it.
-const GRID = 12
-const ORDER = (() => {
-  const cells = Array.from({ length: GRID * GRID }, (_, i) => i)
-  let seed = 0x5eed
-  for (let i = cells.length - 1; i > 0; i -= 1) {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff
-    const j = seed % (i + 1)
-    ;[cells[i], cells[j]] = [cells[j], cells[i]]
-  }
-  // rank[cell] = when that cell switches, in steps.
-  const rank = new Array<number>(cells.length)
-  cells.forEach((cell, step) => (rank[cell] = step))
-  return rank
-})()
-
-const CELL_OVERLAP = 1.05
-
-function Dissolve({ mode }: { mode: 'in' | 'out' }) {
-  const step = DISSOLVE_MS / ORDER.length
-  return (
-    <svg
-      aria-hidden="true"
-      data-dissolve={mode}
-      className={`dc-dissolve dc-dissolve-${mode} pointer-events-none absolute inset-0 h-full w-full`}
-      viewBox={`0 0 ${GRID} ${GRID}`}
-      preserveAspectRatio="none"
-      shapeRendering="crispEdges"
-    >
-      {ORDER.map((rank, cell) => (
-        // A shade over one cell each way: the grid is stretched to the
-        // stage, so cell edges fall between device pixels, and cells that
-        // only met would leave hairlines of the scene showing through.
-        <rect
-          key={cell}
-          x={cell % GRID}
-          y={Math.floor(cell / GRID)}
-          width={CELL_OVERLAP}
-          height={CELL_OVERLAP}
-          style={{ animationDelay: `${Math.round(rank * step)}ms` }}
-        />
-      ))}
-    </svg>
-  )
-}
-
-// in: the slide is dissolving in. show: it is up, and its line types.
-// out: it is dissolving out, toward the next slide or the menu.
-type Phase = 'in' | 'show' | 'out'
 
 export interface IntroSequenceProps {
+  // How the briefing ended: BEGIN TURN 1 or SKIP on a first viewing goes
+  // to turn 1; a replay goes back to the title.
   onDone: () => void
-  // A replay from the menu's BRIEFING: the seen-flag is left alone.
+  // A replay from the title's BRIEFING: the seen-flag is left alone.
   replay?: boolean
+}
+
+// One scene on one canvas, at about 15 frames a second, with the pixel
+// dissolve on entry; one still frame under reduced motion; paused while
+// the tab is hidden.
+function SceneCanvas({ scene, reduced, visible }: { scene: SceneName; reduced: boolean; visible: boolean }) {
+  const ref = useRef<HTMLCanvasElement | null>(null)
+  const started = useRef(0)
+  useEffect(() => {
+    started.current = 0
+  }, [scene])
+  useEffect(() => {
+    const cv = ref.current
+    if (!cv) return
+    let ctx: CanvasRenderingContext2D | null = null
+    try {
+      ctx = cv.getContext('2d')
+    } catch {
+      ctx = null
+    }
+    if (!ctx) return
+    const c = ctx
+    readTokens()
+    const draw = SCENES[scene]
+    let W = 0
+    let H = 0
+    let dpr = 1
+    const fit = () => {
+      const r = cv.getBoundingClientRect()
+      dpr = Math.min(3, window.devicePixelRatio || 1)
+      W = Math.max(1, Math.round(r.width))
+      H = Math.max(1, Math.round(r.height))
+      cv.width = Math.round(W * dpr)
+      cv.height = Math.round(H * dpr)
+    }
+    const frame = (t: number) => {
+      c.setTransform(dpr, 0, 0, dpr, 0, 0)
+      c.imageSmoothingEnabled = false
+      draw(c, W, H, t)
+      if (!reduced && t < DISSOLVE_S) dissolve(c, W, H, t / DISSOLVE_S)
+    }
+    fit()
+    if (reduced) {
+      frame(STILL_T[scene])
+      return
+    }
+    if (!visible) {
+      frame(Math.max(DISSOLVE_S, started.current ? (performance.now() - started.current) / 1000 : DISSOLVE_S))
+      return
+    }
+    if (!started.current) started.current = performance.now()
+    let last = -1e9
+    let raf = 0
+    const loop = (now: number) => {
+      const t = (now - started.current) / 1000
+      if (now - last >= 66 || t < DISSOLVE_S) {
+        const r = cv.getBoundingClientRect()
+        if (Math.round(r.width) !== W || Math.round(r.height) !== H) fit()
+        frame(t)
+        last = now
+      }
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  }, [scene, reduced, visible])
+  return <canvas ref={ref} aria-hidden="true" data-briefing-canvas className="absolute inset-0 block h-full w-full [image-rendering:pixelated]" />
 }
 
 export default function IntroSequence({ onDone, replay = false }: IntroSequenceProps) {
@@ -97,62 +110,31 @@ export default function IntroSequence({ onDone, replay = false }: IntroSequenceP
   const visible = usePageVisible()
   const play = useSound()
   const [index, setIndex] = useState(0)
-  const [phase, setPhase] = useState<Phase>(reduced ? 'show' : 'in')
-  // How much of which slide's line has typed. Keyed by slide, so a new
-  // slide starts from nothing without an effect having to reset it first.
-  const [typed, setTyped] = useState({ slide: 0, chars: 0 })
-  // Under reduced motion, the slide being crossfaded away.
-  const [leaving, setLeaving] = useState<number | null>(null)
-  const timer = useRef(0)
+  // How much of which beat's line has typed. Keyed by beat, so a new beat
+  // starts from nothing without an effect having to reset it first.
+  const [typed, setTyped] = useState({ beat: 0, chars: 0 })
 
-  const slide = SLIDES[index]
-  const text = slide.lines.join(' ')
-  const last = index === SLIDES.length - 1
-  // Reduced motion shows the whole line from the first paint: derived
-  // here rather than set by an effect, which would paint once empty.
-  const chars = reduced ? text.length : typed.slide === index ? typed.chars : 0
+  const beat = BEATS[index]
+  const text = beat.text
+  const last = index === BEATS.length - 1
+  // Reduced motion shows the whole line from the first paint.
+  const chars = reduced ? text.length : typed.beat === index ? typed.chars : 0
   const complete = chars >= text.length
 
-  const later = useCallback((fn: () => void, ms: number) => {
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(fn, ms)
-  }, [])
-  useEffect(() => () => window.clearTimeout(timer.current), [])
-
-  // The dissolve in, then the line.
+  // The typing, forty characters a second, with the soft click on every
+  // CLICK_EVERYth character that is not a space; paused while hidden.
   useEffect(() => {
-    if (reduced || phase !== 'in') return
-    later(() => setPhase('show'), DISSOLVE_MS)
-  }, [reduced, phase, index, later])
-
-  // A reduced-motion player who turns the preference on mid-dissolve is
-  // not left looking at half a grid.
-  useEffect(() => {
-    if (reduced && phase === 'in') setPhase('show')
-  }, [reduced, phase])
-
-  // The typing, about forty characters a second, with the soft click on
-  // every CLICK_EVERYth character that is not a space.
-  useEffect(() => {
-    if (reduced || phase !== 'show' || complete) return
+    if (reduced || complete || !visible) return
     const id = window.setTimeout(() => {
       const next = chars + 1
       if (text[chars] !== ' ' && next % CLICK_EVERY === 0) play('soft-tick')
-      setTyped({ slide: index, chars: next })
+      setTyped({ beat: index, chars: next })
     }, MS_PER_CHAR)
     return () => window.clearTimeout(id)
-  }, [reduced, phase, complete, chars, text, index, play])
+  }, [reduced, complete, visible, chars, text, index, play])
 
-  // The crossfade's outgoing picture goes once it has faded.
-  useEffect(() => {
-    if (leaving === null) return
-    const id = window.setTimeout(() => setLeaving(null), CROSSFADE_MS)
-    return () => window.clearTimeout(id)
-  }, [leaving])
-
-  // The music builds slide by slide, and hands back to the menu's bed on
-  // the way out. The bed itself only starts after the first gesture, as
-  // it always has: before that, this sets where it will start from.
+  // The music builds beat by beat, and hands back to the title's bed on
+  // the way out. Before the first gesture this sets where it will start.
   useEffect(() => {
     getAudioEngine().setMusicState(coldOpenMusicState(index))
   }, [index])
@@ -168,40 +150,22 @@ export default function IntroSequence({ onDone, replay = false }: IntroSequenceP
     onDone()
   }, [replay, onDone])
 
+  // CONTINUE: always moves on, finished line or not.
   const advance = useCallback(() => {
-    if (last) {
-      if (!replay) markIntroSeen()
-      // Out to the menu the way every slide went out: dissolving, or
-      // under reduced motion fading.
-      setPhase('out')
-      later(onDone, reduced ? CROSSFADE_MS : DISSOLVE_MS)
-      return
-    }
-    if (reduced) {
-      setLeaving(index)
-      setIndex(index + 1)
-      return
-    }
-    setPhase('out')
-    later(() => {
-      setIndex(index + 1)
-      setPhase('in')
-    }, DISSOLVE_MS)
-  }, [last, replay, reduced, onDone, later, index])
+    if (last) leave()
+    else setIndex((i) => i + 1)
+  }, [last, leave])
 
-  // A tap: finish the line, or move on once it is finished. Nothing while
-  // a dissolve out is already moving on, and no moving on while the slide
-  // is still dissolving in: starting the dissolve out from there would
-  // uncover, in one frame, the half of the picture still under the grid.
-  const tap = useCallback(() => {
-    if (phase === 'out') return
-    if (!complete) {
-      setTyped({ slide: index, chars: text.length })
-      return
-    }
-    if (phase === 'in') return
-    advance()
-  }, [phase, complete, index, text.length, advance])
+  const finish = useCallback(() => {
+    if (complete) return false
+    setTyped({ beat: index, chars: text.length })
+    return true
+  }, [complete, index, text.length])
+
+  // The picture: finish the line, or move on once it is finished.
+  const tapPicture = useCallback(() => {
+    if (!finish()) advance()
+  }, [finish, advance])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -215,89 +179,84 @@ export default function IntroSequence({ onDone, replay = false }: IntroSequenceP
       // A focused button answers its own Enter and Space.
       if (e.target instanceof Element && e.target.closest('button')) return
       e.preventDefault()
-      tap()
+      tapPicture()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [leave, tap])
-
-  // Under reduced motion, the picture on the stage fades in on the first
-  // slide and fades out after the last.
-  const fade = !reduced ? '' : phase === 'out' ? 'dc-crossfade-out' : index === 0 ? 'dc-crossfade-in' : ''
+  }, [leave, tapPicture])
 
   const onButton = (fn: () => void) => (e: MouseEvent) => {
     e.stopPropagation()
     fn()
   }
-  // A held Enter on a focused button would click it again on every
-  // repeat, and race the player through the whole cold open.
+  // A held Enter on a focused button would click it on every repeat and
+  // race the player through the whole briefing.
   const noRepeat = (e: ReactKeyboardEvent) => {
     if (e.repeat) e.preventDefault()
   }
+  const lastLabel = replay ? 'BACK TO TITLE' : 'BEGIN TURN 1'
 
   return (
     <main
       aria-label="Briefing"
-      className={`fixed inset-0 z-40 flex flex-col bg-dc-ground pt-safe pb-safe px-safe font-mono text-dc-ink ${visible ? '' : 'dc-board-hidden'}`}
+      data-briefing={index}
+      className={`fixed inset-0 z-40 mx-auto flex max-w-[560px] flex-col gap-3 overflow-hidden bg-dc-ground px-4 pt-safe pb-safe text-dc-ink ${visible ? '' : 'dc-board-hidden'}`}
     >
-      <header className="flex flex-none items-center justify-between border-b-2 border-dc-line bg-dc-chrome px-4 py-1">
-        <p className="font-display text-[10px] leading-none text-dc-go">{OPS_LABEL}</p>
-        <button type="button" onClick={onButton(leave)} onKeyDown={noRepeat} className="min-h-11 px-2 font-display text-[10px] text-dc-muted">
+      <div className="flex flex-none items-center justify-between pt-2">
+        <p className="font-mono text-[11px] tracking-widest text-dc-muted">
+          BRIEFING · {index + 1} OF {BEATS.length}
+        </p>
+        <button type="button" onClick={onButton(leave)} onKeyDown={noRepeat} className="min-h-11 border-2 border-dc-line px-3 font-mono text-[11px] tracking-widest text-dc-muted">
           SKIP
         </button>
-      </header>
-
-      <div data-cold-open-slide={index} className="flex min-h-0 flex-1 flex-col" onClick={tap}>
-        <div data-cold-open-stage className="relative min-h-0 flex-1 overflow-hidden">
-          <ColdOpenScene key={index} scene={slide.scene} className={fade} />
-          {/* Keyed by the slide it shows, so a second NEXT inside the
-              fade starts a fade of its own rather than inheriting what
-              is left of this one. */}
-          {leaving !== null && <ColdOpenScene key={`leaving${leaving}`} scene={SLIDES[leaving].scene} leaving className="dc-crossfade-out" />}
-          {!reduced && phase !== 'show' && <Dissolve key={`${index}${phase}`} mode={phase} />}
-        </div>
-
-        <section data-cold-open-text className="flex-none border-t-2 border-dc-line bg-dc-chrome px-4 pt-3 pb-3">
-          <div className="flex items-baseline justify-between">
-            <p className="font-display text-[10px] leading-none text-dc-go">{OP_LABEL}</p>
-            <p className="text-xs text-dc-muted">
-              {index + 1} / {SLIDES.length}
-            </p>
-          </div>
-          <p className="mt-3 font-display text-[9px] leading-none text-dc-muted">{SPEAKER}</p>
-          {/* The whole line is always in the accessibility tree. Every
-              slide's line is laid out, unseen, in the same cell, so the
-              block is as tall as the longest of them on every slide: the
-              scene above never changes size, and nothing moves as a line
-              types into the space it will fill. */}
-          <div className="mt-2 grid text-sm leading-relaxed">
-            {SLIDES.map((s, i) => (
-              <p key={i} className="invisible col-start-1 row-start-1" aria-hidden="true">
-                {s.lines.join(' ')}
-              </p>
-            ))}
-            <p className="sr-only" aria-live="polite">
-              {text}
-            </p>
-            <p data-cold-open-line className="col-start-1 row-start-1" aria-hidden="true">
-              {text.slice(0, chars)}
-              {!complete && (
-                <span data-cursor className="text-dc-go">
-                  _
-                </span>
-              )}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onButton(tap)}
-            onKeyDown={noRepeat}
-            className="mt-3 min-h-12 w-full border-2 border-dc-line bg-dc-panel font-display text-xs text-dc-go shadow-press active:translate-y-[3px] active:shadow-none"
-          >
-            {last ? 'BEGIN' : 'NEXT'}
-          </button>
-        </section>
       </div>
+
+      <div data-briefing-scene={beat.scene} className="relative -mx-4 min-h-[120px] max-h-[420px] flex-1 cursor-pointer overflow-hidden border-y-2 border-dc-line bg-dc-ground" onClick={tapPicture}>
+        <SceneCanvas key={index} scene={beat.scene} reduced={reduced} visible={visible} />
+        <span className="pointer-events-none absolute left-2 top-2 bg-dc-ground/70 px-1 font-mono text-[10px] tracking-widest text-dc-friendly">{beat.caption[0]}</span>
+        <span className={`pointer-events-none absolute right-2 top-2 bg-dc-ground/70 px-1 font-mono text-[10px] tracking-widest ${beat.hostile ? 'text-dc-hostile' : 'text-dc-muted'}`}>
+          {beat.caption[1]}
+        </span>
+      </div>
+
+      <div data-briefing-text className="flex-none cursor-pointer" onClick={() => finish()}>
+        <p className="font-mono text-[11px] tracking-widest text-dc-go">
+          {SPEAKER} · {beat.time}
+        </p>
+        {/* Every beat's line laid out, unseen, in the same cell: the block is
+            as tall as the longest on every beat. The whole line is always
+            in the accessibility tree. */}
+        <div className="mt-1 grid text-[15px] leading-snug">
+          {BEATS.map((b, i) => (
+            <p key={i} className="invisible col-start-1 row-start-1" aria-hidden="true">
+              {b.text}
+            </p>
+          ))}
+          <p className="sr-only" aria-live="polite">
+            {text}
+          </p>
+          <p data-briefing-line className="col-start-1 row-start-1" aria-hidden="true">
+            {text.slice(0, chars)}
+            {!complete && <span data-cursor className="text-dc-go">_</span>}
+          </p>
+        </div>
+      </div>
+
+      <div data-briefing-bar className="flex flex-none gap-1.5" aria-hidden="true">
+        {BEATS.map((_, k) => (
+          <i key={k} className={`h-[3px] flex-1 ${k <= index ? 'bg-dc-go' : 'bg-dc-line'}`} />
+        ))}
+      </div>
+
+      <button
+        type="button"
+        data-briefing-next
+        onClick={onButton(advance)}
+        onKeyDown={noRepeat}
+        className="sticky bottom-0 mt-auto mb-3 min-h-12 w-full flex-none border-2 border-dc-go bg-dc-go/10 font-display text-xs text-dc-go shadow-press active:translate-y-[3px] active:shadow-none"
+      >
+        {last ? lastLabel : 'CONTINUE'}
+      </button>
     </main>
   )
 }

@@ -1,84 +1,35 @@
-// The SYSTEM sheet (v1.2 R1b): the controls that are not a decision about
-// the turn, behind the gear on the HUD, so the board ends at the action
-// bar. Save, Copy save code, Back to menu and the two audio toggles,
-// driven by the one list below, which the board suite
-// pins by count and by name so a control cannot drop out of the sheet
-// unnoticed. Every control keeps the name it had on the old save row,
-// except Export code, which became Copy save code in v1.2 R4b to say what
-// it does.
+// The SYSTEM sheet on the board (v1.2 R1b; rebuilt in v1.3 R1, brief 5.8):
+// the controls that are not a decision about the turn, behind the gear on
+// the HUD, so the board ends at the action bar. The same controls open
+// from the title's SYSTEM; ../SystemPanel.tsx renders them from the one
+// list below, which the suites pin by count and by name so a control
+// cannot drop out unnoticed.
 //
-// Muting stays available whatever the campaign's status, on the same
-// principle as before: an accessibility path that disappears at the
-// loudest moment is not one. Saving belongs to a campaign in progress.
-// The playback speed left in v1.3 Round 0 with the auto-advancing
-// director (brief 5.5): every beat now waits for a tap.
+// v1.3 R1 changes the list (brief 5.8, M21): Save left with the named
+// slots (a game is the autosave plus one code), Back to menu became Back
+// to title with the menu's retirement (M1), and difficulty, motion, Load a
+// save code, Replay a seed, the scoreboard and credits arrived from the
+// retired menu and start screen.
+//
+// Muting stays available whatever the campaign's status: an accessibility
+// path that disappears at the loudest moment is not one.
 
-import { SOUND_TOGGLE_LABELS } from '../brief'
-import SoundToggles from '../cues/SoundToggles'
-import type { SoundPrefs } from '../../audio'
-import Sheet, { SHEET_BUTTON } from './Sheet'
+import SystemPanel, { type SystemPanelProps } from '../SystemPanel'
+import { SYSTEM_TITLE } from '../systemControls'
+import Sheet from './Sheet'
 
-export const SYSTEM_TITLE = 'SYSTEM'
+export { MOTION_TOGGLE_LABEL, SYSTEM_CONTROLS, SYSTEM_TITLE, type SystemControl } from '../systemControls'
 
-export interface SystemControl {
-  id: 'save' | 'export' | 'menu' | 'sound' | 'music'
-  // The accessible name the control carries, as the tests find it.
-  name: string
-}
-
-// Five controls. The two toggles are one component, SoundToggles, which
-// renders both names; it mounts at the first of the pair and the second
-// entry stands for the name it also carries.
-export const SYSTEM_CONTROLS: readonly SystemControl[] = [
-  { id: 'save', name: 'Save' },
-  { id: 'export', name: 'Copy save code' },
-  { id: 'menu', name: 'Back to menu' },
-  { id: 'sound', name: SOUND_TOGGLE_LABELS.effects },
-  { id: 'music', name: SOUND_TOGGLE_LABELS.music },
-]
-
-export interface SystemSheetProps {
+export interface SystemSheetProps extends SystemPanelProps {
   playing: boolean
-  onSave: () => void
-  onExport: () => void
-  onExit?: () => void
-  soundPrefs: SoundPrefs
-  onSoundPrefs: (next: (prev: SoundPrefs) => SoundPrefs) => void
-  notice: string
   onClose: () => void
 }
 
-export default function SystemSheet({ playing, onSave, onExport, onExit, soundPrefs, onSoundPrefs, notice, onClose }: SystemSheetProps) {
-  // The three plain buttons, by id: their handler, and whether they apply.
-  const buttons: Partial<Record<SystemControl['id'], (() => void) | undefined>> = {
-    save: playing ? onSave : undefined,
-    export: playing ? onExport : undefined,
-    menu: onExit,
-  }
-  const render = (control: SystemControl) => {
-    if (control.id === 'sound') return <SoundToggles prefs={soundPrefs} onChange={onSoundPrefs} />
-    if (control.id === 'music') return null
-    const onClick = buttons[control.id]
-    return onClick ? (
-      <button type="button" className={SHEET_BUTTON} onClick={onClick}>
-        {control.name}
-      </button>
-    ) : null
-  }
+export default function SystemSheet({ playing, onClose, ...panel }: SystemSheetProps) {
   return (
     <Sheet id="system" title={SYSTEM_TITLE} onClose={onClose}>
-      <ul className="flex flex-wrap items-center gap-2">
-        {SYSTEM_CONTROLS.map((control) => {
-          const node = render(control)
-          return node ? (
-            <li key={control.id} data-system-control={control.id}>
-              {node}
-            </li>
-          ) : null
-        })}
-      </ul>
-      {playing && <p className="mt-3 font-mono text-[10px] text-dc-muted">Autosaved each turn.</p>}
-      {notice && <p className="mt-2 font-mono text-xs text-alert-amber">{notice}</p>}
+      <SystemPanel {...panel} onExport={playing ? panel.onExport : undefined} />
+      {playing && <p className="px-3 pb-3 font-mono text-[10px] text-dc-muted">Autosaved each turn.</p>}
     </Sheet>
   )
 }

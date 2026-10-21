@@ -15,7 +15,6 @@
 // defenses and intel are ordered in PROCURE, and SURGE is gone (D2).
 
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import { ADVERSARY } from '../config'
 import {
   LocalDailyLedger,
   LocalScoreSink,
@@ -29,11 +28,11 @@ import {
   type DailyOp,
   type DailyStanding,
   type RestoredGame,
-  type SaveMeta,
   type SavePhase,
 } from '../persistence'
 import { copyToClipboard } from './clipboard'
-import { localDateTime } from './localTime'
+import { chooseDifficulty, deviceDifficulty, newOperation, randomSeed } from './session'
+import { DECK_LINE } from './systemControls'
 import { LearnMore } from './learnMore'
 import { DC_BTN } from './buttons'
 import DirectorView from '../director/DirectorView'
@@ -42,7 +41,6 @@ import { hasDoneFirstTurn, markFirstTurnDone } from './firstTurn'
 import { deriveBeats, type Beat } from '../director'
 import { useBadgePhases } from './cues/ConditionBadge'
 import { CUE_MS, WIDE_QUERY, useCueClass, useMediaQuery, usePageVisible, useReducedMotion } from './cues/motion'
-import { JOB_FRAMING_HEADING, jobFramingBlocks } from './brief'
 import Hud from './board/Hud'
 import ThreatBanner from './board/ThreatBanner'
 import LayerPanel, { type ChipModel } from './board/LayerPanel'
@@ -55,33 +53,14 @@ import ActionBar from './board/ActionBar'
 import SystemSheet from './board/SystemSheet'
 import { conditionsOn, defensesOn, tilesByLayer, turnBudget } from './board/board'
 import { COUNT_SHARE, LOCK_SHARE, STRIKE_MS, strikeFor, type Strike } from './board/strike'
-import {
-  COUNTERMEASURE_COUNT,
-  DEFAULT_SCENARIO,
-  OPPORTUNITY_EVENT_COUNT,
-  SOURCE_COUNT,
-  TECHNIQUE_REF_COUNT,
-  THREAT_EVENT_COUNT,
-  UNVERIFIED_REF_COUNT,
-} from '../content'
-import { DIFFICULTIES, briefActive, briefFree, newGame, orderCost, resolveTurn } from '../engine/reducer'
+import { DEFAULT_SCENARIO } from '../content'
+import { briefActive, briefFree, orderCost, resolveTurn } from '../engine/reducer'
 import { defenseBonus } from '../engine/learning'
 import { turnRng } from '../engine/rng'
 import { assetPrice, maiScore } from '../engine/scoring'
 import { LAYERS, type AssetKind, type Difficulty, type GameState, type TurnActions } from '../engine/types'
 
 import Wordmark from './Wordmark'
-import heroUrl from './assets/hero.webp'
-import heroPlaceholderUrl from './assets/hero-placeholder.webp'
-import frameUrl from './assets/constellation-frame.svg'
-
-// The animation is decoration; nothing about it may take the game down.
-// A failed chunk fetch (stale index.html after a redeploy, flaky network)
-// falls back to the still reference frame instead of rejecting the tree.
-const FrameStill = () => <img src={frameUrl} alt="" aria-hidden="true" className="w-64 h-64 opacity-90" />
-const Constellation = lazy(() =>
-  import('./Constellation').catch(() => ({ default: FrameStill as unknown as (typeof import('./Constellation'))['default'] })),
-)
 
 // The GLOSSARY overlay's module, split out in the Round 1 fix batch. The
 // overlay is an element of this component, so the split unmounts nothing:
@@ -176,7 +155,6 @@ function OverlayLoading() {
   )
 }
 
-const DEFAULT_SEED = 20260711
 
 const EMPTY_ACTIONS: TurnActions = {
   buyAssets: [],
@@ -202,8 +180,6 @@ interface PlaybackSession {
 
 const btn =
   'font-mono border border-phosphor/60 text-phosphor px-3 py-1 hover:bg-phosphor/10 disabled:opacity-40 disabled:cursor-not-allowed'
-const panel = 'border border-phosphor/30 bg-panel p-3'
-const h2cls = 'font-mono font-bold text-phosphor uppercase tracking-widest text-sm'
 
 // THE BOARD'S CONTROLS (v1.2 R1). The confirm button in a sheet takes a
 // press: the scale is motion-only, the border and background carry the
@@ -248,10 +224,12 @@ function withDebrisCall(state: GameState, actions: TurnActions): TurnActions {
 export default function Game({
   onExit,
   onScoreboard,
+  onCredits,
   initial,
 }: {
   onExit?: () => void
   onScoreboard?: () => void
+  onCredits?: () => void
   initial?: RestoredGame | null
 }) {
   const [state, setState] = useState<GameState | null>(initial?.state ?? null)
@@ -278,10 +256,7 @@ export default function Game({
   const [guideOn, setGuideOn] = useState(() => !hasDoneFirstTurn())
   const executeRef = useRef<HTMLButtonElement | null>(null)
   const [actions, setActions] = useState<TurnActions>(EMPTY_ACTIONS)
-  const [seedInput, setSeedInput] = useState(String(DEFAULT_SEED))
-  const [difficulty, setDifficulty] = useState<Difficulty>('standard')
   const [notice, setNotice] = useState('')
-  const [codeInput, setCodeInput] = useState('')
   // The GLOSSARY entry a technique tag opened, as an OVERLAY rather than a
   // route. Routing to the glossary screen would unmount Game, and the
   // autosave carries the turn and phase but not the procurement cart, so
@@ -290,7 +265,6 @@ export default function Game({
   // navigational one.
   const [glossaryFocus, setGlossaryFocus] = useState<string | null>(null)
   const glossaryRef = useRef<HTMLDivElement | null>(null)
-  const [slots, setSlots] = useState<SaveMeta[]>(() => saveStore.list())
   // Whether this campaign's score has been posted. TRUE FROM THE START when
   // the campaign arrived already finished, because it was not played here.
   //
@@ -598,27 +572,6 @@ export default function Game({
   // reading-diet budgets read. They used to be spelled here as JSX, and
   // the brief screen rendered them INSIDE the same disclosure as the
   // posture panel where no budget could see them.
-  const framingBlocks = jobFramingBlocks(scenario)
-  const framingBody = framingBlocks.map((line, i) => (
-    <p key={i} className={i === framingBlocks.length - 1 ? 'mt-1 text-ink-dim' : 'mt-1'}>
-      {line}
-    </p>
-  ))
-  const jobFraming = (
-    <div className={`${panel} mt-4`}>
-      <p className={h2cls}>{JOB_FRAMING_HEADING}</p>
-      {framingBody}
-    </div>
-  )
-
-  const constellationVisual = reducedMotion ? (
-    <FrameStill />
-  ) : (
-    <Suspense fallback={<FrameStill />}>
-      <Constellation size={256} />
-    </Suspense>
-  )
-
   // ESCAPE ON A WINDOW LISTENER, and focus moved into the dialog.
   //
   // The first version bound onKeyDown to the overlay div, which has no
@@ -731,52 +684,22 @@ export default function Game({
     setNotice('')
   }
 
-  const start = () => {
-    const seed = Number.parseInt(seedInput, 10)
-    beginGame(newGame(scenario, Number.isFinite(seed) ? seed : DEFAULT_SEED, difficulty), 'brief')
+  // NEW CAMPAIGN, and every restart SYSTEM offers (v1.3 R1): straight to
+  // turn 1 of a new operation, on a fresh random seed unless one is given,
+  // at the difficulty the player is on.
+  const newCampaign = (difficulty: Difficulty = state?.difficulty ?? deviceDifficulty(), seed: number = randomSeed()) => {
+    beginGame(newOperation(difficulty, seed).state, 'brief')
   }
 
-  const newCampaign = () => {
-    recordedRef.current = false
-    setState(null)
-    setDaily(undefined)
-    setStanding(null)
-    setActions(EMPTY_ACTIONS)
-    setPlayback(null)
-    setPresented(null)
-    setChosenSpend(0)
-    setPhase('brief')
-    openSheet(null)
-    setStepsDone(new Set())
-    setIntel(null)
-    setInspected(null)
-    setLibrary(null)
-    setSlots(saveStore.list())
-    setNotice('')
-  }
-
-  // Load from a pasted save code (R4 item 2), with graceful failure.
-  const loadCode = () => {
+  // Load from a pasted save code (R4 item 2), with graceful failure. From
+  // SYSTEM since v1.3 R1.
+  const loadCode = (code: string) => {
     try {
-      const restored = decodeSaveCode(codeInput)
+      const restored = decodeSaveCode(code)
       beginGame(restored.state, restored.phase as Phase, restored.daily)
     } catch (e) {
       flash(e instanceof SaveError ? e.message : 'That save code could not be read.')
     }
-  }
-
-  const loadSlot = (id: string) => {
-    const restored = saveStore.load(id)
-    if (restored) beginGame(restored.state, restored.phase as Phase, restored.daily)
-    else flash('That save could not be loaded.')
-  }
-
-  const saveSlot = () => {
-    if (!state) return
-    const name = `Turn ${Math.min(state.turn, scenario.totalTurns)} save`
-    saveStore.save(state, persistPhase(phase), name, daily)
-    setSlots(saveStore.list())
-    flash('Saved to a slot.')
   }
 
   const exportCode = async () => {
@@ -832,143 +755,10 @@ export default function Game({
     )
   }
 
-  if (!state) {
-    return (
-      <main className="min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
-        <div className="flex items-center justify-between gap-2">
-          <h1>
-            <Wordmark size="clamp(0.6rem, 3vw, 1.4rem)" />
-          </h1>
-          {onExit && (
-            <button className={`${btn} text-sm`} onClick={onExit}>
-              Back to menu
-            </button>
-          )}
-        </div>
-        <div
-          className="mt-4 border border-phosphor/20 max-w-xl mx-auto"
-          style={{ backgroundImage: `url(${heroPlaceholderUrl})`, backgroundSize: 'cover', aspectRatio: '1 / 1' }}
-        >
-          <img
-            src={heroUrl}
-            width={1200}
-            height={1200}
-            alt="Split-sphere key art: a dark sphere broken by a diagonal breach line, blue energy on one flank, magenta on the other, debris spraying from both"
-            className="block w-full h-auto"
-            decoding="async"
-          />
-        </div>
-        <p className="mt-2 text-center font-mono text-xs text-ink-dim">
-          <span className="text-hero-blue">blue: friendly and defense</span>
-          {' | '}
-          <span className="text-hero-magenta">magenta: {ADVERSARY} and hostile</span>
-          {' | '}
-          <span className="text-phosphor">green: mission chrome</span>
-        </p>
-        <div className="mt-4 border-l-2 border-phosphor/50 pl-3">
-          <p className="font-mono text-xs text-phosphor tracking-widest">&gt; DIRECTORATE TRANSMISSION_</p>
-          <p className="mt-1">{scenario.briefIntro}</p>
-        </div>
-        {jobFraming}
-        <p className="mt-4 font-mono text-sm text-ink-dim">Scenario: {scenario.name}.</p>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <label className="font-mono text-sm">
-            Seed:{' '}
-            <input
-              className="border border-phosphor/40 bg-panel text-ink px-2 py-1 font-mono w-32"
-              value={seedInput}
-              onChange={(e) => setSeedInput(e.target.value)}
-              aria-label="game seed"
-            />
-          </label>
-          <button className={btn} onClick={start}>
-            Start campaign
-          </button>
-        </div>
-
-        <fieldset className="mt-4 border border-phosphor/30 bg-panel p-3">
-          <legend className={`${h2cls} px-1`}>Difficulty</legend>
-          <div className="flex flex-wrap gap-2">
-            {(Object.keys(DIFFICULTIES) as Difficulty[]).map((d) => (
-              <button
-                key={d}
-                onClick={() => setDifficulty(d)}
-                aria-pressed={difficulty === d}
-                className={`font-mono text-sm border px-3 py-1 ${
-                  difficulty === d
-                    ? 'border-phosphor bg-phosphor/15 text-phosphor'
-                    : 'border-phosphor/40 text-ink-dim hover:bg-phosphor/10'
-                }`}
-              >
-                {DIFFICULTIES[d].label}
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 text-sm text-ink-dim">{DIFFICULTIES[difficulty].blurb}</p>
-          <p className="mt-1 font-mono text-xs text-ink-dim">Damage and repair costs x{DIFFICULTIES[difficulty].damage}.</p>
-        </fieldset>
-
-        <details className="mt-4 border border-phosphor/20 bg-panel p-3">
-          <summary className="cursor-pointer font-mono text-sm text-phosphor">Load a saved game or save code</summary>
-          <div className="mt-3">
-            <label className="font-mono text-sm">
-              Paste a save code:
-              <textarea
-                className="mt-1 w-full border border-phosphor/40 bg-base text-ink px-2 py-1 font-mono text-xs h-16"
-                value={codeInput}
-                onChange={(e) => setCodeInput(e.target.value)}
-                placeholder="DC1-..."
-                aria-label="save code"
-              />
-            </label>
-            <button className={`${btn} mt-1 text-sm`} disabled={!codeInput.trim()} onClick={loadCode}>
-              Load from code
-            </button>
-          </div>
-          {slots.length > 0 && (
-            <div className="mt-3">
-              <p className="font-mono text-sm text-phosphor">Saved slots ({slots.length})</p>
-              <ul className="mt-1">
-                {slots.map((s) => (
-                  <li key={s.id} className="flex flex-wrap items-center gap-2 mt-1 text-sm">
-                    <span className="font-mono">{s.name}</span>
-                    <span className="text-ink-dim text-xs">{localDateTime(s.savedAt)}</span>
-                    <button className={`${btn} px-2 py-0 text-xs`} onClick={() => loadSlot(s.id)}>
-                      load
-                    </button>
-                    <button
-                      className={`${btn} px-2 py-0 text-xs`}
-                      onClick={() => {
-                        saveStore.remove(s.id)
-                        setSlots(saveStore.list())
-                      }}
-                    >
-                      delete
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </details>
-        {notice && <p className="mt-2 font-mono text-sm text-alert-amber">{notice}</p>}
-
-        <div className="mt-6 flex justify-center">{constellationVisual}</div>
-        <p className="mt-6 text-sm text-ink-dim">
-          Content loaded from data: {THREAT_EVENT_COUNT} threat events, {OPPORTUNITY_EVENT_COUNT} opportunity events,{' '}
-          {COUNTERMEASURE_COUNT} countermeasures, {TECHNIQUE_REF_COUNT} framework techniques, {SOURCE_COUNT} cited
-          sources.
-          {UNVERIFIED_REF_COUNT > 0 && (
-            <span>
-              {' '}
-              {UNVERIFIED_REF_COUNT} reference{UNVERIFIED_REF_COUNT === 1 ? '' : 's'} still await live web
-              verification and are labeled verify-at-build on their cards.
-            </span>
-          )}
-        </p>
-      </main>
-    )
-  }
+  // There is no start screen since v1.3 R1 (brief 5.1, M30): the title
+  // starts every operation, PLAY on a fresh random seed and SYSTEM's Replay
+  // a seed on a typed one, so Game always arrives with one.
+  if (!state) return null
 
   // Funding and the coverage bonus arrive at the turn close since v1.3
   // Round 0 (brief 6.1), so this turn's spendable total is the balance,
@@ -1153,7 +943,7 @@ export default function Game({
           </h1>
           {onExit && (
             <button className={`${btn} text-sm`} onClick={onExit}>
-              Back to menu
+              Back to title
             </button>
           )}
         </div>
@@ -1190,7 +980,7 @@ export default function Game({
           <button className={DC_BTN} onClick={copyOutcomeCode}>
             COPY SAVE CODE
           </button>
-          <button className={DC_BTN} onClick={newCampaign}>
+          <button className={DC_BTN} onClick={() => newCampaign()}>
             NEW CAMPAIGN
           </button>
           {onScoreboard && (
@@ -1200,7 +990,7 @@ export default function Game({
           )}
           {onExit && (
             <button className={DC_BTN} onClick={onExit}>
-              BACK TO MENU
+              BACK TO TITLE
             </button>
           )}
         </div>
@@ -1402,11 +1192,21 @@ export default function Game({
         {sheet === 'system' && (
           <SystemSheet
             playing={state.status === 'playing'}
-            onSave={saveSlot}
-            onExport={exportCode}
-            onExit={onExit}
+            difficulty={state.difficulty}
+            restartsOperation
+            onDifficulty={(d) => {
+              chooseDifficulty(d)
+              newCampaign(d)
+            }}
             soundPrefs={soundPrefs}
             onSoundPrefs={setSoundPrefs}
+            onExport={exportCode}
+            onImport={loadCode}
+            onReplaySeed={(seed) => newCampaign(state.difficulty, seed)}
+            onScoreboard={() => onScoreboard?.()}
+            onCredits={() => onCredits?.()}
+            onTitle={onExit}
+            deckLine={DECK_LINE}
             notice={notice}
             onClose={() => openSheet(null)}
           />

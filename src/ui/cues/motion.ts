@@ -7,7 +7,7 @@
 // sampled once at module load: a player who turns it on mid-session gets
 // the quiet treatment on the next render, with no reload.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { countUpMode, onVisibilityChange, pageVisible } from './visibility'
 
 const QUERY = '(prefers-reduced-motion: reduce)'
@@ -24,7 +24,63 @@ function matchesNow(query: string): boolean {
   }
 }
 
-export const prefersReducedMotionNow = (): boolean => matchesNow(QUERY)
+// THE MOTION SETTING (v1.3 R1, brief 5.8): SYSTEM's motion toggle turns
+// motion off whatever the system preference says. Off is stored; on means
+// "follow the system", so a player who never touches it gets exactly what
+// the media query gives. The root carries data-motion="reduce" while it is
+// off, which src/index.css reads to stop every CSS animation and
+// transition, and every hook below reads the same flag.
+export const MOTION_PREF_KEY = 'dc-motion'
+
+function readMotionOff(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(MOTION_PREF_KEY) === 'off'
+  } catch {
+    return false
+  }
+}
+
+let motionOff = readMotionOff()
+const motionListeners = new Set<() => void>()
+
+function applyMotionRoot() {
+  if (typeof document === 'undefined') return
+  if (motionOff) document.documentElement.dataset.motion = 'reduce'
+  else delete document.documentElement.dataset.motion
+}
+applyMotionRoot()
+
+export const motionSettingOff = (): boolean => motionOff
+
+export function setMotionSettingOff(off: boolean): void {
+  motionOff = off
+  try {
+    if (off) localStorage.setItem(MOTION_PREF_KEY, 'off')
+    else localStorage.removeItem(MOTION_PREF_KEY)
+  } catch {
+    // The setting still holds for this session.
+  }
+  applyMotionRoot()
+  motionListeners.forEach((fn) => fn())
+}
+
+// For tests: read the stored setting again, as a fresh page load would.
+export function reloadMotionSetting(): void {
+  motionOff = readMotionOff()
+  applyMotionRoot()
+  motionListeners.forEach((fn) => fn())
+}
+
+const subscribeMotion = (fn: () => void) => {
+  motionListeners.add(fn)
+  return () => {
+    motionListeners.delete(fn)
+  }
+}
+
+export const useMotionSettingOff = (): boolean => useSyncExternalStore(subscribeMotion, motionSettingOff, motionSettingOff)
+
+export const prefersReducedMotionNow = (): boolean => motionOff || matchesNow(QUERY)
 
 export function useMediaQuery(query: string): boolean {
   const [on, setOn] = useState(() => matchesNow(query))
@@ -49,7 +105,11 @@ export function useMediaQuery(query: string): boolean {
   return on
 }
 
-export const useReducedMotion = (): boolean => useMediaQuery(QUERY)
+export const useReducedMotion = (): boolean => {
+  const system = useMediaQuery(QUERY)
+  const off = useMotionSettingOff()
+  return system || off
+}
 
 // Ease a displayed number toward a target. Returns the value to render.
 // Under reduced motion, or when the animation cannot run (no rAF), the

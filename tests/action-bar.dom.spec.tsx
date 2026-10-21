@@ -462,13 +462,15 @@ describe('the guided first turn (v1.2 R2b)', () => {
   })
 })
 
-describe('the SYSTEM sheet (v1.2 R1b)', () => {
-  it('GUARD (d): renders all five controls, derived from its list', () => {
+describe('the SYSTEM sheet (v1.2 R1b; v1.3 R1, brief 5.8)', () => {
+  it('GUARD (d): renders all ten controls, derived from its list', () => {
     // Pinned, not merely iterated: a control dropped from the list would
-    // drop from both the sheet and a derived expectation at once. Five
-    // since v1.3 Round 0, when the playback speed control left with the
-    // auto-advancing director.
-    expect(SYSTEM_CONTROLS.length, 'the SYSTEM list changed size; say why').toBe(5)
+    // drop from both the sheet and a derived expectation at once. Ten
+    // since v1.3 R1 (brief 5.8): Save left with the named slots (M21), Back
+    // to menu became Back to title with the menu's retirement (M1), and
+    // difficulty, motion, Load save code, Replay a seed, the scoreboard and
+    // credits arrived from the retired menu and start screen.
+    expect(SYSTEM_CONTROLS.length, 'the SYSTEM list changed size; say why').toBe(10)
     render(gameAt(2), 'brief')
     expect(container.querySelector('[data-sheet="system"]'), 'the sheet is open before the gear was pressed').toBeNull()
     const gear = container.querySelector('button[aria-label="System"]')
@@ -476,9 +478,14 @@ describe('the SYSTEM sheet (v1.2 R1b)', () => {
     click(gear!)
     const sheet = container.querySelector('[data-sheet="system"]')
     expect(sheet, 'the gear opened no sheet').not.toBeNull()
+    // A control is there by its name: as a button's text, or as the label
+    // of the group that holds it (DIFFICULTY, REPLAY A SEED), in any case.
+    const names = [...sheet!.querySelectorAll('button, p, span, section')].flatMap((el) => [
+      (el.children.length === 0 ? (el.textContent ?? '') : '').trim().toLowerCase(),
+      (el.getAttribute('aria-label') ?? '').toLowerCase(),
+    ])
     for (const control of SYSTEM_CONTROLS) {
-      const found = [...sheet!.querySelectorAll('button, span')].some((el) => (el.textContent ?? '').trim() === control.name)
-      expect(found, `the SYSTEM sheet has no "${control.name}"`).toBe(true)
+      expect(names.includes(control.name.toLowerCase()), `the SYSTEM sheet has no "${control.name}"`).toBe(true)
     }
     // And they left the board: nothing outside the sheet carries them.
     const outside = [...container.querySelectorAll('button')].filter((b) => !sheet!.contains(b))

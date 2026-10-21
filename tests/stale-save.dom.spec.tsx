@@ -85,7 +85,7 @@ const loadPage = () =>
 const notice = () => container.querySelector('[data-stale-save]')
 const buttons = () => [...container.querySelectorAll('button')]
 const byText = (re: RegExp) => buttons().find((b) => re.test(b.textContent ?? ''))
-const onStartScreen = () => [...container.querySelectorAll('legend')].some((l) => l.textContent === 'Difficulty')
+const onBoard = () => container.querySelector('[data-board]') !== null
 
 describe('an autosave from an earlier version (v1.3 brief 6.10)', () => {
   it('is a real v1.2 save, which this version refuses', () => {
@@ -94,27 +94,28 @@ describe('an autosave from an earlier version (v1.3 brief 6.10)', () => {
     expect(save.phase).toBe('harden')
   })
 
-  it('shows the earlier-version message with PLAY on the menu, rather than dropping the save without a word', () => {
+  it('shows the earlier-version message on the title with a way to start a new operation, rather than dropping the save without a word', () => {
     localStorage.setItem('dc-autosave', V12_AUTOSAVE)
     loadPage()
     expect(notice(), 'the old save disappeared without a message').not.toBeNull()
     expect(notice()!.textContent).toContain(STALE_SAVE_MESSAGE)
     expect(notice()!.getAttribute('role')).toBe('status')
     // It does not pretend the save can resume.
-    expect(byText(/RESUME OPERATION/), 'an old save offered RESUME').toBeUndefined()
-    // PLAY starts a new operation.
-    const play = [...notice()!.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'PLAY')
-    expect(play, 'the message offers no PLAY').toBeDefined()
+    expect(byText(/CONTINUE TURN/), 'an old save offered CONTINUE').toBeUndefined()
+    // Its button starts a new operation, and says so (QC G-064: it read
+    // PLAY, which did not say the old save would not come back).
+    const start = [...notice()!.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'START A NEW OPERATION')
+    expect(start, 'the message offers no way to start a new operation').toBeDefined()
     act(() => {
-      play!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+      start!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
     })
-    expect(onStartScreen(), 'PLAY did not open a new operation').toBe(true)
+    expect(onBoard(), 'START A NEW OPERATION did not start one').toBe(true)
   })
 
   it('shows no message with no save, and none for a save this version can resume', () => {
     loadPage()
     expect(notice(), 'a message with no save at all').toBeNull()
-    expect(byText(/NEW OPERATION/)).toBeDefined()
+    expect(byText(/^PLAY$/)).toBeDefined()
     act(() => root.unmount())
     root = createRoot(container)
     // A current save boots straight back into its game, as before.

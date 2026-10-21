@@ -124,16 +124,15 @@ const settle = () =>
   act(async () => {
     await vi.dynamicImportSettled()
   })
-// The menu entry's label is "DAILY OP", a drawn '#', and the number.
-const dailyEntry = () => byText(/DAILY OP/)
+// The title's DAILY OP: its label is "DAILY OP", a drawn '#', and the
+// number, with today's line under it.
+const dailyEntry = () => container.querySelector('[data-daily]') as HTMLButtonElement | null
+const dailyLabel = () => dailyEntry()?.querySelector('span')?.textContent ?? ''
+const titleSystem = () => click(buttons().find((b) => b.getAttribute('aria-haspopup') === 'dialog' && (b.textContent ?? '').trim() === 'SYSTEM')!)
 const ledger = () => JSON.parse(localStorage.getItem('dc-daily') ?? '{}') as Record<string, { n: number; turns: number }>
 const standing = () => container.querySelector('[data-standing]')?.textContent ?? null
 const onBoard = () => container.querySelector('[aria-label^="Credits"]') !== null
 const openSystem = () => click(container.querySelector('button[aria-label="System"]')!)
-const press = (key: string) =>
-  act(() => {
-    window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
-  })
 
 // One turn through the controls: tap EXECUTE, tap the playback through
 // to its aftermath, and move on. Since v1.3 Round 0 EXECUTE is a plain
@@ -177,15 +176,18 @@ async function sharedText(): Promise<string> {
   expect(copied, 'the share control copied nothing').not.toBe('')
   return copied
 }
+// Paste a code through the title's SYSTEM (v1.3 R1: the start screen and
+// its paste box are retired).
 function paste(code: string) {
+  titleSystem()
   const box = container.querySelector('textarea[aria-label="save code"]') as HTMLTextAreaElement | null
-  expect(box, 'no paste box on the start screen').not.toBeNull()
+  expect(box, 'no paste box in SYSTEM').not.toBeNull()
   const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
   act(() => {
     setValue.call(box!, code)
     box!.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  click(byText(/load from code/i)!)
+  click(byText(/^load save code$/i)!)
   expect(onBoard(), 'the code did not load').toBe(true)
 }
 // Today's Daily Op, some turns in, as the engine plays it.
@@ -197,17 +199,17 @@ function dailyInProgress(turns: number): { state: GameState; daily: DailyOp } {
   return { state, daily: op.daily! }
 }
 
-describe('the menu starts the Daily Op', () => {
+describe('the title starts the Daily Op (v1.3 R1)', () => {
   it('offers DAILY OP #n from the epoch date on, as FIRST LIGHT on Standard from that date\'s seed', () => {
     vi.setSystemTime(new Date(2026, 8, 26, 12, 0))
     loadPage()
-    expect(byText(/NEW OPERATION/), 'not on the menu').toBeDefined()
-    expect(dailyEntry(), 'a Daily Op offered before the first one').toBeUndefined()
+    expect(container.querySelector('[data-title]'), 'not on the title').not.toBeNull()
+    expect(dailyEntry(), 'a Daily Op offered before the first one').toBeNull()
 
     vi.setSystemTime(new Date(2026, 8, 28, 12, 0))
     loadPage()
     const entry = dailyEntry()
-    expect(entry?.textContent).toMatch(/DAILY OP\s*2$/)
+    expect(dailyLabel()).toMatch(/DAILY OP\s*2$/)
     expect(entry!.querySelector('svg[aria-label="#"]'), 'the number sign is not drawn').not.toBeNull()
     click(entry!)
     expect(onBoard(), 'DAILY OP did not start a campaign').toBe(true)
@@ -218,17 +220,16 @@ describe('the menu starts the Daily Op', () => {
     expect(saved.daily).toEqual({ dateKey: '20260928', n: 2 })
   })
 
-  it('asks before a Daily Op replaces an operation in progress, by tap or by key', () => {
-    // A free campaign in progress, behind RESUME.
+  it('asks before a Daily Op replaces an operation in progress', () => {
+    // A free campaign in progress, behind CONTINUE.
     loadPage()
-    click(byText(/NEW OPERATION/)!)
-    click(byText(/start campaign/i)!)
+    click(container.querySelector('[data-play]')!)
     playTurn()
     const inProgress = localStorage.getItem('dc-autosave')
     expect(inProgress, 'nothing in progress, so nothing to protect').not.toBeNull()
     openSystem()
-    click(byText(/^Back to menu$/)!)
-    expect(byText(/RESUME OPERATION/), 'not on the menu with an operation in progress').toBeDefined()
+    click(byText(/^Back to title$/)!)
+    expect(container.querySelector('[data-continue]'), 'not on the title with an operation in progress').not.toBeNull()
 
     const confirm = () => container.querySelector('[data-confirm-daily]')
     click(dailyEntry()!)
@@ -239,10 +240,10 @@ describe('the menu starts the Daily Op', () => {
     expect(confirm()).toBeNull()
     expect(localStorage.getItem('dc-autosave')).toBe(inProgress)
 
-    // Its function key asks the same, and a second press is the answer.
-    const key = dailyEntry()!.querySelector('span')!.textContent!
-    press(key)
-    expect(confirm(), `${key} started a Daily Op without asking`).not.toBeNull()
+    // Asked again, and this time the answer is yes. (The menu's function
+    // keys left with the menu in v1.3 R1.)
+    click(dailyEntry()!)
+    expect(confirm(), 'DAILY OP started without asking the second time').not.toBeNull()
     expect(localStorage.getItem('dc-autosave')).toBe(inProgress)
     click(byText(/^START DAILY OP$/)!)
     expect(onBoard(), 'START DAILY OP did not start it').toBe(true)
@@ -251,7 +252,7 @@ describe('the menu starts the Daily Op', () => {
 
   it('starts at once when nothing is in progress', () => {
     loadPage()
-    expect(byText(/RESUME OPERATION/)).toBeUndefined()
+    expect(container.querySelector('[data-continue]')).toBeNull()
     click(dailyEntry()!)
     expect(onBoard()).toBe(true)
   })
@@ -259,25 +260,26 @@ describe('the menu starts the Daily Op', () => {
   it("offers the new day's number when the menu is left open over midnight", () => {
     vi.setSystemTime(new Date(2026, 8, 27, 23, 59, 58))
     loadPage()
-    expect(dailyEntry()?.textContent).toMatch(/DAILY OP\s*1$/)
+    expect(dailyLabel()).toMatch(/DAILY OP\s*1$/)
     act(() => {
       vi.advanceTimersByTime(3000)
     })
-    expect(dailyEntry()?.textContent, 'the menu still offers yesterday').toMatch(/DAILY OP\s*2$/)
+    expect(dailyLabel(), 'the title still offers yesterday').toMatch(/DAILY OP\s*2$/)
     click(dailyEntry()!)
     expect(JSON.parse(localStorage.getItem('dc-autosave')!).daily).toEqual({ dateKey: '20260928', n: 2 })
   })
 
   it('never makes a Daily Op of a free campaign on the same seed', async () => {
     loadPage()
-    click(byText(/NEW OPERATION/)!)
-    const seed = container.querySelector('input[aria-label="game seed"]') as HTMLInputElement
+    // SYSTEM's Replay a seed, where the seed field lives since v1.3 R1.
+    titleSystem()
+    const seed = container.querySelector('input[aria-label="seed"]') as HTMLInputElement
     const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
     act(() => {
       setValue.call(seed, String(dailySeed(new Date())))
       seed.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    click(byText(/start campaign/i)!)
+    click(byText(/^PLAY THIS SEED$/)!)
     expect(JSON.parse(localStorage.getItem('dc-autosave')!).daily, 'a typed seed became a Daily Op').toBeUndefined()
     await playToEnd()
     expect(ledger()).toEqual({})
@@ -295,7 +297,6 @@ describe('GUARD R5 (a): a Daily Op from a pasted save code is never official', (
     expect(JSON.parse(atob(code.slice('DC1-'.length))).daily).toEqual(daily)
 
     loadPage()
-    click(byText(/NEW OPERATION/)!)
     paste(code)
     await playToEnd()
 
@@ -311,7 +312,6 @@ describe('GUARD R5 (a): a Daily Op from a pasted save code is never official', (
     const { state, daily } = dailyInProgress(3)
     const code = encodeSaveCode(captureGame(state, 'brief', new Date().toISOString(), daily))
     loadPage()
-    click(byText(/NEW OPERATION/)!)
     paste(code)
     playTurn()
     // A refresh: the page loads again and resumes from the autosave.
@@ -326,29 +326,9 @@ describe('GUARD R5 (a): a Daily Op from a pasted save code is never official', (
     expect((await sharedText()).split('\n')[0]).toBe('DARK CONSTELLATION · Daily Op #1 (practice)')
   })
 
-  it('records nothing for a pasted Daily Op saved to a slot and loaded from it', async () => {
-    const { state, daily } = dailyInProgress(3)
-    const code = encodeSaveCode(captureGame(state, 'brief', new Date().toISOString(), daily))
-    loadPage()
-    click(byText(/NEW OPERATION/)!)
-    paste(code)
-    openSystem()
-    click(byText(/^Save$/)!)
-    click(byText(/^Back to menu$/)!)
-    // Somewhere else first, so the slot is what brings it back.
-    localStorage.removeItem('dc-autosave')
-    loadPage()
-    click(byText(/NEW OPERATION/)!)
-    const load = byText(/^load$/)
-    expect(load, 'no slot to load').toBeDefined()
-    click(load!)
-    expect(onBoard(), 'the slot did not load').toBe(true)
-    await playToEnd()
-
-    expect(ledger()[daily.dateKey], 'a slot laundered a pasted code into the official run').toBeUndefined()
-    expect(standing()).toBe('PRACTICE')
-    expect((await sharedText()).split('\n')[0]).toBe('DARK CONSTELLATION · Daily Op #1 (practice)')
-  })
+  // The slot path left with the named slots in v1.3 R1 (brief 5.8, M21: a
+  // game is the autosave plus one code), so a pasted Daily Op has only the
+  // two ways back that the guards above hold: the refresh and the code.
 
   it('(positive control) records the same campaign as official when it resumes from this device', async () => {
     const { state, daily } = dailyInProgress(3)
@@ -373,8 +353,8 @@ describe('GUARD R5 (b): the first finish of a date is official, and a second is 
     expect(first?.n).toBe(1)
     expect((await sharedText()).split('\n')[0]).toBe('DARK CONSTELLATION · Daily Op #1')
 
-    // Back to the menu, and the same date's Daily Op again.
-    click(byText(/^BACK TO MENU$/)!)
+    // Back to the title, and the same date's Daily Op again.
+    click(byText(/^BACK TO TITLE$/)!)
     click(dailyEntry()!)
     expect(onBoard()).toBe(true)
     await playToEnd()
@@ -388,7 +368,7 @@ describe('GUARD R5 (c): a run belongs to the date it started', () => {
   it('files a run started at 23:50 under that date when it finishes after midnight', async () => {
     vi.setSystemTime(new Date(2026, 8, 27, 23, 50))
     loadPage()
-    expect(dailyEntry()?.textContent).toMatch(/DAILY OP\s*1$/)
+    expect(dailyLabel()).toMatch(/DAILY OP\s*1$/)
     click(dailyEntry()!)
     // Two turns before midnight, then the clock runs past it.
     playTurn()

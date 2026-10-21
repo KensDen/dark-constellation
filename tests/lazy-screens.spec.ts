@@ -157,7 +157,8 @@ describe('the split screens stay out of the initial chunk (v1.2 R0)', () => {
     // the check above and be worse for every player, so the two screens
     // every session reaches are required to be static.
     const graph = staticGraphFrom(ENTRY)
-    for (const required of ['./ui/Game', './ui/MainMenu']) {
+    // Since v1.3 R1 the title replaced the menu as the other one.
+    for (const required of ['./ui/Game', './ui/Title']) {
       const target = resolveLocal(APP, required)!
       expect(graph.has(target), `${required} is no longer in the initial chunk`).toBe(true)
       expect(lazySpecs, `${required} was moved into the lazy set`).not.toContain(required)
@@ -167,7 +168,8 @@ describe('the split screens stay out of the initial chunk (v1.2 R0)', () => {
 
 describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
   // Game declares lazy modules of its own, for the overlays it opens in
-  // place: the three.js frame, the Glossary and, since R3, the intel card
+  // place: the Glossary and, since R3, the intel card (the three.js frame
+  // moved to the title with the start screen's retirement in v1.3 R1)
   // (brief section 8: loaded on first open, so the first download grows as
   // little as it can). App's declarations above do not include them, so
   // they are read here from Game.tsx, pinned by count for the same reason,
@@ -186,7 +188,9 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     // Six since v1.2 R6: the wide board's columns, the ops log and the
     // inspector, which only a screen 1024 wide and up fetches (brief 4.6
     // and 8: "Round 6 loads its desktop layout only on wide screens").
-    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(6)
+    // Five since v1.3 R1: the three.js constellation frame left Game with
+    // the start screen and is the title's now (Ken, 21 October 2026).
+    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(5)
     const graph = staticGraphFrom(ENTRY)
     const offenders: string[] = []
     for (const spec of gameSpecs) {
@@ -200,6 +204,21 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     expect(gameSpecs).toContain('./ScoreScreen')
     expect(gameSpecs).toContain('./FieldLibrary')
     expect(gameSpecs).toContain('./board/WideBoard')
+  })
+})
+
+describe("the title's constellation frame stays out of the first download (v1.3 R1)", () => {
+  // The three.js frame the retired start screen showed moved to the title,
+  // under the READ row (Ken, 21 October 2026). It is lazy there, as it was
+  // in Game: decoration nobody waits on.
+  const TITLE = join(SRC, 'ui', 'Title.tsx')
+  const titleSpecs = lazySpecifiers(readFileSync(TITLE, 'utf8'))
+
+  it('declares the frame lazily, and nothing reaches it statically from the entry point', () => {
+    expect(titleSpecs, "the title's lazy set changed; say why").toEqual(['./Constellation'])
+    const frame = resolveLocal(TITLE, './Constellation')!
+    expect(frame, 'the frame resolves to no file').toBeTruthy()
+    expect(staticGraphFrom(ENTRY).has(frame), 'the three.js frame is in the first download').toBe(false)
   })
 })
 
@@ -240,11 +259,9 @@ describe("the Field Library's list and pairings stay out of the first download (
     expect(offenders.join('\n'), "the library's list is in the first download").toBe('')
   })
 
-  it("fetches the menu's counter by dynamic import, not a static one", () => {
-    const menu = readFileSync(join(SRC, 'ui', 'MainMenu.tsx'), 'utf8')
-    expect(menu, 'the menu no longer fetches the counter').toMatch(/import\(\s*'\.\/libraryProgress'\s*\)/)
-    expect(staticImports(menu).some((spec) => /libraryProgress|fieldLibrary|FieldLibrary/.test(spec))).toBe(false)
-  })
+  // The menu's FILED counter left with the menu in v1.3 R1 (M1); the
+  // title's GOAL 2 counts the Dossier (src/persistence/dossier.ts) and
+  // reads nothing of the library.
 })
 
 describe('the score screen carries its own weight, and the debrief its own (v1.2 R5)', () => {
@@ -301,13 +318,19 @@ describe("the cold open's own art stays in its chunk (v1.2 R4)", () => {
   // not at all. They are found by walking IntroSequence rather than listed
   // here: every module it reaches whose name says it is the cold open's.
   const INTRO = join(SRC, 'ui', 'IntroSequence.tsx')
-  const own = [...staticGraphFrom(INTRO).keys()].filter((f) => /cold ?open/i.test(f.slice(SRC.length)))
+  // Since v1.3 R1 the briefing's scenes are canvas drawings in
+  // briefingScenes.ts, so the walk keeps them by that name too.
+  const own = [...staticGraphFrom(INTRO).keys()].filter((f) => /cold ?open|briefing/i.test(f.slice(SRC.length)))
 
   it('finds them through the cold open, the officer among them', () => {
     // The positive control: the walk reaches the sprite data, so a pass
     // below is not a walk that found nothing.
     expect(own.map((f) => f.slice(SRC.length + 1))).toContain(join('ui', 'sprites', 'coldOpen.ts'))
-    expect(own.length, 'the cold open reaches fewer of its own modules than it has').toBeGreaterThanOrEqual(4)
+    expect(own.map((f) => f.slice(SRC.length + 1))).toContain(join('ui', 'briefingScenes.ts'))
+    // Three since v1.3 R1: the slide data, the officer's sprites and the
+    // canvas scenes (the SVG scene component and its stylesheet were
+    // deleted with the canvas port).
+    expect(own.length, 'the briefing reaches fewer of its own modules than it has').toBeGreaterThanOrEqual(3)
   })
 
   it('never reaches one of them by static import from the entry point', () => {

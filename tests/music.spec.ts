@@ -45,7 +45,7 @@ import {
   type MusicState,
 } from '../src/audio/music'
 import { xorshift32 } from '../src/audio/musicRng'
-import { SLIDES } from '../src/ui/coldOpenSlides'
+import { BEATS as SLIDES } from '../src/ui/coldOpenSlides'
 import { LOSS_SCRIPT, NO_OP } from './scripts'
 import { FakeAudioContext, FakeGain, FakeOscillator, type FakeNode } from './fakeAudio'
 
@@ -335,7 +335,8 @@ describe('music: the crossfade', () => {
 
 describe('music: the cold open builds the bed and hands it to the menu (v1.2 R4)', () => {
   // The intro variant (brief 6) is the same bed with its layers joining as
-  // the slides go by. Walked over the cold open's own SLIDES and over
+  // the slides go by (the briefing's four beats since v1.3 R1, BEATS,
+  // imported as SLIDES here). Walked over the briefing's own beats and over
   // MUSIC_LAYERS, so neither the slide count nor the layer names are
   // restated here (principle 17).
   let ctx: FakeAudioContext

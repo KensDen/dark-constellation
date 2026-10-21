@@ -222,65 +222,47 @@ describe('the library screen', () => {
   })
 })
 
-describe('the INTEL ARCHIVE on the menu', () => {
+describe('the READ row on the title (v1.3 R1, brief 5.1)', () => {
+  // The menu's INTEL ARCHIVE and its function keys left with the menu (M1).
+  // The title's READ row opens the two reading screens; until R4 rebuilds
+  // them, LIBRARY opens the Field Library and DOSSIER the Glossary, which
+  // lists every COLDVEIL move and its technique.
   function loadPage() {
     mounts += 1
     act(() => {
       root.render(<App key={`a${mounts}`} />)
     })
   }
-  const press = (key: string) =>
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
-    })
-  const menuButtons = () => [...container.querySelectorAll('nav button')]
-  const keyOf = (label: RegExp) => menuButtons().find((b) => label.test(b.textContent ?? ''))!.querySelector('span')!.textContent!
+  const readButton = (which: string) => container.querySelector(`[data-read="${which}"]`) as HTMLButtonElement | null
 
-  it('groups the two screens under one INTEL ARCHIVE label that carries the FILED counter', async () => {
-    met('lidar-dazzle')
+  it('opens the Field Library from LIBRARY and the Glossary from DOSSIER, and comes back to the title', async () => {
     loadPage()
-    const group = container.querySelector('[data-intel-archive]')!
-    expect(group.textContent).toMatch(/^INTEL ARCHIVE/)
-    const grouped = menuButtons().filter((b) => b.getAttribute('aria-describedby') === group.id)
-    expect(grouped.map((b) => b.textContent!.replace(/^F\d+/, ''))).toEqual(['FIELD LIBRARY', 'GLOSSARY'])
-    await settle()
-    // The entries that name lidar-dazzle, and SPARTA, which it carries.
-    const filed = new Set([...naming('lidar-dazzle'), SPARTA]).size
-    expect(group.querySelector('[data-filed-counter]')!.textContent).toBe(`FILED ${filed} / ${ENTRIES.length}`)
-  })
-
-  it('opens each of its screens by its own key, straight from the menu', async () => {
-    loadPage()
-    for (const [label, heading] of [
-      [/FIELD LIBRARY$/, 'FIELD LIBRARY'],
-      [/GLOSSARY$/, 'GLOSSARY'],
+    for (const [which, heading] of [
+      ['library', 'FIELD LIBRARY'],
+      ['dossier', 'GLOSSARY'],
     ] as const) {
-      const key = keyOf(label)
-      expect(key, `${heading} has no key`).toMatch(/^F[1-9]$/)
-      press(key)
+      expect(readButton(which), `the title has no ${which.toUpperCase()}`).not.toBeNull()
+      click(readButton(which)!)
       await settle()
-      expect(container.querySelector('h1')?.textContent?.trim(), `${key} did not open ${heading}`).toBe(heading)
-      click(byText(/^back to menu$/i)!)
-      expect(container.querySelector('[data-intel-archive]'), 'not back on the menu').not.toBeNull()
+      expect(container.querySelector('h1')?.textContent?.trim(), `${which.toUpperCase()} did not open ${heading}`).toBe(heading)
+      click(byText(/^back to title$/i)!)
+      expect(container.querySelector('[data-title]'), 'not back on the title').not.toBeNull()
     }
   })
 
-  it('keys every entry in order, F1 to F8, with RESUME and DAILY OP both showing', () => {
-    // A campaign in progress puts RESUME on the menu: eight entries, the
-    // most it holds since the FIELD MANUAL and HOW TO PLAY left in v1.3
-    // Round 0, so every entry has its key and none reaches F10.
+  it('offers CONTINUE TURN n above PLAY when a game is resumable, and none without one', () => {
+    loadPage()
+    expect(container.querySelector('[data-continue]'), 'CONTINUE with nothing to continue').toBeNull()
     localStorage.setItem('dc-autosave', JSON.stringify(captureGame(newGame(DEFAULT_SCENARIO, 1, 'standard'), 'brief', '2026-09-29T00:00:00Z')))
     loadPage()
+    // A resumable save lands straight on the board; SYSTEM goes back.
     click(container.querySelector('button[aria-label="System"]')!)
-    click(byText(/^Back to menu$/)!)
-    const rows = menuButtons()
-    expect(rows.length, 'RESUME or DAILY OP is not showing, so the menu is not at its longest').toBe(8)
-    const keys = rows.map((b) => b.querySelector('span')?.textContent ?? '')
-    expect(keys, 'an entry without its key, or keys out of order').toEqual(rows.map((_, i) => `F${i + 1}`))
-    press('F9')
-    press('F10')
-    press('F11')
-    expect(container.querySelector('[data-intel-archive]'), 'a key past the last entry left the menu').not.toBeNull()
+    click(byText(/^Back to title$/)!)
+    const cont = container.querySelector('[data-continue]')
+    expect(cont, 'no CONTINUE for the game in progress').not.toBeNull()
+    expect(cont!.textContent?.trim()).toBe('CONTINUE TURN 1')
+    const order = [...container.querySelectorAll('[data-continue], [data-play]')].map((b) => (b.hasAttribute('data-play') ? 'PLAY' : 'CONTINUE'))
+    expect(order, 'CONTINUE is not above PLAY').toEqual(['CONTINUE', 'PLAY'])
   })
 })
 
@@ -369,17 +351,16 @@ describe("the event cards' learn more", () => {
 
   it('counts a campaign loaded from a pasted code, which is learning, not a score', () => {
     const state = gameAt(4)
-    mounts += 1
-    act(() => {
-      root.render(<Game key={`g${mounts}`} initial={null} onExit={() => {}} />)
-    })
-    const box = container.querySelector('textarea[aria-label="save code"]') as HTMLTextAreaElement
+    // Pasted through SYSTEM, where the box lives since v1.3 R1.
+    render(gameAt(1))
+    click(container.querySelector('button[aria-label="System"]')!)
+    const box = container.querySelector('[data-sheet="system"] textarea[aria-label="save code"]') as HTMLTextAreaElement
     const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
     act(() => {
       setValue.call(box, encodeSaveCode(captureGame(state, 'brief', '2026-09-29T00:00:00Z', { dateKey: '20260929', n: 3 })))
       box.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    click(byText(/load from code/i)!)
+    click(byText(/^load save code$/i)!)
     expect(metNow()).toEqual([])
     execute()
     expect(metNow().length, 'a pasted practice run met nothing').toBeGreaterThan(0)

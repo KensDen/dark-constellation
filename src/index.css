@@ -871,3 +871,14 @@ body {
     transform: scale(1);
   }
 }
+
+/* SYSTEM's motion toggle (v1.3 R1, brief 5.8). Off stops every CSS
+   animation and transition whatever the system preference says; the
+   components read the same setting through useReducedMotion and take
+   their reduced paths, so nothing is left half-animated. */
+:root[data-motion='reduce'] *,
+:root[data-motion='reduce'] *::before,
+:root[data-motion='reduce'] *::after {
+  animation: none !important;
+  transition: none !important;
+}

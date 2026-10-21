@@ -1,35 +1,37 @@
-// Top-level shell (R3.5, extended R4, split in v1.2 R0). The experience layer around the
-// game: intro, menu, reference screens, scoreboard, and the game itself,
-// under the diegetic terminal chrome and CRT overlay. R4 adds refresh-safe
-// resume: if an autosave exists on load, the app lands straight back in the
-// game at the saved turn and phase. None of this touches the engine.
+// Top-level shell (R3.5, extended R4, split in v1.2 R0, the front door
+// rebuilt in v1.3 R1). The experience layer around the game: the title,
+// the briefing, the reference screens, the scoreboard, and the game.
+//
+// THE FLOW (v1.3 R1, brief 5.1 and section 3): a first-ever visit lands on
+// the title; its first PLAY goes through the briefing and on to turn 1,
+// with no menu in between, and starts on EASY. Later PLAYs go straight to
+// turn 1. PLAY draws a fresh random seed (M30); SYSTEM's Replay a seed
+// takes a typed one. R4 kept refresh-safe resume: with an autosave on
+// load, the app lands straight back in the game at the saved turn and
+// phase, and the title offers CONTINUE TURN n whenever one exists.
 
 import { Suspense, lazy, useState } from 'react'
 import Game from './ui/Game'
-import MainMenu, { type MenuTarget } from './ui/MainMenu'
+import Title from './ui/Title'
 import TerminalChrome from './ui/TerminalChrome'
 import { hasSeenIntro } from './ui/introSeen'
-import { LocalStorageStore, type RestoredGame } from './persistence'
-import { useGestureUnlock } from './audio'
+import { LocalStorageStore, SaveError, captureGame, decodeSaveCode, encodeSaveCode, type RestoredGame } from './persistence'
+import { useGestureUnlock, useSoundPrefs } from './audio'
 import { startDailyOp } from './ui/dailyOp'
+import { chooseDifficulty, deviceDifficulty, newOperation } from './ui/session'
+import { copyToClipboard } from './ui/clipboard'
+import type { Difficulty } from './engine/types'
 
 // SPLIT OUT OF THE INITIAL CHUNK (v1.2 R0, brief section 8). A player who
-// opens the game and plays a turn downloads the menu and the board; every
-// screen below is a detour most sessions never take, and the cold open is
-// a detour every session takes at most once. Menu and Game stay static on
-// purpose: they are the first thing anyone sees.
+// opens the game and plays a turn downloads the title and the board; every
+// screen below is a detour most sessions never take, and the briefing is a
+// detour every device takes at most once unless asked. Title and Game stay
+// static on purpose: they are the first thing anyone sees.
 //
 // The list is not written down anywhere else. tests/lazy-screens.spec.ts
 // reads these declarations and proves that nothing reachable from main.tsx
 // imports the same modules statically, which is what would quietly put
 // them back in the initial chunk (principle 17).
-// THE GLOSSARY JOINED THE SPLIT in the Round 1 fix batch. R0 left it out,
-// and the guard is what proved it had to: Round 6e made the glossary an
-// overlay inside Game rather than a route, so Game imported it statically
-// and the module rode in the initial chunk whatever App declared. Game
-// now lazy-loads the overlay's module too (it is an overlay, so nothing
-// unmounts and the cart is untouched), and this declaration is the one
-// the guard derives the requirement from.
 const Credits = lazy(() => import('./ui/Credits'))
 const Scoreboard = lazy(() => import('./ui/Scoreboard'))
 // The FIELD LIBRARY (v1.2 R5b) validates its list as it loads. A list that
@@ -39,7 +41,7 @@ const LibraryUnavailable = ({ onBack }: { onBack: () => void }) => (
   <main className="max-w-3xl mx-auto px-4 py-10 font-mono text-sm">
     <p className="text-phosphor">&gt; FIELD LIBRARY UNAVAILABLE_</p>
     <button className="mt-4 min-h-11 border border-phosphor px-3 text-phosphor" onClick={onBack}>
-      Back to menu
+      Back to title
     </button>
   </main>
 )
@@ -54,22 +56,10 @@ const IntroSequence = lazy(() => import('./ui/IntroSequence'))
 // board's marker rather than trusting this comment.
 const SoundBoard = import.meta.env.DEV ? lazy(() => import('./audio/SoundBoard')) : null
 
-type Screen =
-  | 'intro'
-  | 'briefing'
-  | 'menu'
-  | 'game'
-  | 'library'
-  | 'scoreboard'
-  | 'glossary'
-  | 'credits'
-  | 'soundboard'
+type Screen = 'title' | 'briefing' | 'game' | 'library' | 'scoreboard' | 'glossary' | 'credits' | 'soundboard'
 
-const STATUS: Record<Screen, string> = {
-  intro: 'BOOT',
-  briefing: 'BRIEFING',
-  menu: 'STANDBY',
-  game: 'OPERATION ACTIVE',
+// The reference screens keep the terminal chrome until R4 rebuilds them.
+const STATUS: Partial<Record<Screen, string>> = {
   library: 'REFERENCE',
   scoreboard: 'RECORDS',
   glossary: 'REFERENCE',
@@ -78,9 +68,8 @@ const STATUS: Record<Screen, string> = {
 }
 
 // The chrome the app already speaks in, held for the moment a screen's
-// chunk is in flight. Deliberately plain: a spinner would be the only
-// animation in the game that says nothing about the mission, and on a warm
-// cache this is on screen for a frame or two.
+// chunk is in flight. Deliberately plain: on a warm cache this is on
+// screen for a frame or two.
 function ScreenLoading() {
   return (
     <main className="max-w-3xl mx-auto px-4 py-10 font-mono text-sm">
@@ -94,85 +83,142 @@ const store = new LocalStorageStore()
 
 function App() {
   // The audio context cannot start before a real gesture, so the whole app
-  // arms one listener and the first tap anywhere unlocks it. Mounted here
-  // rather than per screen: the gesture can land on any control, including
-  // one that unmounts in the same moment.
+  // arms one listener and the first tap anywhere unlocks it.
   useGestureUnlock()
+  const [soundPrefs, setSoundPrefs] = useSoundPrefs()
   // An in-progress autosave, read once at startup, seeds refresh-safe
   // resume: the game mounts with it and lands on the saved turn and phase.
   const [gameInitial, setGameInitial] = useState<RestoredGame | null>(() => store.loadAutosave())
+  // A new mount of Game for every operation started, so nothing of the
+  // last one carries over.
+  const [gameKey, setGameKey] = useState(0)
   const [screen, setScreen] = useState<Screen>(() => {
     // The dev board's only entry point, and it costs the shipped game
-    // nothing: SoundBoard is null in a production build, so this branch is
-    // dead there and the menu never grows an item players would see.
+    // nothing: SoundBoard is null in a production build.
     if (SoundBoard && typeof location !== 'undefined' && location.hash === '#soundboard') return 'soundboard'
-    if (store.loadAutosave()) return 'game'
-    return hasSeenIntro() ? 'menu' : 'intro'
+    return store.loadAutosave() ? 'game' : 'title'
   })
+  const [difficulty, setDifficulty] = useState<Difficulty>(() => deviceDifficulty())
+  // The briefing either leads into an operation (a first PLAY) or is a
+  // replay from the title.
+  const [briefingNext, setBriefingNext] = useState<RestoredGame | null>(null)
+  const [notice, setNotice] = useState('')
 
-  const toMenu = () => {
+  const start = (initial: RestoredGame) => {
+    setGameInitial(initial)
+    setGameKey((k) => k + 1)
+    setNotice('')
+    setScreen('game')
+  }
+  const toTitle = () => {
     setGameInitial(null)
-    setScreen('menu')
+    setScreen('title')
   }
 
-  const onSelect = (t: MenuTarget) => {
-    if (t === 'resume') {
-      setGameInitial(store.loadAutosave())
-      setScreen('game')
-    } else if (t === 'game') {
-      setGameInitial(null)
-      setScreen('game')
-    } else if (t === 'daily') {
-      setGameInitial(startDailyOp(new Date()))
-      setScreen('game')
-    } else {
-      setScreen(t)
+  const play = () => {
+    const op = newOperation(difficulty)
+    if (hasSeenIntro()) start(op)
+    else {
+      setBriefingNext(op)
+      setScreen('briefing')
     }
   }
+
+  const resumable = store.loadAutosave()
+  const resumeTurn = resumable && resumable.state.status === 'playing' ? Math.min(resumable.state.turn, resumable.state.scenario.totalTurns) : null
+
+  const exportAutosave = resumable
+    ? async () => {
+        const code = encodeSaveCode(captureGame(resumable.state, resumable.phase, new Date().toISOString(), resumable.daily))
+        setNotice((await copyToClipboard(code)) ? 'Save code copied to clipboard.' : 'Copy failed.')
+      }
+    : undefined
+
+  const importCode = (code: string) => {
+    try {
+      start(decodeSaveCode(code))
+    } catch (e) {
+      setNotice(e instanceof SaveError ? e.message : 'That save code could not be read.')
+    }
+  }
+
+  const chrome = screen !== 'game' && screen !== 'title' && screen !== 'briefing'
 
   return (
     <>
       <div className="crt-overlay" aria-hidden="true" />
-      {screen === 'intro' || screen === 'briefing' ? (
+      {screen === 'briefing' ? (
         <Suspense fallback={<ScreenLoading />}>
-          {/* The menu's BRIEFING is the same cold open as a replay: it
-              leaves the seen-flag exactly as it found it. */}
-          <IntroSequence replay={screen === 'briefing'} onDone={() => setScreen('menu')} />
+          <IntroSequence
+            replay={briefingNext === null}
+            onDone={() => {
+              const next = briefingNext
+              setBriefingNext(null)
+              if (next) start(next)
+              else setScreen('title')
+            }}
+          />
         </Suspense>
       ) : (
         <div className={`${screen === 'game' ? 'h-dvh' : 'min-h-screen'} flex flex-col`}>
-          {/* The board (v1.2 R1) fills the viewport and scrolls its own
-              layer area, so the game screen's shell is bounded to the
-              viewport; every other screen is a document that scrolls the
-              page as before. The terminal chrome is gone from the board
-              (v1.3 brief 5.3, critique row M15): the HUD is its top line.
-              The other screens keep it until the title replaces the menu
-              in R1. */}
-          {screen !== 'game' && <TerminalChrome status={STATUS[screen]} />}
+          {/* The board fills the viewport and scrolls its own layer area,
+              so the game screen's shell is bounded to the viewport; every
+              other screen is a document that scrolls the page. The title
+              and the board carry no terminal chrome; the reference screens
+              keep it until R4. */}
+          {chrome && <TerminalChrome status={STATUS[screen] ?? 'REFERENCE'} />}
           <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
-            {/* One boundary around every screen that arrives as a chunk, so
-                a detour shows the same thing whichever one it is. Menu and
-                Game render inside it and never suspend. */}
             <Suspense fallback={<ScreenLoading />}>
-              {screen === 'menu' && (
-                <MainMenu onSelect={onSelect} resumeAvailable={!!store.loadAutosave()} staleSave={store.autosaveIsStale()} />
+              {screen === 'title' && (
+                <Title
+                  difficulty={difficulty}
+                  onDifficulty={(d) => {
+                    chooseDifficulty(d)
+                    setDifficulty(d)
+                  }}
+                  resumeTurn={resumeTurn}
+                  onContinue={() => {
+                    if (resumable) start(resumable)
+                  }}
+                  onPlay={play}
+                  onDaily={() => start(startDailyOp(new Date()))}
+                  onBriefing={() => {
+                    setBriefingNext(null)
+                    setScreen('briefing')
+                  }}
+                  onDossier={() => setScreen('glossary')}
+                  onLibrary={() => setScreen('library')}
+                  staleSave={store.autosaveIsStale()}
+                  soundPrefs={soundPrefs}
+                  onSoundPrefs={setSoundPrefs}
+                  onExport={exportAutosave}
+                  onImport={importCode}
+                  onReplaySeed={(seed) => start(newOperation(difficulty, seed))}
+                  onScoreboard={() => setScreen('scoreboard')}
+                  onCredits={() => setScreen('credits')}
+                  notice={notice}
+                />
               )}
               {screen === 'game' && (
                 <Game
-                  key={gameInitial ? 'resume' : 'new'}
+                  key={`${gameKey}`}
                   initial={gameInitial}
-                  onExit={toMenu}
+                  onExit={toTitle}
                   onScoreboard={() => {
                     setGameInitial(null)
                     setScreen('scoreboard')
                   }}
+                  onCredits={() => {
+                    setGameInitial(null)
+                    setScreen('credits')
+                  }}
                 />
               )}
-              {screen === 'library' && <FieldLibrary onBack={toMenu} />}
-              {screen === 'scoreboard' && <Scoreboard onBack={toMenu} />}
-              {screen === 'glossary' && <Glossary onBack={toMenu} />}
-              {screen === 'credits' && <Credits onBack={toMenu} />}
-              {screen === 'soundboard' && SoundBoard && <SoundBoard onBack={toMenu} />}
+              {screen === 'library' && <FieldLibrary onBack={toTitle} />}
+              {screen === 'scoreboard' && <Scoreboard onBack={toTitle} />}
+              {screen === 'glossary' && <Glossary onBack={toTitle} />}
+              {screen === 'credits' && <Credits onBack={toTitle} />}
+              {screen === 'soundboard' && SoundBoard && <SoundBoard onBack={toTitle} />}
             </Suspense>
           </div>
         </div>

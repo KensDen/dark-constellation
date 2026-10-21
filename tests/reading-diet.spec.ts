@@ -478,11 +478,14 @@ describe('reading diet: the intel brief', () => {
     for (const [control, file] of Object.entries(renderedIn)) {
       expect(file.includes(control), `chrome counts "${control}", which the screen no longer renders`).toBe(true)
     }
-    // The five system controls left the first screen for the sheet, which
-    // lists them by name; tests/action-bar.dom.spec.tsx renders that list.
-    const systemSheet = source('ui', 'board', 'SystemSheet.tsx')
-    for (const name of ['Save', 'Copy save code', 'Back to menu']) {
-      expect(systemSheet.includes(name), `the SYSTEM sheet no longer lists "${name}"`).toBe(true)
+    // The system controls left the first screen for the sheet, which lists
+    // them by name (src/ui/systemControls.ts since v1.3 R1, where Save left
+    // with the slots and Back to menu became Back to title);
+    // tests/action-bar.dom.spec.tsx renders that list.
+    const systemList = source('ui', 'systemControls.ts')
+    const systemSheet = source('ui', 'SystemPanel.tsx')
+    for (const name of ['Copy save code', 'Back to title']) {
+      expect(systemList.includes(name), `the SYSTEM sheet no longer lists "${name}"`).toBe(true)
     }
     // The transmission label is rendered as an entity by the teletype bar,
     // which the banner mounts.

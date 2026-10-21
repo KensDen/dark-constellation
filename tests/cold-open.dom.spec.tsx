@@ -1,51 +1,45 @@
 // @vitest-environment jsdom
 //
-// The cold open (v1.2 R4, brief 6). The round's guards, every one walked
-// over SLIDES rather than over a count written here (principle 17):
-//   (a) under reduced motion no dissolve or loop runs, and every line is
-//       whole on the first paint of its slide (the central guard);
-//   (b) a tap mid-line finishes it and the next tap moves on; SKIP,
-//       Escape and BEGIN on the last slide set dc-intro-seen, and a
-//       BRIEFING replay from the menu leaves it as it was;
-//   (c) every slide has a scene, with one loop, and at least one line.
-// And the music starts on the first gesture and never before, builds as
-// the slides go, and goes back to the menu's bed on the way out.
+// The briefing (v1.2 R4 as the cold open; rebuilt in v1.3 R1, brief 5.2).
+// Every guard is walked over BEATS rather than over a count written here
+// (principle 17):
+//   (a) under reduced motion each scene is drawn once, still, and every
+//       line is whole on the first paint of its beat;
+//   (b) tapping the text finishes the line; tapping the picture finishes
+//       it and a second tap moves on; CONTINUE always moves on; Enter and
+//       Space do what the picture does; Escape and SKIP leave;
+//   (c) leaving a first viewing by SKIP, Escape or BEGIN TURN 1 sets
+//       dc-intro-seen, and a replay from the title leaves it as it was,
+//       and says BACK TO TITLE where a first viewing says BEGIN TURN 1;
+//   (d) every beat has a scene the canvas draws, two captions and a line.
+// And the typing runs at forty characters a second with the soft click,
+// and the music builds beat by beat and hands back to the title's bed.
 //
-// For (a), jsdom runs the real cascade over the real stylesheets (the
-// board's idle life in src/index.css, the cold open's own in
-// src/ui/coldOpen.css) but evaluates no media feature, so the two
-// reduced-motion conditions are stated by rewriting them, as
-// tests/sprites.dom.spec.tsx does and says why at length.
+// jsdom has no canvas, so a stand-in 2D context records the frames drawn:
+// the scene code runs for real and draws into nothing.
 
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
-
-import App from '../src/App'
 import IntroSequence from '../src/ui/IntroSequence'
-import ColdOpenScene from '../src/ui/ColdOpenScene'
-import { CLICK_EVERY, CROSSFADE_MS, DISSOLVE_MS, MS_PER_CHAR, SLIDES } from '../src/ui/coldOpenSlides'
+import { BEATS, CHARS_PER_SECOND, CLICK_EVERY, MS_PER_CHAR } from '../src/ui/coldOpenSlides'
+import { SCENES } from '../src/ui/briefingScenes'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
-import { MENU_MUSIC_STATE, MUSIC_LAYERS, coldOpenMusicState, getAudioEngine, installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
-import { installFakeAudioContext, removeFakeAudioContext, type FakeGain } from './fakeAudio'
+import { MENU_MUSIC_STATE, coldOpenMusicState, getAudioEngine, installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
+import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 
 declare global {
   // eslint-disable-next-line no-var
   var IS_REACT_ACT_ENVIRONMENT: boolean
 }
 
-const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
-const STYLESHEETS = [join(SRC, 'index.css'), join(SRC, 'ui', 'coldOpen.css')].map((f) => readFileSync(f, 'utf8'))
-
 let container: HTMLDivElement
 let root: Root
 let unlisten: () => void
 let done: number
+let frames: number
+let rafCalls: number
 
 function memoryStorage(): Storage {
   const map = new Map<string, string>()
@@ -72,11 +66,36 @@ function setReducedMotion(reduced: boolean) {
   }))
 }
 
+// A 2D context that accepts every call and draws nothing; setTransform
+// marks a frame, since the scene runner sets it once per frame.
+function fakeContext(): CanvasRenderingContext2D {
+  const target: Record<string, unknown> = {}
+  return new Proxy(target, {
+    get: (t, k) => {
+      if (k === 'setTransform') return () => void (frames += 1)
+      if (k in t) return t[k as string]
+      return () => undefined
+    },
+    set: (t, k, v) => {
+      t[k as string] = v
+      return true
+    },
+  }) as unknown as CanvasRenderingContext2D
+}
+
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   vi.useFakeTimers()
   vi.stubGlobal('localStorage', memoryStorage())
   setReducedMotion(false)
+  frames = 0
+  rafCalls = 0
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => fakeContext() as never)
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+    rafCalls += 1
+    return setTimeout(() => cb(performance.now()), 16) as unknown as number
+  })
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id))
   resetAudioEngineForTests()
   installFakeAudioContext()
   container = document.createElement('div')
@@ -90,11 +109,11 @@ afterEach(() => {
   unlisten()
   act(() => root.unmount())
   container.remove()
-  document.head.querySelectorAll('style[data-test-css]').forEach((s) => s.remove())
   resetAudioEngineForTests()
   removeFakeAudioContext()
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 function renderIntro(replay = false) {
@@ -106,480 +125,193 @@ const step = (ms: number) =>
   act(() => {
     vi.advanceTimersByTime(ms)
   })
-// Time passing as the browser passes it: a timer at a time, with React
-// flushing between them. One act over the whole span would batch every
-// render to its end, and the typing, which schedules each character from
-// the render of the last, would stop at the first.
+// Time passing a timer at a time, with React flushing between them: the
+// typing schedules each character from the render of the last.
 const pass = (ms: number) => {
   for (let t = 0; t < ms; t += MS_PER_CHAR) step(Math.min(MS_PER_CHAR, ms - t))
 }
-const settle = () =>
-  act(async () => {
-    await vi.dynamicImportSettled()
-  })
 const click = (el: Element) => {
   act(() => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
   })
 }
-const press = (key: string) => {
+const press = (key: string, repeat = false) => {
   act(() => {
-    document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, repeat }))
   })
 }
-const textOf = (i: number) => SLIDES[i].lines.join(' ')
-const line = () => container.querySelector('[data-cold-open-line]')!.textContent
-const slideShown = () => Number(container.querySelector('[data-cold-open-slide]')!.getAttribute('data-cold-open-slide'))
-const tap = () => click(container.querySelector('[data-cold-open-slide]')!)
-const button = (name: string) => {
-  // The menu's buttons carry their function key beside the label.
-  const found = [...container.querySelectorAll('button')].find(
-    (b) => b.textContent!.trim() === name || [...b.querySelectorAll('span')].some((s) => s.textContent!.trim() === name),
-  )
-  if (!found) throw new Error(`no ${name} button`)
-  return found
-}
-// The scene on screen, not the one crossfading away over it.
-const currentScene = () => container.querySelector('[data-cold-open-stage] > [data-scene]:not([data-leaving])')!
-const currentLoop = () => currentScene().querySelector('[data-loop]')!
-const leavingScene = () => container.querySelector('[data-cold-open-stage] > [data-scene][data-leaving]')
+const line = () => container.querySelector('[data-briefing-line]')!.textContent!.replace(/_$/, '')
+const beatShown = () => Number(container.querySelector('[data-briefing]')!.getAttribute('data-briefing'))
+const picture = () => container.querySelector('[data-briefing-scene]')!
+const textBlock = () => container.querySelector('[data-briefing-text]')!
+const next = () => container.querySelector('[data-briefing-next]') as HTMLButtonElement
+const skip = () => [...container.querySelectorAll('button')].find((b) => b.textContent!.trim() === 'SKIP')!
 
-// Everything the DOM went through, not only where it ended. act() flushes
-// every effect before it returns, so the DOM a test reads afterwards is
-// the settled one: a slide painted empty and filled by an effect a moment
-// later reads as whole. The mutation history keeps what was painted and
-// taken away again, so "whole on the first paint" is a claim about every
-// paint.
-function history(): () => MutationRecord[] {
-  const observer = new MutationObserver(() => {})
-  observer.observe(container, { subtree: true, childList: true, characterData: true, characterDataOldValue: true })
-  const seen: MutationRecord[] = []
-  return () => {
-    seen.push(...observer.takeRecords())
-    return seen
-  }
-}
-// Any node matching `selector` that was ever put on the page or taken off
-// it, found in the node itself or in what it carried.
-function everPainted(records: MutationRecord[], selector: string): boolean {
-  const hit = (n: Node) => n instanceof Element && (n.matches(selector) || n.querySelector(selector) !== null)
-  return records.some((r) => [...r.addedNodes, ...r.removedNodes].some(hit))
-}
-
-function applyCss(reduced: boolean) {
-  document.head.querySelectorAll('style[data-test-css]').forEach((s) => s.remove())
-  const noPreference = '(prefers-reduced-motion: no-preference)'
-  const reduce = '(prefers-reduced-motion: reduce)'
-  const css = STYLESHEETS.join('\n')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/@import[^;]*;/g, '')
-    .replaceAll(noPreference, reduced ? 'not all' : 'all')
-    .replaceAll(reduce, reduced ? 'all' : 'not all')
-  expect(css.includes('prefers-reduced-motion'), 'a form of the reduced-motion query this test does not state').toBe(false)
-  const style = document.createElement('style')
-  style.setAttribute('data-test-css', '')
-  style.textContent = css
-  document.head.appendChild(style)
-  return style.sheet!
-}
-const keyframeNames = (sheet: CSSStyleSheet) =>
-  new Set([...sheet.cssRules].filter((r): r is CSSKeyframesRule => r instanceof CSSKeyframesRule).map((r) => r.name))
-function running(scope: Element, names: Set<string>): { el: Element; name: string }[] {
-  const out: { el: Element; name: string }[] = []
-  for (const el of [scope, ...scope.querySelectorAll('*')]) {
-    const cs = getComputedStyle(el)
-    let name = cs.getPropertyValue('animation-name').trim()
-    if (!name || name === 'none') name = cs.getPropertyValue('animation').split(/[\s,]+/).find((t) => names.has(t)) ?? 'none'
-    if (name !== 'none' && !cs.getPropertyValue('animation-play-state').includes('paused')) out.push({ el, name })
-  }
-  return out
-}
-
-describe('GUARD R4 (a): under reduced motion no dissolve or loop runs and every line is whole on first paint', () => {
-  it('shows every slide whole the moment it appears, crossfades between them, and loops nothing', () => {
-    setReducedMotion(true)
-    const painted = history()
-    renderIntro()
-    const names = keyframeNames(applyCss(true))
-    // The first picture fades in; nothing else moves.
-    expect(running(currentScene(), names).map((r) => r.name), 'the first slide does not fade in').toContain('dc-fade-in')
-    for (let i = 0; i < SLIDES.length; i += 1) {
-      expect(slideShown()).toBe(i)
-      expect(currentScene().getAttribute('data-scene'), `slide ${i + 1} draws another slide's scene`).toBe(SLIDES[i].scene)
-      expect(line(), `slide ${i + 1} is not whole`).toBe(textOf(i))
-      expect(running(currentLoop(), names).map((r) => r.name), `slide ${i + 1}'s loop runs under reduced motion`).toEqual([])
-      // Whatever does move on the stage is a fade, on a whole picture: the
-      // incoming first one, or the outgoing one over the next.
-      const stage = container.querySelector('[data-cold-open-stage]')!
-      for (const { el, name } of running(stage, names)) {
-        expect(['dc-fade-in', 'dc-fade-out'], `${name} runs on the stage under reduced motion`).toContain(name)
-        expect(el.hasAttribute('data-scene'), `${name} runs inside a scene rather than on it`).toBe(true)
-      }
-      if (i > 0) {
-        const out = leavingScene()
-        expect(out, 'no crossfade in place of the dissolve').not.toBeNull()
-        expect(out!.getAttribute('data-scene')).toBe(SLIDES[i - 1].scene)
-        expect(running(out!, names).map((r) => r.name), 'the outgoing picture is there but does not fade').toContain('dc-fade-out')
-      }
-      if (i < SLIDES.length - 1) click(button('NEXT'))
-    }
-    // Every paint, not only the last: no dissolve was ever put up, and no
-    // line was ever shown part-typed (the cursor only exists mid-line).
-    expect(everPainted(painted(), '[data-dissolve]'), 'a dissolve was painted under reduced motion').toBe(false)
-    expect(everPainted(painted(), '[data-cursor]'), 'a line was painted part-typed under reduced motion').toBe(false)
-  })
-
-  it('restarts the fade for a second NEXT inside the first, and fades out to the menu', () => {
+describe('GUARD R1 briefing (a): reduced motion draws each scene once and shows every line whole', () => {
+  it('paints every beat whole, with no cursor, and runs no animation loop', () => {
     setReducedMotion(true)
     renderIntro()
-    const names = keyframeNames(applyCss(true))
-    click(button('NEXT'))
-    const first = leavingScene()
-    step(CROSSFADE_MS / 3)
-    click(button('NEXT'))
-    const second = leavingScene()
-    expect(second, 'the second fade reused the first one, part-faded').not.toBe(first)
-    expect(second!.getAttribute('data-scene')).toBe(SLIDES[1].scene)
-    expect(running(second!, names).map((r) => r.name)).toContain('dc-fade-out')
-    for (let i = 2; i < SLIDES.length - 1; i += 1) click(button('NEXT'))
-    step(CROSSFADE_MS)
-    click(button('BEGIN'))
-    expect(done, 'BEGIN cut to the menu without fading').toBe(0)
-    expect(running(currentScene(), names).map((r) => r.name), 'the last picture does not fade out').toContain('dc-fade-out')
-    step(CROSSFADE_MS)
-    expect(done).toBe(1)
+    for (let i = 0; i < BEATS.length; i += 1) {
+      expect(beatShown()).toBe(i)
+      expect(line(), `beat ${i + 1} was not whole on its first paint`).toBe(BEATS[i].text)
+      expect(container.querySelector('[data-cursor]'), `beat ${i + 1} shows a typing cursor under reduced motion`).toBeNull()
+      if (i < BEATS.length - 1) click(next())
+    }
+    step(2000)
+    expect(rafCalls, 'an animation loop ran under reduced motion').toBe(0)
+    expect(frames, 'not one still frame a beat').toBe(BEATS.length)
   })
 
-  it('dissolves, types and loops with no preference (the positive control)', () => {
-    const painted = history()
+  it('types and animates with no preference (the positive control)', () => {
     renderIntro()
-    const names = keyframeNames(applyCss(false))
-    for (let i = 0; i < SLIDES.length; i += 1) {
-      expect(currentScene().getAttribute('data-scene'), `slide ${i + 1} draws another slide's scene`).toBe(SLIDES[i].scene)
-      const dissolve = container.querySelector('[data-dissolve="in"]')
-      expect(dissolve, `slide ${i + 1} did not dissolve in`).not.toBeNull()
-      expect(running(dissolve!, names).length, 'the dissolve is on the page but not running').toBeGreaterThan(0)
-      expect(line(), `slide ${i + 1} was whole before it typed`).not.toBe(textOf(i))
-      pass(DISSOLVE_MS + MS_PER_CHAR * 4)
-      expect(line()!.length, `slide ${i + 1} is not typing`).toBeGreaterThan(1)
-      expect(running(currentLoop(), names).length, `slide ${i + 1}'s loop does not run`).toBeGreaterThan(0)
-      if (i < SLIDES.length - 1) {
-        tap()
-        tap()
-        expect(container.querySelector('[data-dissolve="out"]'), 'the slide did not dissolve out').not.toBeNull()
-        step(DISSOLVE_MS)
-      }
-    }
-    // The history sees what the reduced-motion test says never happens.
-    expect(everPainted(painted(), '[data-dissolve]')).toBe(true)
-    expect(everPainted(painted(), '[data-cursor]')).toBe(true)
-  })
-
-  it('pauses the loops while the tab is hidden', () => {
-    renderIntro()
-    const names = keyframeNames(applyCss(false))
-    step(DISSOLVE_MS)
-    expect(running(currentLoop(), names).length, 'nothing to pause (the positive control)').toBeGreaterThan(0)
-    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
-    act(() => {
-      document.dispatchEvent(new Event('visibilitychange'))
-    })
-    try {
-      expect(running(currentLoop(), names).map((r) => r.name)).toEqual([])
-    } finally {
-      delete (document as { visibilityState?: string }).visibilityState
-      act(() => {
-        document.dispatchEvent(new Event('visibilitychange'))
-      })
-    }
+    expect(line(), 'the line was whole at once with no preference').toBe('')
+    pass(MS_PER_CHAR * 10)
+    expect(line()).toBe(BEATS[0].text.slice(0, 10))
+    expect(rafCalls, 'no animation loop with no preference').toBeGreaterThan(0)
+    expect(frames).toBeGreaterThan(1)
   })
 })
 
-describe('GUARD R4 (b): a tap finishes the line, the next moves on, and only a first viewing sets the seen-flag', () => {
-  it('finishes a line mid-type on the first tap and moves on at the second, by tap, by NEXT and by Enter', () => {
+describe('GUARD R1 briefing (b): taps, CONTINUE and keys', () => {
+  it('finishes the line on a tap of the text, and does not move on', () => {
     renderIntro()
-    pass(DISSOLVE_MS + MS_PER_CHAR * 5)
-    expect(line()!.length, 'the line had not started typing').toBeGreaterThan(1)
-    expect(line(), 'the line typed out before the tap').not.toBe(textOf(0))
-    tap()
-    expect(line(), 'the first tap did not finish the line').toBe(textOf(0))
-    // Moving on starts with the dissolve out, and the slide index only
-    // changes once that has run: so the first tap is judged by both.
-    expect(container.querySelector('[data-dissolve="out"]'), 'the first tap started moving on').toBeNull()
-    step(DISSOLVE_MS)
-    expect(slideShown(), 'the first tap moved on').toBe(0)
-    tap()
-    expect(container.querySelector('[data-dissolve="out"]'), 'the second tap did not move on').not.toBeNull()
-    step(DISSOLVE_MS)
-    expect(slideShown(), 'the second tap did not move on').toBe(1)
+    pass(MS_PER_CHAR * 5)
+    click(textBlock())
+    expect(line()).toBe(BEATS[0].text)
+    click(textBlock())
+    expect(beatShown(), 'a tap on the text moved on').toBe(0)
+  })
 
-    pass(DISSOLVE_MS + MS_PER_CHAR * 5)
-    click(button('NEXT'))
-    expect(line()).toBe(textOf(1))
-    expect(container.querySelector('[data-dissolve="out"]'), 'NEXT finished the line and moved on at once').toBeNull()
-    click(button('NEXT'))
-    step(DISSOLVE_MS)
-    expect(slideShown()).toBe(2)
+  it('finishes the line on a tap of the picture, and moves on at the second', () => {
+    renderIntro()
+    pass(MS_PER_CHAR * 5)
+    click(picture())
+    expect(line()).toBe(BEATS[0].text)
+    expect(beatShown()).toBe(0)
+    click(picture())
+    expect(beatShown()).toBe(1)
+  })
 
-    pass(DISSOLVE_MS + MS_PER_CHAR * 5)
+  it('moves on at CONTINUE whether or not the line has finished', () => {
+    renderIntro()
+    pass(MS_PER_CHAR * 3)
+    expect(line().length).toBeLessThan(BEATS[0].text.length)
+    click(next())
+    expect(beatShown(), 'CONTINUE waited for the line').toBe(1)
+  })
+
+  it('does with Enter and Space what the picture does, and leaves on Escape', () => {
+    renderIntro()
+    pass(MS_PER_CHAR * 3)
     press('Enter')
-    expect(line()).toBe(textOf(2))
-    expect(slideShown()).toBe(2)
+    expect(line()).toBe(BEATS[0].text)
     press(' ')
-    step(DISSOLVE_MS)
-    expect(slideShown()).toBe(3)
-  })
-
-  it('does not move on while a slide is still dissolving in, however fast the taps', () => {
-    renderIntro()
-    step(DISSOLVE_MS / 2)
-    tap()
-    tap()
-    tap()
-    expect(container.querySelector('[data-dissolve="out"]'), 'a tap mid-dissolve started the dissolve out').toBeNull()
-    expect(line(), 'the taps did not finish the line').toBe(textOf(0))
-    step(DISSOLVE_MS)
-    expect(slideShown()).toBe(0)
-    tap()
-    expect(container.querySelector('[data-dissolve="out"]'), 'once in, the next tap does move on').not.toBeNull()
-  })
-
-  it('refuses a held key on its own buttons, which would click them on every repeat', () => {
-    renderIntro()
-    for (const name of ['NEXT', 'SKIP']) {
-      const held = new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true, cancelable: true })
-      act(() => {
-        button(name).dispatchEvent(held)
-      })
-      expect(held.defaultPrevented, `a held Enter on ${name} would click it again`).toBe(true)
-      const pressed = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
-      act(() => {
-        button(name).dispatchEvent(pressed)
-      })
-      expect(pressed.defaultPrevented, `a single Enter on ${name} was refused (the positive control)`).toBe(false)
-    }
-    expect(done).toBe(0)
-  })
-
-  function toTheEnd() {
-    for (let i = 0; i < SLIDES.length; i += 1) {
-      step(DISSOLVE_MS)
-      tap()
-      expect(done, 'the cold open ended early').toBe(0)
-      if (i < SLIDES.length - 1) {
-        expect(button('NEXT')).toBeTruthy()
-        tap()
-        step(DISSOLVE_MS)
-      }
-    }
-    expect(button('BEGIN'), 'the last slide does not say BEGIN').toBeTruthy()
-    tap()
-    step(DISSOLVE_MS)
-    expect(done, 'BEGIN did not leave').toBe(1)
-  }
-
-  it('sets dc-intro-seen at BEGIN on the last slide, and not before', () => {
-    renderIntro()
-    expect(localStorage.getItem(INTRO_SEEN_KEY), 'the flag was set on arrival').toBeNull()
-    for (let i = 0; i < SLIDES.length - 1; i += 1) {
-      step(DISSOLVE_MS)
-      tap()
-      tap()
-      expect(localStorage.getItem(INTRO_SEEN_KEY), `the flag was set on slide ${i + 1}`).toBeNull()
-      step(DISSOLVE_MS)
-    }
-    step(DISSOLVE_MS)
-    tap()
-    expect(localStorage.getItem(INTRO_SEEN_KEY), 'the flag was set before BEGIN').toBeNull()
-    tap()
-    expect(localStorage.getItem(INTRO_SEEN_KEY)).toBe('1')
-  })
-
-  it('sets dc-intro-seen on SKIP, and on Escape', () => {
-    renderIntro()
-    pass(DISSOLVE_MS + MS_PER_CHAR * 5)
-    expect(localStorage.getItem(INTRO_SEEN_KEY), 'the flag was set before SKIP').toBeNull()
-    click(button('SKIP'))
-    expect(done).toBe(1)
-    expect(localStorage.getItem(INTRO_SEEN_KEY)).toBe('1')
-
-    localStorage.removeItem(INTRO_SEEN_KEY)
-    act(() => root.unmount())
-    root = createRoot(container)
-    renderIntro()
-    expect(localStorage.getItem(INTRO_SEEN_KEY), 'the flag was set before Escape').toBeNull()
+    expect(beatShown()).toBe(1)
     press('Escape')
-    expect(done).toBe(2)
-    expect(localStorage.getItem(INTRO_SEEN_KEY)).toBe('1')
+    expect(done).toBe(1)
   })
 
-  it('leaves dc-intro-seen exactly as it was on a replay, set or not, however it ends', () => {
-    // Both ways round: from absent, a replay that wrote the flag fails;
-    // from '1', a replay that cleared it fails. And by all three exits.
-    const exits: [string, () => void][] = [
-      ['BEGIN', toTheEnd],
-      ['SKIP', () => click(button('SKIP'))],
-      ['Escape', () => press('Escape')],
-    ]
-    for (const before of [null, '1']) {
-      for (const [how, leave] of exits) {
-        if (before === null) localStorage.removeItem(INTRO_SEEN_KEY)
-        else localStorage.setItem(INTRO_SEEN_KEY, before)
-        act(() => root.unmount())
-        root = createRoot(container)
-        done = 0
-        renderIntro(true)
-        leave()
-        expect(done, `the replay did not end by ${how}`).toBe(1)
-        expect(localStorage.getItem(INTRO_SEEN_KEY), `a replay ended by ${how} changed the flag from ${before}`).toBe(before)
-      }
-    }
-  })
-
-  it('opens a first visit on the cold open and records it as seen when the player leaves', async () => {
-    act(() => {
-      root.render(<App />)
-    })
-    await settle()
-    expect(container.querySelector('[data-cold-open-slide]'), 'a first visit did not open on the cold open').not.toBeNull()
-    expect(localStorage.getItem(INTRO_SEEN_KEY)).toBeNull()
-    click(button('SKIP'))
-    expect(localStorage.getItem(INTRO_SEEN_KEY), "App's first visit did not record the cold open as seen").toBe('1')
-    expect(button('BRIEFING'), 'leaving the cold open did not reach the menu').toBeTruthy()
-  })
-
-  it("replays from the menu's BRIEFING without touching the flag, and returns to the menu", async () => {
-    localStorage.setItem(INTRO_SEEN_KEY, '1')
-    act(() => {
-      root.render(<App />)
-    })
-    click(button('BRIEFING'))
-    await settle()
-    expect(container.querySelector('[data-cold-open-slide]'), 'BRIEFING did not open the cold open').not.toBeNull()
-    // Take the flag away under the replay: if the replay set it, it would
-    // be back after SKIP.
-    localStorage.removeItem(INTRO_SEEN_KEY)
-    click(button('SKIP'))
-    expect(localStorage.getItem(INTRO_SEEN_KEY), 'the replay set the seen-flag').toBeNull()
-    expect(button('BRIEFING'), 'the replay did not return to the menu').toBeTruthy()
+  it('refuses a held key, which would race the player through', () => {
+    renderIntro()
+    press('Enter', true)
+    expect(line()).toBe('')
+    expect(beatShown()).toBe(0)
   })
 })
 
-describe('GUARD R4 (c): every slide has a scene and at least one line', () => {
-  it('draws a picture with exactly one loop for every slide, and gives every slide a line', () => {
-    expect(SLIDES.length, 'no slides').toBeGreaterThan(0)
-    for (const [i, slide] of SLIDES.entries()) {
-      expect(slide.lines.length, `slide ${i + 1} has no line`).toBeGreaterThanOrEqual(1)
-      for (const l of slide.lines) expect(l.trim(), `slide ${i + 1} has an empty line`).not.toBe('')
-      act(() => {
-        root.render(<ColdOpenScene key={i} scene={slide.scene} />)
-      })
-      const scene = container.querySelector(`[data-scene="${slide.scene}"]`)
-      expect(scene, `slide ${i + 1} draws no scene`).not.toBeNull()
-      expect(scene!.querySelectorAll('svg rect').length, `slide ${i + 1}'s scene is empty`).toBeGreaterThan(0)
-      const loops = scene!.querySelectorAll('[data-loop]')
-      expect(loops.length, `slide ${i + 1} has ${loops.length} loops, not one`).toBe(1)
-      expect(loops[0].querySelector('svg'), `slide ${i + 1}'s loop has no sprite`).not.toBeNull()
-    }
-  })
-
-  it('moves nothing on a slide but its one loop, which does move', () => {
-    renderIntro()
-    const names = keyframeNames(applyCss(false))
-    for (let i = 0; i < SLIDES.length; i += 1) {
-      step(DISSOLVE_MS)
-      const scene = currentScene()
-      const loop = currentLoop()
-      const moving = running(scene, names)
-      expect(moving.filter((r) => loop.contains(r.el)).length, `slide ${i + 1}'s loop does not move`).toBeGreaterThan(0)
-      const elsewhere = moving.filter((r) => !loop.contains(r.el)).map((r) => r.name)
-      expect(elsewhere, `slide ${i + 1} moves more than its one loop`).toEqual([])
-      if (i < SLIDES.length - 1) {
-        tap()
-        tap()
-        step(DISSOLVE_MS)
-      }
-    }
-  })
-
-  it('counts its slides from SLIDES, and only the last one says BEGIN', () => {
-    setReducedMotion(true)
-    renderIntro()
-    for (let i = 0; i < SLIDES.length; i += 1) {
-      expect(container.querySelector('[data-cold-open-text]')!.textContent).toContain(`${i + 1} / ${SLIDES.length}`)
-      const last = i === SLIDES.length - 1
-      expect(button(last ? 'BEGIN' : 'NEXT')).toBeTruthy()
-      if (!last) click(button('NEXT'))
-    }
-    step(CROSSFADE_MS)
-    expect(container.querySelector('.dc-crossfade-out'), 'the crossfade outlives its fade').toBeNull()
-  })
-})
-
-describe('the cold open sounds: a soft key click as it types, and the bed building under it', () => {
-  function layerTargets(): number[] {
-    const bed = getAudioEngine().music
-    if (!bed) throw new Error('no music bed')
-    return MUSIC_LAYERS.map((l) => {
-      const gain = bed.layerGain(l.name) as unknown as FakeGain | undefined
-      const events = gain?.gain.events.filter((e) => e.kind !== 'cancel') ?? []
-      return events[events.length - 1]?.value ?? 0
-    })
+describe('GUARD R1 briefing (c): the seen-flag and the last button', () => {
+  const toLast = () => {
+    for (let i = 0; i < BEATS.length - 1; i += 1) click(next())
   }
-  const targetsFor = (state: Parameters<(typeof MUSIC_LAYERS)[number]['active']>[0]) =>
-    MUSIC_LAYERS.map((l) => (l.active(state) ? l.level : 0))
-  const gesture = () =>
-    act(() => {
-      document.dispatchEvent(new Event('pointerdown'))
-    })
 
-  it('starts no music before the first gesture, and starts it on the slide it is on', () => {
+  it('says BEGIN TURN 1 on the last beat of a first viewing, and sets dc-intro-seen there and not before', () => {
     renderIntro()
-    pass(DISSOLVE_MS + MS_PER_CHAR * textOf(0).length)
-    expect(getAudioEngine().music, 'music before any gesture').toBeNull()
-    gesture()
-    expect(getAudioEngine().music, 'the first gesture did not start the bed').not.toBeNull()
-    expect(layerTargets()).toEqual(targetsFor(coldOpenMusicState(0)))
+    toLast()
+    expect(next().textContent!.trim()).toBe('BEGIN TURN 1')
+    expect(localStorage.getItem(INTRO_SEEN_KEY), 'the flag was set before the briefing ended').toBeNull()
+    click(next())
+    expect(localStorage.getItem(INTRO_SEEN_KEY)).toBe('1')
+    expect(done).toBe(1)
   })
 
-  it('builds the bed slide by slide and hands it to the menu when the cold open ends', () => {
+  it('says CONTINUE on every beat but the last', () => {
     renderIntro()
-    gesture()
-    for (let i = 1; i < SLIDES.length; i += 1) {
-      step(DISSOLVE_MS)
-      tap()
-      tap()
-      step(DISSOLVE_MS)
-      expect(slideShown()).toBe(i)
-      expect(layerTargets(), `the bed on slide ${i + 1}`).toEqual(targetsFor(coldOpenMusicState(i)))
+    for (let i = 0; i < BEATS.length - 1; i += 1) {
+      expect(next().textContent!.trim()).toBe('CONTINUE')
+      click(next())
     }
-    expect(layerTargets(), 'the bed never built').not.toEqual(targetsFor(MENU_MUSIC_STATE))
-    click(button('SKIP'))
+  })
+
+  it('sets dc-intro-seen on SKIP and on Escape', () => {
+    renderIntro()
+    click(skip())
+    expect(localStorage.getItem(INTRO_SEEN_KEY)).toBe('1')
+    localStorage.removeItem(INTRO_SEEN_KEY)
     act(() => root.unmount())
     root = createRoot(container)
-    expect(layerTargets(), 'leaving the cold open left its bed playing').toEqual(targetsFor(MENU_MUSIC_STATE))
+    renderIntro()
+    press('Escape')
+    expect(localStorage.getItem(INTRO_SEEN_KEY)).toBe('1')
+    expect(done).toBe(2)
   })
 
-  it('types at CHARS_PER_SECOND, whatever the steps it is watched in', () => {
+  it('leaves the flag as it was on a replay, set or not, and says BACK TO TITLE', () => {
+    for (const before of [null, '1']) {
+      if (before) localStorage.setItem(INTRO_SEEN_KEY, before)
+      else localStorage.removeItem(INTRO_SEEN_KEY)
+      act(() => root.unmount())
+      root = createRoot(container)
+      renderIntro(true)
+      toLast()
+      expect(next().textContent!.trim()).toBe('BACK TO TITLE')
+      click(next())
+      expect(localStorage.getItem(INTRO_SEEN_KEY)).toBe(before)
+    }
+  })
+})
+
+describe('GUARD R1 briefing (d): every beat is drawn, captioned and told', () => {
+  it('has a scene the canvas draws, two captions and a line, and one bar segment a beat', () => {
+    expect(BEATS.length).toBeGreaterThan(0)
+    for (const beat of BEATS) {
+      expect(typeof SCENES[beat.scene], `no scene draws ${beat.scene}`).toBe('function')
+      expect(beat.caption.every((c) => c.trim().length > 0)).toBe(true)
+      expect(beat.text.trim().length).toBeGreaterThan(0)
+    }
     renderIntro()
-    step(DISSOLVE_MS)
-    // Small steps, several to a character, so a faster timer would show.
-    const watched = 600
-    for (let t = 0; t < watched; t += 5) step(5)
-    const expected = Math.floor(watched / MS_PER_CHAR)
-    const typed = line()!.replace('_', '').length
-    expect(typed, `typed ${typed} characters in ${watched}ms`).toBeGreaterThanOrEqual(expected - 1)
-    expect(typed).toBeLessThanOrEqual(expected + 1)
+    expect(container.querySelectorAll('[data-briefing-bar] i').length).toBe(BEATS.length)
+  })
+})
+
+describe('the briefing sounds: a soft key click as it types, and the bed building under it', () => {
+  it('types at CHARS_PER_SECOND', () => {
+    renderIntro()
+    pass(1000)
+    expect(line().length).toBe(CHARS_PER_SECOND)
+  })
+
+  it('builds the bed beat by beat and hands it to the title when the briefing ends', () => {
+    const set = vi.spyOn(getAudioEngine(), 'setMusicState')
+    renderIntro()
+    expect(set).toHaveBeenLastCalledWith(coldOpenMusicState(0))
+    for (let i = 1; i < BEATS.length; i += 1) {
+      click(next())
+      expect(set).toHaveBeenLastCalledWith(coldOpenMusicState(i))
+    }
+    act(() => root.unmount())
+    root = createRoot(container)
+    expect(set).toHaveBeenLastCalledWith(MENU_MUSIC_STATE)
   })
 
   it('clicks on every CLICK_EVERYth typed character that is not a space', () => {
+    const play = vi.fn()
+    vi.spyOn(getAudioEngine(), 'play').mockImplementation(play as never)
     renderIntro()
-    gesture()
-    const play = vi.spyOn(getAudioEngine(), 'play')
-    pass(DISSOLVE_MS + MS_PER_CHAR * (textOf(0).length + 2))
-    expect(line()).toBe(textOf(0))
-    const expected = [...textOf(0)].filter((c, k) => (k + 1) % CLICK_EVERY === 0 && c !== ' ').length
-    expect(expected, 'a line too short to click').toBeGreaterThan(0)
-    expect(play.mock.calls.filter(([cue]) => cue === 'soft-tick').length).toBe(expected)
+    const n = 30
+    pass(MS_PER_CHAR * n)
+    const typed = BEATS[0].text.slice(0, n)
+    let expected = 0
+    for (let i = 0; i < typed.length; i += 1) if (typed[i] !== ' ' && (i + 1) % CLICK_EVERY === 0) expected += 1
+    expect(play.mock.calls.filter((c) => c[0] === 'soft-tick').length).toBe(expected)
   })
 })

@@ -9,7 +9,7 @@ export default function Credits({ onBack }: { onBack: () => void }) {
       <div className="flex items-center justify-between gap-2">
         <h1 className="font-display text-lg sm:text-xl text-phosphor">CREDITS</h1>
         <button className={btn} onClick={onBack}>
-          Back to menu
+          Back to title
         </button>
       </div>
 
@@ -95,7 +95,7 @@ export default function Credits({ onBack }: { onBack: () => void }) {
       </section>
 
       <button className={`${btn} mt-6`} onClick={onBack}>
-        Back to menu
+        Back to title
       </button>
     </main>
   )

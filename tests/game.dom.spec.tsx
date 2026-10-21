@@ -62,6 +62,7 @@ import { turnRng } from '../src/engine/rng'
 import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
 import { glossaryEntries } from '../src/ui/reference'
 import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
+import { newOperation } from '../src/ui/session'
 import { STRIKE_MS } from '../src/ui/board/strike'
 import { CHAIN_ARMED_LINE, DISCLOSURE_WORD_BUDGETS, JOB_FRAMING_HEADING, briefCopy, countWords, disclosureBlocks, jobFramingBlocks, postureDetailLines } from '../src/ui/brief'
 import type { AssetKind, GameState, TurnActions } from '../src/engine/types'
@@ -212,6 +213,25 @@ const click = (el: Element) => {
   act(() => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
   })
+}
+
+// Load a save code the way a player does since v1.3 R1: SYSTEM, paste,
+// Load save code.
+function pasteThroughSystem(code: string) {
+  const gear = container.querySelector('button[aria-label="System"]')
+  expect(gear, 'no SYSTEM on the HUD').not.toBeNull()
+  click(gear!)
+  const paste = container.querySelector('[data-sheet="system"] textarea[aria-label="save code"]') as HTMLTextAreaElement | null
+  expect(paste, 'the SYSTEM sheet has no paste box').not.toBeNull()
+  const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+  act(() => {
+    setValue.call(paste!, code)
+    paste!.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const load = byText(/^load save code$/i)
+  expect(load, 'no load control').toBeDefined()
+  expect(load!.hasAttribute('disabled'), 'the load control is disabled, so the paste did not register').toBe(false)
+  click(load!)
 }
 
 // The glossary's entries arrive by chunk since the Round 1 fix batch (the
@@ -1904,7 +1924,9 @@ describe('the save code is on the screen, not only on the clipboard', () => {
     const newCampaign = byText(/new campaign/i)
     expect(newCampaign, 'the outcome screen has no way to start again').toBeDefined()
     click(newCampaign!)
-    expect(codeBox(), 'the code box survived into the start screen').toBeNull()
+    // Straight to turn 1 of a new operation since v1.3 R1 (no start screen).
+    expect(codeBox(), 'the code box survived into the new operation').toBeNull()
+    expect(container.querySelector('[data-board]'), 'NEW CAMPAIGN did not start a new operation').not.toBeNull()
 
     // A different finished campaign, loaded through the paste box.
     const second = (() => {
@@ -1917,13 +1939,7 @@ describe('the save code is on the screen, not only on the clipboard', () => {
     expect(second.seed, 'both campaigns share a seed, so their codes could match legitimately').not.toBe(first.seed)
     vi.setSystemTime(new Date(Date.now() + 120_000))
     const code = encodeSaveCode(captureGame(second, 'aftermath', new Date().toISOString()))
-    const paste = container.querySelector('textarea[aria-label="save code"]') as HTMLTextAreaElement
-    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
-    act(() => {
-      setValue.call(paste, code)
-      paste.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-    click(byText(/load from code/i)!)
+    pasteThroughSystem(code)
 
     // A pasted code carries phase 'aftermath', and the outcome screen is
     // gated on the phase NOT being that, so the load lands on the damage
@@ -2260,34 +2276,19 @@ describe('a loaded campaign is not a campaign that was played here', () => {
     const code = encodeSaveCode(captureGame(finished(), 'aftermath', new Date().toISOString()))
     expect(scores(), 'the board is not empty at the start').toHaveLength(0)
 
-    // The start screen, with no campaign: that is where the paste box is.
+    // A new operation, as the title starts one: the paste box is in SYSTEM
+    // since v1.3 R1 retired the start screen.
     mounts += 1
     act(() => {
-      root.render(<Game key={`m${mounts}`} initial={null} onExit={() => {}} />)
+      root.render(<Game key={`m${mounts}`} initial={newOperation('standard', 20260712)} onExit={() => {}} />)
     })
-    const paste = container.querySelector('textarea[aria-label="save code"]') as HTMLTextAreaElement | null
-    expect(paste, 'the start screen has no paste box, so this asserts nothing').not.toBeNull()
+    expect(byText(/final report/i), 'the new operation is already over, so this asserts nothing').toBeUndefined()
+    pasteThroughSystem(code)
 
-    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
-    act(() => {
-      setValue.call(paste!, code)
-      paste!.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-    const load = byText(/load from code/i)
-    expect(load, 'no load control').toBeDefined()
-    expect(load!.hasAttribute('disabled'), 'the load control is disabled, so the paste did not register').toBe(false)
-    click(load!)
-
-    // THE LOAD ACTUALLY HAPPENED, asserted on something only true AFTER
-    // it. The first version matched /assured|link lost|mission/i, which the
-    // START SCREEN satisfies: its job framing reads "with the Mission
-    // Assurance Index (MAI) at...". So deleting the beginGame call left
-    // this green, because a failed load renders the very screen the regex
-    // matched. A vacuous assertion inside the guard written to close a
-    // vacuous guard, found by the re-review.
-    expect(byText(/start campaign/i), 'still on the start screen, so the code never loaded').toBeUndefined()
-    expect(container.querySelector('[aria-label="game seed"]'), 'the start screen is still mounted').toBeNull()
-    expect(container.querySelector('[aria-label^="Credits"]'), 'no campaign HUD, so nothing loaded').not.toBeNull()
+    // THE LOAD ACTUALLY HAPPENED, asserted on something only true AFTER it:
+    // the pasted campaign is finished, so its aftermath offers FINAL
+    // REPORT, which the fresh operation it replaced never could.
+    expect(byText(/final report/i), 'the pasted, finished campaign never loaded').toBeDefined()
 
     expect(scores(), 'pasting a finished code posted a score the player never earned').toHaveLength(0)
   })
@@ -2300,17 +2301,14 @@ describe('a loaded campaign is not a campaign that was played here', () => {
     // no campaign a player starts ever posts a score, and nothing would
     // have failed. Found as a split vote.
     //
-    // So this presses Start campaign and plays every turn (six since v1.3
-    // Round 0) through the controls, which is the path every real
-    // campaign takes.
+    // So this starts an operation as the title's PLAY does since v1.3 R1
+    // (newOperation, straight to turn 1) and plays every turn through the
+    // controls, which is the path every real campaign takes.
     expect(scores(), 'the board is not empty at the start').toHaveLength(0)
     mounts += 1
     act(() => {
-      root.render(<Game key={`m${mounts}`} initial={null} onExit={() => {}} />)
+      root.render(<Game key={`m${mounts}`} initial={newOperation('standard', 20260712)} onExit={() => {}} />)
     })
-    const startButton = byText(/start campaign/i)
-    expect(startButton, 'no way to start a campaign').toBeDefined()
-    click(startButton!)
     expect(container.querySelector('[aria-label^="Credits"]'), 'the campaign did not start').not.toBeNull()
 
     for (let turn = 0; turn < DEFAULT_SCENARIO.totalTurns + 2; turn += 1) {
@@ -2784,21 +2782,9 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     expect([...card], 'a badge treatment ran on the whole card').not.toContain('dc-badge-attach')
   })
 
-  it('renders the same job, heading first and numbered, on the start screen', () => {
-    // The other screen that carries the framing, which nothing checked: the
-    // brief-screen guards all read the disclosure or jobFramingBlocks.
-    act(() => {
-      root.render(<Game key={`start${(mounts += 1)}`} onExit={() => {}} />)
-    })
-    const heading = [...container.querySelectorAll('p')].find((p) => (p.textContent ?? '').trim() === JOB_FRAMING_HEADING)
-    expect(heading, 'the start screen has no job heading').toBeDefined()
-    const blocks: string[] = []
-    for (let el = heading!.nextElementSibling; el && el.tagName === 'P'; el = el.nextElementSibling) {
-      blocks.push((el.textContent ?? '').trim())
-    }
-    expect(blocks, 'the start screen renders a different job from the brief').toEqual(jobFramingBlocks(DEFAULT_SCENARIO))
-    expect(blocks[0], 'the start screen lost the numbering').toMatch(/^1\. /)
-  })
+  // The start screen that also carried the job framing left in v1.3 R1
+  // (brief 5.1): the framing now renders only in the brief's disclosure,
+  // which the guards above read.
 
   it('bounds every disclosure the brief screen renders, not only the one the round touched', () => {
     // Round 7b bounded the "Expand full brief" panel and named the constant

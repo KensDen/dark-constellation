@@ -61,7 +61,7 @@ const HANDS_ON = 'Hands-on'
 export default function FieldLibrary({
   onBack,
   focus,
-  backLabel = 'Back to menu',
+  backLabel = 'Back to title',
   embedded = false,
 }: {
   onBack: () => void

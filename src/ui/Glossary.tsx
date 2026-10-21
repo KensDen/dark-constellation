@@ -13,7 +13,7 @@ const CATEGORIES: GlossaryEntry['category'][] = ['Technique', 'Countermeasure', 
 export default function Glossary({
   onBack,
   focus,
-  backLabel = 'Back to menu',
+  backLabel = 'Back to title',
   embedded = false,
 }: {
   onBack: () => void
