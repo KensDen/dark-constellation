@@ -56,7 +56,7 @@ import Game from '../src/ui/Game'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { gnssDenied, newGame, resolveTurn } from '../src/engine/reducer'
 import { maiScore } from '../src/engine/scoring'
-import { RECAP_MAX, recapTechniques } from '../src/ui/cues/Scene'
+import { LOSS_LABEL, RECAP_MAX, recapTechniques } from '../src/ui/cues/Scene'
 import { turnRng } from '../src/engine/rng'
 import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
 import { glossaryEntries } from '../src/ui/reference'
@@ -1034,11 +1034,15 @@ describe('the cinematics, from the player-s starting state (Round 5)', () => {
   }
 
   it('plays the defeat scene when a campaign is lost', () => {
-    const { before } = finalTurn(LOSS_SCRIPT)
+    const { before, after } = finalTurn(LOSS_SCRIPT)
     const { el, seen } = playToOutcome(before)
     expect(el, `a lost campaign reached its end with no outcome scene; saw ${seen.join(', ') || 'nothing'}`).not.toBeNull()
     expect(el!.getAttribute('data-scene'), 'a lost campaign played the winning scene').toBe('defeat')
-    expect(el!.textContent, 'the defeat scene does not say what was lost').toMatch(/Link lost/i)
+    // The label names the real cause since the QC gauntlet (Q17), not
+    // LINK LOST for every defeat.
+    expect(after.lossReason, 'the losing campaign recorded no cause').toBeDefined()
+    expect(el!.textContent, 'the defeat scene does not say what ended the campaign').toContain(LOSS_LABEL[after.lossReason!])
+    expect(el!.textContent).not.toMatch(/Link lost/i)
   })
 
   it('plays the victory scene when a campaign is won', () => {
@@ -1368,7 +1372,9 @@ describe('the scenes carry real content, not just their entrance (Round 5)', () 
     expect(scene, 'playback never reached the defeat scene').not.toBeNull()
     const cards = [...scene!.querySelectorAll('li')]
     expect(cards.length, 'the defeat scene recapped nothing').toBe(expected.length)
-    expect(cards.map((c) => c.textContent?.trim())).toEqual(independent)
+    // Each chip names the threat and carries the code beside it (Q17).
+    expect(cards.map((c) => c.querySelector('[data-recap-code]')?.textContent?.trim())).toEqual(independent)
+    expect(cards.every((c) => (c.textContent ?? '').trim() !== c.querySelector('[data-recap-code]')?.textContent?.trim()), 'a chip shows only its code').toBe(true)
     // Bounded, because a campaign can fire more techniques than this (two
     // dozen over the twelve turns of v1.2) and the reading diet bounds
     // what the player is asked to take in.

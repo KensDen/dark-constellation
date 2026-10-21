@@ -94,6 +94,23 @@ export function recapTechniques(state: GameState): TechniqueRef[] {
   return out
 }
 
+// What ended the campaign, in the player's words (QC gauntlet Q17).
+export const LOSS_LABEL: Record<NonNullable<GameState['lossReason']>, string> = {
+  belowThreshold: 'Below the win line',
+  maiCollapse: 'MAI collapse',
+  insolvency: 'Budget insolvent',
+}
+
+// The threat behind a recapped technique: the most recent event that fired
+// it, so a chip reads as what hit the player, with the code beside it.
+export function recapName(state: GameState, techniqueId: string): string {
+  for (let i = state.history.length - 1; i >= 0; i -= 1) {
+    const ev = state.history[i].events.find((e) => e.firedTechniqueRefs.some((r) => r.id === techniqueId))
+    if (ev) return ev.name
+  }
+  return techniqueId
+}
+
 // The scene marker, so a test can ask which scene is on screen rather than
 // inferring it from a class that several treatments share.
 export const SCENE_ATTR = 'data-scene'
@@ -214,9 +231,12 @@ export default function Scene({ kind, beat, presented, final, reduced }: ScenePr
     )
   }
 
-  // Defeat: a static wash to LINK LOST, then the technique recap. Under
-  // reduce the wash is not rendered at all and LINK LOST is simply there,
-  // rather than a wash held at its final frame.
+  // Defeat: a static wash to the cause, then the technique recap. Under
+  // reduce the wash is not rendered at all and the cause is simply there,
+  // rather than a wash held at its final frame. The label names the real
+  // cause since the QC gauntlet (Q17, G-029): every defeat read LINK LOST,
+  // whatever ended it. The beat's own title is the card's heading, so the
+  // scene no longer repeats it (G-070).
   //
   // The recap comes from the CAMPAIGN, not from the beat. The outcome beat
   // carries no techniques of its own, so reading beat.techniques rendered
@@ -227,13 +247,14 @@ export default function Scene({ kind, beat, presented, final, reduced }: ScenePr
   return (
     <div {...{ [SCENE_ATTR]: kind }} className={`relative mt-3 border border-hero-magenta/60 bg-void/70 p-3 ${enter}`}>
       {!reduced && <span aria-hidden="true" className="dc-scene-wash absolute inset-0" />}
-      <p className="relative font-mono text-xs uppercase tracking-widest text-hero-magenta">Link lost</p>
-      <p className="relative mt-1 font-mono text-sm text-ink">{beat.title}</p>
+      <p className="relative font-mono text-xs uppercase tracking-widest text-hero-magenta">
+        {LOSS_LABEL[final.lossReason ?? 'belowThreshold']}
+      </p>
       {techniques.length > 0 && (
         <ul className="relative mt-2 flex flex-wrap gap-1.5">
           {techniques.map((t) => (
-            <li key={t.id} className="border border-hero-magenta/40 px-1.5 py-0.5 font-mono text-[10px] text-ink-dim">
-              {t.id}
+            <li key={t.id} className="border border-hero-magenta/40 px-1.5 py-0.5 font-mono text-[10px] text-ink">
+              {recapName(final, t.id)} <span data-recap-code className="text-ink-dim">{t.id}</span>
             </li>
           ))}
         </ul>
