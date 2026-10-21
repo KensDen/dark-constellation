@@ -11,7 +11,9 @@
 //   section 4).
 // The third R1 guard, that the briefing fits one phone screen with
 // CONTINUE showing, needs a real layout engine and lives in the battery
-// (scripts/briefing-fit.mjs).
+// (scripts/phone-layout.mjs), with the R1 fixes' SYSTEM bounds, scroll
+// reset and tagline checks. The fixes' flow checks are at the foot of
+// this file.
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -22,6 +24,7 @@ vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 import App from '../src/App'
 import { BEATS } from '../src/ui/coldOpenSlides'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
+import { glossaryEntries } from '../src/ui/reference'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 
@@ -182,5 +185,57 @@ describe('GUARD R1 (b): no retired word on an R1 screen', () => {
       expect(offending(beat), `a retired word on briefing beat ${i + 1}`).toEqual([])
       click(container.querySelector('[data-briefing-next]')!)
     }
+  })
+})
+
+describe('the R1 fixes (Ken, iPhone, 21 October 2026)', () => {
+  it('opens every screen at its top, Back to title included', async () => {
+    // jsdom does not scroll, so the page's scroll offset is a value this
+    // test sets and reads back.
+    let top = 0
+    Object.defineProperty(document.documentElement, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => void (top = v) })
+    try {
+      loadPage()
+      top = 900
+      click(container.querySelector('[data-read="dossier"]')!)
+      await settle()
+      expect(container.querySelector('[data-screen="glossary"]')).not.toBeNull()
+      expect(top, 'DOSSIER opened at the title scroll position').toBe(0)
+      top = 700
+      click(byText(/^Back to title$/)!)
+      expect(onTitle()).toBe(true)
+      expect(top, 'Back to title opened at the Glossary scroll position').toBe(0)
+    } finally {
+      delete (document.documentElement as unknown as Record<string, unknown>).scrollTop
+    }
+  })
+
+  it('opens SYSTEM from the difficulty chip with the selected level marked and focused', () => {
+    loadPage()
+    click(container.querySelector('[data-difficulty-chip]')!)
+    const dialog = container.querySelector('[role="dialog"]')
+    expect(dialog, 'the chip did not open SYSTEM').not.toBeNull()
+    const selected = dialog!.querySelectorAll('[data-system-control="difficulty"] [data-selected]')
+    expect([...selected].map((b) => b.textContent?.toUpperCase())).toEqual(['EASY'])
+    expect(document.activeElement).toBe(selected[0])
+  })
+
+  it('says CREDITS AND LICENSE, US spelling', () => {
+    loadPage()
+    click(container.querySelector('[data-difficulty-chip]')!)
+    const text = container.querySelector('[role="dialog"]')!.textContent ?? ''
+    expect(text).toMatch(/Credits and license/i)
+    expect(text).not.toMatch(/licence/i)
+  })
+
+  it('opens the Glossary on its counted intro (G-065)', async () => {
+    loadPage()
+    click(container.querySelector('[data-read="dossier"]')!)
+    await settle()
+    const n = glossaryEntries().length
+    expect(n).toBe(51)
+    expect(container.textContent).toContain(
+      `${n} entries: framework techniques, countermeasures with their SPARTA controls and tiers, and each threat and opportunity event.`,
+    )
   })
 })

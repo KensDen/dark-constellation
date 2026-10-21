@@ -1,12 +1,24 @@
 #!/usr/bin/env node
+// THE PHONE LAYOUT GUARDS. jsdom lays nothing out, so these drive a real
+// headless Chrome over the built game: dist/ is served at the GitHub Pages
+// base path and each check runs at 375x667 and 390x844.
+//
 // GUARD R1 (c), THE BRIEFING FITS ONE PHONE SCREEN (v1.3 R1, brief 5.2:
-// "CONTINUE never needs a scroll", Ken, 6 October). jsdom lays nothing
-// out, so this guard drives a real headless Chrome over the built game:
-// it serves dist/ at the GitHub Pages base path, opens a first visit at
-// 375x667 and 390x844, presses PLAY, and on every beat of the briefing
-// measures that the button is wholly on screen, the line ends above it,
-// and neither the page nor the briefing scrolls. It does it with motion
-// on and off, since the two paths render differently.
+// "CONTINUE never needs a scroll", Ken, 6 October): a first visit, PLAY,
+// and on every beat the button is wholly on screen, the line ends above
+// it, and neither the page nor the briefing scrolls; motion on and off,
+// since the two paths render differently.
+//
+// The v1.3 R1 fixes (Ken's iPhone, 21 October 2026) add:
+//   SYSTEM IN BOUNDS: on the title's SYSTEM and the board's, no text box
+//   starts left of x=0 or ends past the viewport, no text field is under
+//   16px (iOS Safari zooms the page on focusing one, and stays zoomed),
+//   and the title's SYSTEM is opaque and reaches the bottom of the screen.
+//   The difficulty chip opens it with the Difficulty row in view.
+//   SCROLL RESET: a screen opens at its top, whatever the last one's
+//   scroll (DOSSIER from a scrolled title; Back to title from a scrolled
+//   Glossary).
+//   TAGLINE: one line, never under 10px.
 //
 // Exit codes: 0 pass, 1 fail, 2 skipped (no Chrome on this machine). The
 // battery runs it after the build. GitHub's ubuntu-24.04 runner has
@@ -173,13 +185,96 @@ async function check(b, url, [w, h], reduced) {
   return failures
 }
 
-export async function briefingFits(chrome) {
+// Every visible element under root with text of its own that leaves the
+// viewport sideways, and every text field under 16px.
+const OUT_OF_BOUNDS = `((root) => {
+  const bad = []
+  for (const e of root.querySelectorAll('*')) {
+    const r = e.getBoundingClientRect()
+    if (r.width <= 1 || r.height <= 1) continue
+    const own = [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())
+    if (own && (r.left < -0.5 || r.right > innerWidth + 0.5)) bad.push(e.tagName + ' "' + e.textContent.trim().slice(0, 24) + '" ' + Math.round(r.left) + '..' + Math.round(r.right))
+    if ((e.tagName === 'INPUT' || e.tagName === 'TEXTAREA') && parseFloat(getComputedStyle(e).fontSize) < 16) bad.push(e.tagName + ' font ' + getComputedStyle(e).fontSize + ' (iOS zooms under 16px)')
+  }
+  return bad
+})`
+
+async function fresh(b, url, [w, h]) {
+  await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: true })
+  await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+  await b.send('Page.navigate', { url })
+  await waitFor(b, 'document.readyState === "complete"')
+  await b.evaluate('localStorage.clear(); location.reload(); true')
+  await sleep(500)
+  return waitFor(b, 'document.querySelector("[data-play]")')
+}
+
+async function checkTitle(b, url, [w, h]) {
+  const where = `${w}x${h}`
+  if (!(await fresh(b, url, [w, h]))) return [`${where}: the title never showed PLAY`]
+  const failures = []
+  const tag = await b.evaluate(`(() => { const e = document.querySelector('[data-tagline]'); const cs = getComputedStyle(e); return { fs: parseFloat(cs.fontSize), lh: parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.6, h: e.getBoundingClientRect().height, sw: e.scrollWidth, cw: e.clientWidth } })()`)
+  if (tag.fs < 10) failures.push(`${where}: the tagline is ${tag.fs}px, under 10`)
+  if (tag.sw > tag.cw + 0.5 || tag.h > tag.lh * 1.5) failures.push(`${where}: the tagline does not fit one line (${tag.sw} of ${tag.cw}px wide, ${Math.round(tag.h)}px tall)`)
+
+  // SCROLL RESET, from a scrolled title and from a scrolled Glossary.
+  await b.evaluate('window.scrollTo(0, document.documentElement.scrollHeight); document.querySelector(\'[data-read="dossier"]\').click(); true')
+  // The Glossary is a lazy chunk: wait for its Back button, not the shell.
+  if (!(await waitFor(b, '[...document.querySelectorAll("button")].some((x) => /back to title/i.test(x.innerText))'))) return [...failures, `${where}: DOSSIER did not open the Glossary`]
+  await sleep(300)
+  let y = await b.evaluate('Math.round(scrollY + document.querySelector("[data-screen]").scrollTop)')
+  if (y !== 0) failures.push(`${where}: DOSSIER opened ${y}px down`)
+  await b.evaluate('window.scrollTo(0, document.documentElement.scrollHeight); [...document.querySelectorAll("button")].find((x) => /back to title/i.test(x.innerText)).click(); true')
+  await waitFor(b, 'document.querySelector("[data-title]")')
+  await sleep(300)
+  y = await b.evaluate('Math.round(scrollY + document.querySelector("[data-screen]").scrollTop)')
+  if (y !== 0) failures.push(`${where}: Back to title opened ${y}px down`)
+
+  // The chip opens SYSTEM at Difficulty; SYSTEM stays in bounds, opaque
+  // and full height.
+  await b.evaluate('window.scrollTo(0, 400); document.querySelector("[data-difficulty-chip]").click(); true')
+  if (!(await waitFor(b, 'document.querySelector("[role=dialog]")'))) return [...failures, `${where}: the chip did not open SYSTEM`]
+  await sleep(300)
+  const sys = await b.evaluate(`(() => {
+    const d = document.querySelector('[role=dialog]')
+    const row = d.querySelector('[data-system-control="difficulty"]').getBoundingClientRect()
+    const panel = d.firstElementChild.getBoundingClientRect()
+    return { bad: ${OUT_OF_BOUNDS}(d), rowTop: row.top, rowBottom: row.bottom, panelBottom: panel.bottom, bg: getComputedStyle(d).backgroundColor }
+  })()`)
+  for (const x of sys.bad) failures.push(`${where}: title SYSTEM: ${x}`)
+  if (sys.rowTop < 0 || sys.rowBottom > h) failures.push(`${where}: the chip opened SYSTEM without Difficulty in view`)
+  if (sys.panelBottom < h - 1) failures.push(`${where}: title SYSTEM ends at ${Math.round(sys.panelBottom)} of ${h}`)
+  // Opaque: no alpha under 1, whichever colour syntax the browser reports
+  // (rgba(), or color()/oklab() with a slash alpha from Tailwind's mixes).
+  const alpha = /\/\s*([\d.]+)\)$/.exec(sys.bg)?.[1] ?? /^rgba\(.*,\s*([\d.]+)\)$/.exec(sys.bg)?.[1] ?? (sys.bg === 'transparent' ? '0' : '1')
+  if (Number(alpha) < 1) failures.push(`${where}: title SYSTEM is see-through (${sys.bg})`)
+  return failures
+}
+
+// The board's SYSTEM: a first PLAY, SKIP the briefing, open SYSTEM.
+async function checkBoardSystem(b, url, [w, h]) {
+  const where = `${w}x${h}`
+  if (!(await fresh(b, url, [w, h]))) return [`${where}: the title never showed PLAY`]
+  await b.evaluate('document.querySelector("[data-play]").click(); true')
+  await waitFor(b, 'document.querySelector("[data-briefing-next]")')
+  await b.evaluate('[...document.querySelectorAll("button")].find((x) => x.innerText.trim() === "SKIP").click(); true')
+  if (!(await waitFor(b, 'document.querySelector("[data-board]")'))) return [`${where}: SKIP did not reach the board`]
+  await sleep(500)
+  await b.evaluate('document.querySelector(\'button[aria-label="System"]\').click(); true')
+  if (!(await waitFor(b, 'document.querySelector("[data-sheet=system]")'))) return [`${where}: the board's SYSTEM did not open`]
+  await sleep(400)
+  const bad = await b.evaluate(`${OUT_OF_BOUNDS}(document.querySelector('[data-sheet=system]'))`)
+  return bad.map((x) => `${where}: board SYSTEM: ${x}`)
+}
+
+export async function phoneLayout(chrome) {
   const server = await serve()
   const url = `http://127.0.0.1:${server.address().port}${BASE}`
   const b = await browser(chrome)
   try {
     const failures = []
     for (const vp of VIEWPORTS) for (const reduced of [false, true]) failures.push(...(await check(b, url, vp, reduced)))
+    for (const vp of VIEWPORTS) failures.push(...(await checkTitle(b, url, vp)), ...(await checkBoardSystem(b, url, vp)))
     return failures
   } finally {
     b.close()
@@ -197,13 +292,13 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     console.log('no build in dist/; run the build first')
     process.exit(1)
   }
-  briefingFits(chrome)
+  phoneLayout(chrome)
     .then((failures) => {
       if (failures.length) {
         console.log(failures.join('\n'))
         process.exit(1)
       }
-      console.log(`fits at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}, motion on and off`)
+      console.log(`briefing fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}`)
       process.exit(0)
     })
     .catch((e) => {

@@ -235,15 +235,18 @@ run('pre-push OPSEC hook is active (local only)', () => {
   }
 })
 
-// GUARD R1 (c), v1.3 Round 1 (brief 5.2): the briefing fits 375x667 and
-// 390x844 with CONTINUE on screen and nothing scrolling, measured in a
-// real headless Chrome over the build above (scripts/briefing-fit.mjs).
-// jsdom lays nothing out, so the suite cannot hold this. SKIP only when
-// the machine has no Chrome at all; any other failure is a FAIL.
-run('briefing fits one phone screen (v1.3 R1, brief 5.2)', () => {
-  const r = spawnSync(process.execPath, ['scripts/briefing-fit.mjs'], { encoding: 'utf8', timeout: 240000 })
+// The phone layout guards, v1.3 Round 1 and its fixes, measured in a real
+// headless Chrome over the build above (scripts/phone-layout.mjs): the
+// briefing fits 375x667 and 390x844 with CONTINUE on screen and nothing
+// scrolling (GUARD R1 (c), brief 5.2); SYSTEM stays inside the viewport
+// with no text field iOS would zoom on; every screen opens at its top;
+// the tagline is one line. jsdom lays nothing out, so the suite cannot
+// hold these. SKIP only when the machine has no Chrome at all; any other
+// failure is a FAIL.
+run('phone layout: briefing fit, SYSTEM in bounds, scroll reset, tagline (v1.3 R1)', () => {
+  const r = spawnSync(process.execPath, ['scripts/phone-layout.mjs'], { encoding: 'utf8', timeout: 300000 })
   if (r.status === 2) return 'skip'
-  if (r.status !== 0) throw Object.assign(new Error('briefing fit failed'), { stdout: r.stdout || String(r.error ?? ''), stderr: r.stderr })
+  if (r.status !== 0) throw Object.assign(new Error('phone layout failed'), { stdout: r.stdout || String(r.error ?? ''), stderr: r.stderr })
   process.stdout.write(`${r.stdout.trim()} ... `)
 })
 
