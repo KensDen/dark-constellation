@@ -33,7 +33,15 @@ export default function Credits({ onBack }: { onBack: () => void }) {
         <ul className="mt-2 space-y-2 text-sm list-disc ml-5">
           <li>
             Code: copyright 2026 Ken Connell, all rights reserved. It is published to be read and reviewed; no license
-            is granted to reuse it. See LICENSE in the repository.
+            is granted to reuse it. See LICENSE in the repository (
+            <a className="underline" href={REPO} target="_blank" rel="noreferrer">
+              github.com/KensDen/dark-constellation
+            </a>
+            ), also at{' '}
+            <a className="underline" href={`${import.meta.env.BASE_URL}legal/LICENSE.txt`} target="_blank" rel="noreferrer">
+              /legal/LICENSE.txt
+            </a>{' '}
+            on this site.
           </li>
           <li>
             Artwork and written content: copyright 2026 Ken Connell, all rights reserved. They were never covered by
@@ -46,10 +54,20 @@ export default function Credits({ onBack }: { onBack: () => void }) {
             commits no longer appear in it.
           </li>
           <li>
-            Display type: a subset of Press Start 2P by CodeMan38, used under the SIL Open Font License 1.1. The full
-            license ships with the font in the repository.
+            Display type: a subset of Press Start 2P by CodeMan38, used under the SIL Open Font License 1.1 and renamed
+            DC Display as a Modified Version. The full license ships with this site at{' '}
+            <a className="underline" href={`${import.meta.env.BASE_URL}legal/OFL.txt`} target="_blank" rel="noreferrer">
+              /legal/OFL.txt
+            </a>{' '}
+            and with the font in the repository.
           </li>
-          <li>To ask about using any of this, open an issue on the repository.</li>
+          <li>
+            To ask about using any of this, open an issue on{' '}
+            <a className="underline" href={REPO} target="_blank" rel="noreferrer">
+              the repository
+            </a>
+            .
+          </li>
         </ul>
       </section>
 
@@ -60,7 +78,8 @@ export default function Credits({ onBack }: { onBack: () => void }) {
         <p className="mt-2 text-sm">
           Every adversary threat in the deck maps to a published framework technique from SPARTA, MITRE ATT&amp;CK, or MITRE
           ATLAS, each verified against the live framework site. All organizations, vendors, constellations, and threat
-          actors in the fiction are invented. See the GLOSSARY for the full reference list.
+          actors in the fiction are invented. See the GLOSSARY for every framework technique and control, and the FIELD LIBRARY for the reading
+          behind the threats.
         </p>
         <p className="mt-2 text-sm text-ink-dim">
           SPARTA® is a registered trademark of The Aerospace Corporation. MITRE ATT&amp;CK® and ATT&amp;CK® are
@@ -80,6 +99,8 @@ export default function Credits({ onBack }: { onBack: () => void }) {
     </main>
   )
 }
+
+const REPO = 'https://github.com/KensDen/dark-constellation'
 
 const btn =
   'font-mono border border-phosphor/60 text-phosphor px-3 py-1 text-sm hover:bg-phosphor/10 disabled:opacity-40'
