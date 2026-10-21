@@ -45,7 +45,7 @@ trade off against each other.
   dependence is a vulnerability an adversary can manufacture on demand.
 - **The intel brief.** Free on the first night, then a cost each turn: without it the moves
   COLDVEIL is choosing between stay unnamed.
-- **Deployment lead time.** Satellites take two turns to reach orbit. Buy ahead of the threat,
+- **Deployment lead time.** Satellites take two turns to reach orbit. Procure ahead of the threat,
   not into it.
 - **Upkeep and the worst case.** Every defense costs credits a turn to keep, and repairs are paid
   at the turn close before funding arrives. The worst case says, before you commit, whether a bad
