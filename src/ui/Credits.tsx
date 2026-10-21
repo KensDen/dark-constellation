@@ -78,7 +78,7 @@ export default function Credits({ onBack }: { onBack: () => void }) {
         </h2>
         <p className="mt-2 text-sm">
           Every adversary threat in the deck maps to a published framework technique from SPARTA, MITRE ATT&amp;CK, or MITRE
-          ATLAS, each verified against the live framework site. All organizations, vendors, constellations, and threat
+          ATLAS, each checked by hand against its live source page, with every link re-checked before each deploy. All organizations, vendors, constellations, and threat
           actors in the fiction are invented. See the GLOSSARY for every framework technique and control, and the FIELD LIBRARY for the reading
           behind the threats.
         </p>
