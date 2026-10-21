@@ -19,7 +19,7 @@ playback with v1.3 Round 0.
 
 Each turn you read what COLDVEIL could hit tonight, order fleet and defenses, then EXECUTE and
 see what your posture absorbed. The adversary reacts: it takes the move you have covered least.
-Finish turn 6 with mission assurance at 70 or higher to win; let it collapse, or run the budget
+Finish turn 6 with the Mission Assurance Index (MAI) at 70 or higher to win; let it collapse, or run the budget
 below zero at a turn close, and the operation ends early. There is no dominant strategy: every
 defense costs upkeep, repairs come due at the turn close, and coverage, trust, and redundancy
 trade off against each other.

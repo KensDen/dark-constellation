@@ -376,7 +376,7 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
         : after.lossReason === 'insolvency'
           ? 'MISSION FAILED: budget insolvency'
           : after.lossReason === 'maiCollapse'
-            ? 'MISSION FAILED: mission assurance collapse'
+            ? 'MISSION FAILED: Mission Assurance Index collapse'
             : 'MISSION FAILED: below the win line at the end of the operation'
     // The field, not the title, decides the treatment downstream.
     push({ kind: 'outcome', title: reason, lost: after.status !== 'won' })
