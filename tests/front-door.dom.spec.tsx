@@ -5,7 +5,9 @@
 //   title, and its PLAY goes through the briefing to turn 1 with no menu in
 //   between, on EASY. A later PLAY skips the briefing, every PLAY draws a
 //   fresh seed, and a device that has finished a campaign starts on
-//   STANDARD.
+//   STANDARD. PLAY says which (its [data-play-mode] line), and SYSTEM is
+//   the one place the difficulty changes: the title's difficulty chip
+//   went in v1.3 R2 (Ken's ruling).
 //   GUARD R1 (b), NO RETIRED WORD: nothing on an R1 screen (the title, its
 //   SYSTEM, the briefing) says buy, purchase, money, MAI or RESOLVE (brief
 //   section 4).
@@ -109,7 +111,7 @@ describe('GUARD R1 (a): the first-visit flow', () => {
     loadPage()
     expect(onTitle(), 'a first visit did not land on the title').toBe(true)
     expect(onBoard()).toBe(false)
-    expect(container.querySelector('[data-difficulty-chip]')!.textContent).toBe('EASY')
+    expect(container.querySelector('[data-play-mode]')!.textContent).toBe('EASY')
 
     click(container.querySelector('[data-play]')!)
     await settle()
@@ -155,8 +157,46 @@ describe('GUARD R1 (a): the first-visit flow', () => {
       'dc-scores',
       JSON.stringify([{ outcome: 'won', mai: 80, seed: 1, turnsSurvived: 6, totalTurns: 6, scenarioId: 'first-light', difficulty: 'easy', recordedAt: '2026-10-20T00:00:00Z' }]),
     )
+    localStorage.setItem(INTRO_SEEN_KEY, '1')
     loadPage()
-    expect(container.querySelector('[data-difficulty-chip]')!.textContent).toBe('STANDARD')
+    expect(container.querySelector('[data-play-mode]')!.textContent).toBe('STANDARD')
+    click(container.querySelector('[data-play]')!)
+    expect(onBoard()).toBe(true)
+    expect(autosave()!.state.difficulty, 'PLAY started another mode than it showed').toBe('standard')
+  })
+
+  it('shows the mode PLAY starts, and changes it in SYSTEM only', async () => {
+    loadPage()
+    // No chip, and no difficulty control anywhere on the title outside
+    // SYSTEM: the one place a difficulty word shows is PLAY's mode line.
+    expect(container.querySelector('[data-difficulty-chip]'), 'the difficulty chip is back on the title').toBeNull()
+    expect(container.querySelector('[data-system-control="difficulty"]'), 'a difficulty control outside SYSTEM').toBeNull()
+    const modeWords = () =>
+      [...container.querySelectorAll('[data-title] *')].filter((el) => el.children.length === 0 && /^(EASY|STANDARD)$/i.test((el.textContent ?? '').trim()))
+    expect(modeWords()).toEqual([container.querySelector('[data-play-mode]')])
+    expect(modeWords()[0].closest('button')!.hasAttribute('data-play'), 'the mode line is not on PLAY').toBe(true)
+    expect(container.querySelector('[data-play-mode]')!.textContent).toBe('EASY')
+
+    // SYSTEM changes it, for the next operation, and PLAY says so.
+    const system = buttons().find((b) => b.getAttribute('aria-haspopup') === 'dialog' && (b.textContent ?? '').trim() === 'SYSTEM')!
+    click(system)
+    const dialog = container.querySelector('[role="dialog"]')!
+    const selected = () => [...dialog.querySelectorAll('[data-system-control="difficulty"] [data-selected]')].map((b) => b.textContent)
+    expect(selected()).toEqual(['EASY'])
+    click([...dialog.querySelectorAll('[data-system-control="difficulty"] button')].find((b) => b.textContent === 'STANDARD')!)
+    expect(selected()).toEqual(['STANDARD'])
+    click(byText(/^DONE$/)!)
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    expect(container.querySelector('[data-play-mode]')!.textContent).toBe('STANDARD')
+
+    // And PLAY starts the mode it shows: through the briefing, a first
+    // device's PLAY lands on turn 1 on STANDARD.
+    click(container.querySelector('[data-play]')!)
+    await settle()
+    for (let i = 0; i < BEATS.length; i += 1) click(container.querySelector('[data-briefing-next]')!)
+    await settle()
+    expect(onBoard()).toBe(true)
+    expect(autosave()!.state.difficulty, 'PLAY started another mode than it showed').toBe('standard')
   })
 })
 
@@ -210,19 +250,9 @@ describe('the R1 fixes (Ken, iPhone, 21 October 2026)', () => {
     }
   })
 
-  it('opens SYSTEM from the difficulty chip with the selected level marked and focused', () => {
-    loadPage()
-    click(container.querySelector('[data-difficulty-chip]')!)
-    const dialog = container.querySelector('[role="dialog"]')
-    expect(dialog, 'the chip did not open SYSTEM').not.toBeNull()
-    const selected = dialog!.querySelectorAll('[data-system-control="difficulty"] [data-selected]')
-    expect([...selected].map((b) => b.textContent?.toUpperCase())).toEqual(['EASY'])
-    expect(document.activeElement).toBe(selected[0])
-  })
-
   it('says CREDITS AND LICENSE, US spelling', () => {
     loadPage()
-    click(container.querySelector('[data-difficulty-chip]')!)
+    click(buttons().find((b) => b.getAttribute('aria-haspopup') === 'dialog' && (b.textContent ?? '').trim() === 'SYSTEM')!)
     const text = container.querySelector('[role="dialog"]')!.textContent ?? ''
     expect(text).toMatch(/Credits and license/i)
     expect(text).not.toMatch(/licence/i)

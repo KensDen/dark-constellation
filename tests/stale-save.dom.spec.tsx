@@ -115,13 +115,13 @@ describe('an autosave from an earlier version (v1.3 brief 6.10)', () => {
   it('shows no message with no save, and none for a save this version can resume', () => {
     loadPage()
     expect(notice(), 'a message with no save at all').toBeNull()
-    expect(byText(/^PLAY$/)).toBeDefined()
+    expect(container.querySelector('[data-play]')).not.toBeNull()
     act(() => root.unmount())
     root = createRoot(container)
     // A current save boots straight back into its game, as before.
     localStorage.setItem('dc-autosave', JSON.stringify(captureGame(newGame(DEFAULT_SCENARIO, 7), 'procure', '2026-10-09T00:00:00.000Z')))
     loadPage()
     expect(notice(), 'a resumable save was called an earlier version').toBeNull()
-    expect(container.querySelector('[aria-label^="Credits"]'), 'a resumable save did not resume onto the board').not.toBeNull()
+    expect(onBoard(), 'a resumable save did not resume onto the board').toBe(true)
   })
 })

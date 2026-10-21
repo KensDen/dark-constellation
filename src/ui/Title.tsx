@@ -57,9 +57,6 @@ const READ_BTN = 'border-2 border-dashed border-dc-line p-3 text-left min-h-11'
 
 export default function Title(p: TitleProps) {
   const [system, setSystem] = useState(false)
-  // The difficulty chip opens SYSTEM at its Difficulty row (Ken, 21
-  // October), with the selected level focused.
-  const dialog = useRef<HTMLDivElement | null>(null)
   // The tagline on one line whatever the font (Ken, 21 October). Its size
   // follows the width, and the width a line takes follows the font: SF on
   // an iPhone, Roboto on Android, DejaVu on a CI runner. So once laid out
@@ -76,14 +73,6 @@ export default function Title(p: TitleProps) {
     window.addEventListener('resize', fit)
     return () => window.removeEventListener('resize', fit)
   }, [])
-  const [atDifficulty, setAtDifficulty] = useState(false)
-  useEffect(() => {
-    if (!system || !atDifficulty) return
-    const row = dialog.current?.querySelector<HTMLElement>('[data-system-control="difficulty"]')
-    row?.scrollIntoView?.({ block: 'start' })
-    row?.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus({ preventScroll: true })
-    setAtDifficulty(false)
-  }, [system, atDifficulty])
   // The Daily Op's number and line, read again at the next local midnight
   // so a title left open overnight offers the new day's run.
   const [now, setNow] = useState(() => new Date())
@@ -115,20 +104,7 @@ export default function Title(p: TitleProps) {
 
   return (
     <main data-title className="mx-auto flex min-h-dvh w-full max-w-[520px] flex-col gap-4 px-4 pt-safe pb-10 text-dc-ink">
-      <div className="flex items-center justify-between pt-3">
-        <button
-          type="button"
-          data-difficulty-chip
-          aria-haspopup="dialog"
-          aria-label={`Difficulty: ${DIFFICULTIES[p.difficulty].label}`}
-          onClick={() => {
-            setAtDifficulty(true)
-            setSystem(true)
-          }}
-          className="min-h-11 border border-dc-go px-2 font-mono text-[11px] tracking-widest text-dc-go"
-        >
-          {DIFFICULTIES[p.difficulty].label.toUpperCase()}
-        </button>
+      <div className="flex items-center justify-end pt-3">
         <button
           type="button"
           aria-haspopup="dialog"
@@ -200,9 +176,14 @@ export default function Title(p: TitleProps) {
           type="button"
           data-play
           onClick={p.onPlay}
-          className="min-h-14 border-2 border-dc-go bg-dc-go/10 font-display text-sm text-dc-go shadow-press active:translate-y-[3px] active:shadow-none"
+          className="flex min-h-14 flex-col items-center justify-center gap-1 border-2 border-dc-go bg-dc-go/10 py-2 text-dc-go shadow-press active:translate-y-[3px] active:shadow-none"
         >
-          PLAY
+          <span className="font-display text-sm">PLAY</span>
+          {/* The mode PLAY will start (Ken's R1 phone pass, item 12): the
+              difficulty is changed in SYSTEM only. */}
+          <span data-play-mode className="font-mono text-[10px] tracking-wider text-dc-muted">
+            {DIFFICULTIES[p.difficulty].label.toUpperCase()}
+          </span>
         </button>
         {n >= 1 && (
           <button
@@ -260,7 +241,7 @@ export default function Title(p: TitleProps) {
       {system && (
         // Opaque and full height (Ken, 21 October): nothing of the title
         // shows through below a short panel.
-        <div ref={dialog} className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground" role="dialog" aria-modal="true" aria-label={SYSTEM_TITLE}>
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground" role="dialog" aria-modal="true" aria-label={SYSTEM_TITLE}>
           <div className="mx-auto min-h-full max-w-[520px] border-x-2 border-dc-line bg-dc-panel pb-safe">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b-2 border-dc-line bg-dc-panel px-3 py-2 pt-safe">
               <h2 className="font-display text-[10px] text-dc-ink">{SYSTEM_TITLE}</h2>
