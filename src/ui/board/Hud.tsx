@@ -69,21 +69,19 @@ export default function Hud({ shown, displayTurn, credits, onSystem, systemOpen,
             {intel} | {difficulty}
           </p>
         </div>
-        {/* The gear, top right (brief R1b). The sr-only word is what the
-            chrome mirror counts; the aria-label is the name. */}
+        {/* SYSTEM, top right (brief R1b), a word rather than the gear
+            since v1.3 R1 fixes, as on the title. It is the one word the
+            chrome mirror counts (SYSTEM_GEAR_LABEL). */}
         <button
           type="button"
           aria-label="System"
           aria-expanded={systemOpen}
           onClick={onSystem}
-          className={`dc-tile flex-none flex items-center justify-center min-h-11 min-w-11 border-2 border-dc-line bg-dc-panel text-dc-ink shadow-press active:shadow-none ${
+          className={`dc-tile flex-none flex items-center justify-center min-h-11 min-w-11 px-3 border-2 border-dc-line bg-dc-panel font-display text-[10px] text-dc-ink shadow-press active:shadow-none ${
             systemOpen ? 'border-dc-friendly text-dc-friendly' : ''
           }`}
         >
-          <span aria-hidden="true" className="font-sans text-lg leading-none">
-            &#9881;
-          </span>
-          <span className="sr-only">System</span>
+          <span className="uppercase">System</span>
         </button>
       </div>
       <div className="px-2 mt-0.5 flex items-end justify-between gap-3">

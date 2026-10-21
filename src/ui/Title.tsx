@@ -121,6 +121,17 @@ const READ_BTN = 'border-2 border-dashed border-dc-line p-3 text-left min-h-11'
 export default function Title(p: TitleProps) {
   const reduced = useReducedMotion()
   const [system, setSystem] = useState(false)
+  // The difficulty chip opens SYSTEM at its Difficulty row (Ken, 21
+  // October), with the selected level focused.
+  const dialog = useRef<HTMLDivElement | null>(null)
+  const [atDifficulty, setAtDifficulty] = useState(false)
+  useEffect(() => {
+    if (!system || !atDifficulty) return
+    const row = dialog.current?.querySelector<HTMLElement>('[data-system-control="difficulty"]')
+    row?.scrollIntoView?.({ block: 'start' })
+    row?.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus({ preventScroll: true })
+    setAtDifficulty(false)
+  }, [system, atDifficulty])
   // The Daily Op's number and line, read again at the next local midnight
   // so a title left open overnight offers the new day's run.
   const [now, setNow] = useState(() => new Date())
@@ -153,9 +164,19 @@ export default function Title(p: TitleProps) {
   return (
     <main data-title className="mx-auto flex min-h-dvh w-full max-w-[520px] flex-col gap-4 px-4 pt-safe pb-10 text-dc-ink">
       <div className="flex items-center justify-between pt-3">
-        <span data-difficulty-chip className="border border-dc-go px-2 py-1 font-mono text-[11px] tracking-widest text-dc-go">
+        <button
+          type="button"
+          data-difficulty-chip
+          aria-haspopup="dialog"
+          aria-label={`Difficulty: ${DIFFICULTIES[p.difficulty].label}`}
+          onClick={() => {
+            setAtDifficulty(true)
+            setSystem(true)
+          }}
+          className="min-h-11 border border-dc-go px-2 font-mono text-[11px] tracking-widest text-dc-go"
+        >
           {DIFFICULTIES[p.difficulty].label.toUpperCase()}
-        </span>
+        </button>
         <button
           type="button"
           aria-haspopup="dialog"
@@ -175,7 +196,11 @@ export default function Title(p: TitleProps) {
           <Wordmark size="clamp(0.9rem, 5vw, 1.7rem)" />
         </h1>
         <p className="mt-3 font-mono text-xs tracking-widest text-dc-friendly">OP {DEFAULT_SCENARIO.name}</p>
-        <p className="mt-2 text-sm text-dc-muted">{TITLE_TAGLINE}</p>
+        {/* One line on a phone (Ken, 21 October): the size follows the
+            width, never under 10px. */}
+        <p data-tagline className="mt-2 whitespace-nowrap text-[clamp(10px,3.2vw,14px)] text-dc-muted">
+          {TITLE_TAGLINE}
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -298,7 +323,7 @@ export default function Title(p: TitleProps) {
       {system && (
         // Opaque and full height (Ken, 21 October): nothing of the title
         // shows through below a short panel.
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground" role="dialog" aria-modal="true" aria-label={SYSTEM_TITLE}>
+        <div ref={dialog} className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground" role="dialog" aria-modal="true" aria-label={SYSTEM_TITLE}>
           <div className="mx-auto min-h-full max-w-[520px] border-x-2 border-dc-line bg-dc-panel pb-safe">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b-2 border-dc-line bg-dc-panel px-3 py-2 pt-safe">
               <h2 className="font-display text-[10px] text-dc-ink">{SYSTEM_TITLE}</h2>

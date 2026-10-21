@@ -229,6 +229,7 @@ describe('the title starts the Daily Op (v1.3 R1)', () => {
     expect(inProgress, 'nothing in progress, so nothing to protect').not.toBeNull()
     openSystem()
     click(byText(/^Back to title$/)!)
+    click(byText(/^LEAVE$/)!)
     expect(container.querySelector('[data-continue]'), 'not on the title with an operation in progress').not.toBeNull()
 
     const confirm = () => container.querySelector('[data-confirm-daily]')

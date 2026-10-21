@@ -258,6 +258,7 @@ describe('the READ row on the title (v1.3 R1, brief 5.1)', () => {
     // A resumable save lands straight on the board; SYSTEM goes back.
     click(container.querySelector('button[aria-label="System"]')!)
     click(byText(/^Back to title$/)!)
+    click(byText(/^LEAVE$/)!)
     const cont = container.querySelector('[data-continue]')
     expect(cont, 'no CONTINUE for the game in progress').not.toBeNull()
     expect(cont!.textContent?.trim()).toBe('CONTINUE TURN 1')

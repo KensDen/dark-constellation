@@ -32,6 +32,8 @@ export interface SystemPanelProps {
   onCredits: () => void
   // The board only.
   onTitle?: () => void
+  // Leaving a game in progress asks first (Ken, 21 October).
+  confirmLeave?: boolean
   // What the deck holds, as one line (QC G-065).
   deckLine: string
   notice: string
@@ -43,6 +45,7 @@ const name = (id: SystemControl['id']) => SYSTEM_CONTROLS.find((c) => c.id === i
 export default function SystemPanel(p: SystemPanelProps) {
   const motionOff = useMotionSettingOff()
   const [pending, setPending] = useState<Difficulty | null>(null)
+  const [leaving, setLeaving] = useState(false)
   const [code, setCode] = useState('')
   const [seedText, setSeedText] = useState('')
   const seed = parseSeed(seedText)
@@ -145,11 +148,24 @@ export default function SystemPanel(p: SystemPanelProps) {
             {name('credits')}
           </button>
           {p.onTitle && (
-            <button type="button" data-system-control="title" className={SHEET_BUTTON} onClick={p.onTitle}>
+            <button type="button" data-system-control="title" className={SHEET_BUTTON} onClick={p.confirmLeave ? () => setLeaving(true) : p.onTitle}>
               {name('title')}
             </button>
           )}
         </div>
+        {leaving && p.onTitle && (
+          <div role="group" aria-label="Leave this operation" data-confirm-leave className="mt-2 border-2 border-dc-warn/60 p-2">
+            <p className="text-sm text-dc-warn">Leave this operation? It is saved; CONTINUE picks it up.</p>
+            <div className="mt-2 flex gap-2">
+              <button type="button" className={SHEET_PRIMARY} onClick={p.onTitle}>
+                LEAVE
+              </button>
+              <button type="button" className={SHEET_BUTTON} onClick={() => setLeaving(false)}>
+                STAY
+              </button>
+            </div>
+          </div>
+        )}
         <p data-deck-line className="mt-3 font-mono text-[10px] text-dc-muted">
           {p.deckLine}
         </p>

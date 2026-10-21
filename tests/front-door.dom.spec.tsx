@@ -125,10 +125,21 @@ describe('GUARD R1 (a): the first-visit flow', () => {
     expect(saved.state.difficulty, 'a first device did not start on EASY').toBe('easy')
     expect(localStorage.getItem(INTRO_SEEN_KEY)).toBe('1')
 
-    // A later PLAY goes straight to turn 1, on a fresh seed.
+    // Back to title from a game in progress asks first (v1.3 R1 fixes,
+    // item 10): STAY keeps the board, LEAVE goes to the title.
     click(container.querySelector('button[aria-label="System"]')!)
     click(byText(/^Back to title$/)!)
+    const ask = container.querySelector('[data-confirm-leave]')
+    expect(ask, 'Back to title left a game in progress without asking').not.toBeNull()
+    expect(ask!.textContent).toContain('Leave this operation? It is saved; CONTINUE picks it up.')
+    click(byText(/^STAY$/)!)
+    expect(onBoard()).toBe(true)
+    expect(container.querySelector('[data-confirm-leave]')).toBeNull()
+    click(byText(/^Back to title$/)!)
+    click(byText(/^LEAVE$/)!)
     expect(onTitle()).toBe(true)
+
+    // A later PLAY goes straight to turn 1, on a fresh seed.
     click(container.querySelector('[data-play]')!)
     await settle()
     expect(onBriefing(), 'a later PLAY replayed the briefing').toBe(false)

@@ -28,7 +28,7 @@ export interface SystemSheetProps extends SystemPanelProps {
 export default function SystemSheet({ playing, onClose, ...panel }: SystemSheetProps) {
   return (
     <Sheet id="system" title={SYSTEM_TITLE} onClose={onClose}>
-      <SystemPanel {...panel} onExport={playing ? panel.onExport : undefined} />
+      <SystemPanel {...panel} onExport={playing ? panel.onExport : undefined} confirmLeave={playing} />
       {playing && <p className="px-3 pb-3 font-mono text-[10px] text-dc-muted">Autosaved each turn.</p>}
     </Sheet>
   )
