@@ -14,13 +14,13 @@ export default function Credits({ onBack }: { onBack: () => void }) {
       </div>
 
       <section className="mt-5 space-y-2 text-sm">
+        <p className="font-mono text-phosphor">By Ken Connell</p>
         <p>
-          {GAME_TITLE} is a personal portfolio project by Ken Connell. Design, code, writing, and direction by
-          the author.
+          {GAME_TITLE} is my personal portfolio project. I did the design, code, writing, and direction.
         </p>
         <p className="font-mono text-phosphor">Artwork: AI-generated, human-commanded.</p>
         <p className="text-ink-dim">
-          The key art and outcome backdrops were generated with AI tools under the author&apos;s direction and
+          The key art and outcome backdrops were generated with AI tools under my direction and
           selection. The interface art (wordmark, event icons, layer badges, constellation frame) was authored as
           original vector work for this project.
         </p>

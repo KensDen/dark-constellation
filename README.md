@@ -1,5 +1,7 @@
 # DARK CONSTELLATION
 
+By Ken Connell
+
 ![Split-sphere key art banner](docs/readme-banner.webp)
 
 **A turn-based space and drone cybersecurity strategy sim.** You are the mission assurance
@@ -133,10 +135,10 @@ Deliberately out of scope, recorded here as future work:
 
 ## Credits
 
-Design, code, writing, and direction by Ken Connell.
+I did the design, code, writing, and direction.
 
 **Artwork: AI-generated, human-commanded.** The key art and outcome backdrops were generated
-with AI tools under the author's direction and selection. The interface art (wordmark,
+with AI tools under my direction and selection. The interface art (wordmark,
 event icons, layer badges, constellation frame) was authored as original vector work for this
 project.
 
