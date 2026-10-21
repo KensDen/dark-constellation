@@ -131,8 +131,11 @@ describe('the split screens stay out of the initial chunk (v1.2 R0)', () => {
     // since v1.3 Round 0: the FIELD MANUAL and HOW TO PLAY screens were
     // deleted with their menu entries (v1.3 brief 5.1, critique rows M5
     // and M20: the briefing teaches the rules), so their two declarations
-    // went with the files rather than turning static.
-    expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(6)
+    // went with the files rather than turning static. Seven since the
+    // v1.3 R1 fixes: the TERMINAL CHROME, which frames only the reference
+    // screens and so travels with them, moved out to keep INITIAL under
+    // 155,000 when the title's fixes landed.
+    expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(7)
     for (const spec of lazySpecs) {
       expect(resolveLocal(APP, spec), `lazy import ${spec} resolves to no file`).toBeTruthy()
     }

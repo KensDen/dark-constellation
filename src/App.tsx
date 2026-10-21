@@ -10,10 +10,9 @@
 // load, the app lands straight back in the game at the saved turn and
 // phase, and the title offers CONTINUE TURN n whenever one exists.
 
-import { Suspense, lazy, useState } from 'react'
+import { Suspense, lazy, useLayoutEffect, useRef, useState } from 'react'
 import Game from './ui/Game'
 import Title from './ui/Title'
-import TerminalChrome from './ui/TerminalChrome'
 import { hasSeenIntro } from './ui/introSeen'
 import { LocalStorageStore, SaveError, captureGame, decodeSaveCode, encodeSaveCode, type RestoredGame } from './persistence'
 import { useGestureUnlock, useSoundPrefs } from './audio'
@@ -33,6 +32,10 @@ import type { Difficulty } from './engine/types'
 // imports the same modules statically, which is what would quietly put
 // them back in the initial chunk (principle 17).
 const Credits = lazy(() => import('./ui/Credits'))
+// The terminal chrome frames only these reference screens, never the title
+// or the board, so it travels with them (v1.3 R1 fixes: moved out to keep
+// INITIAL under 155,000 once the title's fixes landed).
+const TerminalChrome = lazy(() => import('./ui/TerminalChrome'))
 const Scoreboard = lazy(() => import('./ui/Scoreboard'))
 // The FIELD LIBRARY (v1.2 R5b) validates its list as it loads. A list that
 // failed, or a chunk that never arrived, leaves a way back rather than a
@@ -104,6 +107,17 @@ function App() {
   const [briefingNext, setBriefingNext] = useState<RestoredGame | null>(null)
   const [notice, setNotice] = useState('')
 
+  // Every screen opens at its top (Ken's iPhone, 21 October 2026: DOSSIER
+  // opened the Glossary at the title's scroll position). The page scrolls
+  // for every screen but the board, which scrolls its own layer, so both
+  // are reset; assigned rather than scrollTo, which a test DOM lacks.
+  const scroller = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
+    if (scroller.current) scroller.current.scrollTop = 0
+  }, [screen])
+
   const start = (initial: RestoredGame) => {
     setGameInitial(initial)
     setGameKey((k) => k + 1)
@@ -166,8 +180,12 @@ function App() {
               other screen is a document that scrolls the page. The title
               and the board carry no terminal chrome; the reference screens
               keep it until R4. */}
-          {chrome && <TerminalChrome status={STATUS[screen] ?? 'REFERENCE'} />}
-          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+          {chrome && (
+            <Suspense fallback={null}>
+              <TerminalChrome status={STATUS[screen] ?? 'REFERENCE'} />
+            </Suspense>
+          )}
+          <div ref={scroller} data-screen={screen} className="flex-1 min-h-0 overflow-y-auto flex flex-col">
             <Suspense fallback={<ScreenLoading />}>
               {screen === 'title' && (
                 <Title

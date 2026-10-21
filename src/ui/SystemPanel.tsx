@@ -108,7 +108,7 @@ export default function SystemPanel(p: SystemPanelProps) {
         <label className="mt-2 block text-xs text-dc-muted" data-system-control="import">
           Paste a code to load that operation.
           <textarea
-            className="mt-1 h-14 w-full border-2 border-dc-line bg-dc-ground px-2 py-1 font-mono text-xs text-dc-ink"
+            className="mt-1 h-14 w-full border-2 border-dc-line bg-dc-ground px-2 py-1 font-mono text-[16px] text-dc-ink"
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder="DC1-..."
@@ -126,7 +126,7 @@ export default function SystemPanel(p: SystemPanelProps) {
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <input
             inputMode="numeric"
-            className="w-36 border-2 border-dc-line bg-dc-ground px-2 py-1 font-mono text-sm text-dc-ink min-h-11"
+            className="w-36 border-2 border-dc-line bg-dc-ground px-2 py-1 font-mono text-[16px] text-dc-ink min-h-11"
             value={seedText}
             onChange={(e) => setSeedText(e.target.value)}
             aria-label="seed"

@@ -296,8 +296,10 @@ export default function Title(p: TitleProps) {
       </section>
 
       {system && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground/95" role="dialog" aria-modal="true" aria-label={SYSTEM_TITLE}>
-          <div className="mx-auto max-w-[520px] border-x-2 border-dc-line bg-dc-panel">
+        // Opaque and full height (Ken, 21 October): nothing of the title
+        // shows through below a short panel.
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground" role="dialog" aria-modal="true" aria-label={SYSTEM_TITLE}>
+          <div className="mx-auto min-h-full max-w-[520px] border-x-2 border-dc-line bg-dc-panel pb-safe">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b-2 border-dc-line bg-dc-panel px-3 py-2 pt-safe">
               <h2 className="font-display text-[10px] text-dc-ink">{SYSTEM_TITLE}</h2>
               <button type="button" onClick={() => setSystem(false)} className="min-h-11 border-2 border-dc-line px-3 font-display text-[10px] text-dc-ink">

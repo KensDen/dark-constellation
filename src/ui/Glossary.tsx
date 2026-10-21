@@ -46,7 +46,7 @@ export default function Glossary({
         their SPARTA controls and tiers, and each threat and opportunity event.
       </p>
       <input
-        className="mt-3 w-full border border-phosphor/40 bg-panel text-ink px-2 py-1 font-mono text-sm"
+        className="mt-3 w-full border border-phosphor/40 bg-panel text-ink px-2 py-1 font-mono text-[16px]"
         placeholder="Filter..."
         value={query}
         onChange={(e) => setQuery(e.target.value)}
