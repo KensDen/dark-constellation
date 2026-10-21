@@ -1450,7 +1450,7 @@ export default function Game({
         pulseNext={phase === 'aftermath' && !reducedMotion}
         note={
           !affordable && deciding ? (
-            <p className="px-2 pb-1 font-mono text-[10px] text-alert-amber">Planned spend exceeds credits. Trim the cart.</p>
+            <p className="px-2 pb-1 font-mono text-[10px] text-alert-amber">Planned spend exceeds credits. Trim what you procure.</p>
           ) : undefined
         }
       />
