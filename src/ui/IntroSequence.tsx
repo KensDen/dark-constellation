@@ -20,12 +20,19 @@
 // leaves it exactly as it was.
 //
 // REDUCED MOTION is its own path: one still frame per scene, no dissolve,
-// and every line whole on the first paint.
+// no drift, no blink, and every line whole on the first paint.
+//
+// The v1.3 R1 fixes (Ken, 21 October 2026, item 13): the line sits in a
+// game-style dialogue box, mono type, with a small pixel portrait of the
+// watch officer and a blinking cursor while it types; every scene has a
+// faint horizon glow, two star layers drifting at different speeds and
+// light scanlines (./briefingScenes.ts).
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from 'react'
 import { MENU_MUSIC_STATE, coldOpenMusicState, getAudioEngine, useSound } from '../audio'
 import { BEATS, CLICK_EVERY, DISSOLVE_S, MS_PER_CHAR, SPEAKER } from './coldOpenSlides'
-import { SCENES, STILL_T, dissolve, readTokens } from './briefingScenes'
+import { OFFICER_PORTRAIT, SCENES, STILL_T, dissolve, readTokens, scanlines } from './briefingScenes'
+import PixelSprite from './sprites/PixelSprite'
 import type { SceneName } from './coldOpenSlides'
 import { usePageVisible, useReducedMotion } from './cues/motion'
 import { markIntroSeen } from './introSeen'
@@ -76,6 +83,7 @@ function SceneCanvas({ scene, reduced, visible }: { scene: SceneName; reduced: b
       c.imageSmoothingEnabled = false
       draw(c, W, H, t)
       if (!reduced && t < DISSOLVE_S) dissolve(c, W, H, t / DISSOLVE_S)
+      scanlines(c, W, H)
     }
     fit()
     if (reduced) {
@@ -132,6 +140,15 @@ export default function IntroSequence({ onDone, replay = false }: IntroSequenceP
     }, MS_PER_CHAR)
     return () => window.clearTimeout(id)
   }, [reduced, complete, visible, chars, text, index, play])
+
+  // The cursor blinks while the line types; never under reduced motion,
+  // where the line is whole from the first paint.
+  const [blinkOn, setBlinkOn] = useState(true)
+  useEffect(() => {
+    if (reduced || complete || !visible) return
+    const id = window.setInterval(() => setBlinkOn((b) => !b), 400)
+    return () => window.clearInterval(id)
+  }, [reduced, complete, visible])
 
   // The music builds beat by beat, and hands back to the title's bed on
   // the way out. Before the first gesture this sets where it will start.
@@ -219,26 +236,35 @@ export default function IntroSequence({ onDone, replay = false }: IntroSequenceP
         </span>
       </div>
 
-      <div data-briefing-text className="flex-none cursor-pointer" onClick={() => finish()}>
-        <p className="font-mono text-[11px] tracking-widest text-dc-go">
-          {SPEAKER} · {beat.time}
-        </p>
-        {/* Every beat's line laid out, unseen, in the same cell: the block is
-            as tall as the longest on every beat. The whole line is always
-            in the accessibility tree. */}
-        <div className="mt-1 grid text-[15px] leading-snug">
-          {BEATS.map((b, i) => (
-            <p key={i} className="invisible col-start-1 row-start-1" aria-hidden="true">
-              {b.text}
+      <div data-briefing-text className="flex flex-none cursor-pointer gap-2 border-2 border-dc-line bg-dc-panel p-2 shadow-hard" onClick={() => finish()}>
+        <div data-briefing-portrait className="flex-none self-start border-2 border-dc-line bg-dc-ground">
+          <PixelSprite sprite={OFFICER_PORTRAIT} scale={2} name="watch-officer-portrait" className="block" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-[11px] tracking-widest text-dc-go">
+            {SPEAKER} · {beat.time}
+          </p>
+          {/* Every beat's line laid out, unseen, in the same cell: the block
+              is as tall as the longest on every beat. The whole line is
+              always in the accessibility tree. */}
+          <div className="mt-1 grid font-mono text-sm leading-snug">
+            {BEATS.map((b, i) => (
+              <p key={i} className="invisible col-start-1 row-start-1" aria-hidden="true">
+                {b.text}
+              </p>
+            ))}
+            <p className="sr-only" aria-live="polite">
+              {text}
             </p>
-          ))}
-          <p className="sr-only" aria-live="polite">
-            {text}
-          </p>
-          <p data-briefing-line className="col-start-1 row-start-1" aria-hidden="true">
-            {text.slice(0, chars)}
-            {!complete && <span data-cursor className="text-dc-go">_</span>}
-          </p>
+            <p data-briefing-line className="col-start-1 row-start-1" aria-hidden="true">
+              {text.slice(0, chars)}
+              {!complete && (
+                <span data-cursor className="text-dc-go" style={{ visibility: blinkOn ? 'visible' : 'hidden' }}>
+                  _
+                </span>
+              )}
+            </p>
+          </div>
         </div>
       </div>
 

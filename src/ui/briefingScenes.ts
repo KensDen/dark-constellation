@@ -88,18 +88,47 @@ function mulberry(seed: number) {
   }
 }
 
-function stars(ctx: CanvasRenderingContext2D, W: number, t: number, maxY: number, n: number, seed: number) {
-  const r = mulberry(seed)
-  for (let i = 0; i < n; i += 1) {
-    const x = Math.floor((r() * W) / 3) * 3
-    const y = Math.floor((r() * maxY) / 3) * 3
-    const tw = r() < 0.18
-    const big = r() < 0.08
-    let a = 0.25 + r() * 0.35
-    if (tw) a = [0.15, 0.5, 0.9][Math.floor((t * 2.2 + i) % 3)]
-    ctx.fillStyle = hexA(INK.ink, a)
-    ctx.fillRect(x, y, big ? 3 : 2, big ? 3 : 2)
+// THE ATMOSPHERE on every beat (v1.3 R1 fixes, item 13): two star layers
+// drifting at different speeds, far and dim, near and brighter, wrapping
+// sideways, plus the twinkle. A pure function of t, so the reduced-motion
+// still is one frame with no drift.
+function starLayers(ctx: CanvasRenderingContext2D, W: number, t: number, maxY: number, seed: number, dim = 1) {
+  for (const [n, speed, size, base, layer] of [
+    [44, 2.5, 1, 0.22, 0],
+    [22, 8, 2, 0.4, 1],
+  ] as const) {
+    const r = mulberry(seed + layer * 101)
+    for (let i = 0; i < n; i += 1) {
+      const x0 = r() * W
+      const y = Math.floor((r() * maxY) / 2) * 2
+      const tw = r() < 0.15
+      let a = base + r() * 0.25
+      if (tw) a = [0.12, 0.45, 0.85][Math.floor((t * 2.2 + i) % 3)]
+      const x = Math.floor((((x0 - t * speed) % W) + W) % W)
+      ctx.fillStyle = hexA(INK.ink, a * dim)
+      ctx.fillRect(x, y, size, size)
+    }
   }
+}
+
+// A faint horizon glow: stepped bands rising from a horizon line given as
+// y(x), in one colour, fading upwards.
+function horizonGlow(ctx: CanvasRenderingContext2D, W: number, y: (x: number) => number, color: string, strength = 1) {
+  const U = 4
+  for (let x = 0; x < W; x += U) {
+    const top = Math.round(y(x + U / 2))
+    ;[0.16, 0.1, 0.06, 0.03].forEach((a, k) => {
+      ctx.fillStyle = hexA(color, a * strength)
+      ctx.fillRect(x, top - (k + 1) * 6, U, 6)
+    })
+  }
+}
+
+// Light scanlines over the picture, one dark pixel row in three; the
+// captions and the line are DOM text above the canvas and stay crisp.
+export function scanlines(ctx: CanvasRenderingContext2D, W: number, H: number) {
+  ctx.fillStyle = hexA(INK.shadow, 0.16)
+  for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1)
 }
 
 function brackets(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, color: string) {
@@ -139,6 +168,10 @@ const beacon = (on: boolean): Swap => (ink) => (ink.part === 'beacon' ? (on ? IN
 
 type Draw = (ctx: CanvasRenderingContext2D, W: number, H: number, t: number) => void
 
+// The watch officer's head and shoulders, the top sixteen rows of the
+// first desk frame, for the portrait in the briefing's dialogue box.
+export const OFFICER_PORTRAIT: Sprite = { ...WATCH_OFFICER[0], rows: WATCH_OFFICER[0].rows.slice(0, 16) }
+
 const SAT = ASSET_SPRITES.sat.intact
 const RPO = ASSET_SPRITES.rpoSat.intact
 const DRONE = ASSET_SPRITES.drone.intact
@@ -150,13 +183,14 @@ export const SCENES: Record<SceneName, Draw> = {
   orbit(ctx, W, H, t) {
     ctx.fillStyle = INK.ground
     ctx.fillRect(0, 0, W, H)
-    stars(ctx, W, t, H * 0.75, 70, 11)
+    starLayers(ctx, W, t, H * 0.75, 11)
     const U = 4
     const R = Math.max(W * 1.6, 560)
     const crown = Math.round(H * 0.28)
     const cx = W / 2
     const cy = H - crown + R
     const surf = (x: number) => cy - Math.sqrt(Math.max(0, R * R - (x - cx) ** 2))
+    horizonGlow(ctx, W, surf, INK.friendly)
     const Rf = R + H * 0.56
     for (let k = 0; k < 4; k += 1) {
       const x = W + 40 - ((k * 140 + t * 7) % (4 * 140))
@@ -228,6 +262,8 @@ export const SCENES: Record<SceneName, Draw> = {
       ctx.fillStyle = hexA(INK.friendly, a)
       ctx.fillRect(0, Math.round(bands[i] * H), W, Math.round((bands[i + 1] - bands[i]) * H) + 1)
     })
+    starLayers(ctx, W, t, H * 0.4, 7, 0.5)
+    horizonGlow(ctx, W, () => H - 46, INK.warn, 0.6)
     for (const c of [
       { y: 0.1, v: 9, o: 0.1 },
       { y: 0.42, v: 6, o: 0.55 },
@@ -311,12 +347,15 @@ export const SCENES: Record<SceneName, Draw> = {
     if (fp && sx > fp[0] && sx < fp[1] && Math.floor(t * 6) % 2) brackets(ctx, sx + 3, sy + 3, 12, 10, INK.warn)
   },
 
-  // The COLDVEIL emblem glitching in over the ground segment; a red ripple
-  // goes out; a probe lands on the thinner station.
+  // The COLDVEIL emblem glitching in over the sky with a hostile ghost;
+  // a red ripple goes out; hostile probe trails come down on the ground
+  // segment; one probe lands on the thinner station, already weak (one
+  // antenna dark, its light flickering), with a short hit flash (brief
+  // 5.2; v1.3 R1 fixes, item 12: the trails were friendly blue).
   coldveil(ctx, W, H, t) {
     ctx.fillStyle = INK.ground
     ctx.fillRect(0, 0, W, H)
-    stars(ctx, W, t, H * 0.7, 55, 23)
+    starLayers(ctx, W, t, H * 0.7, 23)
     const S6 = W >= 360 ? 6 : 5
     const ew = 16 * S6
     const ex = W / 2
@@ -336,6 +375,8 @@ export const SCENES: Record<SceneName, Draw> = {
         }
     }
     const U = 4
+    const ridge = (x: number) => H - (RIDGE_TOPS[Math.floor(x / U) % 32] + 1) * U
+    horizonGlow(ctx, W, ridge, INK.hostile, 0.8)
     for (let c = 0; c * U < W; c += 1) {
       const rt = RIDGE_TOPS[c % 32] + 1
       const gt = GROUND_TOPS[c % 32]
@@ -356,29 +397,64 @@ export const SCENES: Record<SceneName, Draw> = {
       const h = 16 * g.s
       const l = g.x - w / 2
       const top = H - 2 * U - h
-      return { ...g, l, top, dish: [l + 4 * g.s, top + 3 * g.s] as [number, number] }
+      return { ...g, w, h, l, top, dish: [l + 4 * g.s, top + 3 * g.s] as [number, number] }
     })
+    const from: [number, number] = [ecx, ey + ew]
     for (const g of st) {
-      const up: [number, number] = [g.dish[0] + 40, -10]
-      dash(ctx, g.dish[0], g.dish[1], up[0], up[1], 8, 2, hexA(INK.friendly, 0.22))
+      // A probe trail from the emblem down to each dish, in COLDVEIL's
+      // colour, its packets falling.
+      dash(ctx, from[0], from[1], g.dish[0], g.dish[1], 8, 2, hexA(INK.hostile, 0.22))
       const pp = (t * 0.7 + g.s * 0.3) % 1
-      ctx.fillStyle = INK.friendly
-      ctx.fillRect(Math.round(g.dish[0] + (up[0] - g.dish[0]) * pp - 1), Math.round(g.dish[1] + (up[1] - g.dish[1]) * pp - 1), 3, 3)
+      ctx.fillStyle = hexA(INK.hostile, 0.85)
+      ctx.fillRect(Math.round(from[0] + (g.dish[0] - from[0]) * pp - 1), Math.round(from[1] + (g.dish[1] - from[1]) * pp - 1), 3, 3)
       const probed = g.thin && ph > 1.1 && ph < 3.6
+      // The thin station's light flickers on its own, unsteady rhythm.
+      const flicker = hash(Math.floor(t * 9) + 7) > 0.45
       const swap: Swap = (ink) =>
-        ink.part === 'beacon' ? (probed ? (Math.floor(t * 6) % 2 ? INK.hostile : INK.line) : Math.floor(t * 1.5 + g.s) % 2 ? INK.go : hexA(INK.go, 0.3)) : undefined
+        ink.part === 'beacon'
+          ? probed
+            ? Math.floor(t * 6) % 2
+              ? INK.hostile
+              : INK.line
+            : g.thin
+              ? flicker
+                ? INK.go
+                : hexA(INK.go, 0.12)
+              : Math.floor(t * 1.5 + g.s) % 2
+                ? INK.go
+                : hexA(INK.go, 0.3)
+          : undefined
+      if (g.thin) ctx.globalAlpha = 0.82
       blit(ctx, STATION, g.l, g.top, g.s, swap)
+      ctx.globalAlpha = 1
+      // One antenna dark: the right mast, rows 4 to 9 of the sprite.
+      if (g.thin) {
+        ctx.fillStyle = hexA(INK.shadow, 0.75)
+        ctx.fillRect(Math.round(g.l + 14 * g.s), Math.round(g.top + 4 * g.s), g.s, 6 * g.s)
+      }
     }
     if (ph >= 0) {
       const g = st[1]
-      const a = [ecx, ey + ew]
       const b = g.dish
       const grow = Math.min(1, ph / 1.1)
       const fade = ph > 3.6 ? Math.max(0, 1 - (ph - 3.6) / 0.6) : 1
       if (fade > 0) {
-        const end = [a[0] + (b[0] - a[0]) * grow, a[1] + (b[1] - a[1]) * grow]
-        dash(ctx, a[0], a[1], end[0], end[1], 7, 3, hexA(INK.hostile, Number((0.85 * fade).toFixed(2))), t * 30)
+        const end = [from[0] + (b[0] - from[0]) * grow, from[1] + (b[1] - from[1]) * grow]
+        dash(ctx, from[0], from[1], end[0], end[1], 7, 3, hexA(INK.hostile, Number((0.85 * fade).toFixed(2))), t * 30)
         if (ph > 1.1 && ph < 3.6 && Math.floor(t * 5) % 2) brackets(ctx, g.x, g.top + 8 * g.s, g.s * 10, g.s * 9, INK.hostile)
+      }
+      // The hit: a short flash where the probe lands, white then hostile,
+      // and a pixel burst going out.
+      if (ph > 1.1 && ph < 1.45) {
+        const k = (ph - 1.1) / 0.35
+        ctx.fillStyle = hexA(k < 0.3 ? INK.ink : INK.hostile, Number((0.7 * (1 - k)).toFixed(2)))
+        ctx.fillRect(Math.round(g.l - 4), Math.round(g.top - 4), Math.round(g.w + 8), Math.round(g.h + 8))
+        const rr = 6 + k * 30
+        ctx.fillStyle = hexA(INK.hostile, Number((0.9 * (1 - k)).toFixed(2)))
+        for (let a = 0; a < 12; a += 1) {
+          const ang = (a / 12) * Math.PI * 2
+          ctx.fillRect(Math.round(b[0] + Math.cos(ang) * rr - 1), Math.round(b[1] + Math.sin(ang) * rr - 1), 3, 3)
+        }
       }
     }
     const arriving = t < 0.9
@@ -387,8 +463,9 @@ export const SCENES: Record<SceneName, Draw> = {
     const emblem = COLDVEIL_EMBLEM
     if (glitch) {
       const seed = Math.floor(t * 18)
-      ctx.globalAlpha = 0.45
-      blit(ctx, emblem, ex - ew / 2 + (hash(seed) > 0.5 ? S6 : -S6), ey, S6)
+      // The ghost copy in COLDVEIL's colour, knocked sideways.
+      ctx.globalAlpha = 0.5
+      blit(ctx, emblem, ex - ew / 2 + (hash(seed) > 0.5 ? S6 : -S6), ey, S6, () => INK.hostile)
       ctx.globalAlpha = 1
       emblem.rows.forEach((row, y) => {
         const off = hash(seed * 31 + Math.floor(y / 3)) < (arriving ? 0.6 : 0.3) ? Math.round((hash(seed + y) - 0.5) * 6) * S6 : 0
@@ -418,10 +495,11 @@ export const SCENES: Record<SceneName, Draw> = {
     ctx.beginPath()
     ctx.rect(sx, sy, mw, sh)
     ctx.clip()
-    stars(ctx, sx + mw, t, sy + sh, 26, 41)
+    starLayers(ctx, sx + mw, t, sy + sh, 41, 0.8)
     const R = sw * 1.4
     const cxm = sx + mw / 2
     const cym = sy + sh - 10 + R
+    horizonGlow(ctx, sx + mw, (x) => cym - Math.sqrt(Math.max(0, R * R - (x - cxm) ** 2)), INK.friendly, 0.8)
     for (let x = sx; x < sx + mw; x += 2) {
       const top = Math.round((cym - Math.sqrt(Math.max(0, R * R - (x - cxm) ** 2))) / 2) * 2
       ctx.fillStyle = hexA(INK.friendly, 0.75)

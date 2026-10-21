@@ -315,3 +315,93 @@ describe('the briefing sounds: a soft key click as it types, and the bed buildin
     expect(play.mock.calls.filter((c) => c[0] === 'soft-tick').length).toBe(expected)
   })
 })
+
+// The v1.3 R1 fixes (Ken, iPhone, 21 October 2026, items 12 and 13).
+describe('the R1 fixes: the dialogue box, and COLDVEIL with menace', () => {
+  // A context that records every filled rectangle with its colour.
+  function recorder() {
+    const rects: { style: string; w: number; h: number }[] = []
+    let style = ''
+    const target: Record<string, unknown> = {}
+    const ctx = new Proxy(target, {
+      get: (t, k) => {
+        if (k === 'fillRect') return (_x: number, _y: number, w: number, h: number) => void rects.push({ style, w, h })
+        if (k in t) return t[k as string]
+        return () => undefined
+      },
+      set: (t, k, v) => {
+        if (k === 'fillStyle') style = String(v)
+        t[k as string] = v
+        return true
+      },
+    }) as unknown as CanvasRenderingContext2D
+    return { ctx, rects }
+  }
+  const FRIENDLY = 'rgba(90,169,255,'
+  const HOSTILE = 'rgba(255,79,163,'
+
+  it('sets every line in a bordered box beside the watch officer portrait, in mono type', () => {
+    setReducedMotion(true)
+    renderIntro()
+    for (let i = 0; i < BEATS.length; i += 1) {
+      const box = textBlock()
+      expect(box.querySelector('[data-sprite="watch-officer-portrait"]'), `beat ${i + 1} has no portrait`).not.toBeNull()
+      expect(box.className).toContain('border-2')
+      expect(box.querySelector('[data-briefing-line]')!.parentElement!.className).toContain('font-mono')
+      if (i < BEATS.length - 1) click(next())
+    }
+  })
+
+  it('blinks the cursor while the line types, and drops it once the line is whole', () => {
+    renderIntro()
+    pass(MS_PER_CHAR * 4)
+    const shown = () => (container.querySelector('[data-cursor]') as HTMLElement | null)?.style.visibility
+    const seen = new Set<string | undefined>()
+    for (let k = 0; k < 6; k += 1) {
+      pass(200)
+      seen.add(shown())
+    }
+    expect([...seen].sort(), 'the cursor did not blink while typing').toEqual(['hidden', 'visible'])
+    click(textBlock())
+    expect(container.querySelector('[data-cursor]')).toBeNull()
+  })
+
+  it('draws the COLDVEIL beat with no friendly blue trails, its trails hostile, and a hit flash on the thin station', () => {
+    let friendly = 0
+    let hostile = 0
+    for (let t = 0; t < 6.4; t += 0.1) {
+      const { ctx, rects } = recorder()
+      SCENES.coldveil(ctx, 390, 380, t)
+      // The stations' own lamps are friendly sprite pixels, drawn opaque;
+      // the trails and packets that were blue were the translucent blue
+      // and the bare token.
+      friendly += rects.filter((r) => {
+        const st = r.style.replace(/\s/g, '')
+        return (st.startsWith(FRIENDLY) && !st.endsWith(',1)')) || st.toUpperCase() === '#5AA9FF'
+      }).length
+      hostile += rects.filter((r) => r.style.replace(/\s/g, '').startsWith(HOSTILE) || r.style.toUpperCase() === '#FF4FA3').length
+    }
+    expect(friendly, 'friendly blue trails are still drawn on the COLDVEIL beat').toBe(0)
+    expect(hostile).toBeGreaterThan(0)
+    // The probe lands 2.2 seconds in; the flash covers the station.
+    const { ctx, rects } = recorder()
+    SCENES.coldveil(ctx, 390, 380, 2.25)
+    expect(
+      rects.some((r) => r.style.replace(/\s/g, '').startsWith('rgba(230,237,243,') && r.w >= 48 && r.h >= 48),
+      'no hit flash where the probe lands',
+    ).toBe(true)
+  })
+
+  it('draws every scene as a pure function of time, so the reduced-motion still has no drift', () => {
+    for (const name of Object.keys(SCENES) as (keyof typeof SCENES)[]) {
+      const a = recorder()
+      const b = recorder()
+      SCENES[name](a.ctx, 390, 380, 2)
+      SCENES[name](b.ctx, 390, 380, 2)
+      expect(a.rects, `${name} drew differently at the same moment`).toEqual(b.rects)
+      const c = recorder()
+      SCENES[name](c.ctx, 390, 380, 4)
+      expect(c.rects, `${name} does not move over time`).not.toEqual(a.rects)
+    }
+  })
+})
