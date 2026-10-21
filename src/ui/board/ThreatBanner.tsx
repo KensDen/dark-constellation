@@ -70,21 +70,26 @@ export default function ThreatBanner({ shown, cueKey, onTag, onIntel, briefed = 
           )}
           <details className="mt-1">
             <summary className="cursor-pointer font-mono text-xs text-phosphor">Expand full brief</summary>
-            {brief.framing.length > 0 && (
-              <div className="mt-2">
-                <p className="font-mono font-bold text-phosphor uppercase tracking-widest text-xs">{JOB_FRAMING_HEADING}</p>
-                {brief.framing.map((line, i) => (
-                  <p key={i} className={`text-sm ${i === brief.framing.length - 1 ? 'mt-1 text-ink-dim' : 'mt-1'}`}>
-                    {line}
-                  </p>
+            {/* The expanded brief scrolls in its own area, capped at a share of
+                the viewport, so on a short phone it ends above the action dock
+                instead of running under it (QC gauntlet Q29, G-097). */}
+            <div data-brief-scroll className="max-h-[30dvh] overflow-y-auto overscroll-contain pr-1">
+              {brief.framing.length > 0 && (
+                <div className="mt-2">
+                  <p className="font-mono font-bold text-phosphor uppercase tracking-widest text-xs">{JOB_FRAMING_HEADING}</p>
+                  {brief.framing.map((line, i) => (
+                    <p key={i} className={`text-sm ${i === brief.framing.length - 1 ? 'mt-1 text-ink-dim' : 'mt-1'}`}>
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              )}
+              <ul className="list-disc ml-5 mt-2 font-mono text-xs">
+                {brief.full.map((line, i) => (
+                  <li key={i}>{line}</li>
                 ))}
-              </div>
-            )}
-            <ul className="list-disc ml-5 mt-2 font-mono text-xs">
-              {brief.full.map((line, i) => (
-                <li key={i}>{line}</li>
-              ))}
-            </ul>
+              </ul>
+            </div>
           </details>
           {gnssDenied(shown.conditions, shown.scenario) && (
             <details className="mt-1 border border-hero-magenta/60 bg-hero-magenta/10 p-1.5">
