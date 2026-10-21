@@ -33,8 +33,30 @@ PATTERNS="$(mktemp)"
 PATTERNS_SUB="$(mktemp)"
 PATTERNS_WORD="$(mktemp)"
 HITMARK="$(mktemp)"
-trap 'rm -f "$PATTERNS" "$PATTERNS_SUB" "$PATTERNS_WORD" "$HITMARK"' EXIT
+ERRMARK="$(mktemp)"
+trap 'rm -f "$PATTERNS" "$PATTERNS_SUB" "$PATTERNS_WORD" "$HITMARK" "$ERRMARK"' EXIT
+
+# A grep exits 0 on a match and 1 on none; anything above 1 means the scan
+# did not run (an unreadable file, a bad pattern, a git error), and a scan
+# that did not run must not read as clean (QC gauntlet Q28, 21 October
+# 2026). Every grep and git grep below either checks its own status or
+# runs through guard, which records a failure in ERRMARK; the gate blocks
+# on it at the end.
+fail_closed() {
+  note "$1 Push blocked (fail closed)."
+  exit 1
+}
+guard() {
+  local label="$1"
+  shift
+  "$@"
+  local rc=$?
+  [ "$rc" -le 1 ] || echo "$label: exit $rc" >> "$ERRMARK"
+  return 0
+}
+
 grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$LIST" > "$PATTERNS"
+[ $? -le 1 ] || fail_closed "the deny-list could not be read."
 
 if [ ! -s "$PATTERNS" ]; then
   note "deny-list has no entries. Push blocked (fail closed)."
@@ -45,8 +67,10 @@ fi
 # word boundaries only: plain substring matching false-positives inside
 # base64 integrity hashes in package-lock.json and inside long
 # identifiers. Longer terms keep full substring matching.
-grep -E '^.{5,}$' "$PATTERNS" > "$PATTERNS_SUB" || true
-grep -E '^.{1,4}$' "$PATTERNS" > "$PATTERNS_WORD" || true
+grep -E '^.{5,}$' "$PATTERNS" > "$PATTERNS_SUB"
+[ $? -le 1 ] || fail_closed "the deny-list could not be split."
+grep -E '^.{1,4}$' "$PATTERNS" > "$PATTERNS_WORD"
+[ $? -le 1 ] || fail_closed "the deny-list could not be split."
 
 # The starter deny-list ships with a single canary test entry. Warn until
 # a real term exists. (Matched by substring so this script never contains
@@ -76,8 +100,8 @@ match() {
   local input
   input="$(cat)"
   {
-    [ -s "$PATTERNS_SUB" ] && printf '%s\n' "$input" | grep -i -n -F -f "$PATTERNS_SUB"
-    [ -s "$PATTERNS_WORD" ] && printf '%s\n' "$input" | grep -i -w -n -F -f "$PATTERNS_WORD"
+    [ -s "$PATTERNS_SUB" ] && printf '%s\n' "$input" | guard "$1" grep -i -n -F -f "$PATTERNS_SUB"
+    [ -s "$PATTERNS_WORD" ] && printf '%s\n' "$input" | guard "$1" grep -i -w -n -F -f "$PATTERNS_WORD"
   } 2>/dev/null | record "$1"
 }
 
@@ -85,8 +109,8 @@ match() {
 # no rev is given), applying both pattern classes.
 tree_grep() {
   {
-    [ -s "$PATTERNS_SUB" ] && git grep -I -i -n -F -f "$PATTERNS_SUB" "$@"
-    [ -s "$PATTERNS_WORD" ] && git grep -I -i -n -w -F -f "$PATTERNS_WORD" "$@"
+    [ -s "$PATTERNS_SUB" ] && guard "git grep" git grep -I -i -n -F -f "$PATTERNS_SUB" "$@"
+    [ -s "$PATTERNS_WORD" ] && guard "git grep" git grep -I -i -n -w -F -f "$PATTERNS_WORD" "$@"
   } 2>/dev/null || true
 }
 
@@ -147,6 +171,12 @@ fi
 # Fast first pass in both modes: tracked working-tree content and paths.
 tree_grep | record "working tree"
 git ls-files | match "tracked file paths"
+
+if [ -s "$ERRMARK" ]; then
+  note "a scan did not run:"
+  cat "$ERRMARK" >&2
+  fail_closed "a scan failed (grep exit status above 1)."
+fi
 
 if [ -s "$HITMARK" ]; then
   note "push blocked."

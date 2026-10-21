@@ -157,26 +157,63 @@ run('vitest suites: determinism, content, persistence, readme, director, cues, r
   }
 })
 
-const AUTHORED = /\.(md|ts|tsx|html|css|yml|yaml|json|mjs|sh|svg)$/
+// THE COPY-STYLE GATE, widened in the QC gauntlet (Q28, 21 October 2026).
+// It looked for U+2014 only, and only in some file types, so an en dash
+// anywhere, or any dash in a .txt or .js file or in the built bundle, would
+// have passed. It now covers every dash-like code point and the HTML
+// entities for the two dashes, in every tracked text file (binary files,
+// those holding a NUL byte, are skipped) and in dist/ after the build,
+// where JavaScript escapes of the two dashes count too.
+const DASHES = [
+  ['em dash', /\u{2014}/u],
+  ['en dash', /\u{2013}/u],
+  ['figure dash', /\u{2012}/u],
+  ['horizontal bar', /\u{2015}/u],
+  ['minus sign', /\u{2212}/u],
+  ['dash entity', /&(mdash|ndash|#8212|#8211|#x2014|#x2013);/i],
+]
+const BUILT_ESCAPES = [['escaped dash', /\\u(2014|2013|\{2014\}|\{2013\})/i]]
 // Tracked plus untracked-but-not-ignored, so new files are covered before
-// their first commit.
-const trackedAuthoredFiles = () =>
+// their first commit. .opsec-terms is ignored, so it is never read here.
+const trackedTextFiles = () =>
   sh('git ls-files --cached --others --exclude-standard')
     .split('\n')
     .filter(Boolean)
-    .filter((f) => AUTHORED.test(f) || f.startsWith('scripts/hooks/') || f === 'LICENSE')
-    .filter((f) => f !== 'package-lock.json')
+    .filter((f) => f !== '.opsec-terms')
 
-run('no em dashes in docs, code, or copy (spec 13.6)', () => {
+function dashHits(file, text, patterns) {
   const hits = []
-  for (const f of trackedAuthoredFiles()) {
-    readFileSync(f, 'utf8')
-      .split('\n')
-      .forEach((line, i) => {
-        if (line.includes('\u{2014}')) hits.push(`${f}:${i + 1}`)
-      })
+  text.split('\n').forEach((line, i) => {
+    for (const [name, re] of patterns) if (re.test(line)) hits.push(`${file}:${i + 1} (${name})`)
+  })
+  return hits
+}
+
+function walk(dir) {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name)
+    return statSync(path).isDirectory() ? walk(path) : [path]
+  })
+}
+
+run('no em or en dashes in the tree or the build (spec 13.6)', () => {
+  const hits = []
+  for (const f of trackedTextFiles()) {
+    let buf
+    try {
+      buf = readFileSync(f)
+    } catch {
+      continue
+    }
+    if (buf.includes(0)) continue
+    hits.push(...dashHits(f, buf.toString('utf8'), DASHES))
   }
-  if (hits.length) throw new Error(`em dash found:\n${hits.join('\n')}`)
+  for (const f of walk('dist')) {
+    const buf = readFileSync(f)
+    if (buf.includes(0)) continue
+    hits.push(...dashHits(f, buf.toString('utf8'), [...DASHES, ...BUILT_ESCAPES]))
+  }
+  if (hits.length) throw new Error(`dash found:\n${hits.join('\n')}`)
 })
 
 run('.opsec-terms is not tracked (spec 11.5)', () => {
