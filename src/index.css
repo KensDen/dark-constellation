@@ -22,7 +22,9 @@
   --color-phosphor: #35f095;
   --color-phosphor-dim: #1f9c63;
   --color-hero-blue: #4db2ff;
-  --color-hero-magenta: #ff4d9d;
+  /* Hostile is red, not pink (v1.3 brief 8.1): the v1.1 name follows the
+     hostile token, so every legacy use turns with it. */
+  --color-hero-magenta: var(--dc-hostile);
   --color-alert-amber: #ffb84d;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -48,9 +50,16 @@
   --dc-muted: #8B98A8;
   --dc-go: #7CFF9B;
   --dc-friendly: #5AA9FF;
-  --dc-hostile: #FF4FA3;
+  --dc-hostile: #FF5A4F;
   --dc-warn: #FFB547;
   --dc-shadow: #05080C;
+  /* The five sprite inks (v1.3 brief 8.1), for the prototype's asset maps:
+     hull, glass, deep panel, bright highlight and steel. */
+  --dc-hull: #C9D4E0;
+  --dc-glass: #AACEFA;
+  --dc-deep: #2E5F99;
+  --dc-bright: #F0F4F8;
+  --dc-steel: #788696;
 }
 
 @theme {
@@ -65,6 +74,11 @@
   --color-dc-hostile: var(--dc-hostile);
   --color-dc-warn: var(--dc-warn);
   --color-dc-shadow: var(--dc-shadow);
+  --color-dc-hull: var(--dc-hull);
+  --color-dc-glass: var(--dc-glass);
+  --color-dc-deep: var(--dc-deep);
+  --color-dc-bright: var(--dc-bright);
+  --color-dc-steel: var(--dc-steel);
 }
 
 /* The hard offset shadows of brief v1.2 section 3: 4px on cards and
@@ -166,51 +180,17 @@ body {
 }
 
 /* ---------------------------------------------------------------------
-   The idle life (v1.2 R2, brief 5.3). Between turns the board breathes:
-   stars twinkle, beacons blink, sprites bob a pixel out of phase, rotors
-   flicker, sparks spit, smoke breathes, clouds drift across AIR, and two
-   satellites cross the ORBIT sky on an arc above the limb. CSS only, and
-   transform and opacity only, so none of it touches layout.
-
-   Every rule sits inside the no-preference guard, so under reduced motion
-   each piece rests where src/ui/sprites/backdrops.tsx and the tiles put
-   it. Durations and phase offsets that differ per element are set inline
-   there, which the shorthands below leave alone. The block sits ahead of
-   the cue layer's own guard, which tests/cues.spec.ts finds as the last
-   one in the file; the keyframes and the hidden-tab pause are at the end.
+   The idle life (v1.2 R2; v1.3 R2). The scenery backdrops left the board
+   with the layer panels, and the prototype's sprites have no rotor, spark
+   or smoke parts, so of the board's idle life only the beacons blink. CSS
+   only, inside the no-preference guard, so under reduced motion a beacon
+   simply rests lit. The block sits ahead of the cue layer's own guard,
+   which tests/cues.spec.ts finds as the last one in the file; the
+   keyframes and the hidden-tab pause are at the end.
    --------------------------------------------------------------------- */
 @media (prefers-reduced-motion: no-preference) {
-  .dc-twinkle {
-    animation: dc-twinkle 5.4s steps(1, end) infinite;
-  }
-
   .dc-beacon {
     animation: dc-blink 2.2s steps(1, end) infinite;
-  }
-
-  .dc-bob {
-    animation: dc-bob 2.8s steps(1, end) infinite;
-  }
-
-  /* 2.5 flickers a second on a few pixels, under the flash threshold. */
-  .dc-rotor {
-    animation: dc-blink 0.4s steps(1, end) infinite;
-  }
-
-  .dc-spark {
-    animation: dc-blink 0.9s steps(1, end) infinite;
-  }
-
-  .dc-smoke {
-    animation: dc-smoke 3.2s ease-in-out infinite;
-  }
-
-  .dc-drift {
-    animation: dc-drift 120s linear infinite;
-  }
-
-  .dc-orbit {
-    animation: dc-orbit 60s linear infinite;
   }
 }
 
@@ -297,10 +277,6 @@ body {
     animation: dc-next-pulse 2.4s ease-in-out infinite;
   }
 
-
-  .dc-shake {
-    animation: dc-shake 320ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
-  }
 
   .dc-flash-bad {
     animation: dc-flash-bad 520ms ease-out both;
@@ -464,13 +440,6 @@ body {
   .dc-stamp {
     animation: dc-stamp calc(var(--dc-beat, 1200ms) * 0.35) steps(4, end) both;
   }
-}
-
-@keyframes dc-shake {
-  10%, 90% { transform: translateX(-2px); }
-  20%, 80% { transform: translateX(3px); }
-  30%, 50%, 70% { transform: translateX(-5px); }
-  40%, 60% { transform: translateX(5px); }
 }
 
 @keyframes dc-manifest-in {
@@ -664,22 +633,6 @@ body {
   animation-play-state: paused !important;
 }
 
-@keyframes dc-twinkle {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  30% {
-    opacity: 0.5;
-  }
-  45% {
-    opacity: 0.15;
-  }
-  60% {
-    opacity: 0.5;
-  }
-}
-
 @keyframes dc-blink {
   0% {
     opacity: 1;
@@ -689,51 +642,10 @@ body {
   }
 }
 
-@keyframes dc-bob {
-  0% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-1px);
-  }
-}
-
-@keyframes dc-smoke {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
-}
-
-/* A cloud's layer spans the panel, so 100% is the panel's width: the
-   cloud starts just off the left edge and leaves off the right. */
-@keyframes dc-drift {
-  from {
-    transform: translateX(-32px);
-  }
-  to {
-    transform: translateX(100%);
-  }
-}
-
-/* The arm pivots at the limb's centre, so a satellite rises from behind
-   the limb on one side, arcs over and sets on the other. */
-@keyframes dc-orbit {
-  from {
-    transform: rotate(-16deg);
-  }
-  to {
-    transform: rotate(16deg);
-  }
-}
-
 /* The hit's effects rest invisible (v1.2 R3): the no-preference rules
    above animate them in, so under reduced motion there is no strobe,
-   burst, pip pop, beam or falling "-n", and the tile, its pips and MAI
-   simply change. The lock-on brackets and HELD are not motion and stand
+   burst, pip pop, beam or falling "-n", and the tile, its pips and the
+   score simply change. The lock-on brackets and HELD are not motion and stand
    still in both modes. */
 .dc-beam,
 .dc-hit-strobe,

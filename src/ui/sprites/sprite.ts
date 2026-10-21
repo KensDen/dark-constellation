@@ -11,7 +11,24 @@
 
 // The section 3 tokens a palette may name. Nothing else: a sprite that
 // wants a colour the brief does not have is a sprite to redraw.
-export type Token = 'ground' | 'chrome' | 'panel' | 'line' | 'ink' | 'muted' | 'go' | 'friendly' | 'hostile' | 'warn' | 'shadow'
+export type Token =
+  | 'ground'
+  | 'chrome'
+  | 'panel'
+  | 'line'
+  | 'ink'
+  | 'muted'
+  | 'go'
+  | 'friendly'
+  | 'hostile'
+  | 'warn'
+  | 'shadow'
+  // The five sprite inks (v1.3 brief 8.1).
+  | 'hull'
+  | 'glass'
+  | 'deep'
+  | 'bright'
+  | 'steel'
 
 // The pieces of a sprite the idle life animates (brief 5.3), each one a
 // class the stylesheet knows: beacons blink, rotors flicker, sparks spit

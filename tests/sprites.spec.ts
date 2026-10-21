@@ -1,16 +1,14 @@
-// The sprite set (v1.2 R2, brief 5.1 and 5.2): the round's first guard,
-// that every AssetKind the engine declares is drawn in every sprite state,
-// and the checks on the art itself: every grid well formed and painted in
-// section 3 tokens only, damage drawn rather than darkened, and the panel
-// text readable over every backdrop. The Tier A chevron and the check that
-// kept its corner clear left with the tiers in v1.3 Round 0 (D2 a).
+// The sprite set (v1.2 R2, brief 5.1 and 5.2; v1.3 R2, brief 8.1 and 8.2):
+// the round's first guard, that every AssetKind the engine declares is
+// drawn in every sprite state, and the checks on the art itself: every
+// grid well formed and painted in section 3 tokens and the five sprite
+// inks only, a wound scorching the sprite by integrity (deterministic, and
+// more scorch the lower it falls), lost drawn greyed with the red X and
+// transit as the grey silhouette, and the strip's text readable on its
+// panel. The Tier A chevron and the check that kept its corner clear left
+// with the tiers in v1.3 Round 0 (D2 a); the backdrop contrast check left
+// with the backdrops behind the tiles in v1.3 R2.
 //
-// NOTHING HERE LISTS THE KINDS OR THE STATES. The kinds are read out of
-// the engine's own AssetKind union by the TypeScript compiler, and the
-// states out of SPRITE_STATES, the one table the tiles pick from, so a
-// kind the engine grows or a state the table grows fails this suite until
-// it is drawn (principle 17).
-
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
@@ -18,8 +16,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { SPRITE_STATES } from '../src/ui/board/board'
-import { ASSET_SPRITES } from '../src/ui/sprites/assets'
-import { BACKDROP_INKS, CLOUD, PANEL_FILL, SILHOUETTE } from '../src/ui/sprites/scenery'
+import { ASSET_MAPS, ASSET_SPRITES, assetSprite } from '../src/ui/sprites/assets'
+import { CLOUD, SILHOUETTE } from '../src/ui/sprites/scenery'
 import { HIT_BURST, LOCK_ON, PART_SPARKLE, SHIELD_FLASH } from '../src/ui/sprites/effects'
 import { BOLT, COIN, COLDVEIL_EMBLEM, EYE } from '../src/ui/sprites/icons'
 import { DISASTER, FLOOD, WATCH_OFFICER } from '../src/ui/sprites/coldOpen'
@@ -60,16 +58,35 @@ const parts = (s: Sprite) => {
   return new Set(Object.entries(s.palette).flatMap(([c, ink]) => (used.has(c) && ink.part ? [ink.part] : [])))
 }
 
+const tokenAt = (s: Sprite, p: string) => {
+  const [x, y] = p.split(',').map(Number)
+  return s.palette[s.rows[y][x]].token
+}
+const inksAt = (s: Sprite, cells: Set<string>) => [...new Set([...cells].map((p) => tokenAt(s, p)))].sort()
+// The scorched pixels: the cells the scorcher wrote over the map, read off
+// the map itself rather than off the scorch characters, so a scorch drawn
+// in any ink still counts.
+const scorched = (kind: keyof typeof ASSET_MAPS, s: Sprite) => {
+  const out = new Set<string>()
+  s.rows.forEach((row, y) => [...row].forEach((c, x) => {
+    const was = ASSET_MAPS[kind][y][x]
+    // A critical sprite darkens its panels as well; a darkened panel is
+    // not a scorch.
+    if (c !== was && !(was === 'P' && s.palette[c].alpha !== undefined)) out.add(`${x},${y}`)
+  }))
+  return out
+}
+
 const KINDS = unionMembers('src/engine/types.ts', 'AssetKind')
 const STATES = SPRITE_STATES.map((s) => s.state)
 
-describe('the sprite set (v1.2 R2)', () => {
+describe('the sprite set (v1.2 R2, v1.3 R2)', () => {
   it('GUARD (a): every AssetKind in the engine union has a sprite in every state SPRITE_STATES lists', () => {
     // The positive controls: the parse found the union, and the table has
     // its four states, so the sweep below cannot pass by sweeping nothing.
     expect(KINDS).toContain('sat')
     expect(KINDS.length).toBeGreaterThanOrEqual(4)
-    expect(STATES).toEqual(['intact', 'damaged', 'critical', 'out'])
+    expect(STATES).toEqual(['intact', 'wounded', 'critical', 'lost'])
     const table = ASSET_SPRITES as Record<string, Partial<Record<string, Sprite>>>
     const missing: string[] = []
     for (const kind of KINDS) {
@@ -83,11 +100,13 @@ describe('the sprite set (v1.2 R2)', () => {
     expect(Object.keys(ASSET_SPRITES).sort()).toEqual([...KINDS].sort())
   })
 
-  it('draws every sprite as a well-formed grid in section 3 tokens only', () => {
+  it('draws every sprite as a well-formed grid in section 3 tokens and the five sprite inks only', () => {
     const palette = tokens()
-    expect(Object.keys(palette).length, 'no tokens parsed from :root').toBeGreaterThanOrEqual(11)
+    expect(Object.keys(palette).length, 'no tokens parsed from :root').toBeGreaterThanOrEqual(16)
+    // The five sprite inks (brief 8.1) are on :root beside the section 3
+    // tokens, so the token check below accepts them by reading them there.
+    for (const ink of ['hull', 'glass', 'deep', 'bright', 'steel']) expect(palette, `--dc-${ink} is not on :root`).toHaveProperty(ink)
     const named: [string, Sprite, number][] = [
-      ...KINDS.flatMap((kind) => STATES.map((state): [string, Sprite, number] => [`${kind}.${state}`, ASSET_SPRITES[kind as keyof typeof ASSET_SPRITES][state], 16])),
       ['coldveil', COLDVEIL_EMBLEM, 16],
       ['coin', COIN, 8],
       ['eye', EYE, 8],
@@ -112,9 +131,12 @@ describe('the sprite set (v1.2 R2)', () => {
         if (!(ink.token in palette)) faults.push(`${name}: '${c}' paints ${ink.token}, which is not a section 3 token`)
       }
     }
-    // The bands and small scenery are not square, and are held to their
-    // own widths and heights the same way.
+    // The asset sprites are the prototype's 16x12 maps (brief 8.2), in
+    // every state and in transit; the bands and small scenery are not
+    // square either. Each is held to its own width and height the same way.
     const banded: [string, Sprite, number, number][] = [
+      ...KINDS.flatMap((kind) => STATES.map((state): [string, Sprite, number, number] => [`${kind}.${state}`, ASSET_SPRITES[kind as keyof typeof ASSET_SPRITES][state], 16, 12])),
+      ...KINDS.map((kind): [string, Sprite, number, number] => [`${kind}.transit`, assetSprite(kind as keyof typeof ASSET_MAPS, 100, 'transit'), 16, 12]),
       ['cloud', CLOUD, 16, 4],
       ['silhouette', SILHOUETTE, 7, 3],
       ['flood', FLOOD, 16, 10],
@@ -135,36 +157,63 @@ describe('the sprite set (v1.2 R2)', () => {
     expect(WATCH_OFFICER.length).toBeLessThanOrEqual(4)
   })
 
-  it('draws damage rather than darkening it, and keeps a lost asset on the board, greyed and crossed', () => {
-    for (const kind of KINDS) {
-      const s = ASSET_SPRITES[kind as keyof typeof ASSET_SPRITES]
-      const intact = opaque(s.intact)
-      for (const state of ['damaged', 'critical'] as const) {
-        const hurt = opaque(s[state])
-        const lost = [...intact].filter((p) => !hurt.has(p))
-        expect(lost.length, `${kind}.${state} loses no pixels`).toBeGreaterThan(0)
-        const gained = parts(s[state])
-        expect(gained.has('spark') || gained.has('smoke'), `${kind}.${state} has no sparks or smoke`).toBe(true)
+  it('GUARD: any wound changes the sprite, and the scorch is deterministic and grows with damage', () => {
+    for (const kind of KINDS as (keyof typeof ASSET_MAPS)[]) {
+      const intact = assetSprite(kind, 100)
+      // Integrity 99 is already a different picture (critique row M11): the
+      // first point of damage shows.
+      expect(assetSprite(kind, 99).rows, `${kind} at 99 draws the same as at 100`).not.toEqual(intact.rows)
+      expect(scorched(kind, intact).size, `${kind} at 100 is scorched`).toBe(0)
+      // Deterministic: the same integrity scorches the same pixels, every
+      // time, and the order is fixed, so a lower integrity scorches every
+      // pixel a higher one did and more besides.
+      let before = new Set<string>()
+      for (const integrity of [99, 75, 50, 25, 1]) {
+        const now = scorched(kind, assetSprite(kind, integrity))
+        expect([...scorched(kind, assetSprite(kind, integrity))].sort(), `${kind} at ${integrity} scorches differently twice`).toEqual([...now].sort())
+        expect(now.size, `${kind} at ${integrity} is not more scorched than above it`).toBeGreaterThan(before.size)
+        expect([...before].filter((p) => !now.has(p)), `${kind} at ${integrity} unscorches a pixel`).toEqual([])
+        before = now
       }
-      expect(opaque(s.critical).size, `${kind}: critical is not more broken than damaged`).toBeLessThan(opaque(s.damaged).size)
-      expect(parts(s.critical).has('smoke'), `${kind}.critical has no smoke`).toBe(true)
-      // Knocked out: nothing on it moves, it is painted grey and line with a
-      // hostile X, and the X is there.
-      expect([...parts(s.out)], `${kind}.out still animates`).toEqual([])
-      const inks = new Set(s.out.rows.join('').replaceAll(TRANSPARENT, '').split('').map((c) => s.out.palette[c].token))
-      expect([...inks].sort(), `${kind}.out is not greyed`).toEqual(['hostile', 'line', 'muted'])
+      // Scorch is drawn, not erased: a wounded sprite keeps its outline.
+      expect(opaque(assetSprite(kind, 25)), `${kind} at 25 loses pixels`).toEqual(opaque(intact))
+      // Amber while wounded, red at 50 or below.
+      expect(inksAt(assetSprite(kind, 75), scorched(kind, assetSprite(kind, 75))), `${kind} wounded scorch is not amber`).toEqual(['warn'])
+      expect(inksAt(assetSprite(kind, 50), scorched(kind, assetSprite(kind, 50))), `${kind} critical scorch is not red`).toEqual(['hostile'])
     }
   })
 
-  it('keeps every text colour on a panel at 4.5:1 over the brightest backdrop ink under PANEL_FILL', () => {
-    // The text colours are the ones LayerPanel.tsx paints with, read from
-    // its source; the fill's alpha is read from PANEL_FILL itself. The
-    // backdrop ink is composited over the opaque panel colour, which is
-    // lighter than what really sits under it (the panel at 60% over the
-    // page ground), so the check errs on the dark side of honest.
+  it('keeps a lost asset on the board, greyed with the red X, and draws transit as the grey silhouette', () => {
+    for (const kind of KINDS as (keyof typeof ASSET_MAPS)[]) {
+      const intact = opaque(assetSprite(kind, 100))
+      const lost = ASSET_SPRITES[kind].lost
+      // Lost: nothing on it moves, every pixel is the line grey or the
+      // hostile X, the X is there, and the X sits over the outline rather
+      // than replacing the asset.
+      expect([...parts(lost)], `${kind}.lost still animates`).toEqual([])
+      expect(inksAt(lost, opaque(lost)), `${kind}.lost is not greyed and crossed`).toEqual(['hostile', 'line'])
+      expect([...intact].filter((p) => !opaque(lost).has(p)), `${kind}.lost drops part of the asset`).toEqual([])
+      const cross = new Set([...opaque(lost)].filter((p) => tokenAt(lost, p) === 'hostile'))
+      expect(cross.size, `${kind}.lost has no X`).toBeGreaterThanOrEqual(10)
+      // Corner to corner both ways: the X reaches each quarter of the grid.
+      const quarters = new Set([...cross].map((p) => { const [x, y] = p.split(',').map(Number); return `${x < 8 ? 'W' : 'E'}${y < 6 ? 'N' : 'S'}` }))
+      expect(quarters.size, `${kind}.lost X does not cross the sprite`).toBe(4)
+      // Transit: the map's own outline in the line grey, no X, nothing moving.
+      const transit = assetSprite(kind, 100, 'transit')
+      expect(opaque(transit), `${kind}.transit is not the asset's silhouette`).toEqual(intact)
+      expect(inksAt(transit, opaque(transit)), `${kind}.transit is not grey`).toEqual(['line'])
+      expect([...parts(transit)], `${kind}.transit still animates`).toEqual([])
+    }
+  })
+
+  it('keeps every text colour on the asset strip, and the hostile red, at 4.5:1 on the panel colour', () => {
+    // The text colours are the ones AssetStrip.tsx paints with, read from
+    // its source; the strip's columns sit on the opaque panel colour since
+    // v1.3 R2 dropped the scenery backdrops behind the tiles. The hostile
+    // red (#FF5A4F since R2) carries the condition chips and the critical
+    // pips, so it is held to the same bar by name as well.
     const hex = tokens()
     const rgb = (h: string) => [1, 3, 5].map((i) => Number.parseInt(h.slice(i, i + 2), 16))
-    const mix = (under: number[], over: number[], alpha: number) => under.map((u, i) => u + (over[i] - u) * alpha)
     const lum = (c: number[]) => {
       const [r, g, b] = c.map((v) => {
         const s = v / 255
@@ -176,21 +225,15 @@ describe('the sprite set (v1.2 R2)', () => {
       const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
       return (hi + 0.05) / (lo + 0.05)
     }
-    const fill = /^bg-dc-([a-z]+)\/(\d+)$/.exec(PANEL_FILL)
-    expect(fill, `PANEL_FILL is not a token at an alpha: ${PANEL_FILL}`).not.toBeNull()
-    const [fillToken, fillAlpha] = [fill![1], Number(fill![2]) / 100]
-    const textTokens = [...new Set([...read('src/ui/board/LayerPanel.tsx').matchAll(/text-dc-([a-z]+)/g)].map((m) => m[1]))]
-    expect(textTokens, 'no text colours read from LayerPanel.tsx').toContain('muted')
+    const source = read('src/ui/board/AssetStrip.tsx')
+    expect(source, 'the strip columns no longer sit on the panel colour').toMatch(/data-layer=\{layer\}[^>]*bg-dc-panel\b/)
+    const textTokens = [...new Set([...source.matchAll(/text-dc-([a-z]+)/g)].map((m) => m[1]))]
+    expect(textTokens, 'no text colours read from AssetStrip.tsx').toContain('muted')
+    expect(textTokens).toContain('hostile')
     const failures: string[] = []
-    for (const [layer, inks] of Object.entries(BACKDROP_INKS)) {
-      for (const ink of inks) {
-        const under = mix(rgb(hex.panel), rgb(hex[ink.token]), ink.alpha ?? 1)
-        const surface = mix(under, rgb(hex[fillToken]), fillAlpha)
-        for (const text of textTokens) {
-          const ratio = contrast(rgb(hex[text]), surface)
-          if (ratio < 4.5) failures.push(`${layer}: ${text} over ${ink.token}@${ink.alpha ?? 1} is ${ratio.toFixed(2)}:1`)
-        }
-      }
+    for (const text of textTokens) {
+      const ratio = contrast(rgb(hex[text]), rgb(hex.panel))
+      if (ratio < 4.5) failures.push(`${text} on panel is ${ratio.toFixed(2)}:1`)
     }
     expect(failures).toEqual([])
   })

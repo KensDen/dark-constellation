@@ -338,7 +338,7 @@ describe('the R1 fixes: the dialogue box, and COLDVEIL with menace', () => {
     return { ctx, rects }
   }
   const FRIENDLY = 'rgba(90,169,255,'
-  const HOSTILE = 'rgba(255,79,163,'
+  const HOSTILE = 'rgba(255,90,79,'
 
   it('sets every line in a bordered box beside the watch officer portrait, in mono type', () => {
     setReducedMotion(true)
@@ -379,7 +379,7 @@ describe('the R1 fixes: the dialogue box, and COLDVEIL with menace', () => {
         const st = r.style.replace(/\s/g, '')
         return (st.startsWith(FRIENDLY) && !st.endsWith(',1)')) || st.toUpperCase() === '#5AA9FF'
       }).length
-      hostile += rects.filter((r) => r.style.replace(/\s/g, '').startsWith(HOSTILE) || r.style.toUpperCase() === '#FF4FA3').length
+      hostile += rects.filter((r) => r.style.replace(/\s/g, '').startsWith(HOSTILE) || r.style.toUpperCase() === '#FF5A4F').length
     }
     expect(friendly, 'friendly blue trails are still drawn on the COLDVEIL beat').toBe(0)
     expect(hostile).toBeGreaterThan(0)
@@ -387,7 +387,7 @@ describe('the R1 fixes: the dialogue box, and COLDVEIL with menace', () => {
     const { ctx, rects } = recorder()
     SCENES.coldveil(ctx, 390, 380, 2.25)
     expect(
-      rects.some((r) => r.style.replace(/\s/g, '').startsWith('rgba(230,237,243,') && r.w >= 48 && r.h >= 48),
+      rects.some((r) => r.style.replace(/\s/g, '').startsWith('rgba(230,237,243,') && r.w >= 48 && r.h >= 40),
       'no hit flash where the probe lands',
     ).toBe(true)
   })

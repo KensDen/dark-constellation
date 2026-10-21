@@ -7,7 +7,7 @@
 // board; a 16x16 icon drawn at 1x beside a label would put pixels half the
 // size of the tiles' next to them.
 
-import { sprite } from './sprite'
+import { sprite, type Sprite, type Token } from './sprite'
 
 // A magenta diamond with a single eye.
 export const COLDVEIL_EMBLEM = sprite(
@@ -46,3 +46,49 @@ export const BOLT = sprite(
   ...ggg.. ..ggg... .gg..... .g......
 `,
 )
+
+// THE STATUS ICONS (v1.3 brief 8.1): ⚠ ◐ ✓ ✕ ▲ are not in the DC Display
+// subset, so each is an 8x8 sprite in one ink, which the word beside it
+// takes too. Colour never carries the meaning alone (section 4 rule 8):
+// every status is one of these and a word.
+const mono = (rows: string) => sprite({ i: { token: 'ink' } }, rows)
+
+// ⚠ EXPOSED: a warning triangle with its bar and dot.
+export const ICON_WARN = mono(`
+  ...ii... ...ii... ..i..i.. ..i..i..
+  .i.ii.i. .i....i. i..ii..i iiiiiiii
+`)
+// ◐ PARTLY BLOCKED: a ring, its left half filled.
+export const ICON_HALF = mono(`
+  ..iiii.. .iii..i. iiii...i iiii...i
+  iiii...i iiii...i .iii..i. ..iiii..
+`)
+// ✓ BLOCKED.
+export const ICON_CHECK = mono(`
+  ........ .......i ......ii .....ii.
+  i...ii.. ii.ii... .iii.... ..i.....
+`)
+// ✕ closes and cancels.
+export const ICON_CROSS = mono(`
+  i......i .i....i. ..i..i.. ...ii...
+  ...ii... ..i..i.. .i....i. i......i
+`)
+// ▲ the win line's marker.
+export const ICON_UP = mono(`
+  ........ ...ii... ...ii... ..iiii..
+  ..iiii.. .iiiiii. .iiiiii. iiiiiiii
+`)
+
+// A one-ink icon in another token, for the tone of the status it marks
+// (hostile for EXPOSED, warn for PARTLY BLOCKED, go for BLOCKED). One
+// object per icon and token, so PixelSprite's memo holds.
+const tints = new Map<string, Sprite>()
+export function tinted(icon: Sprite, token: Token): Sprite {
+  const key = `${icon.rows.join('/')}:${token}`
+  let out = tints.get(key)
+  if (!out) {
+    out = { rows: icon.rows, palette: { i: { token } } }
+    tints.set(key, out)
+  }
+  return out
+}

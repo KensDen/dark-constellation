@@ -12,7 +12,7 @@
 import type { SceneName } from './coldOpenSlides'
 import { DISASTER, FLOOD, WATCH_OFFICER } from './sprites/coldOpen'
 import { COLDVEIL_EMBLEM } from './sprites/icons'
-import { ASSET_SPRITES } from './sprites/assets'
+import { ASSET_SPRITES, KESTREL_EAST } from './sprites/assets'
 import { CLOUD, SILHOUETTE } from './sprites/scenery'
 import { runs, spriteRects, type Ink, type Palette, type Sprite, type Token } from './sprites/sprite'
 
@@ -27,9 +27,14 @@ const FALLBACK: Record<Token, string> = {
   muted: '#8B98A8',
   go: '#7CFF9B',
   friendly: '#5AA9FF',
-  hostile: '#FF4FA3',
+  hostile: '#FF5A4F',
   warn: '#FFB547',
   shadow: '#05080C',
+  hull: '#C9D4E0',
+  glass: '#AACEFA',
+  deep: '#2E5F99',
+  bright: '#F0F4F8',
+  steel: '#788696',
 }
 let INK: Record<Token, string> = { ...FALLBACK }
 
@@ -174,7 +179,8 @@ export const OFFICER_PORTRAIT: Sprite = { ...WATCH_OFFICER[0], rows: WATCH_OFFIC
 
 const SAT = ASSET_SPRITES.sat.intact
 const RPO = ASSET_SPRITES.rpoSat.intact
-const DRONE = ASSET_SPRITES.drone.intact
+// The KESTREL nose east for the flight across the flood (brief 8.2).
+const DRONE = KESTREL_EAST
 const STATION = ASSET_SPRITES.groundStation.intact
 
 export const SCENES: Record<SceneName, Draw> = {
@@ -320,8 +326,8 @@ export const SCENES: Record<SceneName, Draw> = {
       { y: 0.14, v: 30, o: 0.45, s: 3, lead: true },
     ]
     fleet.forEach((d, i) => {
-      const w = 16 * d.s
-      const h = 16 * d.s
+      const w = DRONE.rows[0].length * d.s
+      const h = DRONE.rows.length * d.s
       const x = ((d.o * (W + 120) + t * d.v) % (W + 120)) - 80
       const y = Math.round(d.y * H)
       if (d.lead) {
@@ -393,8 +399,8 @@ export const SCENES: Record<SceneName, Draw> = {
       { x: 0.27 * W, s: 4, thin: false },
       { x: 0.76 * W, s: 3, thin: true },
     ].map((g) => {
-      const w = 16 * g.s
-      const h = 16 * g.s
+      const w = STATION.rows[0].length * g.s
+      const h = STATION.rows.length * g.s
       const l = g.x - w / 2
       const top = H - 2 * U - h
       return { ...g, w, h, l, top, dish: [l + 4 * g.s, top + 3 * g.s] as [number, number] }
@@ -427,10 +433,16 @@ export const SCENES: Record<SceneName, Draw> = {
       if (g.thin) ctx.globalAlpha = 0.82
       blit(ctx, STATION, g.l, g.top, g.s, swap)
       ctx.globalAlpha = 1
-      // One antenna dark: the right mast, rows 4 to 9 of the sprite.
+      // One antenna dark: the mast that carries the station's light, the
+      // steel cells running down from it to the dish (rows 1 to 3).
       if (g.thin) {
-        ctx.fillStyle = hexA(INK.shadow, 0.75)
-        ctx.fillRect(Math.round(g.l + 14 * g.s), Math.round(g.top + 4 * g.s), g.s, 6 * g.s)
+        ctx.fillStyle = hexA(INK.shadow, 0.8)
+        for (const [cx, cy] of [
+          [10, 1],
+          [9, 2],
+          [8, 3],
+        ])
+          ctx.fillRect(Math.round(g.l + cx * g.s), Math.round(g.top + cy * g.s), g.s, g.s)
       }
     }
     if (ph >= 0) {
