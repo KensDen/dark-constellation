@@ -8,7 +8,10 @@ architecture under budget while an adversary campaign escalates across 6 turns.
 
 Play it: https://kensden.github.io/dark-constellation/
 
-Status: v1.1.0 released. The sound and feel pass described below shipped in it.
+Status: v1.3 in progress. Round 0, the six-turn engine on interim screens, has been live since
+9 October 2026, on top of the v1.2 board rounds. The last numbered release was v1.1.0. The sound
+and feel pass shipped in v1.1.0; the cold open's music build came with v1.2 and tap-through
+playback with v1.3 Round 0.
 
 ## How to play
 
@@ -112,7 +115,7 @@ values, and each beat carries its own visual cue and its own sound.
 - A validation battery gates every round: typecheck and build, determinism and content tests,
   a copy-style scan, a local OPSEC tripwire, and an online link check of every cited source.
 
-## Not in v1
+## Not built yet
 
 Deliberately out of scope, recorded here as future work:
 
@@ -130,6 +133,10 @@ project.
 
 ## Releases
 
+- v1.3 Round 0, 9 October 2026: the six-turn engine against a reacting adversary, on interim
+  screens (live, not tagged).
+- v1.2 board rounds, 26 September to 5 October 2026: the cold open, the Daily Op and score
+  screen, the Field Library and the wide board (live, not tagged).
 - v1.1.0, 23 September 2026: the sound and feel pass.
 - v1.0.0, 22 July 2026: first release.
 
