@@ -140,7 +140,7 @@ I did the design, code, writing, and direction.
 **Artwork: AI-generated, human-commanded.** The key art and outcome backdrops were generated
 with AI tools under my direction and selection. The interface art (wordmark,
 event icons, layer badges, constellation frame) was authored as original vector work for this
-project.
+project. The pixel sprites and briefing scenes were drawn in code for this project.
 
 ## Releases
 

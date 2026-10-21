@@ -22,7 +22,8 @@ export default function Credits({ onBack }: { onBack: () => void }) {
         <p className="text-ink-dim">
           The key art and outcome backdrops were generated with AI tools under my direction and
           selection. The interface art (wordmark, event icons, layer badges, constellation frame) was authored as
-          original vector work for this project.
+          original vector work for this project. The pixel sprites and briefing scenes were drawn in code for this
+          project.
         </p>
       </section>
 
