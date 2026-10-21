@@ -62,6 +62,16 @@ export default function Credits({ onBack }: { onBack: () => void }) {
           ATLAS, each verified against the live framework site. All organizations, vendors, constellations, and threat
           actors in the fiction are invented. See the GLOSSARY for the full reference list.
         </p>
+        <p className="mt-2 text-sm text-ink-dim">
+          SPARTA® is a registered trademark of The Aerospace Corporation. MITRE ATT&amp;CK® and ATT&amp;CK® are
+          registered trademarks of The MITRE Corporation; MITRE ATLAS™ is a trademark of The MITRE Corporation.
+          Technique and countermeasure IDs, names and tiers are cited from them for education; no endorsement is
+          implied.{' '}
+          <a className="underline" href={`${import.meta.env.BASE_URL}legal/THIRD-PARTY-NOTICES.txt`} target="_blank" rel="noreferrer">
+            Third-party notices
+          </a>
+          .
+        </p>
       </section>
 
       <button className={`${btn} mt-6`} onClick={onBack}>

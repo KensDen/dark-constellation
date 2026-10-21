@@ -62,11 +62,18 @@ trade off against each other.
 Every adversary threat in the deck maps to a published framework technique, and every reference
 was checked by hand against its live source page rather than recalled, and the battery re-checks
 every link before each deploy: **18 threat events**, **19
-distinct framework techniques** across SPARTA, MITRE ATT&CK, MITRE ATLAS, and an NSA advisory,
+distinct framework techniques** across SPARTA, MITRE ATT&CK®, MITRE ATLAS, and an NSA advisory,
 **14 cited sources**, and **0 unverified references**. Each of the **11 countermeasures** maps to
 its SPARTA countermeasure controls with their published defense-in-depth tiers (**19 distinct
 SPARTA CMs**). The in-game GLOSSARY derives all **51 entries** directly from that content data,
 with no hand-maintained text.
+
+SPARTA® is a registered trademark of The Aerospace Corporation. MITRE ATT&CK® and ATT&CK® are
+registered trademarks of The MITRE Corporation; MITRE ATLAS™ is a trademark of The MITRE
+Corporation. Technique and countermeasure IDs, names and tiers are cited from them for education;
+no endorsement is implied. Both frameworks' copyright designations and licence terms ship with the
+site at `/legal/THIRD-PARTY-NOTICES.txt`
+([public/legal/THIRD-PARTY-NOTICES.txt](public/legal/THIRD-PARTY-NOTICES.txt)).
 
 The **FIELD LIBRARY**, in the menu's INTEL ARCHIVE beside the Glossary,
 shelves **36 readings** behind the threats: papers, advisories, standards and hands-on

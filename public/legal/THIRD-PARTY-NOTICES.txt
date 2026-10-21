@@ -1,0 +1,40 @@
+DARK CONSTELLATION: third-party notices
+
+The game cites technique and countermeasure identifiers, names and tiers from the
+frameworks below, for education. Each is linked to its source page in the game.
+No endorsement by The Aerospace Corporation or The MITRE Corporation is implied.
+
+Trademarks
+
+SPARTA® is a registered trademark of The Aerospace Corporation.
+MITRE ATT&CK® and ATT&CK® are registered trademarks of The MITRE Corporation.
+MITRE ATLAS™ is a trademark of The MITRE Corporation.
+
+
+SPARTA (https://sparta.aerospace.org/)
+
+"The Aerospace Corporation. This work is reproduced and distributed with the
+permission of The Aerospace Corporation."
+
+LICENSE
+The Aerospace Corporation hereby grants you a non-exclusive, royalty-free license
+to use SPARTA for research, development, and commercial purposes. Any copy you
+make for such purposes is authorized provided that you reproduce Aerospace's
+copyright designation and this license in any such copy.
+
+Source: https://sparta.aerospace.org/terms-of-service (retrieved 21 October 2026)
+
+
+MITRE ATT&CK® (https://attack.mitre.org/)
+
+"© 2026 The MITRE Corporation. This work is reproduced and distributed with the
+permission of The MITRE Corporation."
+
+LICENSE
+The MITRE Corporation (MITRE) hereby grants you a non-exclusive, royalty-free
+license to use ATT&CK® for research, development, and commercial purposes. Any
+copy you make for such purposes is authorized provided that you reproduce MITRE's
+copyright designation and this license in any such copy.
+
+Source: https://attack.mitre.org/resources/legal-and-branding/terms-of-use/
+(retrieved 21 October 2026)
