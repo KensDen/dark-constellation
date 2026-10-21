@@ -214,14 +214,25 @@ describe("the title's constellation frame stays out of the first download (v1.3 
   // The three.js frame the retired start screen showed moved to the title,
   // under the READ row (Ken, 21 October 2026). It is lazy there, as it was
   // in Game: decoration nobody waits on.
+  // Since the v1.3 R1 fixes the frame sits one step further out: the
+  // title loads its decoration (the ripple band, the key art and the frame
+  // loader) as ./TitleArt, which loads the frame. Neither is in the first
+  // download.
   const TITLE = join(SRC, 'ui', 'Title.tsx')
+  const ART = join(SRC, 'ui', 'TitleArt.tsx')
   const titleSpecs = lazySpecifiers(readFileSync(TITLE, 'utf8'))
+  const artSpecs = lazySpecifiers(readFileSync(ART, 'utf8'))
 
   it('declares the frame lazily, and nothing reaches it statically from the entry point', () => {
-    expect(titleSpecs, "the title's lazy set changed; say why").toEqual(['./Constellation'])
-    const frame = resolveLocal(TITLE, './Constellation')!
+    expect(titleSpecs, "the title's lazy set changed; say why").toEqual(['./TitleArt'])
+    expect(artSpecs, "the title art's lazy set changed; say why").toEqual(['./Constellation'])
+    const art = resolveLocal(TITLE, './TitleArt')!
+    const frame = resolveLocal(ART, './Constellation')!
+    expect(art, 'the title art resolves to no file').toBeTruthy()
     expect(frame, 'the frame resolves to no file').toBeTruthy()
-    expect(staticGraphFrom(ENTRY).has(frame), 'the three.js frame is in the first download').toBe(false)
+    const graph = staticGraphFrom(ENTRY)
+    expect(graph.has(art), "the title's decoration is in the first download").toBe(false)
+    expect(graph.has(frame), 'the three.js frame is in the first download').toBe(false)
   })
 })
 
