@@ -59,8 +59,9 @@ trade off against each other.
 
 ## The sourcing promise
 
-Every threat in the deck maps to a published framework technique, and every reference was
-verified against the live framework site rather than recalled: **18 threat events**, **19
+Every adversary threat in the deck maps to a published framework technique, and every reference
+was checked by hand against its live source page rather than recalled, and the battery re-checks
+every link before each deploy: **18 threat events**, **19
 distinct framework techniques** across SPARTA, MITRE ATT&CK, MITRE ATLAS, and an NSA advisory,
 **14 cited sources**, and **0 unverified references**. Each of the **11 countermeasures** maps to
 its SPARTA countermeasure controls with their published defense-in-depth tiers (**19 distinct

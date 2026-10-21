@@ -58,7 +58,7 @@ export default function Credits({ onBack }: { onBack: () => void }) {
           Sourcing
         </h2>
         <p className="mt-2 text-sm">
-          Every threat in the deck maps to a published framework technique from SPARTA, MITRE ATT&amp;CK, or MITRE
+          Every adversary threat in the deck maps to a published framework technique from SPARTA, MITRE ATT&amp;CK, or MITRE
           ATLAS, each verified against the live framework site. All organizations, vendors, constellations, and threat
           actors in the fiction are invented. See the GLOSSARY for the full reference list.
         </p>
