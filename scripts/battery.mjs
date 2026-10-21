@@ -235,6 +235,18 @@ run('pre-push OPSEC hook is active (local only)', () => {
   }
 })
 
+// GUARD R1 (c), v1.3 Round 1 (brief 5.2): the briefing fits 375x667 and
+// 390x844 with CONTINUE on screen and nothing scrolling, measured in a
+// real headless Chrome over the build above (scripts/briefing-fit.mjs).
+// jsdom lays nothing out, so the suite cannot hold this. SKIP only when
+// the machine has no Chrome at all; any other failure is a FAIL.
+run('briefing fits one phone screen (v1.3 R1, brief 5.2)', () => {
+  const r = spawnSync(process.execPath, ['scripts/briefing-fit.mjs'], { encoding: 'utf8', timeout: 240000 })
+  if (r.status === 2) return 'skip'
+  if (r.status !== 0) throw Object.assign(new Error('briefing fit failed'), { stdout: r.stdout || String(r.error ?? ''), stderr: r.stderr })
+  process.stdout.write(`${r.stdout.trim()} ... `)
+})
+
 // Link check (spec 11.4): every URL in the content data resolves. Runs
 // after the sync layers so a broken build fails first. Skips gracefully
 // offline: if every URL fails at the network layer (no HTTP status at
