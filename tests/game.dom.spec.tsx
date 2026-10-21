@@ -2888,7 +2888,10 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     // left with their mechanics; the defense streak line, the upkeep and
     // insolvency order of the close, coverage per kind and the deploy lead
     // times came in.
-    expect(worst.get('What these numbers mean')).toBe(257)
+    // 262 since the QC gauntlet (Q20, 21 October 2026): collapse is judged
+    // "at a turn close" (G-030), and the conditions list names GNSS denial
+    // and data leaks (G-115).
+    expect(worst.get('What these numbers mean')).toBe(262)
     // 23 since v1.3 Round 0 (26 before): the chain's line no longer says
     // a fusion stack or an all-Tier-A drone fleet cancels the bonus, since
     // the tiers are gone and every defense now takes a share (brief 6.7).

@@ -180,7 +180,7 @@ describe('the board (v1.2 R1)', () => {
     ) as HTMLInputElement | undefined
     expect(box, 'the retainer is not in DEFENSES').toBeDefined()
     expect(box!.closest('label')!.textContent).toContain(
-      `Recovers ${withIrRetainer} a turn on every meter instead of ${base}. Does not stop anything; shortens everything.`,
+      `Recovers ${withIrRetainer} a turn on every meter instead of ${base}. Does not stop anything; speeds every recovery.`,
     )
     act(() => {
       box!.click()

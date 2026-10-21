@@ -234,7 +234,7 @@ export function hardenOffers(scenario: Scenario): Scenario['countermeasures'] {
 // The retainer's line on its DEFENSES tile, read off the scenario so it
 // stays true if recovery is retuned.
 export const retainerLine = (scenario: Scenario) =>
-  `Recovers ${scenario.recovery.withIrRetainer} a turn on every meter instead of ${scenario.recovery.base}. Does not stop anything; shortens everything.`
+  `Recovers ${scenario.recovery.withIrRetainer} a turn on every meter instead of ${scenario.recovery.base}. Does not stop anything; speeds every recovery.`
 
 // What the turn has to spend before anything is bought: the balance. Since
 // v1.3 Round 0 mission funding and the coverage bonus arrive at the turn

@@ -180,7 +180,7 @@ function postureLines(state: GameState): string[] {
   // from what procurement charges (the intel brief, D2 a).
   lines.push(
     briefFree(state)
-      ? "Tonight's intel brief is free and names every move."
+      ? "Tonight's intel brief is free and names the candidate moves."
       : `An intel brief costs ${scenario.prices.intelBrief} and names tonight's moves.`,
   )
 

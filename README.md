@@ -42,7 +42,7 @@ trade off against each other.
 
 - **Mission Assurance Index.** A weighted blend of Coverage, Link availability, Data integrity,
   and Sensor integrity. It is the score and the loss condition at once.
-- **Active conditions.** Jamming, spoofing, eavesdropping, and ransomware do not resolve and
+- **Active conditions.** GNSS denial, jamming, spoofing, eavesdropping, data leaks, and ransomware do not resolve and
   vanish. They persist for a set number of turns, shown on the board, press the meters every
   turn, and stack.
 - **The BLACKOUT CHAIN.** The signature move: deny GNSS so the drones fall back to LiDAR

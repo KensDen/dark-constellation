@@ -889,7 +889,10 @@ describe('reading diet: the intel brief', () => {
     // the free brief's one named slot and the five posture lines. One word
     // under the cap of 120. countWords counts the " / " between the two
     // candidates as a word, which is how the DOM test counts it too.
-    expect(worst, `worst disclosure measured: ${worst} words at ${worstAt}`).toBe(119)
+    // 120 since the QC gauntlet (Q20, G-100, 21 October 2026): the free
+    // brief "names the candidate moves" rather than "every move", which it
+    // never did. At the cap, with no word to spare.
+    expect(worst, `worst disclosure measured: ${worst} words at ${worstAt}`).toBe(120)
   })
 
   it('bounds the beat title, the other channel no budget measured', () => {

@@ -23,7 +23,7 @@ export default function BoardReference({ shown, conditionDurationRange }: { show
         <ul className="list-disc ml-6 mt-1 text-ink">
           <li>
             MAI: overall mission health, a weighted blend of Coverage, Link, Data, and Sensor. Finish at{' '}
-            {scenario.winThreshold} or higher to win. Below {scenario.collapseThreshold} at any point, the mission
+            {scenario.winThreshold} or higher to win. Below {scenario.collapseThreshold} at a turn close, the mission
             collapses.
           </li>
           <li>
@@ -51,7 +51,7 @@ export default function BoardReference({ shown, conditionDurationRange }: { show
             repairs damaged assets +{ASSET_HEAL_PER_TURN}.
           </li>
           <li>
-            Conditions: some attacks (jamming, spoofing, eavesdropping, ransomware) stay active for{' '}
+            Conditions: some attacks (GNSS denial, jamming, spoofing, eavesdropping, data leaks, ransomware) stay active for{' '}
             {conditionDurationRange}, pressing the meters every turn until they lift. They stack.
           </li>
           <li>
