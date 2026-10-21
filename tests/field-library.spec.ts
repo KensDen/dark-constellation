@@ -22,8 +22,11 @@ const entries = SHELVES_AS_DRAFTED.flatMap((s) => s.entries)
 const LIST_SHA256 = 'e7fdf6ff69bf3e85828e9556776696eb4b1c3dd17c06252833b0cd3b74a79d04'
 // Every field of every entry (source, year, type, the verbatim why line,
 // link note, pairings and checked date), as generated from the draft and
-// checked against it on the same day.
-const ENTRIES_SHA256 = 'e7ac2074eaa5d3f80c0a5c056f04faa93e7f055ce40c0f50bb57ad9abaeb62b0'
+// checked against it on the same day. Re-pinned on 21 October 2026 when Ken
+// re-approved eight corrections from the QC gauntlet (Decisions Q4: two
+// overclaims, three bylines, three wording slips); titles and links are
+// unchanged, so LIST_SHA256 stands.
+const ENTRIES_SHA256 = '923f4b8a4bfb401ab146cde92a420d3e5b27f7f0b16b9ff6d5db790f3d9d10cf'
 
 describe('GUARD R5b (a): every pairing names a real event, and every threat has one', () => {
   it('passes the list as approved, and the game reads that list', async () => {
