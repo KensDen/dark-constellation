@@ -9,7 +9,7 @@
 
 import type { GameState } from '../engine/types'
 import { techniqueLabel } from './labels'
-import { threatsFaced } from './threatsFaced'
+import { ownedMark, threatsFaced } from './threatsFaced'
 
 const LABEL = 'mt-2 font-display text-[9px] leading-none text-dc-muted'
 
@@ -41,7 +41,11 @@ export default function Debrief({ state }: { state: GameState }) {
               {def.counters.map((id) => (
                 <li key={id} data-debrief-answer={id}>
                   {state.scenario.countermeasures.find((cm) => cm.id === id)?.name ?? id}{' '}
-                  {state.counters.includes(id) ? <span className="text-dc-friendly">owned</span> : <span className="text-dc-muted">not owned</span>}
+                  {state.counters.includes(id) ? (
+                    <span className="text-dc-friendly">{ownedMark(state, id)}</span>
+                  ) : (
+                    <span className="text-dc-muted">not owned</span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -77,3 +81,4 @@ export default function Debrief({ state }: { state: GameState }) {
     </section>
   )
 }
+

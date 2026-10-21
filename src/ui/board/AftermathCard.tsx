@@ -11,6 +11,7 @@ import RealWorld, { LearnMoreButton } from '../RealWorld'
 import { realWorldFor } from '../realWorldLine'
 import { verdictFor } from '../verdict'
 import * as wouldHaveHelped from '../wouldHaveHelped'
+import { callSigns, withCallSigns } from './board'
 
 export interface AftermathCardProps {
   record: TurnRecord
@@ -28,6 +29,8 @@ export default function AftermathCard({ record, state, scenario, reducedMotion, 
   // have helped against the first threat that did (critique row M3).
   const firstLanded = threats.find((ev) => ev.effectiveSeverity > 0)
   const helped = firstLanded ? wouldHaveHelped.short(firstLanded, state, scenario) : ''
+  // Engine notes name assets by id; the player reads the board's call signs.
+  const signs = callSigns(state)
   return (
     <section aria-label={`Aftermath, turn ${record.turn}`} className="border-2 border-dc-line bg-dc-panel p-2 shadow-hard">
       <p className="font-display text-[10px] text-dc-muted">AFTERMATH · TURN {record.turn}</p>
@@ -78,7 +81,7 @@ export default function AftermathCard({ record, state, scenario, reducedMotion, 
         </p>
         {record.notes.map((n, i) => (
           <p key={i} className="mt-1 font-mono text-sm">
-            {n}
+            {withCallSigns(n, signs)}
           </p>
         ))}
         {record.events.length === 0 && <p className="mt-2">No adversary activity this turn.</p>}
@@ -92,7 +95,7 @@ export default function AftermathCard({ record, state, scenario, reducedMotion, 
                 <h3 className="font-bold font-mono text-hero-blue">Opportunity: {ev.name}</h3>
                 {ev.notes.map((n, j) => (
                   <p key={j} className="text-sm mt-1 text-hero-blue">
-                    {n}
+                    {withCallSigns(n, signs)}
                   </p>
                 ))}
                 {def && <p className="text-sm mt-1 text-ink-dim">{def.blurb}</p>}
@@ -114,13 +117,15 @@ export default function AftermathCard({ record, state, scenario, reducedMotion, 
                 </span>
               </h3>
               <p className={`text-sm font-mono mt-1 ${landed ? 'text-hero-magenta' : 'text-ink-dim'}`}>
-                Severity {ev.baseSeverity} base {ev.chainBonus > 0 ? `+ ${ev.chainBonus} chain ` : ''}
+                Severity {ev.baseSeverity} base
+                {ev.debris && !ev.debris.lost && ev.debris.assetId ? (ev.debris.choice === 'burn' ? ', burned clear' : ', missed') : ''}{' '}
+                {ev.chainBonus > 0 ? `+ ${ev.chainBonus} chain ` : ''}
                 {ev.mitigation > 0 ? `- ${ev.mitigation} mitigated ` : ''}= {ev.effectiveSeverity} effective.
                 {ev.repairCost > 0 ? ` Repairs, due at the turn close: ${ev.repairCost} credits.` : ''}
               </p>
               {ev.notes.map((n, j) => (
                 <p key={j} className="text-sm mt-1">
-                  {n}
+                  {withCallSigns(n, signs)}
                 </p>
               ))}
               {landed && <p className="text-sm mt-1 font-bold text-alert-amber">{wouldHaveHelped.full(ev, state, scenario)}</p>}

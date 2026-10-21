@@ -7,6 +7,7 @@
 
 import type { GameState } from '../engine/types'
 import { kindLabels } from '../ui/labels'
+import { callSigns } from '../ui/board/board'
 import { METER_KEYS, type BeatKind, type MeterKey, type Patch } from './types'
 
 // The fields a beat can move on the board. The learning state (the defense
@@ -148,23 +149,16 @@ export function describePatch(patch: Patch, state: GameState, kind?: BeatKind): 
   const out: DeltaLine[] = []
   const scenario = state.scenario
   const counterName = (id: string) => scenario.countermeasures.find((c) => c.id === id)?.name ?? id
-  // Assets and in-transit items are named by kind, which is what the fleet
-  // list shows; the engine id never reaches the player. (By kind and trust
-  // tier until the tiers left in v1.3 Round 0.)
+  // Assets and in-transit items are named by kind and by the call sign the
+  // board shows on the tile (QC gauntlet Q16, G-027: an ordinal over like
+  // assets, "Drone #2", named the same airframe KESTREL-2 on the board
+  // differently); the engine id never reaches the player.
+  const signs = callSigns(state)
   const assetName = (id: string) => {
-    const asset = state.assets.find((a) => a.id === id)
-    if (asset) {
-      // The fleet holds several assets of a kind, so a plain "Drone" could
-      // not say which one was hit or tie two turns of damage to the same
-      // airframe. An ordinal over the like assets does, without putting
-      // the engine's id on screen.
-      const alike = state.assets.filter((a) => a.kind === asset.kind)
-      const label = kindLabels[asset.kind]
-      if (alike.length < 2) return label
-      return `${label} #${alike.findIndex((a) => a.id === id) + 1}`
-    }
-    const pending = state.pipeline.find((p) => p.id === id)
-    return pending ? kindLabels[pending.kind] : 'Asset'
+    const asset = state.assets.find((a) => a.id === id) ?? state.pipeline.find((p) => p.id === id)
+    if (!asset) return 'Asset'
+    const sign = signs.get(id)
+    return sign ? `${kindLabels[asset.kind]} ${sign}` : kindLabels[asset.kind]
   }
 
   for (const key of METER_KEYS) {

@@ -60,6 +60,16 @@ export function purchaseOrder(id: string): { turn: number; place: number } | nul
   return null
 }
 
+// An engine note names an asset by its id (the notes are the hashed log and
+// stay as written); shown to a player, each id reads as the call sign its
+// tile carries (QC gauntlet Q16, G-027). Longest ids first, so no id is
+// replaced inside a longer one.
+export function withCallSigns(line: string, signs: Map<string, string>): string {
+  let out = line
+  for (const id of [...signs.keys()].sort((a, b) => b.length - a.length)) out = out.split(id).join(signs.get(id)!)
+  return out
+}
+
 // Call sign by asset or pending id, for everything the campaign owns.
 export function callSigns(state: Pick<GameState, 'assets' | 'pipeline'>): Map<string, string> {
   const owned: { id: string; kind: AssetKind; turn: number; place: number }[] = []

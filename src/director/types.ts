@@ -79,6 +79,9 @@ export interface BeatSeverity {
   chain: number
   mitigation: number
   effective: number
+  // Why a debris conjunction did no damage, the term the line was missing
+  // (QC gauntlet Q16, G-061): it missed, or the satellite burned clear.
+  avoided?: 'missed' | 'burned clear'
 }
 
 export interface Beat {

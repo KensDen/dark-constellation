@@ -28,6 +28,7 @@ import { techniqueLabel } from '../src/ui/labels'
 import { getAudioEngine, installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
+import { ownedMark } from '../src/ui/threatsFaced'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -475,12 +476,15 @@ describe('the debrief (brief 4.8)', () => {
       expect(answers.map((a) => a.getAttribute('data-debrief-answer')), def.id).toEqual(def.counters)
       for (const a of answers) {
         const id = a.getAttribute('data-debrief-answer')!
-        const mark = state.counters.includes(id as (typeof state.counters)[number]) ? 'owned' : 'not owned'
+        // Owned reads with the turn it was procured since QC gauntlet Q16
+        // (G-068): "owned from T2", or "owned" when it was held from the start.
+        const mark = state.counters.includes(id as (typeof state.counters)[number]) ? ownedMark(state, id) : 'not owned'
         expect(a.textContent, `${def.id}: ${id}`).toBe(`${DEFAULT_SCENARIO.countermeasures.find((c) => c.id === id)!.name} ${mark}`)
-        marks.push(mark)
+        marks.push(mark === 'not owned' ? mark : 'owned')
       }
     }
     expect(new Set(marks), 'the run shows only one of owned and not owned, so the other is untested').toEqual(new Set(['owned', 'not owned']))
+    expect(items.some((li) => /owned from T\d/.test(li.textContent ?? '')), 'no defense in this run reads with the turn it was procured').toBe(true)
     // An opportunity is not a threat, and this run met one.
     const opportunities = state.history.flatMap((rec) => rec.events).filter((ev) => DEFAULT_SCENARIO.events.find((e) => e.id === ev.eventId)?.kind === 'opportunity')
     expect(opportunities.length, 'this run met no opportunity, so the filter is untested').toBeGreaterThan(0)

@@ -39,3 +39,13 @@ export function threatsFaced(state: GameState): FacedThreat[] {
   }
   return [...faced.values()]
 }
+
+// "owned from T2": the turn the defense was procured, read from the turn
+// records, so a threat that hit before it was bought does not read as
+// answered (QC gauntlet Q16, G-068). A defense with no purchase on record
+// was held from the start and reads "owned".
+export function ownedMark(state: GameState, id: string): string {
+  const name = state.scenario.countermeasures.find((cm) => cm.id === id)?.name
+  const bought = name ? state.history.find((rec) => rec.purchases.some((p) => p.startsWith(`${name} (`))) : undefined
+  return bought ? `owned from T${bought.turn}` : 'owned'
+}

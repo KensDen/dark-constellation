@@ -24,6 +24,7 @@ import RealWorld from '../ui/RealWorld'
 import { realWorldFor } from '../ui/realWorldLine'
 import * as wouldHaveHelped from '../ui/wouldHaveHelped'
 import { LOCK_SHARE, STRIKE_MS } from '../ui/board/strike'
+import { callSigns, withCallSigns } from '../ui/board/board'
 
 // 44px minimum hit boxes (brief principle 5: designed for a thumb at 375px).
 const btn =
@@ -171,6 +172,9 @@ export default function DirectorView({ before, after, beats, onPresented, onDone
   // (critique row M3), read against the turn's end state as the ledger is.
   const landed = beat?.kind === 'threat' && (beat.severity?.effective ?? 0) > 0 ? after.history.at(-1)?.events.find((e) => e.eventId === beat.subjectId) : undefined
   const helped = landed ? wouldHaveHelped.short(landed, after, after.scenario) : ''
+  // Call signs as the board shows them, before the turn and after it, so an
+  // asset lost or arrived this turn still reads by its tile's name.
+  const signs = new Map([...callSigns(before), ...callSigns(after)])
   // Finding 3.10: the beat says whether it is a loss. Derived from the
   // title until Round 5, which is the round that gives the outcomes their
   // scenes and would therefore be the round to edit those titles; the win
@@ -343,7 +347,8 @@ export default function DirectorView({ before, after, beats, onPresented, onDone
             {beat.severity && (
               <p className="font-mono text-xs text-ink-dim">
                 Severity {beat.severity.base} base{beat.severity.chain > 0 ? ` + ${beat.severity.chain} chain` : ''}
-                {beat.severity.mitigation > 0 ? ` - ${beat.severity.mitigation} mitigated` : ''} ={' '}
+                {beat.severity.mitigation > 0 ? ` - ${beat.severity.mitigation} mitigated` : ''}
+                {beat.severity.avoided ? `, ${beat.severity.avoided}` : ''} ={' '}
                 {beat.severity.effective} effective
               </p>
             )}
@@ -368,7 +373,7 @@ export default function DirectorView({ before, after, beats, onPresented, onDone
                 <summary className="cursor-pointer font-mono text-xs text-phosphor">Details</summary>
                 {beat.lines.map((line, i) => (
                   <p key={i} className="mt-1 text-sm">
-                    {line}
+                    {withCallSigns(line, signs)}
                   </p>
                 ))}
               </details>

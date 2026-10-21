@@ -225,7 +225,13 @@ export function deriveBeats(before: GameState, after: GameState): Beat[] {
       cueKey: `event:${ev.eventId}`,
       techniques: techniques(def),
       layers: def.layers,
-      severity: { base: ev.baseSeverity, chain: ev.chainBonus, mitigation: ev.mitigation, effective: ev.effectiveSeverity },
+      severity: {
+        base: ev.baseSeverity,
+        chain: ev.chainBonus,
+        mitigation: ev.mitigation,
+        effective: ev.effectiveSeverity,
+        ...(ev.debris && !ev.debris.lost && ev.debris.assetId ? { avoided: ev.debris.choice === 'burn' ? ('burned clear' as const) : ('missed' as const) } : {}),
+      },
       lines: ev.notes.filter((n) => !ev.condition || !n.startsWith(ev.condition.name)),
       patch,
     })
