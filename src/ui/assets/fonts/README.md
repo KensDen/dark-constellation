@@ -26,10 +26,10 @@ directory, so the result replaces the file here, then delete display.ttf:
 
     python3 -m venv .venv-fonts
     .venv-fonts/bin/pip install fonttools==4.66.0 brotli==1.2.0
-    git show 290a472:src/ui/assets/fonts/display.woff2 > display.ttf
+    git show bfd907e:src/ui/assets/fonts/display.woff2 > display.ttf
     .venv-fonts/bin/fonttools ttLib.woff2 compress -o display.woff2 display.ttf
 
-The TrueType source is the file at commit 290a472 (15,456 bytes, sha256
+The TrueType source is the file at commit bfd907e (15,456 bytes, sha256
 9fa4f476f824c5dc0a46607ea5ffcc9da311b3bfac1a47d753137041e5d54092). The
 result is 5,636 bytes (sha256
 b78805da441d7e68efa68170a5499f1574063be8a3a5ca77b533fcc470b41067). The
