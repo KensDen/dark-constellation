@@ -100,7 +100,7 @@ export interface Objective {
   step: StepId | null
 }
 export const GUIDE: Record<GuideStage, Objective> = {
-  start: { tag: 'START HERE', sentence: 'Open PROCURE to place your orders.', step: 'procure' },
+  start: { tag: 'START HERE', sentence: 'Open PROCURE and place your orders.', step: 'procure' },
   last: { tag: 'LAST STEP', sentence: 'Press EXECUTE to play the turn.', step: 'resolve' },
 }
 export const SKIP_TIPS = 'Skip tips'
