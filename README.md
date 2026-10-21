@@ -5,8 +5,8 @@ By Ken Connell
 ![Split-sphere key art banner](docs/readme-banner.webp)
 
 **A turn-based space and drone cybersecurity strategy sim.** You are the mission assurance
-architect for a smallsat constellation and a drone squadron. Design, procure, and harden the
-architecture under budget while an adversary campaign escalates across 6 turns.
+architect for a smallsat constellation and a drone squadron. Design and procure the
+architecture, defenses included, under budget while an adversary campaign escalates across 6 turns.
 
 Play it: https://kensden.github.io/dark-constellation/
 
