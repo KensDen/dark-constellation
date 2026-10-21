@@ -129,12 +129,15 @@ export default function ActionBar({
           sentence; the skip button sits outside it. */}
       <div data-objective className="flex items-center gap-2 px-2 pt-1.5">
         {/* Not live during playback: the line carries the beat's title
-            then, which the event card's own live region announces. */}
-        <p role="status" aria-live={phase === 'playback' ? 'off' : 'polite'} className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap">
+            then, which the event card's own live region announces. The
+            sentence wraps to a second line rather than ending in an
+            ellipsis (QC gauntlet Q22): at 390 in SF Mono the first turn's
+            START HERE line and the longest beat titles did not fit one. */}
+        <p role="status" aria-live={phase === 'playback' ? 'off' : 'polite'} className="flex min-w-0 flex-1 items-center gap-2">
           <span data-objective-tag className="flex-none border border-dc-go px-1 py-0.5 font-display text-[8px] leading-none text-dc-go">
             {objective.tag}
           </span>
-          <span data-objective-sentence className="min-w-0 truncate font-mono text-[10px] text-dc-ink">
+          <span data-objective-sentence className="min-w-0 line-clamp-2 font-mono text-[10px] leading-tight text-dc-ink">
             {objective.sentence}
           </span>
         </p>
