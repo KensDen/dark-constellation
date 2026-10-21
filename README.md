@@ -75,8 +75,9 @@ readings. An entry is stamped FILED once you have met a threat it covers, and ge
 once you have finished a campaign; every entry is open to read either way.
 
 All organizations, vendors, constellations, and threat actors in the fiction are invented. Where
-the scenario is inspired by real incidents, it cites institutional analysis rather than naming
-individuals or companies. Only public sources are used.
+an event is inspired by a real incident, its card cites institutional analysis rather than naming
+the people or companies involved; the Field Library links primary sources, including one
+operator's own incident report. Only public sources are used.
 
 ## Sound and feel
 
