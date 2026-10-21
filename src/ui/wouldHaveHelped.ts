@@ -55,7 +55,7 @@ export function full(ev: ResolvedEvent, state: GameState, scenario: Scenario): s
     const pace = Number.isInteger(times) ? `${TIMES[times] ?? times} times faster` : 'faster'
     return `Every applicable defense was active. The incident response retainer would have recovered the damage ${pace}.`
   }
-  return 'Every applicable defense was active. What landed is what the attack buys through them.'
+  return 'Every applicable defense was active. What landed got through them anyway.'
 }
 
 const TIMES = ['', '', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']

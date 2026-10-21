@@ -52,12 +52,12 @@ trade off against each other.
   COLDVEIL is choosing between stay unnamed.
 - **Deployment lead time.** Satellites take two turns to reach orbit. Procure ahead of the threat,
   not into it.
-- **Upkeep and the worst case.** Every defense costs credits a turn to keep, and repairs are paid
-  at the turn close before funding arrives. The worst case says, before you commit, whether a bad
+- **Upkeep and the worst case.** Every defense costs credits a turn to keep, and repairs come out of
+  the budget at the turn close before funding arrives. The worst case says, before you commit, whether a bad
   night could end the operation.
 - **Defense streak.** Moves blocked in a row and the points your defenses saved add a small bonus
   to the grade.
-- **Difficulty.** Easy scales damage and repair bills by 0.75. Standard is the tuned campaign.
+- **Difficulty.** Easy scales damage and repair costs by 0.75. Standard is the tuned campaign.
 
 ## The sourcing promise
 

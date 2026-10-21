@@ -42,12 +42,12 @@ describe('the aftermath when every applicable defense was active', () => {
     expect(say(retuned(0, 6))).toContain('recovered the damage faster.')
     // No faster than base, so the retainer is not named at all.
     for (const s of [retuned(2, 2), retuned(3, 2)]) {
-      expect(say(s)).toBe('Every applicable defense was active. What landed is what the attack buys through them.')
+      expect(say(s)).toBe('Every applicable defense was active. What landed got through them anyway.')
     }
   })
 
   it('says what it always said once the retainer is owned', () => {
-    expect(full(ev, withRetainer, scenario)).toBe('Every applicable defense was active. What landed is what the attack buys through them.')
+    expect(full(ev, withRetainer, scenario)).toBe('Every applicable defense was active. What landed got through them anyway.')
   })
 })
 

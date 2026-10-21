@@ -582,7 +582,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'Mission data encrypted, operations held hostage. The space segment is fine; the ground segment is the soft target that runs it. ICS-style segmentation buys the time that backups need.',
+      'Mission data encrypted, operations held hostage. The space segment is fine; the ground segment is the soft target that runs it. ICS-style segmentation gives backups the time they need.',
     learnMoreCards: [
       {
         title: 'Ransomware reaches for operations',

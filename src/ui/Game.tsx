@@ -905,7 +905,7 @@ export default function Game({
             ))}
           </div>
           <p className="mt-2 text-sm text-ink-dim">{DIFFICULTIES[difficulty].blurb}</p>
-          <p className="mt-1 font-mono text-xs text-ink-dim">Damage and repair bills x{DIFFICULTIES[difficulty].damage}.</p>
+          <p className="mt-1 font-mono text-xs text-ink-dim">Damage and repair costs x{DIFFICULTIES[difficulty].damage}.</p>
         </fieldset>
 
         <details className="mt-4 border border-phosphor/20 bg-panel p-3">
