@@ -1471,7 +1471,7 @@ export default function Game({
           className="fixed inset-0 z-50 overflow-y-auto bg-base/95 outline-none"
           role="dialog"
           aria-modal="true"
-          aria-label="intel"
+          aria-label="Intel"
           data-intel-overlay
         >
           <Suspense fallback={<OverlayLoading />}>
@@ -1486,7 +1486,7 @@ export default function Game({
           className="fixed inset-0 z-50 overflow-y-auto bg-base/95 outline-none"
           role="dialog"
           aria-modal="true"
-          aria-label="glossary"
+          aria-label="Glossary"
           data-glossary-overlay
         >
           <Suspense fallback={<OverlayLoading />}>

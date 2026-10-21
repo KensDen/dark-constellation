@@ -313,7 +313,7 @@ describe('the board (v1.2 R1)', () => {
     expect(sheet('procure')).toBeNull()
     const [sign] = cartCallSigns(state, [{ kind: 'drone' }])
     expect(sign, 'the next drone is not a KESTREL').toMatch(/^KESTREL-\d+$/)
-    const queued = container.querySelector(`[aria-labelledby="layer-AIR"] button[aria-label^="Remove ${sign},"]`)
+    const queued = container.querySelector(`[aria-labelledby="layer-AIR"] button[aria-label^="Remove queued ${sign},"]`)
     expect(queued, 'the buy did not become a queued tile on AIR').not.toBeNull()
     expect(byText(/^PROCURE/)!.textContent).toContain('1 queued')
     click(queued!)

@@ -77,7 +77,7 @@ no endorsement is implied. Both frameworks' copyright designations and licence t
 site at `/legal/THIRD-PARTY-NOTICES.txt`
 ([public/legal/THIRD-PARTY-NOTICES.txt](public/legal/THIRD-PARTY-NOTICES.txt)).
 
-The **FIELD LIBRARY**, in the menu's INTEL ARCHIVE beside the Glossary,
+The **FIELD LIBRARY**, in the menu's INTEL ARCHIVE beside the GLOSSARY,
 shelves **36 readings** behind the threats: papers, advisories, standards and hands-on
 material, each checked against the live page. Every threat's event card links to its own
 readings. An entry is stamped FILED once you have met a threat it covers, and general reading
@@ -99,11 +99,11 @@ values, and each beat carries its own visual cue and its own sound.
 - **A procedural music bed** with layers that follow the campaign: a base pad, a tension layer
   when the index falls below the win line or a condition is active, and a threat layer while a
   BLACKOUT CHAIN is armed or a lost campaign is resolving. It loops by construction, so there is
-  no seam. The cold open builds the same bed slide by slide and hands it back to the menu.
-- **Two toggles, effects and music**, both remembered between visits. Nothing plays until your
+  no seam. The briefing builds the same bed slide by slide and hands it back to the menu.
+- **Two toggles, Sound and Music**, both remembered between visits. Nothing plays until your
   first tap or click.
 - **Tapped through.** Every beat waits for a tap, and SKIP ends the playback. Reduced motion is
-  honoured as a motion preference: the sequence still plays, every cue takes its static form,
+  honored as a motion preference: the sequence still plays, every cue takes its static form,
   and the sound is unchanged.
 - **Haptics** on Chrome-family Android browsers that support vibration. Nothing fires on iPhone,
   by design.

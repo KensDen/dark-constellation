@@ -174,7 +174,7 @@ function Tile({
   return (
     <button
       type="button"
-      aria-label={`Remove ${callSign}, ${kindLabels[buy.kind]}, from what you procure`}
+      aria-label={`Remove queued ${callSign}, ${kindLabels[buy.kind]}`}
       onClick={onRemove}
       className={`${TILE} border-dashed border-dc-friendly/60 ${tile.cue ?? ''}`}
     >

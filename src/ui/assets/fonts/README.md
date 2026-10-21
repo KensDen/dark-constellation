@@ -3,7 +3,7 @@
 `display.woff2` is a hard subset (uppercase, digits, and the punctuation the
 UI uses) of **Press Start 2P** by CodeMan38 (Cody Boisclair), encoded as
 WOFF2. It is self-hosted for the wordmark and headers so the pixel display
-type renders identically on every platform, with no CDN dependency and no
+type renders consistently across platforms, with no CDN dependency and no
 platform-fallback kerning drift.
 
 Press Start 2P is licensed under the SIL Open Font License, Version 1.1; the
