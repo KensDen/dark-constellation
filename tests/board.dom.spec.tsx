@@ -266,7 +266,9 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
     for (const c of state.conditions) {
       const def = DEFAULT_SCENARIO.events.find((e) => e.id === c.eventId)!
       for (const layer of def.layers) {
-        const chips = [...container.querySelectorAll(`[data-strip] [data-layer="${layer}"] [data-condition-chip]`)].map((el) => el.textContent)
+        // Read with the chip's no-break space (v1.3 R3: the turns stay with
+        // their dot when a narrow column wraps the chip) as a space.
+        const chips = [...container.querySelectorAll(`[data-strip] [data-layer="${layer}"] [data-condition-chip]`)].map((el) => el.textContent?.replace(/\u00a0/g, ' '))
         // The turns left since v1.3 Round 0 (brief 6.5 reverses v1.2 4.3's
         // "elapsed time only" on purpose: the player plans around the
         // clock), in R2's short form, JAMMED · 2T. Every condition has a

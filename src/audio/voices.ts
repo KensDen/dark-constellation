@@ -10,7 +10,7 @@
 // makes "muted means nothing is scheduled" a thing the suite can assert
 // about the graph rather than about a boolean.
 
-import { SOUND_MS, type SoundCue } from '../director/cues'
+import { SOUND_MS, type SoundCue } from '../cues'
 import type { AudioContextLike, AudioNodeLike, OscillatorLike } from './graph'
 
 // A gain cannot ramp exponentially to zero, so silence is this instead.

@@ -6,8 +6,11 @@
 // kept). An asset ordered tonight sits in its column as ORDERED, and a tap
 // cancels the order.
 //
-// While a turn plays back, the struck tile carries the lock-on and the
-// burst it has had since v1.2 R3, and a layer that held flashes HELD.
+// During the night (brief 5.5 item 1) the struck tile carries the lock-on
+// and the burst it has had since v1.2 R3; a block puts a green reticle and
+// a shield flash on the tile it was aimed at, and its layer flashes HELD.
+// Once the operation is over, a tile still in transit says so rather than
+// counting down to a turn that will not come (QC G-067).
 
 import type { ActiveCondition, Layer } from '../../engine/types'
 import { LAYERS } from '../../engine/types'
@@ -17,6 +20,7 @@ import { HIT_BURST, LOCK_ON, SHIELD_FLASH } from '../sprites/effects'
 import PixelSprite from '../sprites/PixelSprite'
 import { STATE_WORD, pipsFor, type SpriteState, type TileModel } from './board'
 import type { Strike } from './strike'
+import { NO_ARRIVAL, OPERATION_OVER } from './boardModel'
 
 export interface ChipModel {
   condition: ActiveCondition
@@ -34,7 +38,7 @@ const PIP_TONE: Record<SpriteState, string> = {
 // their place (v1.2 R3), keyed on the hit so a second hit pops again.
 function Pips({ lit, tone, popFrom = 0, beat }: { lit: number; tone: string; popFrom?: number; beat?: string }) {
   return (
-    <span aria-hidden="true" className={`flex font-mono text-[10px] leading-none ${tone}`}>
+    <span aria-hidden="true" className={`relative flex font-mono text-[10px] leading-none ${tone}`}>
       {[0, 1, 2, 3].map((i) => (
         <span key={i} className="relative">
           {i < lit ? '●' : '○'}
@@ -52,6 +56,8 @@ interface TileHit {
   landed: boolean
   // The pips the tile showed before the hit.
   fromPips: number
+  // The still mark while the move's card is up: the brackets, no motion.
+  rest?: boolean
 }
 
 function Art({ tile, hit }: { tile: TileModel; hit?: TileHit | null }) {
@@ -60,8 +66,9 @@ function Art({ tile, hit }: { tile: TileModel; hit?: TileHit | null }) {
   return (
     <span aria-hidden="true" className="relative block">
       <PixelSprite sprite={sprite} name={`${kind}.${tile.kind === 'asset' ? tile.state : 'transit'}`} className="block" />
-      {hit && <PixelSprite key={hit.id} sprite={LOCK_ON} name="lock-on" className="dc-lock-on absolute inset-0 m-auto" />}
+      {hit && <PixelSprite key={hit.id} sprite={LOCK_ON} name="lock-on" className={`${hit.rest ? '' : 'dc-lock-on'} absolute inset-0 m-auto`} />}
       {hit?.landed &&
+        !hit.rest &&
         HIT_BURST.map((frame, i) => (
           <PixelSprite key={`${hit.id}-${i}`} sprite={frame} name={`hit-burst-${i}`} className={`dc-burst dc-burst-${i} absolute inset-0 m-auto`} />
         ))}
@@ -72,6 +79,8 @@ function Art({ tile, hit }: { tile: TileModel; hit?: TileHit | null }) {
 function Tile({
   tile,
   hit,
+  shield,
+  over,
   selected,
   inspect,
   onSelect,
@@ -79,6 +88,10 @@ function Tile({
 }: {
   tile: TileModel
   hit?: TileHit | null
+  // A block aimed at this tile: the strike's id, whether it has landed,
+  // and whether it is the still mark while the card is up.
+  shield?: { id: string; landed: boolean; rest?: boolean } | null
+  over?: boolean
   selected: boolean
   inspect?: boolean
   onSelect: () => void
@@ -91,7 +104,7 @@ function Tile({
         type="button"
         data-asset-id={asset.id}
         data-state={state}
-        data-struck={hit ? (hit.landed ? 'hit' : 'lock') : undefined}
+        data-struck={hit ? (hit.rest ? 'rest' : hit.landed ? 'hit' : 'lock') : undefined}
         // On the wide board a tile selects for the inspector beside it; on
         // a phone it opens its intel card.
         aria-haspopup={inspect ? undefined : 'dialog'}
@@ -99,15 +112,19 @@ function Tile({
         aria-controls={inspect ? 'dc-inspector' : undefined}
         aria-label={`${callSign}, ${kindLabels[asset.kind]}, integrity ${asset.integrity}%${STATE_WORD[state]}`}
         onClick={onSelect}
-        className={`${TILE} ${selected ? 'border-dc-go' : ''}`}
+        data-shield={shield ? (shield.rest ? 'rest' : shield.landed ? 'held' : 'lock') : undefined}
+        className={`${TILE} ${selected ? 'border-dc-go' : ''} ${shield?.landed && !shield.rest ? 'dc-shield-tile' : ''}`}
       >
-        {hit?.landed && <span key={hit.id} aria-hidden="true" data-strobe className="dc-hit-strobe pointer-events-none absolute inset-0 bg-dc-hostile/45" />}
+        {hit?.landed && !hit.rest && <span key={hit.id} aria-hidden="true" data-strobe className="dc-hit-strobe pointer-events-none absolute inset-0 bg-dc-hostile/45" />}
+        {shield && <i key={shield.id} aria-hidden="true" className={`${shield.rest ? '' : 'dc-reticle'} pointer-events-none absolute -inset-[3px] border-2 border-dc-go`} />}
         <Art tile={tile} hit={hit} />
-        <span className={`whitespace-nowrap font-mono text-[10px] leading-none ${state === 'lost' ? 'text-dc-muted' : 'text-dc-ink'}`}>{callSign}</span>
+        {/* Positioned, so the call sign and the pips sit above the strobe
+            and stay readable through a hit (fresh-eyes review). */}
+        <span className={`relative whitespace-nowrap font-mono text-[10px] leading-none ${state === 'lost' ? 'text-dc-muted' : 'text-dc-ink'}`}>{callSign}</span>
         {state === 'lost' ? (
           <span className="whitespace-nowrap font-mono text-[10px] leading-none text-dc-muted">LOST</span>
         ) : (
-          <Pips lit={pipsFor(asset.integrity)} tone={PIP_TONE[state]} popFrom={hit?.landed ? hit.fromPips : 0} beat={hit?.id} />
+          <Pips lit={pipsFor(asset.integrity)} tone={PIP_TONE[state]} popFrom={hit?.landed && !hit.rest ? hit.fromPips : 0} beat={hit?.id} />
         )}
       </button>
     )
@@ -117,7 +134,7 @@ function Tile({
       <div data-asset-id={tile.pending.id} data-state="transit" className={TILE} aria-label={`${tile.callSign}, ${kindLabels[tile.pending.kind]}, arriving in ${tile.pending.etaTurns}`}>
         <Art tile={tile} />
         <span className="whitespace-nowrap font-mono text-[10px] leading-none text-dc-muted">{tile.callSign}</span>
-        <span className="whitespace-nowrap font-mono text-[10px] leading-none text-dc-muted">ETA {tile.pending.etaTurns}</span>
+        <span className="whitespace-nowrap font-mono text-[10px] leading-none text-dc-muted">{over ? NO_ARRIVAL : `ETA ${tile.pending.etaTurns}`}</span>
       </div>
     )
   }
@@ -146,53 +163,78 @@ export interface AssetStripProps {
   onCancelQueued: (index: number) => void
   hit?: Extract<Strike, { kind: 'hit' }> | null
   held?: Extract<Strike, { kind: 'held' }> | null
+  // The operation is over: nothing in transit will arrive.
+  over?: boolean
 }
 
-export default function AssetStrip({ tiles, chips, selectedKey, inspect, onSelect, onCancelQueued, hit, held }: AssetStripProps) {
+export default function AssetStrip({ tiles, chips, selectedKey, inspect, onSelect, onCancelQueued, hit, held, over }: AssetStripProps) {
   const struck = hit ? hit.before.assets.find((a) => a.id === hit.assetId) : undefined
-  const tileHit: TileHit | null = hit && struck ? { id: hit.id, landed: hit.landed, fromPips: pipsFor(struck.integrity) } : null
+  const tileHit: TileHit | null = hit && struck ? { id: hit.id, landed: hit.landed, fromPips: pipsFor(struck.integrity), rest: hit.rest } : null
   // Each column starts as wide as its tiles. When the fleet outgrows the
   // row, the fullest column gives way and its tiles wrap; the others keep
   // one row.
   const most = Math.max(...LAYERS.map((layer) => tiles[layer].length))
   return (
-    <section aria-label="Assets" data-strip className="flex flex-none gap-1.5">
-      {LAYERS.map((layer) => {
-        const list = tiles[layer]
-        const layerChips = chips(layer)
-        const heldHere = held && held.layers.includes(layer) ? held.id : null
-        return (
-          <div key={layer} data-layer={layer} className="min-w-0 border border-dc-line bg-dc-panel px-1 pt-0.5" style={{ flex: `${Math.max(1, list.length)} ${list.length === most ? 1 : 0} auto` }}>
-            <div className="flex flex-wrap items-center gap-1">
-              <h2 className="font-mono text-[10px] tracking-widest text-dc-muted">{layer}</h2>
-              {heldHere && (
-                <span key={heldHere} data-held className="dc-shield-flash inline-flex items-center gap-1 font-mono text-[10px] text-dc-go">
-                  <PixelSprite sprite={SHIELD_FLASH} scale={1} name="shield-flash" />
-                  HELD
-                </span>
+    <>
+      <section aria-label="Assets" data-strip className="flex flex-none gap-1.5">
+        {LAYERS.map((layer) => {
+          const list = tiles[layer]
+          const layerChips = chips(layer)
+          // HELD on the header only for a block with no tile to shield: a
+          // block on a tile says so on the tile, and the header keeps its
+          // width, so nothing on the strip moves mid-strike.
+          const heldHere = held && held.landed && !held.rest && !held.assetId && held.layers.includes(layer) ? held.id : null
+          return (
+            <div key={layer} data-layer={layer} className="min-w-0 border border-dc-line bg-dc-panel px-1 pt-0.5" style={{ flex: `${Math.max(1, list.length)} ${list.length === most ? 1 : 0} auto` }}>
+              <div className="flex flex-wrap items-center gap-1">
+                <h2 className="font-mono text-[10px] tracking-widest text-dc-muted">{layer}</h2>
+                {heldHere && (
+                  <span key={heldHere} data-held className="dc-shield-flash inline-flex items-center gap-1 font-mono text-[10px] text-dc-go">
+                    <PixelSprite sprite={SHIELD_FLASH} scale={1} name="shield-flash" />
+                    HELD
+                  </span>
+                )}
+              </div>
+              {/* The chips on a line of their own under the layer's name
+                  (v1.3 R3), and asking the column for no more width than
+                  their longest word (min-content), so a chip on a short
+                  column wraps inside it rather than widening it until the
+                  fullest column has to stack its tiles. Laid out, they take
+                  the column's whole width. The turns stay with their dot. */}
+              {layerChips.length > 0 && (
+                <div className="flex flex-col items-start" style={{ width: 'min-content', minWidth: '100%' }}>
+                  {layerChips.map((chip) => (
+                    <span key={chip.condition.instanceId} data-condition-chip className="font-mono text-[10px] leading-tight text-dc-hostile">
+                      {chip.condition.name} ·{'\u00a0'}
+                      {chip.remaining ?? chip.condition.remainingTurns}T
+                    </span>
+                  ))}
+                </div>
               )}
-              {layerChips.map((chip) => (
-                <span key={chip.condition.instanceId} data-condition-chip className="whitespace-nowrap font-mono text-[10px] leading-none text-dc-hostile">
-                  {chip.condition.name} · {chip.remaining ?? chip.condition.remainingTurns}T
-                </span>
-              ))}
+              <div className="mt-0.5 flex flex-wrap gap-0.5">
+                {list.map((tile) => (
+                  <Tile
+                    key={tile.key}
+                    tile={tile}
+                    selected={tile.key === selectedKey}
+                    hit={tile.kind === 'asset' && hit && tile.key === hit.assetId ? tileHit : null}
+                    shield={tile.kind === 'asset' && held && tile.key === held.assetId ? { id: held.id, landed: held.landed, rest: held.rest } : null}
+                    over={over}
+                    inspect={inspect}
+                    onSelect={() => onSelect(tile.key === selectedKey ? null : tile.key)}
+                    onCancel={() => tile.kind === 'queued' && onCancelQueued(tile.index)}
+                  />
+                ))}
+              </div>
             </div>
-            <div className="mt-0.5 flex flex-wrap gap-0.5">
-              {list.map((tile) => (
-                <Tile
-                  key={tile.key}
-                  tile={tile}
-                  selected={tile.key === selectedKey}
-                  hit={tile.kind === 'asset' && hit && tile.key === hit.assetId ? tileHit : null}
-                  inspect={inspect}
-                  onSelect={() => onSelect(tile.key === selectedKey ? null : tile.key)}
-                  onCancel={() => tile.kind === 'queued' && onCancelQueued(tile.index)}
-                />
-              ))}
-            </div>
-          </div>
-        )
-      })}
-    </section>
+          )
+        })}
+      </section>
+      {over && (
+        <p data-strip-over className="flex-none text-center font-mono text-[10px] tracking-widest text-dc-muted">
+          {OPERATION_OVER}
+        </p>
+      )}
+    </>
   )
 }

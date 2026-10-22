@@ -83,15 +83,25 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
             valueClassName="whitespace-nowrap font-display text-[22px] leading-none"
           />
           <span className="whitespace-nowrap pb-0.5 font-mono text-[11px] text-dc-muted">/ 100</span>
-          {drop && (
-            <span key={drop.id} aria-hidden="true" data-mai-drop className="dc-mai-float pointer-events-none absolute left-24 top-2 font-display text-sm text-dc-hostile">
-              -{drop.delta}
-            </span>
-          )}
-          <span className="flex min-w-0 flex-col pb-0.5 font-mono text-[10px] leading-tight">
-            <span data-margin={margin.tone} className={`whitespace-nowrap ${TONE_TEXT[margin.tone]}`}>
-              {margin.text}
-            </span>
+          <span className="relative flex min-w-0 flex-col pb-0.5 font-mono text-[10px] leading-tight">
+            {/* The strike's float takes the margin line's place while it
+                shows, never over the score's digits or layered on the line
+                (fresh-eyes review, v1.3 R3): the fall in red, to one
+                decimal as the card says it, or NO LOSS in green on a block. */}
+            {drop ? (
+              <span
+                key={drop.id}
+                aria-hidden="true"
+                data-mai-drop={drop.delta > 0 ? 'fall' : 'held'}
+                className={`dc-mai-float pointer-events-none whitespace-nowrap font-display text-sm leading-none ${drop.delta > 0 ? 'text-dc-hostile' : 'text-dc-go'}`}
+              >
+                {drop.delta > 0 ? `-${drop.delta.toFixed(1)}` : 'NO LOSS'}
+              </span>
+            ) : (
+              <span data-margin={margin.tone} className={`whitespace-nowrap ${TONE_TEXT[margin.tone]}`}>
+                {margin.text}
+              </span>
+            )}
             {shown.streak >= 2 && (
               <span data-streak className="inline-flex items-center gap-1 whitespace-nowrap text-dc-go">
                 <PixelSprite sprite={tinted(ICON_CHECK, 'go')} scale={1} name="status-blocked" />
@@ -118,7 +128,10 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
         </div>
         <p data-scale className="relative mt-0.5 h-3 font-mono text-[10px] leading-none text-dc-muted">
           <span className="absolute left-0">0</span>
-          <span className="absolute inline-flex -translate-x-1/2 items-center gap-1 text-dc-go" style={{ left: `${winAt}%` }}>
+          {/* The arrow on the win line's tick, the label running on to its
+              right (fresh-eyes review: centring the whole label put the
+              arrow 37px left of the tick). */}
+          <span className="absolute inline-flex -translate-x-[4px] items-center gap-1 text-dc-go" style={{ left: `${winAt}%` }}>
             <PixelSprite sprite={tinted(ICON_UP, 'go')} scale={1} name="win-marker" />
             {winLineLabel(winAt)}
           </span>

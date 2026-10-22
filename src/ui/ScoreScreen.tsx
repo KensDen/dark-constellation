@@ -54,8 +54,8 @@ const GRADE_TONE: Record<Grade, string> = {
 }
 
 const STRIP_WORD: Record<StripColour, string> = {
-  green: 'MAI held',
-  amber: 'MAI slipped',
+  green: 'score held',
+  amber: 'score slipped',
   magenta: 'hit hard',
 }
 
@@ -142,9 +142,9 @@ export default function ScoreScreen({ state, daily, standing }: ScoreScreenProps
   const strip = turnStrip(state)
   const official = !!daily && standing === 'official'
   const stats = [
-    { label: 'FINAL MAI', value: last?.maiScore ?? 0, decimals: 1, tone: 'text-dc-go' },
+    { label: 'FINAL SCORE', value: last?.maiScore ?? 0, decimals: 1, tone: 'text-dc-go' },
     { label: 'HITS TAKEN', value: hitsTaken(state), decimals: 0, tone: 'text-dc-hostile' },
-    { label: 'CREDITS LEFT', value: last?.creditsAfter ?? state.credits, decimals: 0, tone: 'text-dc-warn' },
+    { label: 'BUDGET LEFT', value: last?.creditsAfter ?? state.credits, decimals: 0, tone: 'text-dc-warn' },
   ]
   const blip = useCallback(() => play('tick-up'), [play])
   const stage = useReveal(reduced, stats.length, blip)
@@ -216,9 +216,9 @@ export default function ScoreScreen({ state, daily, standing }: ScoreScreenProps
           {won
             ? `The architecture held through turn ${scenario.totalTurns}.`
             : state.lossReason === 'insolvency'
-              ? 'Budget insolvency. The program ran out of credits before it ran out of threats.'
+              ? 'Budget insolvency. The program ran out of budget before it ran out of threats.'
               : state.lossReason === 'maiCollapse'
-                ? 'Mission Assurance Index collapse. The architecture came apart under the campaign.'
+                ? `Mission assurance collapsed below ${scenario.collapseThreshold}. The architecture came apart under the campaign.`
                 : `End of campaign below the win threshold of ${scenario.winThreshold}.`}
         </p>
 
@@ -259,7 +259,7 @@ export default function ScoreScreen({ state, daily, standing }: ScoreScreenProps
           </ol>
           <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-dc-muted">
             <span>
-              <span className="dc-strip-key dc-strip-green" /> MAI held
+              <span className="dc-strip-key dc-strip-green" /> score held or rose
             </span>
             <span>
               <span className="dc-strip-key dc-strip-amber" /> fell under {TURN_STRIP.magentaDrop}

@@ -9,15 +9,16 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
-import { BEAT_KINDS, deriveBeats } from '../src/director'
 import { briefFree, gnssDenied, newGame, resolveTurn } from '../src/engine/reducer'
 import { briefActive, countersAfter, eventById, planFor } from '../src/engine/rules'
 import { coverage, maiScore } from '../src/engine/scoring'
 import { turnRng } from '../src/engine/rng'
-import type { AssetKind, Difficulty, GameState, ResolvedEvent, TurnActions, TurnRecord } from '../src/engine/types'
+import type { AssetKind, Difficulty, GameState, TurnActions, TurnRecord } from '../src/engine/types'
 import {
   chainLine,
   CHROME_WORD_BUDGET,
@@ -57,10 +58,14 @@ import {
   vectorTo,
   winLineLabel,
 } from '../src/ui/board/boardModel'
+import { callSigns } from '../src/ui/board/board'
 import { NOTHING, OPS_LOG_HEADING, OPS_LOG_TURNS, opsLogCopy, opsLogLine } from '../src/ui/board/wide'
 import { coverageFigure } from '../src/ui/labels'
+import { HitCard } from '../src/ui/night/cards'
+import { DebrisCall, DebrisResult, EndOfTurn, OpportunityCard } from '../src/ui/night/closeCards'
+import * as nightCopy from '../src/ui/night/nightCopy'
+import { defensesFor, nightOf, type NightStep } from '../src/ui/night/nightModel'
 import { VERDICT_WORD_MAX, verdictFor } from '../src/ui/verdict'
-import { short } from '../src/ui/wouldHaveHelped'
 import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
@@ -75,26 +80,40 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
 // content and not about length.
 const DISCLOSURE_NOVEL_MIN = 6
 
-// The playback card's title, bounded here for the same reason. Set from
-// the measured worst plus room, and the message prints the new worst so
-// re-baselining forces a sentence about why.
-const BEAT_TITLE_WORD_BUDGET = 14
+// The night card's headline (v1.3 Round 3: the header line and the
+// heading under it, which took the place of the v1.1 playback card's
+// title), bounded here for the same reason. Set from the measured worst
+// plus room when it bounded the title, and kept at 14 when the night
+// replaced the card; the message prints the new worst so re-baselining
+// forces a sentence about why.
+const CARD_HEADLINE_WORD_BUDGET = 14
+// The measured worst, pinned: a hit card's header over the longest move
+// name, "COLDVEIL MOVES · TURN 4" over "Docking LiDAR dazzle on the RPO
+// sat" (the top-intel line on Easy, seed 2).
+const WORST_CARD_HEADLINE = 12
 
-// The hit card's "Would have helped" line (critique row M3, FIX batch 1,
-// October 2026), measured over the EXTREME_SEEDS sweep the way Round 7b
-// measured the title: the line alone at 14 words, which is also its
-// structural maximum (two long defense names), and the card's title and
-// line together at 21. Pinned, so a change that moves either comes here
-// and says so.
+// The hit card's M3 line (critique row M3, FIX batch 1, October 2026),
+// measured over the EXTREME_SEEDS sweep the way Round 7b measured the
+// title, and the card's headline and line together. Pinned, so a change
+// that moves either comes here and says so.
 //
-// 20 since v1.3 Round 0. The 21 was "Docking LiDAR dazzle on the RPO sat"
-// over a line naming "Tier A sensor procurement and firmware attestation";
-// brief 6.6 renamed that defense "Firmware attestation and assured
-// sourcing", two words shorter, and the worst card is now the rogue
-// ground station's (6 words of title over the 14-word line, the passive
-// line on turn 5 on Easy, seed 2). The line's own worst stays at 14.
-const WORST_HELPED_LINE = 14
-const WORST_HIT_CARD_TITLE_AND_LINE = 20
+// 14 and 20 through v1.3 Round 0: the line at its structural maximum (two
+// long defense names), and the rogue ground station's card (6 words of
+// title over the 14-word line, the passive line on turn 5 on Easy, seed 2).
+//
+// 40 and 50 since v1.3 Round 3, which moved the line into the hit card's
+// outcome block (src/ui/night/cards.tsx) and retired
+// src/ui/wouldHaveHelped.ts. The UNDEFENDED line now also says what else
+// the defense stops among the threats the player has met or named (this
+// move and one more by name, the rest counted as "n more threats you have
+// met": listing them all ran the line to 42 words, and a bare "1 more"
+// read as cryptic to the fresh-eyes review), and the PROCURE sentence
+// follows it before the last turn. The worst line is the ground segment
+// ransomware's on the passive line, turn 5 on Easy, seed 16; the worst
+// card is the rogue ground station's on the same line, seed 2, at 50
+// words with its headline.
+const WORST_HELPED_LINE = 40
+const WORST_HIT_CARD_HEADLINE_AND_LINE = 50
 
 // The wide board's ops log at its longest over the EXTREME_SEEDS sweep
 // (v1.2 R6), pinned so a change that moves it comes here and says so.
@@ -120,8 +139,9 @@ function novelTokens(copy: ReturnType<typeof briefCopy>): string[] {
   return [...tokensOf(disclosureBlocks(copy).join(' '))].filter((w) => !summary.has(w))
 }
 const SEEDS = 12
-// The two tests that pin a MEASURED EXTREME (the thinnest disclosure and
-// the longest beat title) sweep wider. A pin is only as good as the sweep
+// The tests that pin a MEASURED EXTREME (the thinnest disclosure, the
+// longest beat title, now the night card's headline and the hit card's M3
+// line) sweep wider. A pin is only as good as the sweep
 // that reaches the extreme, and when the deck stream of v1.2 R5a moved
 // every campaign's draws, both extremes left the first 12 seeds (they come
 // up at seeds 15 and 24): a 12-seed sweep re-pinned to what it could see
@@ -201,6 +221,99 @@ const ordersOf = (script: Record<number, TurnActions>, state: GameState): [strin
   ['no orders', NO_OP],
   ["the line's orders", script[state.turn] ?? NO_OP],
 ]
+
+// THE NIGHT'S CARDS (v1.3 Round 3, brief 5.5), which replaced the v1.1
+// director's playback card and its titles. What each card puts above its
+// body, read off the night's model and copy the way src/ui/night/cards.tsx
+// and closeCards.tsx print it: the header line, and the heading under it
+// (a hit card's move, the call's event, the call's result, an
+// opportunity; on the last END OF TURN, the ending's head). The tests that
+// measure it render cards of every kind and check they say the same, so
+// this cannot drift from what the cards print.
+interface NightCard {
+  kind: string
+  head: string
+  heading: string
+  step?: NightStep
+}
+function nightCards(before: GameState, after: GameState): NightCard[] {
+  const night = nightOf(before, after)
+  const out: NightCard[] = []
+  for (const step of night.steps) {
+    if (step.kind === 'threat') out.push({ kind: 'hit', head: nightCopy.hitHeader(night.turn), heading: shortName(step.def), step })
+    else if (step.kind === 'debris') {
+      const d = step.ev.debris!
+      out.push({ kind: 'call', head: nightCopy.callHeader(night.turn), heading: shortName(step.def), step })
+      out.push({ kind: 'debris', head: nightCopy.conjunctionHeader(night.turn), heading: nightCopy.debrisTitle(d.lost, d.choice), step })
+    } else out.push({ kind: 'opportunity', head: nightCopy.opportunityHeader(night.turn), heading: step.def.name, step })
+  }
+  const ending = night.record.ledger.insolvent
+    ? nightCopy.INSOLVENT
+    : after.status === 'playing'
+      ? ''
+      : nightCopy.ENDING[after.status === 'won' ? 'won' : (after.lossReason ?? 'belowThreshold')].head
+  out.push({ kind: 'end', head: nightCopy.endHeader(night.turn), heading: ending })
+  return out
+}
+
+// A new player's device as the night reads it: every threat met or named
+// so far in the campaign, tonight's included. And whether tonight is the
+// last turn, which drops the hit card's PROCURE sentence.
+const knownBy = (after: GameState) => new Set(after.history.flatMap((r) => [...r.events.map((e) => e.eventId), ...r.named]))
+const lastTurnOf = (after: GameState) => after.history[after.history.length - 1].turn >= after.scenario.totalTurns || after.status !== 'playing'
+
+// The hit card's M3 line (critique row M3), in its outcome block since
+// v1.3 Round 3 (src/ui/night/cards.tsx, Outcome). On an UNDEFENDED block:
+// "What would have helped: <defense>, n CR. It stops <the move, and the
+// threats the defense answers that the player has met or named>." and,
+// before the last turn, "It is in PROCURE next turn with that written on
+// it." On a REDUCED block: "Would have finished it: <defense>, n CR." None
+// on a HELD block, or where the move lists no defense the player lacks.
+function helpedLine(step: NightStep, known: ReadonlySet<string>, lastTurn: boolean): string | null {
+  const { ev, def } = step
+  const scenario = step.after.scenario
+  const { held, missing } = defensesFor(def, step.after.counters, scenario)
+  if (!missing || (ev.outcome === 'held' && held)) return null
+  if (ev.outcome === 'reduced' && held) return nightCopy.finishedIt(missing.name, missing.cost).join('')
+  const stops = [def, ...scenario.events.filter((e) => e.id !== def.id && e.counters.includes(missing.id) && known.has(e.id))].map(shortName)
+  return `${nightCopy.wouldHaveHelped(missing.name, missing.cost).join('')} ${nightCopy.itStops(stops)}${lastTurn ? '' : ` ${nightCopy.IN_PROCURE}`}`
+}
+
+// A card as the night renders it, as markup (react-dom/server, since this
+// suite has no DOM), and a piece of it read back as the words it prints.
+const noop = () => {}
+function renderCard(card: NightCard, before: GameState, after: GameState): string {
+  const record = after.history[after.history.length - 1]
+  if (card.kind === 'end') {
+    return renderToStaticMarkup(createElement(EndOfTurn, { record, state: after, scoreFrom: maiScore(before), reduced: true, play: noop, onNext: noop }))
+  }
+  const step = card.step!
+  if (card.kind === 'call') return renderToStaticMarkup(createElement(DebrisCall, { step, turn: record.turn, filed: false, reduced: true, onCall: noop }))
+  const props = {
+    step,
+    turn: record.turn,
+    lastTurn: lastTurnOf(after),
+    signs: new Map([...callSigns(before), ...callSigns(after)]),
+    known: knownBy(after),
+    first: true,
+    reduced: true,
+    play: noop,
+    onContinue: noop,
+  }
+  return renderToStaticMarkup(createElement(card.kind === 'hit' ? HitCard : card.kind === 'debris' ? DebrisResult : OpportunityCard, props))
+}
+const decode = (html: string) =>
+  html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&#x27;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+const pick = (html: string, re: RegExp) => {
+  const m = re.exec(html)
+  return m ? decode(m[1]) : undefined
+}
 
 describe('reading diet: the intel brief', () => {
   // Played in a hook rather than by the first test that needs them, so the
@@ -878,8 +991,9 @@ describe('reading diet: the intel brief', () => {
 
   it('bounds the disclosure body, the channel no budget measured before', () => {
     // The ceiling half of the floor above. Brief v2.3 section 5 records
-    // the disclosure body and the beat title as two channels nothing
-    // measures, and this round fills both; a round that closed principle
+    // the disclosure body and the beat title (the night card's headline
+    // since v1.3 Round 3) as two channels nothing measures, and this round
+    // fills both; a round that closed principle
     // 16's new level in one place and opened it in another would have
     // learned nothing. The worst figure is printed so a change that moves
     // it has to come here and say so.
@@ -932,107 +1046,155 @@ describe('reading diet: the intel brief', () => {
     expect(worst, `worst disclosure measured: ${worst} words at ${worstAt}`).toBe(119)
   })
 
-  it('bounds the beat title, the other channel no budget measured', () => {
-    // Titles render on the playback card, which no budget function counted
-    // until Round 7b.
+  it('bounds the night card\'s headline, the other channel no budget measured', () => {
+    // Titles rendered on the playback card, which no budget function
+    // counted until Round 7b.
     //
     // THREE CORRECTIONS, each a narrower sweep than the claim. Round 7b's
     // first version swept NO_OP only, so a 37-word title on any other line
     // shipped green. Its fix swept every line but still measured INVISIBLE
     // beats, whose titles never reach the card, and still missed two kinds
     // that are visible. And its self-check named three kinds by hand, which
-    // is principle 17 inside the guard written under it. Round 7 measures
-    // what the player reads (visible beats only), adds a line that spends
-    // surge authority so `surge-spent` is reached at all, and derives the
-    // required set from BEAT_KINDS. (`surge-spent` and its line left with
-    // SURGE in v1.3 Round 0; the five lines reach every visible kind.)
+    // is principle 17 inside the guard written under it. Round 7 measured
+    // what the player reads (visible beats only), added a line that spent
+    // surge authority so `surge-spent` was reached at all, and derived the
+    // required set from the director's beat kinds.
+    //
+    // RE-POINTED FOR v1.3 Round 3, which retired the director and its
+    // playback card: what a player reads at the top of each card is now
+    // the night card's headline (see nightCards). Every card is on screen
+    // (the night has no invisible kind), so nothing is excused, and the
+    // required set is derived from the cards' own source: every
+    // `data-night-card` kind src/ui/night draws must be measured somewhere
+    // in the sweep. The headlines are read off the night's copy; one card
+    // of each kind, the last END OF TURN and the worst are rendered, and
+    // must say the same.
     let worst = 0
     let worstAt = ''
-    const visibleKinds = new Set<string>()
-    const measure = (name: string, difficulty: Difficulty, seed: number, before: GameState, after: GameState) => {
-      for (const beat of deriveBeats(before, after)) {
-        if (!beat.visible) continue
-        visibleKinds.add(beat.kind)
-        const words = countWords(beat.title)
-        if (words > worst) {
-          worst = words
-          worstAt = `${name}, ${beat.kind}, turn ${before.turn}, ${difficulty}, seed ${seed}: "${beat.title}"`
-        }
-      }
-    }
+    let worstCase: { card: NightCard; before: GameState; after: GameState } | undefined
+    const firstOf = new Map<string, { card: NightCard; before: GameState; after: GameState }>()
     // The five lines of play, already played (see playExtremes).
     expect(extremes).toHaveLength(LINES.length * DIFFS.length * EXTREME_SEEDS)
     for (const { name, difficulty, seed, turns } of extremes) {
-      for (const { before, after } of turns) measure(name, difficulty, seed, before, after)
+      for (const { before, after } of turns) {
+        for (const card of nightCards(before, after)) {
+          const key = card.kind === 'end' && card.heading ? 'end, last' : card.kind
+          if (!firstOf.has(key)) firstOf.set(key, { card, before, after })
+          const words = countWords(card.head) + countWords(card.heading)
+          if (words > worst) {
+            worst = words
+            worstAt = `${name}, ${card.kind}, turn ${before.turn}, ${difficulty}, seed ${seed}: "${card.head}" / "${card.heading}"`
+            worstCase = { card, before, after }
+          }
+        }
+      }
     }
-    // THE REQUIRED SET IS DERIVED, and the exceptions are checked both
-    // ways. Every beat kind must be seen on the card somewhere in the sweep
-    // unless it is one the director always pushes invisible, and a kind on
-    // that list must never be seen on the card, or the list is lying.
-    const NEVER_ON_CARD = new Set(['procurement', 'end-of-turn-tick', 'settle'])
-    const unreached = BEAT_KINDS.filter((k) => !NEVER_ON_CARD.has(k) && !visibleKinds.has(k))
-    expect(unreached.join(', '), 'visible beat kinds whose titles the sweep never measured').toBe('')
-    for (const k of NEVER_ON_CARD) {
-      expect(BEAT_KINDS, `"${k}" is excused but is not a beat kind`).toContain(k)
-      expect(visibleKinds.has(k), `"${k}" is excused as never visible and reached the card anyway`).toBe(false)
+    // THE REQUIRED SET IS DERIVED, from the files that draw the cards, so a
+    // card added later is required by default; and the mirror names no
+    // kind those files do not draw.
+    const drawn = ['cards.tsx', 'closeCards.tsx'].flatMap((f) => [...readFileSync(join(SRC, 'ui', 'night', f), 'utf8').matchAll(/\bkind="(\w+)"/g)].map((m) => m[1]))
+    expect(drawn.length, 'the night draws no card this test can find').toBeGreaterThan(0)
+    const measured = new Set([...firstOf.keys()].map((k) => k.split(',')[0]))
+    expect(drawn.filter((k) => !measured.has(k)).join(', '), 'night cards whose headlines the sweep never measured').toBe('')
+    expect([...measured].filter((k) => !drawn.includes(k)), 'the mirror measures a card the night does not draw').toEqual([])
+    expect(firstOf.has('end, last'), 'the sweep never measured the last END OF TURN').toBe(true)
+    // THE MIRROR IS THE CARD.
+    for (const { card, before, after } of [...firstOf.values(), worstCase!]) {
+      const html = renderCard(card, before, after)
+      const at = `${card.kind}, turn ${before.turn}`
+      expect(pick(html, /<h2 data-card-head="true"[^>]*>([\s\S]*?)<\/h2>/), `${at}: the header`).toBe(card.head)
+      const heading = card.kind === 'end' ? pick(html, /<div data-ending="[^"]*"[^>]*><p[^>]*>([\s\S]*?)<\/p>/) : pick(html, /<h3[^>]*>([\s\S]*?)<\/h3>/)
+      expect(heading ?? '', `${at}: the heading`).toBe(card.heading)
     }
-    expect(worst, `worst beat title measured: ${worst} words at ${worstAt}`).toBeLessThanOrEqual(BEAT_TITLE_WORD_BUDGET)
+    expect(worst, `worst card headline measured: ${worst} words at ${worstAt}`).toBeLessThanOrEqual(CARD_HEADLINE_WORD_BUDGET)
     // 11 swept NO_OP only; 12 widened to every line; 13 once the
     // zero-recovery clause went back to naming the three meters. Re-pinned
     // in Round 7 against visible beats only and a surge-spending line.
-    // Swept over EXTREME_SEEDS since v1.2 R5a (see the constant).
+    // Swept over EXTREME_SEEDS since v1.2 R5a (see the constant). 12 in
+    // v1.3 Round 0, the outcome below the line, "MISSION FAILED: below the
+    // win line at the end of the operation".
     //
-    // 12 since v1.3 Round 0. The 13 was the turn-start title and its
-    // income, SLA and recovery clauses; the v1.3 turn card reads "Turn n:
-    // COLDVEIL is moving", and the longest title on a card is now the
-    // outcome below the line, "MISSION FAILED: below the win line at the
-    // end of the operation".
-    expect(worst, `worst beat title measured: ${worst} words at ${worstAt}`).toBe(12)
+    // 12 since v1.3 Round 3, on the night's cards (see the constant).
+    expect(worst, `worst card headline measured: ${worst} words at ${worstAt}`).toBe(WORST_CARD_HEADLINE)
   })
 
   it('bounds the hit card\'s would-have-helped line, and pins what the card reads with it (critique row M3)', () => {
-    // M3 gave the hit card a line under its severity line naming the
-    // defense that was missing, and made it part of the card's reading.
-    // BEAT_TITLE_WORD_BUDGET bounds the title alone and cannot take the
-    // line as well: the line by itself reaches 14 words at its structural
-    // maximum, so a card bound of 14 could only be met by dropping it,
-    // which the critique rules out, and no other words on the card's
-    // headline are there to shorten. So the line is bounded on its own, at
-    // the structural maximum read off the deck (every threat against a
-    // state that owns nothing), and both worsts are pinned. The verdict's
-    // second line is the same function, so the same bound holds there.
-    const nothing = { ...newGame(DEFAULT_SCENARIO, 1), counters: [] }
-    const threats = DEFAULT_SCENARIO.events.filter((e) => e.kind !== 'opportunity')
-    const structural = Math.max(...threats.map((e) => countWords(short({ eventId: e.id } as ResolvedEvent, nothing, DEFAULT_SCENARIO))))
-    let landed = 0
+    // M3 gave the hit card a line naming the defense that was missing, and
+    // made it part of the card's reading. CARD_HEADLINE_WORD_BUDGET bounds
+    // the headline alone and cannot take the line as well: the line by
+    // itself runs past it at its structural maximum, so a card bound of 14
+    // could only be met by dropping it, which the critique rules out. So
+    // the line is bounded on its own, at the structural maximum read off
+    // the deck, and both worsts are pinned.
+    //
+    // RE-POINTED FOR v1.3 Round 3: the line is the hit card's own (see
+    // helpedLine), and on an UNDEFENDED block it also says what else the
+    // defense stops among the threats the player has met or named, so its
+    // structural maximum is every threat's every defense against a state
+    // that owns none of them, with every threat known and a turn to come.
+    // The sweep reads it as a new player's first campaign meets it. The
+    // verdict no longer carries a second line.
+    const threats = DEFAULT_SCENARIO.events.filter((e) => (e.kind ?? 'threat') === 'threat' && e.effect.special !== 'debrisStrike')
+    const defense = (id: string) => DEFAULT_SCENARIO.countermeasures.find((c) => c.id === id)!
+    const structural = Math.max(
+      ...threats.flatMap((def) =>
+        def.counters.map((c) => {
+          const stops = [def, ...threats.filter((e) => e.id !== def.id && e.counters.includes(c))].map(shortName)
+          return countWords(`${nightCopy.wouldHaveHelped(defense(c).name, defense(c).cost).join('')} ${nightCopy.itStops(stops)} ${nightCopy.IN_PROCURE}`)
+        }),
+      ),
+    )
+    type Case = { card: NightCard; before: GameState; after: GameState; line: string }
+    let printed = 0
     let worstLine = 0
     let worstLineAt = ''
     let worstCard = 0
     let worstCardAt = ''
+    const cases: Case[] = []
+    const branchOf = new Map<string, Case>()
     expect(extremes).toHaveLength(LINES.length * DIFFS.length * EXTREME_SEEDS)
     for (const { name, difficulty, seed, turns } of extremes) {
       for (const { before, after } of turns) {
-        for (const beat of deriveBeats(before, after)) {
-          if (!beat.visible || beat.kind !== 'threat' || (beat.severity?.effective ?? 0) <= 0) continue
-          landed += 1
-          const ev = after.history[after.history.length - 1].events.find((e) => e.eventId === beat.subjectId)!
-          const line = short(ev, after, after.scenario)
-          const at = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}: "${beat.title}" / "${line}"`
+        const known = knownBy(after)
+        const last = lastTurnOf(after)
+        for (const card of nightCards(before, after)) {
+          if (card.kind !== 'hit') continue
+          const line = helpedLine(card.step!, known, last)
+          if (line === null) continue
+          printed += 1
+          const found: Case = { card, before, after, line }
+          const branch = card.step!.ev.outcome === 'reduced' ? 'reduced' : last ? 'undefended, last turn' : 'undefended'
+          if (!branchOf.has(branch)) branchOf.set(branch, found)
+          const at = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}: "${card.head}" / "${card.heading}" / "${line}"`
           if (countWords(line) > worstLine) {
             worstLine = countWords(line)
             worstLineAt = at
+            cases.push(found)
           }
-          if (countWords(beat.title) + countWords(line) > worstCard) {
-            worstCard = countWords(beat.title) + countWords(line)
+          const headline = countWords(card.head) + countWords(card.heading)
+          if (headline + countWords(line) > worstCard) {
+            worstCard = headline + countWords(line)
             worstCardAt = at
+            cases.push(found)
           }
         }
       }
     }
-    expect(landed, 'no threat landed in the sweep, so nothing was measured').toBeGreaterThan(0)
+    expect(printed, 'no hit card in the sweep printed the line, so nothing was measured').toBeGreaterThan(0)
+    for (const branch of ['undefended', 'undefended, last turn', 'reduced']) {
+      expect([...branchOf.keys()], `the sweep never reaches the ${branch} line`).toContain(branch)
+    }
+    // THE MIRROR IS THE CARD: each branch and each worst, rendered.
+    for (const { card, before, after, line } of [...branchOf.values(), ...cases]) {
+      const html = renderCard(card, before, after)
+      const shown =
+        pick(html, /<p data-would-have-helped="true"[^>]*>([\s\S]*?)<\/p>/) ??
+        pick(html, /<div data-outcome="reduced"[^>]*>(?:<p[^>]*>[\s\S]*?<\/p>){2}<p[^>]*>([\s\S]*?)<\/p>/)
+      expect(shown, `turn ${before.turn}, ${card.step!.def.id}: the card prints "${shown}"`).toBe(line)
+    }
     expect(worstLine, `worst line ${worstLine} words at ${worstLineAt}`).toBeLessThanOrEqual(structural)
     expect(worstLine, `worst line measured: ${worstLine} words at ${worstLineAt}`).toBe(WORST_HELPED_LINE)
-    expect(worstCard, `worst title and line measured: ${worstCard} words at ${worstCardAt}`).toBe(WORST_HIT_CARD_TITLE_AND_LINE)
+    expect(worstCard, `worst headline and line measured: ${worstCard} words at ${worstCardAt}`).toBe(WORST_HIT_CARD_HEADLINE_AND_LINE)
   })
 
   it('bounds the ops log, the wide board\'s own reading, and pins the measured worst (v1.2 R6)', () => {

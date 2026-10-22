@@ -1,4 +1,4 @@
-// How hard a beat hit, as a number between 0 and 1 (Round 4d). The brief
+// How hard a strike hit, as a number between 0 and 1 (Round 4d). The brief
 // asks for exactly one varying voice: "Hit stab, pitched by severity".
 //
 // The ceiling is derived from the deck and the engine's own exported
@@ -9,7 +9,6 @@
 
 import { DEFAULT_SCENARIO } from '../content'
 import { CHAIN_BONUS } from '../engine/reducer'
-import type { Beat } from '../director/types'
 
 // The deck types baseSeverity as a literal union, so this is already a
 // number and the filter is about a deck that might one day carry an event
@@ -18,13 +17,15 @@ const deckMax = Math.max(0, ...DEFAULT_SCENARIO.events.map((e) => Number(e.baseS
 
 export const MAX_EFFECTIVE_SEVERITY = deckMax + CHAIN_BONUS
 
-// A beat with no severity is not a hit, so it gets the middle of the range
-// rather than the bottom: the bottom is what a fully mitigated event
+// A moment with no strength is not a hit, so it gets the middle of the
+// range rather than the bottom: the bottom is what a fully blocked move
 // sounds like, and that difference is the point of the cue.
 export const NEUTRAL_INTENSITY = 0.5
 
-export function beatIntensity(beat: Pick<Beat, 'severity'>): number {
-  const effective = beat.severity?.effective
+// How hard a strike hit, from the points that got through (the engine's
+// ResolvedEvent.effectiveSeverity), since v1.3 R3 read off the night's
+// step rather than a director beat.
+export function strikeIntensity(effective: number | undefined): number {
   if (typeof effective !== 'number' || !Number.isFinite(effective)) return NEUTRAL_INTENSITY
   if (MAX_EFFECTIVE_SEVERITY <= 0) return NEUTRAL_INTENSITY
   return Math.min(1, Math.max(0, effective / MAX_EFFECTIVE_SEVERITY))

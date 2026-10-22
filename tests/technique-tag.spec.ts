@@ -15,16 +15,21 @@
 // tag the brief can actually produce, across real play, resolves to
 // exactly one entry, and that entry still carries the citation.
 
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { techniqueRefSchema } from '../src/content/schemas'
-import { deriveBeats } from '../src/director'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
 import { briefCopy } from '../src/ui/brief'
+import { callSigns } from '../src/ui/board/board'
 import { frameworkLabels, techniqueLabel } from '../src/ui/labels'
+import { LearnMore } from '../src/ui/learnMore'
+import { HitCard, IntelFile } from '../src/ui/night/cards'
+import { nightOf } from '../src/ui/night/nightModel'
 import { realWorldFor } from '../src/ui/realWorldLine'
 import { glossaryEntries } from '../src/ui/reference'
 import { shareText } from '../src/ui/reportCard'
@@ -119,9 +124,10 @@ describe('the technique tag resolves to a glossary entry', () => {
 // writes it into history, which the determinism snapshot hashes), so the
 // spelling is a display mapping, and this block sweeps these surfaces for
 // the enum: the GLOSSARY term, body and link labels, the REAL WORLD line,
-// the playback card, and the share text. The intel brief's tag, the
-// debrief and the aftermath card render techniqueLabel, which the GLOSSARY
-// term already exercises, and are not swept here.
+// the night's cards (the intel card and the hit card's dossier row, since
+// v1.3 R3 retired the director's playback card), and the share text. The
+// intel brief's tag and the debrief render techniqueLabel, which the
+// GLOSSARY term already exercises, and are not swept here.
 describe('the frameworks are spelled as their owners spell them', () => {
   const RAW = /\bATTACK(_ICS)?\b/
   const attackRefs = DEFAULT_SCENARIO.events.flatMap((e) => e.techniqueRefs).filter((r) => r.framework === 'ATTACK')
@@ -164,21 +170,73 @@ describe('the frameworks are spelled as their owners spell them', () => {
     for (const l of lines) expect(l.technique, `the REAL WORLD line for ${l.eventId}`).not.toMatch(RAW)
   })
 
-  it('never shows the enum on the playback card or in the share text', () => {
+  it('never shows the enum on the night\'s cards or in the share text', () => {
     // The prepared line on the snapshot's win seed, where two ATT&CK
-    // techniques land and one is resisted (tests/share-text.spec.ts).
+    // techniques land and one is resisted (tests/share-text.spec.ts). The
+    // night shows each threat's technique twice (v1.3 R3): on the intel
+    // card a first meeting opens, and in the IN YOUR DOSSIER row of the hit
+    // card for one already filed. Both are rendered here for every threat
+    // the line meets, as the night builds them from its own model.
+    const read = (markup: string) => markup.replace(/<[^>]+>/g, ' ').replaceAll('&amp;', '&').replace(/\s+/g, ' ')
+    const techniqueRow = (markup: string) => read(/TECHNIQUE<\/dt><dd[^>]*>(.*?)<\/dd>/.exec(markup)?.[1] ?? '').trim()
     let state: GameState = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
     const tags: string[] = []
+    let cards = 0
     while (state.status === 'playing') {
       const after = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
-      for (const beat of deriveBeats(state, after)) tags.push(...(beat.techniques ?? []).map((t) => t.tag))
+      const night = nightOf(state, after)
+      for (const step of night.steps) {
+        if (step.kind !== 'threat') continue
+        const ref = step.def.techniqueRefs[0]
+        const hit = renderToStaticMarkup(
+          createElement(HitCard, {
+            step,
+            turn: night.turn,
+            lastTurn: false,
+            signs: callSigns(step.before),
+            known: new Set([step.def.id]),
+            first: false,
+            reduced: true,
+            play: () => {},
+            onContinue: () => {},
+          }),
+        )
+        const intel = renderToStaticMarkup(
+          createElement(
+            LearnMore.Provider,
+            { value: () => {} },
+            createElement(IntelFile, { def: step.def, stoppedBy: [], filed: 0, total: 18, reduced: true, onFile: () => {} }),
+          ),
+        )
+        // Swept where the card names the technique, not the whole card: the
+        // vector tag says "RF ATTACK", which is the word, not the enum.
+        for (const [where, markup] of [
+          ['hit card', hit],
+          ['intel card', intel],
+        ] as const) {
+          const row = techniqueRow(markup)
+          expect(row, `${step.def.id}: the ${where} names no technique`).toBe(`${techniqueLabel(ref)} ${ref.name}`)
+          expect(row, `${step.def.id}: the ${where}`).not.toMatch(RAW)
+          tags.push(techniqueLabel(ref))
+        }
+        // The dossier row's head names the framework, and the intel card's
+        // LEARN MORE carries the label for a screen reader.
+        const head = /IN YOUR DOSSIER · (\S+)/.exec(read(hit))?.[1] ?? ''
+        expect(head, `${step.def.id}: the dossier row names no framework`).toBe(frameworkLabels[ref.framework].split(' ')[0])
+        expect(head).not.toMatch(RAW)
+        const sr = /in the Field Library: ([^<]*)</.exec(intel)?.[1].replaceAll('&amp;', '&') ?? ''
+        expect(sr, `${step.def.id}: LEARN MORE`).toBe(techniqueLabel(ref))
+        expect(sr).not.toMatch(RAW)
+        cards += 1
+      }
       state = after
     }
-    expect(tags.some((t) => t.startsWith('ATT&CK ')), 'no beat on this line carried an ATT&CK technique').toBe(true)
+    expect(cards, 'the line met no threat, so no card was read').toBeGreaterThan(0)
+    expect(tags.some((t) => t.startsWith('ATT&CK ')), 'no card on this line carried an ATT&CK technique').toBe(true)
     // Each tag is a label techniqueLabel gives some ref, so the card cannot
     // keep a spelling of its own.
     const labels = new Set(DEFAULT_SCENARIO.events.flatMap((e) => e.techniqueRefs).map(techniqueLabel))
-    for (const t of tags) expect(labels.has(t), `the playback card names "${t}", which techniqueLabel never produces`).toBe(true)
+    for (const t of tags) expect(labels.has(t), `a night card names "${t}", which techniqueLabel never produces`).toBe(true)
     const text = shareText(state)
     expect(text).toContain('ATT&CK ')
     expect(text).not.toMatch(RAW)

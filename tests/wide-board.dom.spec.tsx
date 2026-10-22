@@ -7,11 +7,12 @@
 // derivation from the array's numbers is tests/wide-keys-renumbered.dom
 // .spec.tsx; a chunk that fails to load is tests/wide-fallback.dom.spec.tsx.
 //
-// jsdom lays nothing out, so the geometry (the beam across columns, the
-// panel's place, ORBIT legibility at 1024) is checked in a browser and
-// recorded in the round's report (principle 13). What this file holds is
-// the markup, the keys, the data each column reads, and a stylesheet whose
-// rules are applied here by hand and read back through computed style.
+// jsdom lays nothing out, so the geometry (the night's cards over the
+// columns, the panel's place, ORBIT legibility at 1024) is checked in a
+// browser and recorded in the round's report (principle 13). What this
+// file holds is the markup, the keys, the data each column reads, and a
+// stylesheet whose rules are applied here by hand and read back through
+// computed style.
 
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -33,11 +34,8 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { briefFree, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
-import { STRIKE_MS } from '../src/ui/board/strike'
 import { NO_OP, TOP_INTEL_SCRIPT } from './scripts'
 import {
-  bar,
-  beatText,
   click,
   conditionFixture,
   container,
@@ -45,14 +43,17 @@ import {
   executeNow,
   gameAt,
   installWideBoardHarness,
-  nextBeat,
+  nightAt,
+  onward,
   playOut,
   press,
   render,
   setWide,
   settle,
   sheetOpen,
+  stage,
   step,
+  wayOn,
 } from './wideHarness'
 
 installWideBoardHarness()
@@ -136,11 +137,16 @@ describe('GUARD R6 (b): no new global keydown listener', () => {
     expect(press(fKeyOf(first))).toBe(true)
     press(fKeyOf(first))
     expect(takers.at(-1), 'the F key was taken by another listener').toBe(digitTaker)
-    // The positive control: the playback's own listener is seen.
-    executeNow()
-    step(100)
-    expect(beatText(), 'not in playback').not.toBeNull()
-    expect(live.length, 'the tracker missed the playback listener').toBe(phone + 1)
+    // The positive control: a listener added after the board's is seen.
+    // The director's own went with it in v1.3 Round 3 (the night's cards
+    // are tapped), so it is the intel card's: a board dialog's Escape, in
+    // the capture phase, which goes on as the board's own stands down.
+    expect(live.filter((l) => l.capture), 'a capture listener before any dialog').toEqual([])
+    click(container.querySelector('button[data-asset-id]')!)
+    click(inspector().querySelector('[data-inspector-intel]')!)
+    await settle()
+    expect(container.querySelector('section[data-intel-card]'), 'INTEL CARD opened nothing').not.toBeNull()
+    expect(live.filter((l) => l.capture).length, "the tracker missed the intel card's listener").toBe(1)
   })
 })
 
@@ -162,7 +168,8 @@ describe('GUARD R6 (c): the F keys drive the actions through the one array', () 
           ;(document.activeElement as HTMLElement | null)?.blur()
           expect(press(key(a))).toBe(true)
           expect(document.activeElement, `${key(a)} did not focus EXECUTE`).toBe(execute())
-          expect(beatText(), `${key(a)} committed the turn`).toBeNull()
+          // Committed, the dock would leave for the night at once.
+          expect(stage(), `${key(a)} committed the turn`).toBe('board')
         }
       }
     }
@@ -182,7 +189,7 @@ describe('GUARD R6 (c): the F keys drive the actions through the one array', () 
     const commit = ACTIONS.find((a) => !a.sheet)!
     expect(press(fKeyOf(commit))).toBe(true)
     expect(press(fKeyOf(commit), { repeat: true }), `a held ${fKeyOf(commit)} went to the browser`).toBe(true)
-    expect(beatText(), 'a held key committed the turn').toBeNull()
+    expect(stage(), 'a held key committed the turn').toBe('board')
     // The digits' repeats are left alone, as they always were.
     expect(press(first.hotkey, { repeat: true })).toBe(false)
   })
@@ -225,17 +232,19 @@ describe('GUARD R6 (d): the keys stand down when they must', () => {
     expect(liveKeys()).toEqual(all)
   })
 
-  it('down during playback and the aftermath', async () => {
+  it('down through the night, on its cards and at END OF TURN', async () => {
     setWide(true)
     render(gameAt(2))
     await settle()
     executeNow()
-    step(100)
-    expect(beatText(), 'not in playback').not.toBeNull()
+    await settle()
+    expect(stage(), 'not in the night').toBe('moving')
     expect(liveKeys()).toEqual(none)
-    playOut()
-    expect(beatText(), 'still in playback').toBeNull()
-    expect(bar().textContent).toMatch(/NEXT TURN/)
+    // On the first card, which waits for its tap.
+    for (let i = 0; i < 10 && !wayOn(); i += 1) await onward()
+    expect(wayOn(), 'no card came').not.toBeNull()
+    expect(liveKeys()).toEqual(none)
+    await playOut()
     expect(liveKeys()).toEqual(none)
   })
 
@@ -399,10 +408,11 @@ describe('GUARD R6 (e): the inspector says what the tile card says, and leaves t
     const drawn = getComputedStyle(selected).boxShadow
     expect(drawn, 'the stylesheet does not draw the selection').toContain('--dc-go')
     expect(drawn).not.toMatch(/hostile/)
-    // Nothing in the columns that the beam or the dialog opener look up by
-    // first match, so neither can land on a column instead of the board.
+    // Nothing in the columns that the strike (which scrolls its tile into
+    // view) or the dialog opener look up by first match, so neither can
+    // land on a column instead of the board; nor a card of the night.
     for (const aside of container.querySelectorAll('[data-ops-log], [data-inspector]')) {
-      expect(aside.querySelector('[data-asset-id], svg[data-sprite="coldveil"], [data-beat-card], [data-layer], #intel-title')).toBeNull()
+      expect(aside.querySelector('[data-asset-id], [data-night-card], [data-layer], #intel-title')).toBeNull()
     }
   })
 
@@ -472,12 +482,23 @@ describe('GUARD R6 (f): the ops log reads the history the board shows', () => {
     const expected = (s: GameState) => s.history.slice(-OPS_LOG_TURNS).reverse().map((r) => r.turn)
     expect(rows()).toEqual(expected(state))
     expect(rows().length, 'the fixture has no history').toBeGreaterThan(0)
-    const after = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
+    // The night taps HOLD on the debris call, as the turn's resolution here does.
+    const after = resolveTurn(state, { ...NO_OP, debris: 'hold' }, turnRng(state.seed, state.turn))
     executeNow()
-    step(100)
-    expect(beatText(), 'not in playback').not.toBeNull()
+    await settle()
+    expect(stage(), 'not in the night').toBe('moving')
     expect(rows(), 'the log gave the turn away before it played').toEqual(expected(state))
-    playOut()
+    // Nor on any card of the night: only END OF TURN closes the turn.
+    let cards = 0
+    while (stage() !== 'end' && cards < 40) {
+      if (wayOn()) {
+        cards += 1
+        expect(rows(), `the log gave the turn away at ${nightAt()}`).toEqual(expected(state))
+      }
+      await onward()
+    }
+    expect(cards, 'the night showed no card').toBeGreaterThan(0)
+    expect(stage()).toBe('end')
     expect(rows()).toEqual(expected(after))
     // Each row's line and verdict, spelled here from the record itself.
     for (const r of after.history.slice(-OPS_LOG_TURNS)) {
@@ -492,7 +513,7 @@ describe('GUARD R6 (f): the ops log reads the history the board shows', () => {
   })
 })
 
-describe('GUARD R6 (e), during playback: the inspector shows the board the player sees, and offers nothing to do', () => {
+describe('GUARD R6 (e), during the night: the inspector shows the board the player sees, and offers nothing to do', () => {
   it('while a hit locks on the inspected tile, the inspector reads the integrity the tile shows, and its actions wait', async () => {
     // The first turn of the prepared line whose empty-cart resolution
     // damages an asset, found from the engine's own record. Since v1.3
@@ -520,61 +541,61 @@ describe('GUARD R6 (e), during playback: the inspector shows the board the playe
     expect(waiting().length, 'the inspector offers no action, so this proves nothing').toBeGreaterThan(0)
     expect(waiting().every((d) => !d), 'the control: live before EXECUTE').toBe(true)
     executeNow()
-    // Each beat waits for its Next since v1.3 Round 0, so tap on until the
-    // beat that strikes the tile. The lock-on is the first LOCK_SHARE of
-    // the strike, well over the 25ms looked at after each tap.
+    await settle()
+    // Through the night until the strike on the tile: each card is tapped
+    // on, and the overlay and the strikes run in steps of 100ms, well under
+    // the lock-on, which is the first LOCK_SHARE of the strike.
     let locked = false
-    for (let taps = 0; taps < 100 && !locked; taps += 1) {
-      step(25)
+    for (let moves = 0; moves < 200 && stage() !== 'end'; moves += 1) {
       locked = container.querySelector(`button[data-asset-id="${target}"][data-struck="lock"]`) !== null
       if (locked) break
-      const next = nextBeat()
-      if (!next) break
-      click(next)
+      await onward(100)
     }
     expect(locked, 'the lock-on never came').toBe(true)
     const shownIntegrity = tileOf(target!).getAttribute('aria-label')!.match(/integrity (\d+)%/)![1]
     expect(inspector().querySelector('[data-inspector-integrity]')!.textContent).toContain(`${shownIntegrity}%`)
     const engine = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn)).assets.find((a) => a.id === target)!.integrity
     expect(Number(shownIntegrity), 'the hit did not change the integrity, so this proves nothing').not.toBe(engine)
-    expect(waiting().every((d) => d), 'an inspector action is live during playback').toBe(true)
+    expect(waiting().every((d) => d), 'an inspector action is live during the night').toBe(true)
     expect((inspector().querySelector('[data-inspector-intel]') as HTMLButtonElement).disabled, 'the card is always open to read').toBe(false)
-    playOut()
-    expect(bar().textContent).toMatch(/NEXT TURN/)
-    expect(waiting().every((d) => d), 'an inspector action is live in the aftermath').toBe(true)
+    await playOut()
+    expect(waiting().every((d) => d), 'an inspector action is live at END OF TURN').toBe(true)
   })
 })
 
 describe('GUARD R6 (g): crossing the breakpoint remounts nothing', () => {
-  it('a playback carries on at the same beat, on the same nodes, when the screen turns wide and back', async () => {
+  it('a night carries on at the same card, on the same nodes, when the screen turns wide and back', async () => {
     render(gameAt(4))
     await settle()
     executeNow()
-    // One beat on, so a playback that restarted would show beat 1 again.
-    step(STRIKE_MS)
-    click(nextBeat()!)
-    step(100)
-    const at = beatText()
-    expect(at, 'not in playback').not.toBeNull()
-    expect(at, 'the tap did not move the playback on').not.toMatch(/^beat 1 of/)
+    await settle()
+    // To the first card, and one card on, so a night that restarted would
+    // show the overlay or that first card again.
+    for (let i = 0; i < 10 && !wayOn(); i += 1) await onward()
+    const first = nightAt()
+    await onward()
+    for (let i = 0; i < 10 && !wayOn(); i += 1) await onward()
+    const at = nightAt()
+    expect(wayOn(), 'no second card came').not.toBeNull()
+    expect(at, 'the tap did not move the night on').not.toBe(first)
     const main = container.querySelector('main[data-board]')!
     const nodes = () => [
       main.querySelector(':scope > div'),
       main.querySelector('section[data-strip]'),
       ...main.querySelectorAll('[data-strip] [data-layer]'),
       ...main.querySelectorAll('button[data-asset-id]'),
-      bar(),
+      main.querySelector('[data-intel-file]') ?? main.querySelector('[data-night-card]'),
     ]
     const before = nodes()
     expect(before.every(Boolean)).toBe(true)
     setWide(true)
     await settle()
     expect(main.hasAttribute('data-wide')).toBe(true)
-    expect(beatText(), 'the playback restarted').toBe(at)
+    expect(nightAt(), 'the night restarted').toBe(at)
     nodes().forEach((n, i) => expect(n, `node ${i} was remounted`).toBe(before[i]))
     setWide(false)
     nodes().forEach((n, i) => expect(n, `node ${i} was remounted on the way back`).toBe(before[i]))
-    expect(beatText()).toBe(at)
+    expect(nightAt()).toBe(at)
   })
 })
 

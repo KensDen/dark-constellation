@@ -59,11 +59,12 @@ export const SHARE_SQUARE: Record<StripColour, string> = {
   magenta: '\u{1F7E5}', // red square
 }
 
-// The grade line (brief 7.2): "Grade A · won T12 · MAI 81.4". T is the
-// turn the campaign ended on, and the MAI keeps its one decimal place.
+// The grade line (brief 7.2): "Grade A · won T6 · score 81.4". T is the
+// turn the campaign ended on, and the score keeps its one decimal place
+// (v1.3 section 4: MAI is retired from every player screen).
 export function gradeLine(state: GameState): string {
   const mai = state.history[state.history.length - 1]?.maiScore ?? 0
-  return `Grade ${gradeOf(state)} · ${state.status === 'won' ? 'won' : 'lost'} T${state.history.length} · MAI ${mai.toFixed(1)}`
+  return `Grade ${gradeOf(state)} · ${state.status === 'won' ? 'won' : 'lost'} T${state.history.length} · score ${mai.toFixed(1)}`
 }
 
 // The Daily Op a share is for: its number, and whether this run is the
@@ -92,7 +93,7 @@ export function shareText(state: GameState, daily?: ShareDaily): string {
   lines.push(`${GAME_TITLE}: ${r.outcome === 'won' ? 'MISSION ASSURED' : 'MISSION FAILED'}`)
   lines.push(gradeLine(state))
   lines.push(
-    `Final MAI ${r.mai} | survived ${r.turnsSurvived} of ${r.totalTurns} turns | ${DIFFICULTIES[r.difficulty].label} | seed ${r.seed}`,
+    `Final score ${r.mai} | survived ${r.turnsSurvived} of ${r.totalTurns} turns | ${DIFFICULTIES[r.difficulty].label} | seed ${r.seed}`,
   )
   lines.push('')
   lines.push(`Resilient to (${r.resisted.length}): ${r.resisted.map((t) => t.id).join(', ') || 'none'}`)

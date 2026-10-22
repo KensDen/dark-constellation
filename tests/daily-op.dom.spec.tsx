@@ -24,7 +24,7 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 
@@ -35,7 +35,6 @@ import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
 import { captureGame, decodeSaveCode, encodeSaveCode, type DailyOp } from '../src/persistence'
 import { startDailyOp } from '../src/ui/dailyOp'
-import { STRIKE_MS } from '../src/ui/board/strike'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
@@ -50,6 +49,13 @@ let container: HTMLDivElement
 let root: Root
 let unlisten: () => void
 let mounts = 0
+
+// The night's chunks, loaded once, so React.lazy resolves on a microtask.
+beforeAll(async () => {
+  await import('../src/ui/night/Night')
+  await import('../src/ui/night/cards')
+  await import('../src/ui/night/closeCards')
+})
 
 function memoryStorage(): Storage {
   const map = new Map<string, string>()
@@ -86,7 +92,8 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', memoryStorage())
   localStorage.setItem(INTRO_SEEN_KEY, '1')
   // Reduced motion keeps the score screen still, so what it shows is
-  // there at once; the reveal has its own suite.
+  // there at once; the reveal has its own suite. It also skips the
+  // night's overlay and strikes, so its cards arrive at once.
   setReducedMotion(true)
   resetAudioEngineForTests()
   installFakeAudioContext()
@@ -135,33 +142,43 @@ const standing = () => container.querySelector('[data-standing]')?.textContent ?
 const onBoard = () => container.querySelector('main[data-board]') !== null
 const openSystem = () => click(container.querySelector('button[aria-label="System"]')!)
 
-// One turn through the controls: tap EXECUTE, tap the playback through
-// to its aftermath, and move on. Since v1.3 Round 0 EXECUTE is a plain
-// button (a synthetic keydown does not click one in jsdom, so it is
-// clicked) and nothing in the playback advances on its own, so each beat
-// is given its strike's length and then tapped past with Next, as a
-// player does. The control is there only while the turn is undecided, so
+// One turn through the controls: tap EXECUTE, tap the night through to
+// END OF TURN, and move on with BEGIN TURN n+1, or DEBRIEF on the last.
+// Since v1.3 Round 0 EXECUTE is a plain button (a synthetic keydown does
+// not click one in jsdom, so it is clicked), and since R3 every card of
+// the night waits for its tap (brief 5.5): FILE IT on the intel card,
+// HOLD on the debris call, COLLECT INTEL CARD or CONTINUE, as a player
+// does. Each tap is settled, since the night and its cards are chunks of
+// their own. The control is there only while the turn is undecided, so
 // its absence is the end of the campaign.
 const executeControl = () => container.querySelector('button[data-execute]')
-const nextBeat = () => buttons().find((b) => (b.textContent ?? '').trim() === 'Next')
-function playTurn(): boolean {
+async function tap(el: Element) {
+  await act(async () => {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+  })
+  await act(async () => {})
+}
+const wayOn = () =>
+  container.querySelector('[data-file-it]') ??
+  container.querySelector('[data-call="hold"]') ??
+  container.querySelector('[data-collect]') ??
+  container.querySelector('[data-continue]') ??
+  container.querySelector('[data-night-card="end"] button[data-begin]')
+async function playTurn(): Promise<boolean> {
   const execute = executeControl()
   if (!execute) return false
-  click(execute)
-  for (let beats = 0; beats < 80; beats += 1) {
-    act(() => {
-      vi.advanceTimersByTime(STRIKE_MS)
-    })
-    const next = nextBeat()
-    if (!next) break
-    click(next)
+  await tap(execute)
+  for (let cards = 0; cards < 40; cards += 1) {
+    const way = wayOn()
+    expect(way, 'a card of the night has no way on').not.toBeNull()
+    const last = way!.hasAttribute('data-begin')
+    await tap(way!)
+    if (last) break
   }
-  const on = byText(/^NEXT TURN|^FINAL REPORT/)
-  if (on) click(on)
   return true
 }
 async function playToEnd() {
-  for (let i = 0; i < 20 && playTurn(); i += 1);
+  for (let i = 0; i < 20 && (await playTurn()); i += 1);
   await settle()
   expect(container.querySelector('[data-score-screen]'), 'the campaign never reached the score screen').not.toBeNull()
 }
@@ -221,11 +238,11 @@ describe('the title starts the Daily Op (v1.3 R1)', () => {
     expect(saved.daily).toEqual({ dateKey: '20260928', n: 2 })
   })
 
-  it('asks before a Daily Op replaces an operation in progress', () => {
+  it('asks before a Daily Op replaces an operation in progress', async () => {
     // A free campaign in progress, behind CONTINUE.
     loadPage()
     click(container.querySelector('[data-play]')!)
-    playTurn()
+    await playTurn()
     const inProgress = localStorage.getItem('dc-autosave')
     expect(inProgress, 'nothing in progress, so nothing to protect').not.toBeNull()
     openSystem()
@@ -315,7 +332,7 @@ describe('GUARD R5 (a): a Daily Op from a pasted save code is never official', (
     const code = encodeSaveCode(captureGame(state, 'brief', new Date().toISOString(), daily))
     loadPage()
     paste(code)
-    playTurn()
+    await playTurn()
     // A refresh: the page loads again and resumes from the autosave.
     act(() => root.unmount())
     root = createRoot(container)
@@ -373,8 +390,8 @@ describe('GUARD R5 (c): a run belongs to the date it started', () => {
     expect(dailyLabel()).toMatch(/DAILY OP\s*1$/)
     click(dailyEntry()!)
     // Two turns before midnight, then the clock runs past it.
-    playTurn()
-    playTurn()
+    await playTurn()
+    await playTurn()
     vi.setSystemTime(new Date(2026, 8, 28, 0, 30))
     // Still in play past midnight, with nothing filed yet: the claim below
     // is made after it.

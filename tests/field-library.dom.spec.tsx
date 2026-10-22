@@ -16,7 +16,7 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 
@@ -29,6 +29,7 @@ import { briefFree, resolveTurn, newGame } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
 import { captureGame, encodeSaveCode } from '../src/persistence'
+import { STRIKE_MS } from '../src/ui/board/strike'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
@@ -44,6 +45,13 @@ let container: HTMLDivElement
 let root: Root
 let unlisten: () => void
 let mounts = 0
+
+// The night's chunks, loaded once, so React.lazy resolves on a microtask.
+beforeAll(async () => {
+  await import('../src/ui/night/Night')
+  await import('../src/ui/night/cards')
+  await import('../src/ui/night/closeCards')
+})
 
 function memoryStorage(): Storage {
   const map = new Map<string, string>()
@@ -292,39 +300,69 @@ describe("the event cards' learn more", () => {
       root.render(<Game key={`g${mounts}`} initial={{ state, phase: 'brief' }} onExit={() => {}} />)
     })
   }
+  // A tap, and the lazy cards and effects it sets off, settled.
+  async function tap(el: Element) {
+    await act(async () => {
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    })
+    await act(async () => {})
+  }
   // EXECUTE is a plain button since v1.3 Round 0 (the hold went with the
   // dwell), and a synthetic Enter does not click a button in jsdom, so the
   // tests click it.
-  const execute = () => {
+  const execute = async () => {
     const button = container.querySelector('nav[aria-label="Actions"] button[data-execute]')
     expect(button, 'EXECUTE is not on screen').not.toBeNull()
-    click(button!)
+    await tap(button!)
   }
-  const beatShown = () => container.textContent!.match(/beat (\d+) of \d+/)?.[1]
-  // Every beat waits for a tap since v1.3 Round 0, so nothing but the
-  // player moves a playback on: Next, the card, or Space or Enter with
-  // nothing focused, which is the one a dialog over the board must keep
-  // from reaching the turn behind it.
-  const nextBeat = () => click(byText(/^Next$/)!)
-  const space = () =>
-    act(() => {
-      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+  // THE NIGHT (v1.3 R3, brief 5.5), which retired the director's playback.
+  // Where it is: the overlay, a strike, a card by its kind, the night's
+  // intel card, or the board once it is over; and what it has up, by name.
+  const stage = () =>
+    container.querySelector('[data-intel-file]')
+      ? 'intel'
+      : (container.querySelector('[data-night-card]')?.getAttribute('data-night-card') ??
+        (container.querySelector('[data-moving]') ? 'moving' : container.querySelector('[data-strike-banner]') ? 'strike' : container.querySelector('[data-dock]') ? 'board' : 'none'))
+  const nightAt = () => {
+    const card = container.querySelector('[data-intel-file]') ?? container.querySelector('[data-night-card]')
+    return `${stage()}: ${(card ? (card.getAttribute('aria-label') ?? card.getAttribute('data-intel-file')) : container.querySelector('[data-strike-banner]')?.textContent) ?? ''}`
+  }
+  // The tap a card asks for: FILE IT, HOLD on the debris call, COLLECT
+  // INTEL CARD or CONTINUE (END OF TURN's BEGIN is the test's to tap).
+  const wayOn = () =>
+    container.querySelector('[data-file-it]') ??
+    container.querySelector('[data-call="hold"]') ??
+    container.querySelector('[data-collect]') ??
+    container.querySelector('[data-continue]')
+  // One move on, as a player makes it: only the 750ms overlay and the
+  // strikes play on their own, so the timers run `ms` whenever no card is
+  // up; every card waits for its tap.
+  async function onward(ms = STRIKE_MS) {
+    const way = wayOn()
+    if (way) return tap(way)
+    await act(async () => {
+      vi.advanceTimersByTime(ms)
     })
+    await act(async () => {})
+  }
   const metNow = () => JSON.parse(localStorage.getItem('dc-met') ?? '[]') as string[]
+  const filedNow = () => JSON.parse(localStorage.getItem('dc-dossier') ?? '[]') as string[]
   const escape = () =>
     act(() => {
       ;(document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
   // What the empty cart's turn from `state` draws, from the engine.
   const drawnFrom = (state: GameState) => resolveTurn(state, NO_OP, turnRng(state.seed, state.turn)).history.at(-1)!.events
-  // Playback, tapped through, until a threat's card carries its link.
-  function untilLearnMore(): HTMLButtonElement {
-    for (let i = 0; i < 60 && byText(/^Skip/); i += 1) {
-      const link = container.querySelector<HTMLButtonElement>('button[data-learn-more]')
+  // The night, played on until a threat's link is up. It is on the
+  // night's intel card since v1.3 R3: a threat met for the first time
+  // offers COLLECT INTEL CARD, and the card it collects carries LEARN MORE.
+  async function untilLearnMore(): Promise<HTMLButtonElement> {
+    for (let i = 0; i < 60 && stage() !== 'end'; i += 1) {
+      const link = container.querySelector<HTMLButtonElement>('[data-intel-file] button[data-learn-more]')
       if (link) return link
-      nextBeat()
+      await onward()
     }
-    throw new Error('no threat card reached the screen')
+    throw new Error('no intel card with a link reached the screen')
   }
   // The entries a threat's filtered view may show: those naming it, and
   // SPARTA's when the threat carries a SPARTA technique.
@@ -333,7 +371,7 @@ describe("the event cards' learn more", () => {
     return [...naming(id), ...(sparta ? [SPARTA] : [])]
   }
 
-  it('records every event a turn resolved here draws, held ones and opportunities too, and nothing a load brings in', () => {
+  it('records every event a turn resolved here draws, held ones and opportunities too, and nothing a load brings in', async () => {
     const state = gameAt(3)
     const drawn = drawnFrom(state)
     // The fixture turn draws more than one event, and one that did not
@@ -344,11 +382,11 @@ describe("the event cards' learn more", () => {
     expect(state.history.flatMap((r) => r.events).length, 'the loaded campaign has no history, so a load could record nothing').toBeGreaterThan(0)
     render(state)
     expect(metNow(), 'loading a campaign recorded its history as met').toEqual([])
-    execute()
+    await execute()
     expect(metNow().sort()).toEqual([...new Set(drawn.map((e) => e.eventId))].sort())
   })
 
-  it('counts a campaign loaded from a pasted code, which is learning, not a score', () => {
+  it('counts a campaign loaded from a pasted code, which is learning, not a score', async () => {
     const state = gameAt(4)
     // Pasted through SYSTEM, where the box lives since v1.3 R1.
     render(gameAt(1))
@@ -361,16 +399,22 @@ describe("the event cards' learn more", () => {
     })
     click(byText(/^load save code$/i)!)
     expect(metNow()).toEqual([])
-    execute()
+    await execute()
+    // Turn 4 makes the debris call, and a night with the call is committed
+    // (and its events met) once the call is made, so the night is played
+    // to END OF TURN.
+    for (let i = 0; i < 60 && stage() !== 'end'; i += 1) await onward()
+    expect(stage()).toBe('end')
     expect(metNow().length, 'a pasted practice run met nothing').toBeGreaterThan(0)
   })
 
-  it('opens the library over the board at that threat, holds the playback, and lets it go on after Escape', async () => {
+  it('opens the library over the board at that threat, holds the night, and lets it go on after Escape', async () => {
     render(gameAt(4))
-    execute()
-    const link = untilLearnMore()
+    await execute()
+    const link = await untilLearnMore()
     const id = link.getAttribute('data-learn-more')!
     expect(DEFAULT_SCENARIO.events.find((e) => e.id === id)?.kind ?? 'threat').toBe('threat')
+    expect(container.querySelector('[data-intel-file]')!.getAttribute('data-intel-file'), 'the link is not for the intel card it is on').toBe(id)
     expect(link.getAttribute('aria-haspopup')).toBe('dialog')
     link.focus()
     click(link)
@@ -382,25 +426,30 @@ describe("the event cards' learn more", () => {
     expect(container.querySelector('main[data-board]')!.hasAttribute('inert'), 'the board behind is not inert').toBe(true)
     expect(document.querySelectorAll('main').length, 'a second main').toBe(1)
     expect(document.querySelectorAll('h1').length, 'a second h1').toBeLessThanOrEqual(1)
-    // Held: the beat on screen stays while the library is open, and a
-    // Space meant for the library does not step it.
-    const held = beatShown()
-    expect(held, 'no beat on screen, so holding it proves nothing').toBeDefined()
-    space()
-    expect(beatShown(), 'playback ran on behind the library').toBe(held)
+    // Held: the night has no keys of its own (its cards are tapped), so
+    // what could run it on behind the library is time. A minute passes,
+    // and the same intel card is up, not yet filed.
+    const held = nightAt()
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+    expect(nightAt(), 'the night ran on behind the library').toBe(held)
+    expect(filedNow(), 'the card was filed behind the library').not.toContain(id)
     escape()
     expect(container.querySelector('[data-library-overlay]'), 'Escape did not close the library').toBeNull()
-    expect(byText(/^Skip/), 'Escape on the library skipped the playback').toBeDefined()
+    expect(nightAt(), 'Escape on the library moved the night on').toBe(held)
     expect(document.activeElement?.getAttribute('data-learn-more'), 'focus did not come back to the link').toBe(id)
-    // Let go: once the library is closed, the same Space steps the turn.
-    space()
-    expect(beatShown() !== held || !byText(/^Skip/), 'playback stayed held after the library closed').toBe(true)
+    // Let go: once the library is closed, FILE IT files the card and the
+    // night goes on.
+    await tap(container.querySelector('[data-file-it]')!)
+    expect(filedNow()).toContain(id)
+    expect(nightAt(), 'the night stayed held after the library closed').not.toBe(held)
   })
 
   it('returns focus to a tapped link, which a phone never focused', async () => {
     render(gameAt(4))
-    execute()
-    const link = untilLearnMore()
+    await execute()
+    const link = await untilLearnMore()
     ;(document.activeElement as HTMLElement | null)?.blur?.()
     expect(document.activeElement).toBe(document.body)
     click(link)
@@ -432,43 +481,38 @@ describe("the event cards' learn more", () => {
     expect(document.activeElement, 'focus did not come back to what opened the card').toBe(banner)
   })
 
-  it('holds the playback under the intel card too', async () => {
+  it("holds the night under a tile's intel card too: the card a strike leads to waits under it", async () => {
     render(gameAt(4))
-    execute()
-    const held = beatShown()
-    expect(held).toBeDefined()
-    // A tile's card: COLDVEIL's is off the board with the TONIGHT card
-    // while a night plays (v1.3 R2).
+    await execute()
+    // To a strike, the one stretch of the night with the tiles in reach (a
+    // card's backdrop covers the board), and a tile's card opened over it.
+    // COLDVEIL's is off the board with the TONIGHT card while a night plays
+    // (v1.3 R2).
+    for (let i = 0; i < 40 && stage() !== 'strike'; i += 1) await onward(100)
+    expect(stage(), 'the night struck nothing').toBe('strike')
     click(container.querySelector('button[data-asset-id]')!)
     await settle()
     expect(container.querySelector('section[data-intel-card]'), 'the intel card did not open').not.toBeNull()
-    space()
-    expect(beatShown(), 'playback ran on behind the intel card').toBe(held)
-    // The positive control: with the card closed, the same Space steps it.
+    // The strike plays out on its clock, as it does with the tab in view,
+    // and the card it leads to arrives under the intel card and waits
+    // there: a minute on, the same card is up.
+    for (let i = 0; i < 3 && !wayOn(); i += 1) await onward()
+    expect(wayOn(), 'no card arrived under the intel card').not.toBeNull()
+    const held = nightAt()
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+    expect(nightAt(), 'the night ran on behind the intel card').toBe(held)
     escape()
     expect(container.querySelector('section[data-intel-card]')).toBeNull()
-    space()
-    expect(beatShown() !== held || !byText(/^Skip/), 'a Space with no card open did not step the playback').toBe(true)
+    expect(nightAt(), 'Escape on the intel card moved the night on').toBe(held)
+    // The positive control: with the card closed, the card's tap moves the
+    // night on.
+    await onward()
+    expect(nightAt(), 'a tap with no intel card open did not move the night on').not.toBe(held)
   })
 
-  it('carries the link on the aftermath card, the only event card a skipped playback leaves', () => {
-    // INSTANT left with the speeds in v1.3 Round 0; a player who skips the
-    // playback lands on the aftermath, as INSTANT did, and reads the turn
-    // there.
-    const state = gameAt(4)
-    expect(drawnFrom(state).some((e) => (DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)?.kind ?? 'threat') === 'threat')).toBe(true)
-    render(state)
-    execute()
-    click(byText(/^Skip/)!)
-    const aftermath = container.querySelector('section[aria-label^="Aftermath"]')
-    expect(aftermath, 'no aftermath card').not.toBeNull()
-    expect(aftermath!.querySelector('button[data-learn-more]'), 'the aftermath card has no learn more').not.toBeNull()
-    // The ledger's own REAL WORLD lines keep theirs too, now that the list
-    // above the ledger (critique row M7) carries one per threat as well.
-    expect(aftermath!.querySelector('details [data-real-world] + button[data-learn-more]'), 'the ledger lost its learn more').not.toBeNull()
-  })
-
-  it('shows no link on an opportunity, which has no entries', () => {
+  it('shows no link on an opportunity, which has no entries', async () => {
     // The fixture turn draws an opportunity, and its card is seen. The
     // six-turn campaign of v1.3 Round 0 rolls one at 0.2 on turns 2 to 5,
     // and seed 20260712 draws none, so the prepared line on seed 5, whose
@@ -479,16 +523,25 @@ describe("the event cards' learn more", () => {
     const names = opportunities.map((e) => DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)!.name)
     const ids = new Set(opportunities.map((e) => e.eventId))
     render(state)
-    execute()
-    // Every beat of the turn, tapped through, and the aftermath it ends on.
+    await execute()
+    // Every card of the night, tapped through (the intel cards with their
+    // links among them), and the END OF TURN it ends on.
     let seen = false
+    let links = 0
     for (let i = 0; i < 60; i += 1) {
-      if (names.some((n) => container.textContent!.includes(n))) seen = true
-      for (const b of container.querySelectorAll('button[data-learn-more]')) expect(ids.has(b.getAttribute('data-learn-more')!), 'an opportunity card links to the library').toBe(false)
-      if (!byText(/^Skip/)) break
-      nextBeat()
+      const card = container.querySelector('[data-night-card="opportunity"]')
+      if (card && names.some((n) => card.textContent!.includes(n))) seen = true
+      for (const b of container.querySelectorAll('button[data-learn-more]')) {
+        links += 1
+        expect(ids.has(b.getAttribute('data-learn-more')!), 'an opportunity card links to the library').toBe(false)
+      }
+      if (stage() === 'end') break
+      await onward()
     }
-    expect(byText(/^Skip/), 'the playback never finished').toBeUndefined()
+    expect(stage(), 'the night never finished').toBe('end')
     expect(seen, 'no opportunity card was ever on screen').toBe(true)
+    // The control: a threat's intel card did carry its link, so the
+    // check above could see one.
+    expect(links, 'no link was ever on screen, so their absence proves nothing').toBeGreaterThan(0)
   })
 })

@@ -201,16 +201,25 @@ describe('GUARD R1 (a): the first-visit flow', () => {
 })
 
 describe('GUARD R1 (b): no retired word on an R1 screen', () => {
+  // An element's words, each text node apart: textContent runs one
+  // element's last word into the next one's first, where a word-boundary
+  // check finds nothing (found by GUARD R3 (f)'s mutation, v1.3 R3).
+  const words = (el: Element) => {
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+    const out: string[] = []
+    while (walk.nextNode()) out.push(walk.currentNode.textContent ?? '')
+    return out.join(' ')
+  }
   const RETIRED: RegExp[] = [/\b(buy|buys|bought|purchas\w*|money|cart)\b/i, /\bMAI\b/, /\bRESOLVE\b/i]
   const offending = (text: string) => RETIRED.filter((re) => re.test(text)).map((re) => `${re} in "${text.match(re)![0]}"`)
 
   it('finds none on the title and its SYSTEM, or in any beat of the briefing', async () => {
     loadPage()
-    const title = container.textContent ?? ''
+    const title = words(container)
     expect(title.length, 'the title rendered nothing, so this asserts nothing').toBeGreaterThan(100)
     expect(offending(title), 'a retired word on the title').toEqual([])
     click(buttons().find((b) => b.getAttribute('aria-haspopup') === 'dialog' && (b.textContent ?? '').trim() === 'SYSTEM')!)
-    const system = container.querySelector('[role="dialog"]')!.textContent ?? ''
+    const system = words(container.querySelector('[role="dialog"]')!)
     expect(system).toMatch(/Replay a seed/i)
     expect(offending(system), "a retired word in the title's SYSTEM").toEqual([])
 
@@ -220,7 +229,7 @@ describe('GUARD R1 (b): no retired word on an R1 screen', () => {
     click(container.querySelector('[data-play]')!)
     await settle()
     for (let i = 0; i < BEATS.length; i += 1) {
-      const beat = container.querySelector('[data-briefing]')!.textContent ?? ''
+      const beat = words(container.querySelector('[data-briefing]')!)
       expect(beat).toContain(BEATS[i].caption[0])
       expect(offending(beat), `a retired word on briefing beat ${i + 1}`).toEqual([])
       click(container.querySelector('[data-briefing-next]')!)

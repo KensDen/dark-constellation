@@ -19,7 +19,7 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Hoisted above the import of Game, which is what vi.mock requires. The
 // frame builds a WebGL renderer jsdom cannot provide, and it renders only
@@ -30,16 +30,16 @@ vi.mock('../src/ui/Constellation', () => ({
 }))
 
 import { DEFAULT_SCENARIO } from '../src/content'
-import { deriveBeats, soundFor, type Beat, type SoundCue } from '../src/director'
+import { CONDITION_CUES, EVENT_CUES, MOMENT_CUES, SECTION_6_ROWS, VISUAL_CLASS, outcomeSound, type Moment, type SoundCue } from '../src/cues'
 import { LOCK_SHARE, STRIKE_MS } from '../src/ui/board/strike'
 import { ACTIONS } from '../src/ui/board/actions'
-import { beatIntensity } from '../src/audio'
-import DirectorView from '../src/director/DirectorView'
+import { strikeIntensity } from '../src/audio'
 import Game from '../src/ui/Game'
+import { nightOf, type NightStep } from '../src/ui/night/nightModel'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
-import type { GameState } from '../src/engine/types'
-import { NO_OP, WIN_SCRIPT } from './scripts'
+import type { CountermeasureId, GameState } from '../src/engine/types'
+import { LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
 import Readout from '../src/ui/cues/Meter'
 import SoundToggles from '../src/ui/cues/SoundToggles'
 import { SOUND_TOGGLE_LABELS } from '../src/ui/brief'
@@ -101,6 +101,14 @@ function memoryStorage(): Storage {
   } as Storage
 }
 
+// The night's modules, loaded once, so Game and the night render from
+// them on the first EXECUTE (tests/night-r3.dom.spec.tsx does the same).
+beforeAll(async () => {
+  await import('../src/ui/night/Night')
+  await import('../src/ui/night/cards')
+  await import('../src/ui/night/closeCards')
+})
+
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   vi.useFakeTimers()
@@ -134,6 +142,29 @@ const setHidden = (hidden: boolean) => {
   vi.spyOn(document, 'visibilityState', 'get').mockReturnValue(hidden ? 'hidden' : 'visible')
   document.dispatchEvent(new Event('visibilitychange'))
 }
+
+// The night as a player drives it: a tap, and what it sets off, settled;
+// time passing on the night's two clocks (the overlay and the strike);
+// which stage is up; and the tap the card on screen asks for.
+const q = (sel: string) => container.querySelector(sel)
+async function tap(el: Element | null) {
+  if (!el) throw new Error('nothing to tap')
+  await act(async () => {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+  })
+  await act(async () => {})
+}
+async function wait(ms: number) {
+  await act(async () => void vi.advanceTimersByTime(ms))
+  await act(async () => {})
+}
+const stage = () =>
+  q('[data-intel-file]')
+    ? 'intel'
+    : (q('[data-night-card]')?.getAttribute('data-night-card') ??
+      (q('[data-moving]') ? 'moving' : q('[data-strike-banner]') ? 'strike' : q('[data-dock]') ? 'board' : 'none'))
+// FILE IT, HOLD on the debris call, COLLECT or CONTINUE, BEGIN TURN.
+const way = () => q('[data-file-it]') ?? q('[data-call="hold"]') ?? q('[data-collect]') ?? q('[data-continue]') ?? q('[data-begin]')
 
 describe('the first-gesture unlock is a document listener, not an intention', () => {
   it('builds no context until a real gesture reaches the document', () => {
@@ -337,7 +368,8 @@ describe('the controls that sound themselves', () => {
 
   // The sweep's lead voice as the engine builds it, measured rather than
   // copied out of voices.ts: an oscillator's type and opening pitch are what
-  // tell it apart from the beats and the bed in the same recording.
+  // tell it apart from the night's other sounds and the bed in the same
+  // recording.
   // Measured AFTER the case has taken its copies, since it clears the
   // recording to read the sweep alone.
   const voiceOf = (o: FakeOscillator) => `${o.type}@${o.frequency.first()}`
@@ -352,9 +384,10 @@ describe('the controls that sound themselves', () => {
   const sweepsIn = (nodes: FakeNode[], voice: string) =>
     nodes.filter((n): n is FakeOscillator => n instanceof FakeOscillator && voiceOf(n) === voice).length
 
-  it('sweeps once when EXECUTE is tapped, and not again as the turn it ends plays out', () => {
+  it('sweeps once when EXECUTE is tapped, and not again as the night it opens plays out', async () => {
     installGestureUnlock()
     const execute = renderBoard()
+    await act(async () => {})
     expect(contexts.length, 'a context existed before the tap').toBe(0)
     // A tap as a browser delivers it. It is the session's first gesture, so
     // the context does not exist until the tap itself builds it; the unlock
@@ -368,17 +401,21 @@ describe('the controls that sound themselves', () => {
     })
     expect(contexts.length, 'the tap did not unlock the context').toBe(1)
     const tapped = [...ctx().created]
-    // The commit resolves the turn at once and its playback opens. Tapped
-    // through to the aftermath, with each strike given time to land, so
-    // every beat's sound is in the recording beside the sweep.
-    for (let guard = 0; guard < 100; guard += 1) {
-      act(() => vi.advanceTimersByTime(STRIKE_MS))
-      const next = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Next')
-      if (!next) break
-      act(() => next.click())
+    // The commit resolves the turn at once and the night opens. Tapped
+    // through to BEGIN TURN 2 and the board, with the overlay and each
+    // strike given time to run, so every sound of the night (the strikes,
+    // the tiles, COLLECT, FILE IT, END OF TURN) is in the recording beside
+    // the sweep.
+    await act(async () => {})
+    let turnEnded = false
+    for (let guard = 0; guard < 100 && stage() !== 'board'; guard += 1) {
+      await wait(STRIKE_MS)
+      if (q('[data-begin]')) turnEnded = true
+      const next = way()
+      if (next) await tap(next)
     }
-    const after = [...container.querySelectorAll('button')].find((b) => /NEXT TURN|FINAL REPORT/.test(b.textContent ?? ''))
-    expect(after, 'the tap never ended the turn').toBeDefined()
+    expect(turnEnded, 'the night never reached END OF TURN').toBe(true)
+    expect(stage(), 'the tap never ended the turn').toBe('board')
     const played = [...ctx().created]
     const sweep = sweepVoice()
     expect(sweepsIn(tapped, sweep), 'the tap on EXECUTE did not sweep exactly once').toBe(1)
@@ -526,376 +563,586 @@ describe('the controls that sound themselves', () => {
   })
 })
 
-
-describe('playback sounds the beat it is showing', () => {
-  // A real turn from a real campaign, chosen for having a beat whose sound
-  // is not the kind default: a view that played the beat kind's sound for
-  // everything would pass a weaker fixture.
-  // A turn carrying a beat whose SUBJECT cue resolves to a different sound
-  // from its beat kind's default. That property, not "two sounds
-  // somewhere", is what distinguishes a view that reads the cue key from
-  // one that reads only the kind; the first version of this fixture
-  // selected for the weaker thing and the assertion it fed was weaker
-  // still.
-  function findTurn(): { before: GameState; after: GameState; beats: Beat[] } {
-    for (const seed of [20260712, 4041, 1, 2, 3, 7, 11, 13, 17, 19, 23, 29]) {
-      let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
-      while (state.status === 'playing') {
-        const after = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
-        const beats = deriveBeats(state, after)
-        const divergent = beats.some((b) => {
-          if (!b.visible) return false
-          const subject = soundFor(b.cueKey, b.kind)
-          const kind = soundFor(`beat:${b.kind}`, b.kind)
-          return !!subject && subject !== 'silent' && subject !== kind
-        })
-        if (divergent) return { before: state, after, beats }
-        state = after
-      }
-    }
-    throw new Error('no turn in the sweep carries a beat whose subject cue differs from its kind cue')
-  }
-
-  // Two real threat beats whose effective severities differ, each with the
-  // turn it came from, so the view can be opened on either one.
-  interface ThreatFixture {
-    before: GameState
-    after: GameState
-    beat: Beat
-  }
-
-  function twoThreats(): [ThreatFixture, ThreatFixture] {
-    const found = new Map<number, ThreatFixture>()
-    for (const seed of [20260712, 4041, 1, 2, 3, 7, 11, 13, 17, 23, 29, 31]) {
-      let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
-      while (state.status === 'playing') {
-        const after = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
-        for (const beat of deriveBeats(state, after)) {
-          if (beat.kind !== 'threat' || !beat.visible || !beat.severity) continue
-          if (!found.has(beat.severity.effective)) found.set(beat.severity.effective, { before: state, after, beat })
-        }
-        state = after
-      }
-      if (found.size > 1) break
-    }
-    const sorted = [...found.entries()].sort((a, b) => a[0] - b[0])
-    if (sorted.length < 2) throw new Error('the sweep produced no two threats of different severity')
-    return [sorted[0][1], sorted[sorted.length - 1][1]]
-  }
-
-  // A real threat beat that lands on an asset the engine named, which is
-  // the beat whose sound the view times to the strike rather than playing
-  // at once.
-  function landedHit(): ThreatFixture {
-    for (const seed of [20260712, 4041, 1, 2, 3, 7, 11, 13, 17, 23, 29, 31]) {
-      let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
-      while (state.status === 'playing') {
-        const after = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
-        for (const beat of deriveBeats(state, after)) {
-          if (beat.kind !== 'threat' || !beat.visible || beat.targetAssetId === undefined) continue
-          if ((beat.severity?.effective ?? 0) > 0) return { before: state, after, beat }
-        }
-        state = after
-      }
-    }
-    throw new Error('the sweep produced no threat that landed on an asset')
-  }
-
-  it('plays the sound the registry gives that beat, not the beat kind-s default', () => {
-    // The fixture was already selecting turns carrying two different
-    // sounds, and then asserting only that something sounded. Resolving
-    // every beat through `beat:${kind}` instead of its cue key passed
-    // that: it kills the six per-condition alarms outright, which is the
-    // brief's "alarm blip, unique per condition", and nothing noticed.
-    //
-    // Identified by pitch, because the pitch is the only thing about a
-    // voice that reaches the graph and differs between the alarms.
-    installGestureUnlock()
-    gesture()
-    const turn = findTurn()
-    const subjectBeat = turn.beats.find(
-      (b) => b.visible && soundFor(b.cueKey, b.kind) !== soundFor(`beat:${b.kind}`, b.kind),
-    )
-    expect(subjectBeat, 'the fixture carries no beat whose subject cue differs from its kind cue').toBeDefined()
-
-    const pitchesFor = (cue: SoundCue) => {
-      const engine = getAudioEngine()
-      ctx().reset()
-      engine.play(cue)
-      return ctx().oscillators().map((o) => o.frequency.first())
-    }
-    const subjectPitches = pitchesFor(soundFor(subjectBeat!.cueKey, subjectBeat!.kind)!)
-    const kindPitches = pitchesFor(soundFor(`beat:${subjectBeat!.kind}`, subjectBeat!.kind)!)
-    expect(subjectPitches, 'the two candidate sounds are indistinguishable, so this proves nothing').not.toEqual(
-      kindPitches,
-    )
-
-    ctx().reset()
+describe('the night sounds the moment it is showing', () => {
+  // Since v1.3 Round 3 a resolved turn plays as the night (brief 5.5) and
+  // not as the director's beats, so every guard that used to open
+  // DirectorView on a beat now drives Game itself, as a player does:
+  // EXECUTE, COLDVEIL IS MOVING, a strike and its card per move, the
+  // intel card on a first meeting, END OF TURN and BEGIN TURN.
+  //
+  // Music is off throughout, so the bed's own notes are not in the graph
+  // these cases read; the effects are what is under test.
+  let mounts = 0
+  let shownState: GameState | null = null
+  function renderGame(state: GameState) {
+    mounts += 1
+    shownState = state
     act(() => {
-      root.render(
-        <DirectorView
-          before={turn.before}
-          after={turn.after}
-          beats={[subjectBeat!]}
-          onPresented={() => {}}
-          onDone={() => {}}
-        />,
-      )
+      root.render(<Game key={`m${mounts}`} initial={{ state, phase: 'brief' }} onExit={() => {}} />)
     })
-    expect(
-      ctx().oscillators().map((o) => o.frequency.first()),
-      'playback played the beat kind-s default instead of the beat-s own sound',
-    ).toEqual(subjectPitches)
+  }
+  // The same Game again, with nothing changed: a re-render, not a remount.
+  function rerender() {
+    act(() => {
+      root.render(<Game key={`m${mounts}`} initial={{ state: shownState!, phase: 'brief' }} onExit={() => {}} />)
+    })
+  }
+  const reducedMotion = () =>
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('reduce'),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+    }))
+
+  // Every cue the game asked the engine for, in order, with the file that
+  // asked: the first frame of the call under src/ and outside the audio
+  // layer, which is where fireCue lives. The night's cards and the HUD's
+  // readouts both play through useSound, and the score the night shows
+  // moves as each move lands, so the file is the one honest way to tell
+  // the night's tick from a meter's. The meters' own rows are proved in
+  // the block above.
+  interface Heard {
+    cue: SoundCue
+    from: string
+  }
+  let heard: Heard[] = []
+  let stackLimit = Error.stackTraceLimit
+  function listen() {
+    const engine = getAudioEngine()
+    const play = engine.play.bind(engine)
+    vi.spyOn(engine, 'play').mockImplementation((...args: Parameters<typeof play>) => {
+      const from = (new Error().stack ?? '')
+        .split('\n')
+        .map((line) => /\/src\/([\w/.-]+?\.tsx?)\b/.exec(line)?.[1])
+        .find((file) => !!file && !file.startsWith('audio/'))
+      heard.push({ cue: args[0], from: from ?? '?' })
+      return play(...args)
+    })
+  }
+  const take = () => heard.splice(0)
+  const METER = 'ui/cues/Meter.tsx'
+  const night = (list: Heard[]) => list.filter((h) => h.from !== METER)
+  const cues = (list: Heard[]) => list.map((h) => h.cue)
+
+  beforeEach(() => {
+    localStorage.setItem(MUSIC_PREF_KEY, 'off')
+    resetAudioEngineForTests()
+    heard = []
+    stackLimit = Error.stackTraceLimit
+    Error.stackTraceLimit = 60
+  })
+  afterEach(() => {
+    Error.stackTraceLimit = stackLimit
   })
 
-  it('schedules the first beat-s own sound as playback opens', () => {
-    installGestureUnlock()
-    gesture()
-    const turn = findTurn()
-    ctx().reset()
-    act(() => {
-      root.render(
-        <DirectorView
-          before={turn.before}
-          after={turn.after}
-          beats={turn.beats}
-          onPresented={() => {}}
-          onDone={() => {}}
-        />,
-      )
-    })
-    expect(ctx().startedCount(), 'playback opened in silence').toBeGreaterThan(0)
-  })
+  // The board before a turn, and the night EXECUTE plays from it with no
+  // orders, which is what a fixture rendered on that board and executed
+  // at once will see. The boards come from a few seeded operations, so
+  // the defenses owned vary.
+  interface Board {
+    state: GameState
+    steps: NightStep[]
+    over: GameState['status']
+  }
+  function* boards(): Generator<Board> {
+    for (const script of [WIN_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT]) {
+      for (const seed of [24, 20260712, 1, 2, 3, 4, 5]) {
+        let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+        while (state.status === 'playing') {
+          const rng = () => turnRng(state.seed, state.turn)
+          const next = resolveTurn(state, { ...NO_OP, debris: 'hold' }, rng())
+          yield { state, steps: nightOf(state, next).steps, over: next.status }
+          state = resolveTurn(state, { debris: 'hold', ...(script[state.turn] ?? NO_OP) }, rng())
+        }
+      }
+    }
+  }
+  const find = (want: (b: Board) => boolean, what: string): Board => {
+    for (const b of boards()) if (want(b)) return b
+    throw new Error(`no board in the sweep has ${what}`)
+  }
+  // The first move of the night lands: the strike these cases time.
+  const landsFirst = (b: Board) => b.steps[0]?.kind === 'threat' && b.steps[0].ev.effectiveSeverity > 0
 
-  it('hands the beat-s own severity to the voice, not a constant', () => {
-    // The gap this closes: beatIntensity was tested as a function and the
-    // stab was tested as a voice, but nothing connected them, so a view
-    // passing a fixed 0.5 to every beat slept through both. Proven by the
-    // pitch that reached the graph, since that is the only place the
-    // connection is observable.
+  // EXECUTE pressed on a fresh board, with the night's module settled.
+  async function execute(state: GameState) {
+    renderGame(state)
+    await act(async () => {})
+    await tap(q('[data-execute]'))
+  }
+
+  describe('over two real operations, one won and one lost', () => {
+    // THE BEHAVIOURAL HALF OF tests/sound.spec.ts's wiring test, and the
+    // successor of its "real beats" proof: what each moment of a real
+    // night sounds like, keyed by the moment that played it, never merged
+    // into one set (a merged set let a row pointed at the wrong voice pass
+    // whenever some OTHER moment played it). Every step is checked against
+    // the engine's own record of the night as it goes, and the treatment
+    // each moment claims is checked on the element that shows it: the
+    // successor of tests/cues.spec.ts's "plays the visual each beat kind
+    // claims, over real play rather than hand-built keys".
     //
-    // The view is opened once per beat rather than advanced through a
-    // turn: playback opens on its first beat, so a one-beat list makes
-    // "this beat produced this pitch" exact instead of inferred.
-    installGestureUnlock()
-    gesture()
-    const [light, heavy] = twoThreats()
-    const pitchOf = (beat: Beat, turn: { before: GameState; after: GameState }) => {
-      ctx().reset()
-      act(() => {
-        root.render(
-          <DirectorView
-            before={turn.before}
-            after={turn.after}
-            beats={[beat]}
-            onPresented={() => {}}
-            onDone={() => {}}
-          />,
-        )
-      })
-      // A hit sounds when it lands, after the lock-on (v1.2 R3).
-      act(() => {
-        vi.advanceTimersByTime(STRIKE_MS * LOCK_SHARE)
-      })
-      const osc = ctx().oscillators()[0]
-      expect(osc, `the ${beat.id} beat scheduled no tone`).toBeDefined()
-      const hz = osc!.frequency.first() ?? 0
+    // Seed 24 on STANDARD meets every kind of card with these orders
+    // (tests/night-r3.dom.spec.tsx (f) plays the same operation), and the
+    // passive line on the same seed loses; seed 4 on the same plan loses
+    // the satellite on the conjunction. Between them every row of the
+    // night is reached, BLACKOUT CHAIN and both debris results included.
+    const PLAN: Record<number, CountermeasureId[]> = { 2: ['antiJam', 'pntAuth', 'groundZeroTrust'], 3: ['linkAuth'] }
+    const heardAt = new Map<Moment, SoundCue[]>()
+    const endings: GameState['status'][] = []
+    let metersHeard = 0
+    let shields = 0
+
+    const at = (moment: Moment, list: Heard[]) => heardAt.set(moment, [...(heardAt.get(moment) ?? []), ...cues(list)])
+    const shows = (el: Element | null | undefined, moment: Moment, where: string) => {
+      const className = VISUAL_CLASS[MOMENT_CUES[moment].visual]
+      expect(el, `${where}: nothing on screen carries the ${moment} treatment`).toBeTruthy()
+      expect(el!.classList.contains(className), `${where}: ${moment} should show .${className}`).toBe(true)
+    }
+    // What has played since the last look, all of it attributed, and the
+    // readouts' share counted so the filter is known to be doing something.
+    const since = () => {
+      const all = take()
+      for (const h of all) expect(h.from, `${h.cue} was played from a file the stack does not show`).not.toBe('?')
+      metersHeard += all.length - night(all).length
+      return night(all)
+    }
+
+    async function order(ids: CountermeasureId[]) {
+      if (!ids.length) return
+      await tap(q('[data-action="procure"]'))
+      for (const id of ids) await tap(q(`[data-procure-defense="${id}"]`))
+      await tap(q('[data-confirm]'))
+    }
+
+    async function playOperation(seed: number, plan: Record<number, CountermeasureId[]>) {
+      installGestureUnlock()
+      gesture()
+      listen()
+      let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+      renderGame(state)
+      await act(async () => {})
+      while (state.status === 'playing') {
+        const turn = state.turn
+        const ids = plan[turn] ?? []
+        const next = resolveTurn(state, { ...NO_OP, buyCounters: ids, debris: 'hold' }, turnRng(state.seed, state.turn))
+        const steps = nightOf(state, next).steps
+        await order(ids)
+        take()
+        await tap(q('[data-execute]'))
+        // COLDVEIL IS MOVING opens on every night, not only the first, to
+        // EXECUTE's sweep and nothing of its own.
+        expect(stage(), `turn ${turn}: EXECUTE did not open COLDVEIL IS MOVING`).toBe('moving')
+        shows(q('[data-moving]'), 'moving', `turn ${turn}`)
+        const pressed = since()
+        expect(cues(pressed), `turn ${turn}: EXECUTE`).toEqual(['execute-sweep'])
+        at('moving', pressed)
+        await wait(750)
+        // What a tap sets off beyond its own cue belongs to the stage it
+        // opens, and is carried there.
+        let carried = since()
+        expect(cues(carried), `turn ${turn}: the overlay made a sound of its own`).toEqual([])
+        for (const [i, step] of steps.entries()) {
+          const where = `seed ${seed} turn ${turn} step ${i} (${step.ev.eventId})`
+          if (step.kind === 'threat') {
+            const landed = step.ev.effectiveSeverity > 0
+            expect(stage(), where).toBe('strike')
+            expect(cues([...carried, ...since()]), `${where}: the lock-on made a sound`).toEqual([])
+            await wait(STRIKE_MS * LOCK_SHARE + 1)
+            // A move that lands strikes with the deck's own voice for it;
+            // a block sounds like a block, whatever was blocked.
+            const struck = since()
+            expect(cues(struck), `${where}: the strike`).toEqual([landed ? EVENT_CUES[step.ev.eventId].sound : MOMENT_CUES['strike-block'].sound])
+            at(landed ? 'strike-hit' : 'strike-block', struck)
+            if (landed) shows(q('[data-strike-banner="hit"]'), 'strike-hit', where)
+            else if (q('[data-shield="held"]')) {
+              shows(q('[data-shield="held"]'), 'strike-block', where)
+              shields += 1
+            }
+            await wait(STRIKE_MS * (1 - LOCK_SHARE) + 1)
+            expect(stage(), where).toBe('hit')
+            expect(q('[data-night-card]')!.getAttribute('aria-label'), `${where}: the card is not this step's`).toContain(step.def.name)
+            expect(cues(since()), `${where}: the hit card arrived with a sound of its own`).toEqual([])
+            // One tick per tile as it lands: up for a blocked point, down
+            // for one that got through.
+            const tiles = [...container.querySelectorAll('[data-tile]')]
+            expect(tiles.length, where).toBe(step.ev.baseSeverity + step.ev.chainBonus)
+            for (const [k, tile] of tiles.entries()) {
+              await wait(k === 0 ? 250 : 220)
+              const tick = since()
+              const blocked = tile.getAttribute('data-tile') === 'blocked'
+              expect(cues(tick), `${where}: tile ${k}`).toEqual([blocked ? 'tick-up' : 'tick-down'])
+              at('result-tiles', tick)
+              if (blocked) shows(tile, 'result-tiles', `${where} tile ${k}`)
+            }
+            // Then a new condition sounds its own alarm, or a streak its
+            // fanfare; never both, since a streak is a block.
+            await wait(220)
+            const closing = since()
+            const streak = step.ev.effectiveSeverity === 0 && step.streak >= 2
+            expect(!!q('[data-streak-line]'), `${where}: the streak line`).toBe(streak)
+            if (step.ev.condition) {
+              expect(cues(closing), `${where}: the condition`).toEqual([CONDITION_CUES[step.ev.eventId].sound])
+              at('condition', closing)
+              shows(q('[data-new-condition]')?.parentElement, 'condition', where)
+            } else if (streak) {
+              expect(cues(closing), `${where}: the streak`).toEqual([MOMENT_CUES.streak.sound])
+              at('streak', closing)
+              shows(q('[data-streak-line]'), 'streak', where)
+            } else expect(cues(closing), `${where}: after the tiles`).toEqual([])
+            carried = []
+          } else if (step.kind === 'debris') {
+            // A decision, not an event: the call arrives quietly.
+            expect(stage(), where).toBe('call')
+            const call = [...carried, ...since()]
+            expect(cues(call), `${where}: the call`).toEqual([])
+            at('debris-call', call)
+            shows(q('[data-night-card="call"]'), 'debris-call', where)
+            await tap(q('[data-call="hold"]'))
+            expect(stage(), where).toBe('debris')
+            // The result: a safe satellite sounds like a block, a lost one
+            // lands like a hit, in the deck's own voice.
+            const result = since()
+            expect(cues(result), `${where}: the call's result`).toEqual([
+              step.ev.debris!.lost ? EVENT_CUES['debris-conjunction'].sound : MOMENT_CUES['debris-result'].sound,
+            ])
+            at('debris-result', result)
+            shows(q('[data-night-card="debris"]'), 'debris-result', where)
+          } else {
+            expect(stage(), where).toBe('opportunity')
+            const chime = [...carried, ...since()]
+            expect(cues(chime), `${where}: the opportunity`).toEqual([MOMENT_CUES.opportunity.sound])
+            at('opportunity', chime)
+            shows(q('[data-night-card="opportunity"]'), 'opportunity', where)
+          }
+          // The way on: COLLECT and FILE IT on a first meeting, CONTINUE
+          // on every later one.
+          if (q('[data-collect]')) {
+            shows(q('[data-collect]'), 'collect', where)
+            await tap(q('[data-collect]'))
+            const collected = since()
+            expect(cues(collected), `${where}: COLLECT`).toEqual([MOMENT_CUES.collect.sound])
+            at('collect', collected)
+            expect(stage(), where).toBe('intel')
+            shows(q('[data-intel-file]')?.firstElementChild, 'file', where)
+            await tap(q('[data-file-it]'))
+            const filed = since()
+            expect(cues(filed.slice(0, 1)), `${where}: FILE IT`).toEqual([MOMENT_CUES.file.sound])
+            at('file', filed.slice(0, 1))
+            carried = filed.slice(1)
+          } else {
+            await tap(q('[data-continue]'))
+            carried = since()
+          }
+        }
+        // END OF TURN, or on the last night the operation's own ending.
+        const last = next.status !== 'playing'
+        expect(stage(), `turn ${turn}: the night did not reach END OF TURN`).toBe('end')
+        const closed = [...carried, ...since()]
+        expect(cues(closed), `turn ${turn}: END OF TURN`).toEqual([last ? outcomeSound(next.status === 'won') : MOMENT_CUES['end-of-turn'].sound])
+        at(last ? 'outcome' : 'end-of-turn', closed)
+        for (const row of container.querySelectorAll('[data-ledger-row]')) shows(row, 'end-of-turn', `turn ${turn}`)
+        if (last) shows(q('[data-night-card="end"]'), 'outcome', `turn ${turn}`)
+        expect(q('[data-begin]')!.textContent, `turn ${turn}`).toBe(last ? 'DEBRIEF' : `BEGIN TURN ${turn + 1}`)
+        await tap(q('[data-begin]'))
+        const begun = since()
+        if (last) {
+          // DEBRIEF goes to the score screen, which has sounds of its own;
+          // the night has none left.
+          expect(cues(begun.filter((h) => h.from.startsWith('ui/night/'))), 'DEBRIEF').toEqual([])
+          endings.push(next.status)
+        } else {
+          expect(cues(begun), `BEGIN TURN ${turn + 1}`).toEqual([MOMENT_CUES['turn-start'].sound])
+          at('turn-start', begun)
+          expect(stage(), `BEGIN TURN ${turn + 1} did not reach the board`).toBe('board')
+          shows(q('[data-intro]'), 'turn-start', `turn ${turn + 1}`)
+        }
+        state = next
+      }
       act(() => root.unmount())
       root = createRoot(container)
-      return hz
+      resetAudioEngineForTests()
     }
-    expect(beatIntensity(light.beat)).toBeLessThan(beatIntensity(heavy.beat))
-    const lightHz = pitchOf(light.beat, light)
-    const heavyHz = pitchOf(heavy.beat, heavy)
+
+    it('sounds each moment as the registry says and shows its treatment, and hears every row the night plays', async () => {
+      await playOperation(24, PLAN)
+      await playOperation(24, {})
+      // The same plan on seed 4 holds on the conjunction and loses the
+      // satellite, so the debris result's other voice is heard too.
+      await playOperation(4, PLAN)
+      expect(endings.sort(), 'the operations did not end as their seeds do (won, lost, lost)').toEqual(['lost', 'lost', 'won'])
+      expect(metersHeard, 'no readout ticked, so the filter that sets them aside proves nothing').toBeGreaterThan(0)
+      expect(shields, 'no block landed on a tile, so the shield went unchecked').toBeGreaterThan(0)
+
+      // Then the table: every section 6 row the night plays was heard at
+      // one of its own moments over the two operations, and its partners
+      // with it.
+      const unheard: string[] = []
+      for (const row of SECTION_6_ROWS) {
+        if (!row.moments || row.sound === 'silent') continue
+        const there = new Set(row.moments.flatMap((m) => heardAt.get(m) ?? []))
+        if (row.soundPerSubject === 'condition') {
+          // The row stands for a family, so any member heard at its moment
+          // is the row; which member is checked per step above.
+          const family = new Set(Object.values(CONDITION_CUES).map((c) => c.sound))
+          if (![...there].some((s) => family.has(s))) unheard.push(`${row.beat}: no per-condition alarm at ${row.moments.join('/')}`)
+          continue
+        }
+        for (const sound of [row.sound, ...(row.soundPartners ?? [])]) {
+          if (!there.has(sound)) unheard.push(`${row.beat}: ${sound} never heard at ${row.moments.join('/')}`)
+        }
+      }
+      expect(unheard.join('\n')).toBe('')
+    }, 30_000)
+  })
+
+  it('plays the deck-s own alarm for the condition, not the moment-s stand-in', async () => {
+    // MOMENT_CUES.condition carries one alarm as the family's stand-in, and
+    // a card that played it for every condition would kill the six
+    // per-condition alarms outright, which is the brief's "alarm blip,
+    // unique per condition". Identified by pitch, because the pitch is the
+    // only thing about a voice that reaches the graph and differs between
+    // the alarms.
+    reducedMotion()
+    installGestureUnlock()
+    gesture()
+    const board = find(
+      (b) => !!b.steps[0]?.ev.condition && CONDITION_CUES[b.steps[0].ev.eventId].sound !== MOMENT_CUES.condition.sound,
+      'a first move that leaves a condition with an alarm of its own',
+    )
+    const step = board.steps[0]
+    const pitchesFor = (cue: SoundCue) => {
+      ctx().reset()
+      getAudioEngine().play(cue)
+      return ctx().oscillators().map((o) => o.frequency.first())
+    }
+    const own = pitchesFor(CONDITION_CUES[step.ev.eventId].sound)
+    const standIn = pitchesFor(MOMENT_CUES.condition.sound)
+    expect(own, 'the two candidate alarms are indistinguishable, so this proves nothing').not.toEqual(standIn)
+    // Under reduced motion the card arrives at once and its tiles tick on
+    // their own clock; the alarm follows the last of them.
+    await execute(board.state)
+    expect(stage()).toBe('hit')
+    const tiles = container.querySelectorAll('[data-tile]').length
+    await wait(250 + tiles * 220 - 1)
+    ctx().reset()
+    await wait(1)
+    expect(
+      ctx().oscillators().map((o) => o.frequency.first()),
+      'the card played the stand-in instead of the condition-s own alarm',
+    ).toEqual(own)
+  })
+
+  it('sounds the night-s first move as its strike lands, not in silence and not before', async () => {
+    installGestureUnlock()
+    gesture()
+    await execute(find(landsFirst, 'a first move that lands').state)
+    ctx().reset()
+    await wait(750)
+    expect(stage()).toBe('strike')
+    expect(ctx().startedCount(), 'the strike sounded during its lock-on').toBe(0)
+    await wait(STRIKE_MS * LOCK_SHARE + 1)
+    expect(ctx().startedCount(), 'the first move landed in silence').toBeGreaterThan(0)
+  })
+
+  it('hands the move-s own severity to the voice, not a constant', async () => {
+    // The gap this closes: strikeIntensity was tested as a function and the
+    // stab was tested as a voice, but nothing connected them, so a night
+    // passing a fixed 0.5 to every strike would sleep through both. Proven
+    // by the pitch that reached the graph, since that is the only place
+    // the connection is observable. Two first moves that land with the
+    // plain stab and differ only in how much got through.
+    installGestureUnlock()
+    gesture()
+    const found = new Map<number, Board>()
+    for (const b of boards()) {
+      if (!landsFirst(b) || EVENT_CUES[b.steps[0].ev.eventId].sound !== 'hit-stab') continue
+      const effective = b.steps[0].ev.effectiveSeverity
+      if (!found.has(effective)) found.set(effective, b)
+    }
+    const sorted = [...found.entries()].sort((x, y) => x[0] - y[0])
+    expect(sorted.length, 'the sweep produced no two strikes of different severity').toBeGreaterThan(1)
+    const [light, heavy] = [sorted[0][1], sorted[sorted.length - 1][1]]
+    const pitchOf = async (b: Board) => {
+      await execute(b.state)
+      await wait(750)
+      ctx().reset()
+      // A hit sounds when it lands, after the lock-on, and the stab is the
+      // first voice it builds: the score's readout ticks after it.
+      await wait(STRIKE_MS * LOCK_SHARE + 1)
+      const osc = ctx().oscillators()[0]
+      expect(osc, `${b.steps[0].ev.eventId} scheduled no tone`).toBeDefined()
+      act(() => root.unmount())
+      root = createRoot(container)
+      return osc!.frequency.first() ?? 0
+    }
+    expect(strikeIntensity(light.steps[0].ev.effectiveSeverity)).toBeLessThan(strikeIntensity(heavy.steps[0].ev.effectiveSeverity))
+    const lightHz = await pitchOf(light)
+    const heavyHz = await pitchOf(heavy)
     expect(heavyHz, 'the heavier hit did not land lower, so severity never reached the voice').toBeLessThan(lightHz)
   })
 
-  it('sounds a beat once, however many times the view re-renders it', () => {
-    // The identity of the beat object is what makes "once per beat" true.
-    // A render that changes nothing else must not re-fire the cue, or a
-    // HUD update while the beat is on screen would stutter the sound.
+  it('sounds a strike and its card once, however many times Game re-renders them', async () => {
+    // The strike's sound hangs on its clock and the card's on the card, not
+    // on a render: a render that changes nothing must not re-fire either,
+    // or a HUD update while a card is up would stutter the sound.
     installGestureUnlock()
     gesture()
-    const [only] = twoThreats()
-    const props = {
-      before: only.before,
-      after: only.after,
-      beats: [only.beat],
-      onPresented: () => {},
-      onDone: () => {},
-    }
-    ctx().reset()
-    act(() => root.render(<DirectorView {...props} />))
-    const once = ctx().startedCount()
-    expect(once, 'the beat made no sound').toBeGreaterThan(0)
-    act(() => root.render(<DirectorView {...props} />))
-    act(() => root.render(<DirectorView {...props} />))
-    expect(ctx().startedCount(), 'a re-render replayed the beat').toBe(once)
+    listen()
+    const board = find(landsFirst, 'a first move that lands')
+    await execute(board.state)
+    await wait(750)
+    rerender()
+    await wait(STRIKE_MS * LOCK_SHARE + 1)
+    rerender()
+    rerender()
+    await wait(STRIKE_MS * (1 - LOCK_SHARE) + 1)
+    expect(stage()).toBe('hit')
+    // The card's tiles and its closing cue, all of them, then the same
+    // card re-rendered with a long wait after.
+    await wait(5_000)
+    const once = cues(night(take()))
+    const voices = ctx().startedCount()
+    const strike = EVENT_CUES[board.steps[0].ev.eventId].sound
+    expect(once.filter((c) => c === strike).length, 'the strike sounded other than once').toBe(1)
+    expect(once.filter((c) => c !== strike && c !== 'execute-sweep').length, 'the card made no sound of its own').toBeGreaterThan(0)
+    rerender()
+    rerender()
+    await wait(5_000)
+    expect(cues(night(take())), 'a re-render replayed the card').toEqual([])
+    expect(ctx().startedCount(), 'a re-render built new voices').toBe(voices)
   })
 
-  it('stops what it is saying when playback goes away', () => {
-    // The BLACKOUT CHAIN runs 1500ms and its static does not begin until
-    // 870ms in, so a player who backs out to the menu partway through
-    // would otherwise hear it over the menu. Asserted on the graph: the
-    // gain carrying the cue is taken to zero.
+  it('sounds the strike with its card under reduced motion, once', async () => {
+    // Brief 5.5: under reduced motion the overlay and the strike are
+    // skipped and the card arrives at once, so the card is where the
+    // strike is heard. Reduced motion removes motion and not sound.
+    reducedMotion()
     installGestureUnlock()
     gesture()
-    const [only] = twoThreats()
+    listen()
+    const board = find(landsFirst, 'a first move that lands')
+    await execute(board.state)
+    expect(stage(), 'reduced motion still played the overlay or the strike').toBe('hit')
+    const arrived = night(take())
+    expect(cues(arrived)).toEqual(['execute-sweep', EVENT_CUES[board.steps[0].ev.eventId].sound])
+    rerender()
+    await wait(5_000)
+    expect(cues(night(take())).filter((c) => c === EVENT_CUES[board.steps[0].ev.eventId].sound), 'the card replayed its strike').toEqual([])
+  })
+
+  it('stops what it is saying when the player walks out of the night', async () => {
+    // The BLACKOUT CHAIN runs 1500ms and its static does not begin until
+    // 870ms in, so a player who leaves the operation partway through (the
+    // HUD's SYSTEM stays live over the night, and its title and new
+    // operation both unmount it) would otherwise hear it over the next
+    // screen. Asserted on the graph: the gain carrying the cue is taken to
+    // zero when Game goes away with the night still running.
+    installGestureUnlock()
+    gesture()
+    const board = find(
+      (b) => landsFirst(b) && b.steps[0].ev.eventId === 'blackout-chain',
+      'a night that opens on a landed BLACKOUT CHAIN',
+    )
     // The bus is built at unlock, so it has to be caught before the reset
     // that clears the recording.
-    const bus = ctx().created.find(
-      (n): n is FakeGain => n instanceof FakeGain && n.connections.includes(ctx().destination),
-    )!
+    const bus = ctx().created.find((n): n is FakeGain => n instanceof FakeGain && n.connections.includes(ctx().destination))!
     expect(bus, 'the engine never built a bus').toBeDefined()
+    await execute(board.state)
+    await wait(750)
     ctx().reset()
-    act(() => {
-      root.render(
-        <DirectorView
-          before={only.before}
-          after={only.after}
-          beats={[only.beat]}
-          onPresented={() => {}}
-          onDone={() => {}}
-        />,
-      )
-    })
+    await wait(STRIKE_MS * LOCK_SHARE + 1)
     const cueGain = ctx().created.filter((n): n is FakeGain => n instanceof FakeGain && n.connections.includes(bus))[0]
-    expect(cueGain, 'the beat scheduled no cue gain').toBeDefined()
+    expect(cueGain, 'the strike scheduled no cue gain').toBeDefined()
     const before = cueGain.gain.events.length
     act(() => root.unmount())
     root = createRoot(container)
     const added = cueGain.gain.events.slice(before)
-    expect(added.length, 'leaving playback scheduled nothing on the cue in flight').toBeGreaterThan(0)
+    expect(added.length, 'leaving the night scheduled nothing on the cue in flight').toBeGreaterThan(0)
     expect(added[added.length - 1].value, 'the cue was left playing over the next screen').toBe(0)
   })
 
-  it('stops the sound when the player presses SKIP', () => {
-    // SKIP drives the director to done, which marks playback finished,
-    // which is exactly the state the unmount path deliberately does NOT
-    // silence. So skip has to silence on its own account, and nothing
-    // proved that it did: the walk-out test unmounts by hand without ever
-    // reaching done, so it passes whether skip silences or not.
+  // RETIRED in v1.3 Round 3: "stops the sound when the player presses
+  // SKIP". The night has no SKIP: every card waits for a tap and only the
+  // overlay and the strike run on a clock (brief 5.5), and the director
+  // whose playback SKIP ended is gone.
+
+  it('lets the night-s last cue ring out over the board and the score screen', async () => {
+    // The other half of the rule above, and the regression that half once
+    // caused. The night also goes away when it simply ENDS: BEGIN TURN
+    // plays the next night's intel burst in the same tap that hands the
+    // board back, and DEBRIEF leaves END OF TURN while a lost operation's
+    // sting is still humming. Silencing on that unmount would cut both
+    // short of their own length. Driven to the night's own end, because
+    // unmounting by hand is exactly what cannot tell the two apart.
+    reducedMotion()
     installGestureUnlock()
     gesture()
-    const [only] = twoThreats()
-    const bus = ctx().created.find(
-      (n): n is FakeGain => n instanceof FakeGain && n.connections.includes(ctx().destination),
-    )!
-    ctx().reset()
-    act(() => {
-      root.render(
-        <DirectorView
-          before={only.before}
-          after={only.after}
-          beats={[only.beat]}
-          onPresented={() => {}}
-          onDone={() => {}}
-        />,
-      )
-    })
-    const cueGain = ctx().created.filter((n): n is FakeGain => n instanceof FakeGain && n.connections.includes(bus))[0]
-    expect(cueGain, 'the beat scheduled no cue gain').toBeDefined()
-    const before = cueGain.gain.events.length
-    const skip = [...container.querySelectorAll('button')].find((b) => /skip/i.test(b.textContent ?? ''))
-    expect(skip, 'the playback view renders no SKIP control').toBeDefined()
-    act(() => {
-      skip!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-    const added = cueGain.gain.events.slice(before)
-    expect(added.some((e) => e.value === 0), 'SKIP stopped the beats and left the sound playing').toBe(true)
+    const bus = ctx().created.find((n): n is FakeGain => n instanceof FakeGain && n.connections.includes(ctx().destination))!
+    const cueGains = (nodes: FakeNode[]) => nodes.filter((n): n is FakeGain => n instanceof FakeGain && n.connections.includes(bus))
+    for (const [what, board] of [
+      ['BEGIN TURN', find((b) => b.over === 'playing' && b.steps.length > 0, 'a night the operation survives')],
+      ['DEBRIEF', find((b) => b.over === 'lost', 'a night that loses the operation')],
+    ] as const) {
+      await execute(board.state)
+      let mark = 0
+      for (let i = 0; i < 20 && stage() !== 'end'; i += 1) {
+        mark = ctx().created.length
+        await tap(way())
+      }
+      expect(stage(), `${what}: the night never reached END OF TURN`).toBe('end')
+      // The closing cue, in flight from the card's arrival (the lost
+      // operation's sting among them), and BEGIN TURN's burst on its tap.
+      const closing = cueGains(ctx().created.slice(mark))
+      expect(closing.length, `${what}: END OF TURN arrived in silence, so this proves nothing`).toBeGreaterThan(0)
+      const counts = new Map(cueGains(ctx().created).map((g) => [g, g.gain.events.length]))
+      await tap(q('[data-begin]'))
+      expect(q('[data-night-card]'), `${what}: the night is still up`).toBeNull()
+      const cut = cueGains(ctx().created).filter((g) => g.gain.events.slice(counts.get(g) ?? 0).some((e) => e.value === 0))
+      expect(cut.length, `${what}: a night that finished on its own had its closing cue cut short`).toBe(0)
+      act(() => root.unmount())
+      root = createRoot(container)
+    }
   })
 
-  it('lets a finished playback-s last cue ring out over the aftermath', () => {
-    // The other half of the rule above, and the regression that half
-    // caused. Playback also unmounts when it simply ENDS: the last beat is
-    // tapped past, the director reports done, and Game swaps to the
-    // aftermath. Silencing on that unmount cut every closing cue short of
-    // its own length, which under the v1.1 dwell at 2x was the whole hum
-    // of the defeat sting. Driven to its own end here rather than
-    // unmounted by hand, because by-hand unmounting is exactly what cannot
-    // tell the two apart.
+  it('makes no sound while the page is hidden, even from a strike already on its way, and sounds it on return', async () => {
+    // A strike is timed: its sound comes STRIKE_MS * LOCK_SHARE in, after
+    // the lock-on. Since v1.3 Round 3 the night's two clocks stop while
+    // the tab is hidden (brief 8.3), so a phone locked during the lock-on
+    // neither sounds the strike behind the lock screen nor skips it: the
+    // player comes back to the strike, and hears it land. (The audio
+    // channel refuses on its own account as well; the block above proves
+    // that through the real document event.)
     installGestureUnlock()
     gesture()
-    const [only] = twoThreats()
-    const bus = ctx().created.find(
-      (n): n is FakeGain => n instanceof FakeGain && n.connections.includes(ctx().destination),
-    )!
-    ctx().reset()
-    let finished = false
-    act(() => {
-      root.render(
-        <DirectorView
-          before={only.before}
-          after={only.after}
-          beats={[only.beat]}
-          onPresented={() => {}}
-          onDone={() => {
-            finished = true
-          }}
-        />,
-      )
-    })
-    const cueGain = ctx().created.filter((n): n is FakeGain => n instanceof FakeGain && n.connections.includes(bus))[0]
-    expect(cueGain, 'the beat scheduled no cue gain').toBeDefined()
-    const before = cueGain.gain.events.length
-    // Run the turn out with the tap that ends it: the one beat is the last
-    // beat. The view unmounts itself through onDone in the real app; here
-    // the callback records that the director got there.
-    const next = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Next')
-    expect(next, 'the playback view renders no Next control').toBeDefined()
-    act(() => {
-      next!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-    expect(finished, 'playback never reached its own end').toBe(true)
-    act(() => root.unmount())
-    root = createRoot(container)
-    const added = cueGain.gain.events.slice(before)
-    const ramped = added.some((e) => e.value === 0)
-    expect(ramped, 'a playback that finished on its own had its closing cue cut short').toBe(false)
-  })
+    const board = find(landsFirst, 'a first move that lands')
 
-  it('makes no sound while the page is hidden, even from a hit already on its way, and sounds again on return', () => {
-    // Until v1.3 Round 0 the zero here was the MOTION channel's: the
-    // director paused while hidden, so no beat was emitted and the audio
-    // layer was never asked, and the audio half had to be exercised by
-    // hand to be seen at all. Playback no longer pauses, because nothing
-    // moves without the player (brief 5.5). But a landed hit is still
-    // timed: its stab sounds STRIKE_MS * LOCK_SHARE into the beat, after
-    // the lock-on. A phone locked during the lock-on therefore has the
-    // view itself asking for the stab behind a hidden page, which is the
-    // audio channel refusing on its own account, through the real view.
-    installGestureUnlock()
-    gesture()
-    const hit = landedHit()
-    const open = () =>
-      act(() => {
-        root.render(
-          <DirectorView before={hit.before} after={hit.after} beats={[hit.beat]} onPresented={() => {}} onDone={() => {}} />,
-        )
-      })
-
-    // The control: on a visible page the same beat sounds when it lands, so
-    // the zero below is the policy's and not a silent fixture.
+    // The control: on a visible page the same strike sounds when it lands,
+    // so the zero below is the policy's and not a silent fixture.
+    await execute(board.state)
+    await wait(750)
     ctx().reset()
-    open()
-    expect(ctx().startedCount(), 'the hit sounded before it landed').toBe(0)
-    act(() => {
-      vi.advanceTimersByTime(STRIKE_MS)
-    })
-    expect(ctx().startedCount(), 'the hit never sounded on a visible page, so this proves nothing').toBeGreaterThan(0)
+    await wait(STRIKE_MS)
+    expect(ctx().startedCount(), 'the strike never sounded on a visible page, so this proves nothing').toBeGreaterThan(0)
     act(() => root.unmount())
     root = createRoot(container)
 
+    await execute(board.state)
+    await wait(750)
     ctx().reset()
-    open()
     act(() => setHidden(true))
-    act(() => {
-      vi.advanceTimersByTime(STRIKE_MS)
-    })
-    expect(ctx().startedCount(), 'a hidden page played the hit that landed behind it').toBe(0)
+    await wait(STRIKE_MS * 3)
+    expect(ctx().startedCount(), 'a hidden page played the strike that landed behind it').toBe(0)
+    expect(stage(), 'the strike ran on behind a hidden page').toBe('strike')
 
-    // And the channel comes back with the page.
+    // And the strike comes back with the page, and lands.
     act(() => setHidden(false))
     expect(getAudioEngine().play('hit-stab'), 'returning did not restore the audio channel').toBe(true)
+    ctx().reset()
+    await wait(STRIKE_MS * LOCK_SHARE + 1)
+    expect(ctx().startedCount(), 'the strike never landed once the page came back').toBeGreaterThan(0)
   })
 })

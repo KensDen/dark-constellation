@@ -166,20 +166,48 @@ export const sheetOpen = (id: string) => container.querySelector(`[data-sheet="$
 // turn. A synthetic Enter on a plain button is no click in jsdom, so the
 // harness clicks it.
 export const executeNow = () => click(execute())
-export const beatText = () => container.textContent?.match(/beat (\d+) of (\d+)/)?.[0] ?? null
-// The playback's Next button, while a beat is on screen.
-export const nextBeat = () => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Next')
-// Tap the playback through to the aftermath: the director is tap-through
-// since v1.3 Round 0, so each beat waits for its Next. The timers run a
-// strike's length between taps, as a player's look at the beat would, so
-// a hit's lock-on and landing play out inside its beat.
-export function playOut() {
-  const afterword = () => /NEXT TURN|FINAL REPORT/.test(bar().textContent ?? '')
-  for (let i = 0; i < 100 && !afterword(); i += 1) {
-    const next = nextBeat()
-    expect(next, 'the playback has no Next button').toBeDefined()
-    click(next!)
-    step(STRIKE_MS)
-  }
-  expect(afterword(), 'tapping Next did not reach the aftermath').toBe(true)
+// THE NIGHT (v1.3 Round 3, brief 5.5), which retired the director's
+// playback: after EXECUTE the 750ms overlay, then per event a strike on
+// the board and a card that waits for its tap, the night's intel card on
+// a first meeting, and END OF TURN. Where it is: 'moving', 'strike', a
+// card by its kind ('hit', 'call', 'debris', 'opportunity', 'end'),
+// 'intel', or 'board' once the deciding board is back (the dock is the
+// deciding board's, so it is gone for the whole night).
+export function stage(): string {
+  const q = (sel: string) => container.querySelector(sel)
+  if (q('[data-intel-file]')) return 'intel'
+  const card = q('[data-night-card]')?.getAttribute('data-night-card')
+  if (card) return card
+  return q('[data-moving]') ? 'moving' : q('[data-strike-banner]') ? 'strike' : q('[data-dock]') ? 'board' : 'none'
+}
+// What the night has up, by name: the card's, the intel card's threat, or
+// the strike's banner, so a night that restarted or moved on reads
+// differently.
+export function nightAt(): string {
+  const card = container.querySelector('[data-intel-file]') ?? container.querySelector('[data-night-card]')
+  const name = card ? (card.getAttribute('aria-label') ?? card.getAttribute('data-intel-file')) : container.querySelector('[data-strike-banner]')?.textContent
+  return `${stage()}: ${name ?? ''}`
+}
+// The tap a card asks for: FILE IT on the intel card, HOLD on the debris
+// call, COLLECT INTEL CARD or CONTINUE. END OF TURN's BEGIN TURN n+1 is
+// left to the spec.
+export const wayOn = () =>
+  container.querySelector('[data-file-it]') ??
+  container.querySelector('[data-call="hold"]') ??
+  container.querySelector('[data-collect]') ??
+  container.querySelector('[data-continue]')
+// One move on through the night, as a player makes it: a card is tapped,
+// and the overlay or a strike is given `ms` to play (a whole strike unless
+// a spec looks inside one). Settled after, since the night and its cards
+// are chunks of their own.
+export async function onward(ms = STRIKE_MS) {
+  const way = wayOn()
+  if (way) click(way)
+  else step(ms)
+  await settle()
+}
+// Play the night out to END OF TURN.
+export async function playOut() {
+  for (let i = 0; i < 100 && stage() !== 'end'; i += 1) await onward()
+  expect(stage(), 'the night did not reach END OF TURN').toBe('end')
 }

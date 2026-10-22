@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { COUNT_MS, CUE_MS, useCountUp, useCueClass, useReducedMotion } from './motion'
 import { useSound } from '../../audio'
-import type { SoundCue } from '../../director/cues'
+import type { SoundCue } from '../../cues'
 
 // Re-exported for the DOM suite, which drives the count and has to know
 // how long it runs; the readout itself uses the hook's default.
@@ -216,7 +216,10 @@ export default function Readout({
       <div className={bare ? 'flex' : 'flex items-baseline justify-between gap-2'}>
         {!bare && <span className="uppercase tracking-widest text-ink-dim text-xs">{label}</span>}
         <span
-          className={`tabular-nums ${valueClassName ?? 'text-sm'} ${flash ? '' : warning ? 'text-alert-amber' : TONE_TEXT[tone]} ${flash}`}
+          // An odometer's digits roll in from above their line, so the line
+          // clips them (v1.3 R3 fresh-eyes review: they drew into the label
+          // above).
+          className={`tabular-nums ${odometer ? 'inline-block overflow-hidden' : ''} ${valueClassName ?? 'text-sm'} ${flash ? '' : warning ? 'text-alert-amber' : TONE_TEXT[tone]} ${flash}`}
           aria-label={`${label} ${value}${suffix ?? ''}`}
         >
           {odometer

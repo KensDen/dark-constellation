@@ -2,29 +2,36 @@
 //
 // What would have helped, where the player looks (critique row M3). The
 // sentence naming the missing defense used to render only inside the
-// aftermath's collapsed ledger, open by default only at INSTANT. Now the
-// short form is a line of its own on the hit card, under the strength
-// line ("Strength n - n blocked = n landed" since v1.3 R2, the severity
-// line before), and the verdict's second line on a turn something landed;
-// the ledger keeps the full sentence. The aftermath card's heading has
-// read "END OF TURN n" since R2. Rendered against the game's own beats
-// and records, found by walking real play.
+// aftermath's collapsed ledger, open by default only at INSTANT; then the
+// short form was a line on the director's hit card and the verdict's
+// second line. v1.3 R3 (brief 5.5) retired the director and the aftermath
+// card, and the promise moved onto the night's hit card, the card the
+// player taps through for every move: an UNDEFENDED block says "What
+// would have helped: <defense>, n CR. It stops <threats met>. It is in
+// PROCURE next turn with that written on it." (the last sentence left off
+// on the last turn), and a REDUCED block "Would have finished it:
+// <defense>, n CR." The retainer advice (critique row M8) is on END OF
+// TURN, and the SSA service's on the debris result. Rendered in the real
+// game over real play, the night tapped through as a player does.
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
+
+import Game from '../src/ui/Game'
 import { DEFAULT_SCENARIO } from '../src/content'
-import { deriveBeats, type Beat } from '../src/director'
-import DirectorView from '../src/director/DirectorView'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
-import type { GameState, TurnActions, TurnRecord } from '../src/engine/types'
-import AftermathCard from '../src/ui/board/AftermathCard'
-import { verdictFor } from '../src/ui/verdict'
-import { full, short } from '../src/ui/wouldHaveHelped'
+import type { GameState, ResolvedEvent, ThreatEvent, TurnActions } from '../src/engine/types'
+import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
+import { shortName } from '../src/ui/board/boardModel'
+import { damaged } from '../src/ui/night/closeModel'
+import * as copy from '../src/ui/night/nightCopy'
+import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 import { POLICIES } from './policies'
-import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
+import { LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT, a } from './scripts'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -33,153 +40,258 @@ declare global {
 
 let container: HTMLDivElement
 let root: Root
+let unlisten: () => void
+
+function memoryStorage(): Storage {
+  const map = new Map<string, string>()
+  return {
+    get length() {
+      return map.size
+    },
+    key: (i: number) => [...map.keys()][i] ?? null,
+    getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+    setItem: (k: string, v: string) => void map.set(String(k), String(v)),
+    removeItem: (k: string) => void map.delete(k),
+    clear: () => map.clear(),
+  } as Storage
+}
+
+// The night's chunks, loaded once, so the night renders its cards from
+// the loaded modules at once.
+beforeAll(async () => {
+  await import('../src/ui/night/Night')
+  await import('../src/ui/night/cards')
+  await import('../src/ui/night/closeCards')
+})
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
-  vi.useFakeTimers()
+  vi.stubGlobal('localStorage', memoryStorage())
+  // Reduced motion: the cards arrive at once, with no overlay and no
+  // strike to wait out.
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query.includes('reduce'),
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+  }))
+  resetAudioEngineForTests()
+  installFakeAudioContext()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
+  unlisten = installGestureUnlock()
 })
 
 afterEach(() => {
+  unlisten()
   act(() => root.unmount())
   container.remove()
-  vi.useRealTimers()
+  resetAudioEngineForTests()
+  removeFakeAudioContext()
+  vi.unstubAllGlobals()
 })
 
-const line = () => container.querySelector('[data-would-have-helped]')
-const isThreat = (id: string) => (DEFAULT_SCENARIO.events.find((e) => e.id === id)?.kind ?? 'threat') === 'threat'
+const q = (sel: string) => container.querySelector(sel)
+const line = () => q('section[data-night-card="hit"] [data-would-have-helped]')
+const defOf = (id: string) => DEFAULT_SCENARIO.events.find((e) => e.id === id)!
+const isThreat = (ev: ResolvedEvent) => !ev.debris && (defOf(ev.eventId).kind ?? 'threat') === 'threat'
+const nameOf = (id: string) => DEFAULT_SCENARIO.countermeasures.find((c) => c.id === id)!.name
+const costOf = (id: string) => DEFAULT_SCENARIO.countermeasures.find((c) => c.id === id)!.cost
 
-// The first turn of real play, over a few seeds and both scripted lines,
-// then the sweep gate's policies (tests/policies.ts), with a visible beat
-// or a record that has the shape a test needs. The policies come after
-// the scripts, so a shape the scripts reach is found where it always was;
-// they were added in v1.3 Round 0 because the six-turn game's scripts
-// never land a fully defended threat ahead of one with a defense missing
-// (the verdict test below), and the NOVICE line does, on turn 6, where
-// the BLACKOUT CHAIN gets through sensor fusion ahead of the drawn move.
+// The boards of real play, over a few seeds and the scripted lines, then
+// the sweep gate's policies (tests/policies.ts). The policies come after
+// the scripts, so a shape the scripts reach is found where it always was.
+// Each test plays the night of the board it finds with the empty cart
+// (EXECUTE with no orders), and the engine's resolution of that night is
+// what it looks in.
 const scripted = (script: Record<number, TurnActions>) => (state: GameState) => script[state.turn] ?? NO_OP
-const LINES: ((state: GameState) => TurnActions)[] = [scripted(LOSS_SCRIPT), scripted(WIN_SCRIPT), ...POLICIES.map((p) => p.policy)]
-function find<T>(pick: (before: GameState, after: GameState) => T | undefined): T {
+const LINES: ((state: GameState) => TurnActions)[] = [scripted(LOSS_SCRIPT), scripted(WIN_SCRIPT), scripted(MIXED_SCRIPT), ...POLICIES.map((p) => p.policy)]
+const tonight = (state: GameState) => resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
+function find<T>(pick: (state: GameState, after: GameState) => T | undefined): T {
   for (const play of LINES) {
     for (const seed of [20260712, 4041, 1, 2, 3, 7]) {
       let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
       while (state.status === 'playing') {
-        const after = resolveTurn(state, play(state), turnRng(state.seed, state.turn))
-        const found = pick(state, after)
+        const found = pick(state, tonight(state))
         if (found) return found
-        state = after
+        state = resolveTurn(state, play(state), turnRng(state.seed, state.turn))
       }
     }
   }
   throw new Error('no turn in the sweep has the shape this test needs')
 }
-
-const beatWhere = (match: (b: Beat, after: GameState) => boolean) =>
-  find((before, after) => {
-    const beat = deriveBeats(before, after).find((b) => b.visible && match(b, after))
-    return beat ? { before, after, beat } : undefined
+// The first threat of a night that matches, with the board it met.
+const threatWhere = (match: (ev: ResolvedEvent, def: ThreatEvent, state: GameState, after: GameState) => boolean) =>
+  find((state, after) => {
+    const ev = after.history.at(-1)!.events.find((e) => isThreat(e) && match(e, defOf(e.eventId), state, after))
+    return ev ? { state, after, ev, def: defOf(ev.eventId) } : undefined
   })
 
-function renderBeat(f: { before: GameState; after: GameState; beat: Beat }) {
+let mounts = 0
+function render(state: GameState, phase: 'brief' | 'aftermath' = 'brief') {
+  mounts += 1
   act(() => {
-    root.render(
-      <DirectorView before={f.before} after={f.after} beats={[f.beat]} onPresented={() => {}} onDone={() => {}} />,
-    )
+    root.render(<Game key={`m${mounts}`} initial={{ state, phase }} onExit={() => {}} />)
   })
 }
-
-const resolvedOf = (after: GameState, beat: Beat) => after.history.at(-1)!.events.find((e) => e.eventId === beat.subjectId)!
-const landedThreat = (b: Beat) => b.kind === 'threat' && (b.severity?.effective ?? 0) > 0
+// A tap, and the cards and effects it sets off, settled.
+async function tap(el: Element | null) {
+  if (!el) throw new Error('nothing to tap')
+  await act(async () => {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+  })
+  await act(async () => {})
+}
+// The tap a card asks for: FILE IT, HOLD on the call, COLLECT or CONTINUE.
+const way = () => q('[data-file-it]') ?? q('[data-call="hold"]') ?? q('[data-collect]') ?? q('[data-continue]')
+// EXECUTE with the empty cart, then on through the night until the hit
+// card for `def` is up.
+async function toHitCard(state: GameState, def: ThreatEvent) {
+  render(state)
+  await tap(q('[data-execute]'))
+  const wanted = () => q('section[data-night-card="hit"] [data-move-name]')?.textContent === shortName(def)
+  for (let i = 0; i < 20 && !wanted() && !q('[data-night-card="end"]'); i += 1) await tap(way())
+  expect(wanted(), `the night never showed ${def.id}'s hit card`).toBe(true)
+  return q('section[data-night-card="hit"]')!
+}
+// The second block's line exactly as the card should say it, from the
+// content: the first of the threat's defenses not owned, its price, every
+// threat it stops that the player can name (met or named: this device has
+// met tonight's moves, and the brief named tonight's candidates), and
+// PROCURE unless it is the last turn.
+function expectedLine(def: ThreatEvent, state: GameState, after: GameState): string {
+  const missing = def.counters.find((c) => !state.counters.includes(c))!
+  const record = after.history.at(-1)!
+  const known = new Set([...record.events.map((e) => e.eventId), ...record.named])
+  const stops = [shortName(def), ...DEFAULT_SCENARIO.events.filter((e) => e.id !== def.id && e.counters.includes(missing) && known.has(e.id)).map(shortName)]
+  const last = record.turn >= DEFAULT_SCENARIO.totalTurns
+  return `What would have helped: ${nameOf(missing)}, ${costOf(missing)} CR. It stops ${stops.join(' and ')}.${last ? '' : ' It is in PROCURE next turn with that written on it.'}`
+}
 
 describe('the hit card (critique row M3)', () => {
-  it('names the missing defense in amber, on its own line under the strength line', () => {
-    const f = beatWhere((b, after) => landedThreat(b) && short(resolvedOf(after, b), after, after.scenario) !== '')
-    renderBeat(f)
-    const expected = short(resolvedOf(f.after, f.beat), f.after, f.after.scenario)
-    expect(expected).toMatch(/^Would have helped: /)
-    expect(line(), 'the hit card has no would-have-helped line').not.toBeNull()
-    expect(line()!.textContent).toBe(expected)
-    expect(line()!.className).toContain('text-alert-amber')
-    expect(line()!.previousElementSibling?.textContent ?? '', 'the line is not under the strength line').toMatch(/^Strength /)
+  it('names the missing defense on the UNDEFENDED block, with its price, what it stops and where to find it', async () => {
+    const f = threatWhere((ev, def, state) => ev.outcome === 'open' && ev.effectiveSeverity > 0 && def.counters.length > 0 && state.turn < DEFAULT_SCENARIO.totalTurns)
+    const card = await toHitCard(f.state, f.def)
+    expect(card.getAttribute('aria-label')).toBe(`${f.def.name}: HIT`)
+    const block = card.querySelector('[data-outcome="open"]')
+    expect(block, 'the hit card has no UNDEFENDED block').not.toBeNull()
+    expect(block!.textContent).toMatch(/^UNDEFENDED/)
+    expect(line(), 'the hit card names nothing that would have helped').not.toBeNull()
+    expect(line()!.closest('[data-outcome="open"]'), 'the line is not on the UNDEFENDED block').toBe(block)
+    // Where the player is looking: on the card, not behind a disclosure.
+    expect(line()!.closest('details'), 'the line is inside a collapsed disclosure').toBeNull()
+    expect(line()!.textContent).toBe(expectedLine(f.def, f.state, f.after))
   })
 
-  it('says nothing on a threat that was held, or once every applicable defense was owned', () => {
-    // A held threat with a defense still missing, so short() has words to
-    // print and only the landed rule keeps them off the card.
-    const held = beatWhere((b, after) => b.kind === 'threat' && b.severity?.effective === 0 && short(resolvedOf(after, b), after, after.scenario) !== '')
-    renderBeat(held)
-    expect(container.textContent, 'the control: the held card did not render').toMatch(/Strength /)
-    expect(line(), 'a held threat claims something would have helped').toBeNull()
-    const f = beatWhere(landedThreat)
-    const def = DEFAULT_SCENARIO.events.find((e) => e.id === f.beat.subjectId)!
-    renderBeat({ ...f, after: { ...f.after, counters: [...f.after.counters, ...def.counters] } })
-    expect(container.textContent, 'the control: the landed card did not render').toMatch(/Strength /)
-    expect(line(), 'with everything owned the short line still names a defense').toBeNull()
+  it('leaves PROCURE off on the last turn, when there is no next turn to order it in', async () => {
+    const f = threatWhere((ev, def, state) => ev.outcome === 'open' && ev.effectiveSeverity > 0 && def.counters.length > 0 && state.turn === DEFAULT_SCENARIO.totalTurns)
+    await toHitCard(f.state, f.def)
+    expect(line(), 'the last turn names nothing that would have helped').not.toBeNull()
+    expect(line()!.textContent).toBe(expectedLine(f.def, f.state, f.after))
+    expect(line()!.textContent).not.toContain('PROCURE')
+  })
+
+  it('names the defense that would have finished a partial, on the REDUCED block', async () => {
+    const f = threatWhere((ev, def, state) => ev.outcome === 'reduced' && def.counters.some((c) => !state.counters.includes(c)))
+    const card = await toHitCard(f.state, f.def)
+    const block = card.querySelector('[data-outcome="reduced"]')
+    expect(block, 'the hit card has no REDUCED block').not.toBeNull()
+    const missing = f.def.counters.find((c) => !f.state.counters.includes(c))!
+    const held = f.def.counters.find((c) => f.state.counters.includes(c))!
+    expect(block!.textContent).toContain(`REDUCED · ${nameOf(held).toUpperCase()}`)
+    expect(block!.textContent).toContain(`Would have finished it: ${nameOf(missing)}, ${costOf(missing)} CR.`)
+    // The UNDEFENDED line is for a move nothing answered.
+    expect(line()).toBeNull()
+  })
+
+  it('says nothing on a move that was held, or once every applicable defense was owned', async () => {
+    // A held move with a defense still missing, so there is something the
+    // card could name and only the outcome keeps it off.
+    const held = threatWhere((ev, def, state) => ev.outcome === 'held' && def.counters.some((c) => !state.counters.includes(c)))
+    let card = await toHitCard(held.state, held.def)
+    expect(card.querySelector('[data-outcome="held"]'), 'the control: the HELD block did not render').not.toBeNull()
+    expect(card.querySelector('[data-can-say]')!.textContent).toBe(`You can now say it: ${nameOf(held.def.counters.find((c) => held.state.counters.includes(c))!)} stops ${shortName(held.def)}.`)
+    expect(line(), 'a held move claims something would have helped').toBeNull()
+    expect(card.textContent, 'a held move says what would have finished it').not.toMatch(/Would have finished it/)
+
+    // A move that got through every applicable defense: a board of real
+    // play with every defense against one of the deck's threats added, so
+    // the night has a move with nothing left to name.
+    const f = find((state) => {
+      for (const def of DEFAULT_SCENARIO.events.filter((e) => e.kind !== 'opportunity' && e.counters.length > 0 && e.effect.special !== 'debrisStrike')) {
+        const owned = { ...state, counters: [...new Set([...state.counters, ...def.counters])] }
+        const ev = tonight(owned).history.at(-1)!.events.find((e) => e.eventId === def.id && e.effectiveSeverity > 0)
+        if (ev) return { state: owned, def }
+      }
+      return undefined
+    })
+    card = await toHitCard(f.state, f.def)
+    expect(card.querySelector('[data-outcome="reduced"]'), 'the control: the REDUCED block did not render').not.toBeNull()
+    expect(line(), 'with everything owned the card still names a defense').toBeNull()
+    expect(card.textContent, 'with everything owned the card says what would have finished it').not.toMatch(/Would have finished it|What would have helped/)
   })
 })
 
-describe('the verdict (critique row M3)', () => {
-  function renderAftermath(record: TurnRecord, state: GameState) {
-    act(() => {
-      root.render(<AftermathCard record={record} state={state} scenario={state.scenario} reducedMotion ledgerOpen={false} />)
-    })
-  }
-  const recordWhere = (match: (r: TurnRecord, after: GameState) => boolean) =>
+// RETIRED in v1.3 R3: "the verdict (critique row M3)", four cases on the
+// aftermath card's verdict and its second line (the short form for the
+// first threat that landed, outside the collapsed ledger, which kept the
+// full sentence). The aftermath card, its verdict and its ledger
+// disclosure are gone; END OF TURN states the budget's lines, and each
+// move that landed carries its own line on its own hit card, above.
+
+describe('the retainer at the close (critique row M8)', () => {
+  // A board of real play the turn closed on damaged, where the one
+  // purchase left that would have helped is the retainer's faster repair.
+  const closed = () =>
     find((_, after) => {
       const r = after.history.at(-1)!
-      return match(r, after) ? { record: r, state: after } : undefined
+      return after.status === 'playing' && !r.ledger.insolvent && damaged(after) && !after.counters.includes('irRetainer') ? after : undefined
     })
 
-  it('carries the short line for the first threat that landed as its second line, outside the ledger', () => {
-    // Two threats landing, so "first" is a choice the test can see.
-    const { record, state } = recordWhere(
-      (r, after) =>
-        r.events.filter((ev) => isThreat(ev.eventId) && ev.effectiveSeverity > 0 && short(ev, after, after.scenario) !== '').length > 1,
-    )
-    renderAftermath(record, state)
-    const first = record.events.find((ev) => isThreat(ev.eventId) && ev.effectiveSeverity > 0)!
-    expect(line(), 'the verdict has no second line').not.toBeNull()
-    expect(line()!.textContent).toBe(short(first, state, state.scenario))
-    expect(line()!.closest('details'), 'the line is still inside the collapsed ledger').toBeNull()
-    expect(line()!.previousElementSibling?.textContent, 'the line is not right under the verdict').toBe(verdictFor(record, state.scenario))
-    // The ledger keeps the full sentence.
-    expect(container.querySelector('details')!.textContent).toContain(full(first, state, state.scenario))
+  it('names the IR retainer on END OF TURN over a damaged board when it is not owned, and says it is working when it is', () => {
+    // A reload onto END OF TURN for the turn the save closed on, which is
+    // the same card the night ends on.
+    const state = closed()
+    render(state, 'aftermath')
+    const end = q('[data-night-card="end"]')
+    expect(end, 'the reload did not open END OF TURN').not.toBeNull()
+    const faster = copy.pace(state.scenario.recovery.base, state.scenario.recovery.withIrRetainer)
+    expect(end!.textContent).toContain(copy.recoverySlow(faster))
+    render({ ...state, counters: [...state.counters, 'irRetainer'] }, 'aftermath')
+    expect(q('[data-night-card="end"]')!.textContent).toContain(copy.recoveryFast(faster))
+    expect(q('[data-night-card="end"]')!.textContent).not.toContain(copy.recoverySlow(faster))
   })
+})
 
-  it('names the first threat that landed, not the first threat, when one was held before it', () => {
-    const { record, state } = recordWhere((r, after) => {
-      const threats = r.events.filter((ev) => isThreat(ev.eventId))
-      const first = threats.find((ev) => ev.effectiveSeverity > 0)
-      return threats[0]?.effectiveSeverity === 0 && !!first && short(first, after, after.scenario) !== ''
+describe('the debris result', () => {
+  // Turn 4 of the anchor seed makes the debris call (tests/night-r3.dom
+  // .spec.tsx, GUARD R3 (e)), with the SSA service ordered on turn 3 or not.
+  const callNight = (ssa: boolean) => {
+    let state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
+    const script: Record<number, TurnActions> = { 3: a({ buyCounters: ssa ? ['ssaManeuver'] : [] }) }
+    while (state.turn < 4) state = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+    return state
+  }
+  const ssa = DEFAULT_SCENARIO.countermeasures.find((c) => c.id === 'ssaManeuver')!
+
+  for (const owned of [false, true]) {
+    it(`${owned ? 'says nothing of the SSA service once it is owned' : 'names the SSA service and its price when it was not owned'}`, async () => {
+      render(callNight(owned))
+      await tap(q('[data-execute]'))
+      for (let i = 0; i < 10 && !q('[data-night-card="debris"]'); i += 1) await tap(way())
+      const card = q('[data-night-card="debris"]')
+      expect(card, 'the night never showed the debris result').not.toBeNull()
+      const lost = card!.querySelector('[data-outcome]')!.getAttribute('data-outcome') === 'open'
+      const help = copy.debrisHelp(lost, ssa.name, ssa.cost).join('')
+      if (owned) {
+        expect(card!.textContent).not.toContain(help)
+        expect(card!.textContent).not.toMatch(/What would have helped|Would have made this a budgeted call/)
+      } else {
+        expect(card!.textContent).toContain(help)
+      }
     })
-    renderAftermath(record, state)
-    const first = record.events.find((ev) => isThreat(ev.eventId) && ev.effectiveSeverity > 0)!
-    expect(line(), 'the verdict has no second line').not.toBeNull()
-    expect(line()!.textContent).toBe(short(first, state, state.scenario))
-  })
-
-  it('follows the first threat that landed even when nothing was missing against it', () => {
-    // The brief's rule as written: "the second line is short for the first
-    // landed event". When every defense against that one was owned, short
-    // is empty and the verdict has no second line, even if a later threat
-    // that landed was missing one (the hit card still names it during
-    // playback, and the ledger keeps the full sentence). Pinned so a
-    // change to the rule comes here; raised for Ken in FIX batch 1.
-    const { record, state } = recordWhere((r, after) => {
-      const landed = r.events.filter((ev) => isThreat(ev.eventId) && ev.effectiveSeverity > 0)
-      return landed.length > 1 && short(landed[0], after, after.scenario) === '' && landed.slice(1).some((ev) => short(ev, after, after.scenario) !== '')
-    })
-    renderAftermath(record, state)
-    expect(container.textContent, 'the control: the aftermath did not render').toMatch(/END OF TURN/)
-    expect(line(), 'the verdict named a later threat than the first that landed').toBeNull()
-  })
-
-  it('has no second line on a turn nothing landed', () => {
-    const { record, state } = recordWhere((r) => r.events.some((ev) => isThreat(ev.eventId)) && r.events.every((ev) => ev.effectiveSeverity === 0))
-    renderAftermath(record, state)
-    expect(container.textContent, 'the control: the aftermath did not render').toMatch(/END OF TURN/)
-    expect(line()).toBeNull()
-  })
+  }
 })

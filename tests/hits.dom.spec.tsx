@@ -1,50 +1,54 @@
 // @vitest-environment jsdom
 //
 // Hits land on the board, and the game starts teaching (v1.2 R3, brief
-// 4.5 and 4.8). The round's DOM guards:
-//   (a) every hit a playback shows locks on and strobes on the tile of
-//       the asset the engine named and actually hit, and on no other (the
-//       engine half, that every asset-damaging event names its asset, is
-//       in engine.spec.ts). Since v1.3 Round 0 the engine names the AIMED
-//       tile even when a defense held, so a tile was hit only when its
-//       integrity after is under its integrity before;
-//   (c) the REAL WORLD line on an event card is the event's own technique
-//       and source (the content half is in real-world.spec.ts);
+// 4.5 and 4.8). Since v1.3 R3 (brief 5.5) the hit plays in the night's
+// strike, motion on, between COLDVEIL IS MOVING and the hit card, in place
+// of the retired director's beat. The round's DOM guards:
+//   (a) every hit the night strikes locks on and strobes on the tile of
+//       the asset the engine named, and on no other (the engine half, that
+//       every asset-damaging event names its asset, is in engine.spec.ts).
+//       Since v1.3 Round 0 the engine names the AIMED tile even when a
+//       defense held, and since R3 a block shows on that tile as a shield
+//       rather than a lock-on, so a strike is a hit when anything got
+//       through;
+//   (c) each card carries its own event's technique and source: the intel
+//       card a first meeting opens, and the IN YOUR DOSSIER row of a repeat
+//       meeting (the REAL WORLD line rode the director's event card; the
+//       content half is in real-world.spec.ts);
 //   (d) COLDVEIL's intel card with no intel brief names no event, vector
 //       or technique (the intel levels left with v1.3 Round 0: the brief
 //       is on or off). Since v1.3 R2 that card opens from the TONIGHT
 //       card's full brief, where the threat banner's button used to be;
-//   (e) under reduced motion nothing shakes, strobes or floats.
+//   (e) under reduced motion nothing strobes, bursts, pops or floats: the
+//       night skips the strike, and the stylesheet stops its treatment.
 // And the intel card behaves as a dialog: a real button opens it, focus
-// comes back to that button, and Escape closes it without skipping the
-// playback behind it.
+// comes back to that button, and Escape closes it without ending the night
+// behind it.
 //
-// For (e), jsdom runs the real cascade over the real src/index.css but
-// evaluates no media feature, so the two reduced-motion conditions are
-// stated by rewriting them, as tests/sprites.dom.spec.tsx does and says
-// why at length.
+// For (e), jsdom runs the real cascade over the real src/index.css and
+// src/ui/night/night.css but evaluates no media feature, so the two
+// reduced-motion conditions are stated by rewriting them, as
+// tests/sprites.dom.spec.tsx does and says why at length.
 
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 
 import Game from '../src/ui/Game'
 import IntelCard from '../src/ui/board/IntelCard'
 import { DEFAULT_SCENARIO } from '../src/content'
-import { deriveBeats } from '../src/director'
 import { briefFree, newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
-import type { GameState } from '../src/engine/types'
+import type { GameState, ResolvedEvent } from '../src/engine/types'
 import { FORECAST_DARK, briefCopy, forecastLead } from '../src/ui/brief'
 import { techniqueLabel, vectorLabels } from '../src/ui/labels'
 import { realWorldFor } from '../src/ui/realWorldLine'
-import { assetRole } from '../src/ui/board/board'
-import { STRIKE_MS } from '../src/ui/board/strike'
+import { assetRole, pipsFor } from '../src/ui/board/board'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
@@ -55,6 +59,7 @@ declare global {
 }
 
 const INDEX_CSS = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'index.css')
+const NIGHT_CSS = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'ui', 'night', 'night.css')
 
 let container: HTMLDivElement
 let root: Root
@@ -84,6 +89,14 @@ function setReducedMotion(reduced: boolean) {
     removeListener: () => {},
   }))
 }
+
+// The night's chunks, loaded once, so the night renders its cards from
+// the loaded modules at once.
+beforeAll(async () => {
+  await import('../src/ui/night/Night')
+  await import('../src/ui/night/cards')
+  await import('../src/ui/night/closeCards')
+})
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -117,15 +130,20 @@ function gameAt(turn: number, seed = 20260712, script = WIN_SCRIPT): GameState {
   return state
 }
 
+// The engine's record of a night played with the empty cart the tests
+// commit (EXECUTE with no orders, and HOLD on the debris call).
+const recordOf = (state: GameState): ResolvedEvent[] => resolveTurn(state, NO_OP, turnRng(state.seed, state.turn)).history.at(-1)!.events
+const isThreat = (e: ResolvedEvent) => !e.debris && (DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)?.kind ?? 'threat') === 'threat'
+
 // The first turn of the prepared line whose resolution, with the empty
 // cart the tests commit, shows what `wanted` looks for, found from the
-// engine's own beats rather than pinned. Pinning broke once already: the
+// engine's own record rather than pinned. Pinning broke once already: the
 // deck stream of v1.2 R5a moved which events every turn draws.
-function firstTurnWhere(wanted: (beats: ReturnType<typeof deriveBeats>) => boolean): number {
+function firstTurnWhere(wanted: (events: ResolvedEvent[]) => boolean): number {
   for (let turn = 1; turn <= DEFAULT_SCENARIO.totalTurns; turn += 1) {
     const state = gameAt(turn)
     if (state.status !== 'playing' || state.turn !== turn) break
-    if (wanted(deriveBeats(state, resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))))) return turn
+    if (wanted(recordOf(state))) return turn
   }
   throw new Error('no turn of the prepared line shows what this test needs')
 }
@@ -152,10 +170,7 @@ function render(state: GameState) {
     root.render(<Game key={`m${mounts}`} initial={{ state, phase: 'brief' }} onExit={() => {}} />)
   })
 }
-const step = (ms: number) =>
-  act(() => {
-    vi.advanceTimersByTime(ms)
-  })
+const q = (sel: string) => container.querySelector(sel)
 const settle = () =>
   act(async () => {
     await vi.dynamicImportSettled()
@@ -165,83 +180,91 @@ const click = (el: Element) => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
   })
 }
+// A tap, and the lazy cards and effects it sets off, settled.
+async function tap(el: Element) {
+  await act(async () => {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+  })
+  await act(async () => {})
+}
+// The clock, and what it sets off in the night, settled.
+async function step(ms: number) {
+  await act(async () => void vi.advanceTimersByTime(ms))
+  await act(async () => {})
+}
 // EXECUTE is a plain button since v1.3 Round 0 (the hold went with the
 // dwell), and a synthetic Enter does not click a button in jsdom, so the
 // tests click it.
-const execute = () => {
-  const button = container.querySelector('nav[aria-label="Actions"] button[data-execute]')
+async function execute() {
+  const button = q('nav[aria-label="Actions"] button[data-execute]')
   expect(button, 'EXECUTE is not on screen').not.toBeNull()
-  click(button!)
+  await tap(button!)
 }
 // The TONIGHT card's full brief, opened if it is not, and its chunk let
 // in: COLDVEIL's intel button and the technique tag live there (v1.3 R2).
 async function openFullBrief() {
-  const toggle = container.querySelector('button[data-full-brief]')
+  const toggle = q('button[data-full-brief]')
   expect(toggle, 'the TONIGHT card is not on screen').not.toBeNull()
   if (toggle!.getAttribute('aria-expanded') !== 'true') click(toggle!)
   await settle()
-  expect(container.querySelector('button[aria-label="Threat intel"]'), 'the full brief has no intel button').not.toBeNull()
+  expect(q('button[aria-label="Threat intel"]'), 'the full brief has no intel button').not.toBeNull()
 }
 const tiles = () => [...container.querySelectorAll('button[data-asset-id]')]
 const inTiles = (selector: string) => tiles().filter((t) => t.querySelector(selector)).map((t) => t.getAttribute('data-asset-id'))
-const playingOut = () => !![...container.querySelectorAll('button')].find((b) => /^Skip/.test(b.textContent ?? ''))
-// The playback as a player taps through it. Every beat waits for a tap
-// since v1.3 Round 0; only a hit's strike plays on its own, so on each beat
-// the clock runs a strike's length in steps of `every` ms, `look` reads the
-// board at each, and then Next moves on. It stops as soon as `look` says it
-// has what it came for.
-function tapThrough(look: () => boolean | void, every: number) {
-  for (let beat = 0; beat < 60 && playingOut(); beat += 1) {
-    for (let t = 0; t <= STRIKE_MS; t += every) {
-      if (look()) return
-      step(every)
-    }
-    const next = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Next')
-    expect(next, 'the playback has no Next').toBeDefined()
-    click(next!)
+// The night is on: its overlay, a strike's banner, a card or the intel card.
+const inNight = () => !!(q('[data-moving]') || q('[data-strike-banner]') || q('[data-night-card]') || q('[data-intel-file]'))
+// The tap a card asks for: FILE IT, HOLD on the call, COLLECT or CONTINUE,
+// BEGIN TURN.
+const wayOn = () => q('[data-file-it]') ?? q('[data-call="hold"]') ?? q('[data-collect]') ?? q('[data-continue]') ?? q('[data-begin]')
+// The night as a player taps through it. Every card waits for a tap; only
+// the overlay and each strike play on their own (brief 5.5), so while one
+// of those is up the clock runs in steps of `every` ms and `look` reads the
+// board at each, and a card is tapped on by its way on. It stops as soon
+// as `look` says it has what it came for, or the night is over.
+async function tapThrough(look: () => boolean | void, every: number) {
+  for (let i = 0; i < 2000 && inNight(); i += 1) {
+    if (look()) return
+    const way = wayOn()
+    if (way) await tap(way)
+    else await step(every)
   }
 }
 
-// The hits a turn's playback shows, in order, from the ENGINE's record of
-// the turn, not from the director's beats: the board follows the beats, so
-// a director that named the wrong asset would move the expectation with
-// the board if the beats were the oracle. Since v1.3 Round 0 the engine's
-// targetAssetId is the AIMED tile, set even when the hit was fully held,
-// so a hit is an event whose target lost integrity.
-function hitsOf(state: GameState): string[] {
-  const after = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
-  return after.history[after.history.length - 1].events
-    .filter((e) => e.targetAssetId !== undefined && e.integrityBefore !== undefined && e.integrityAfter !== undefined && e.integrityAfter < e.integrityBefore)
-    .map((e) => e.targetAssetId!)
-}
+// The hits a night strikes, in order, from the ENGINE's record of the
+// turn, not from the night's model: the board follows the model, so a
+// model that named the wrong asset would move the expectation with the
+// board if it were the oracle. Since v1.3 Round 0 the engine's
+// targetAssetId is the AIMED tile, set even when the move was fully held,
+// so a hit is a threat that got anything through at a tile; the debris
+// call is not struck.
+const hitsOf = (state: GameState): string[] => recordOf(state).filter((e) => isThreat(e) && e.effectiveSeverity > 0 && e.targetAssetId !== undefined).map((e) => e.targetAssetId!)
+const blocksOf = (state: GameState): string[] => recordOf(state).filter((e) => isThreat(e) && e.effectiveSeverity === 0 && e.targetAssetId !== undefined).map((e) => e.targetAssetId!)
 
-describe('hits land on their tiles (v1.2 R3)', () => {
-  it('GUARD R3 (a): the lock-on and the strobe land on the tile the engine named, and on no other', () => {
+describe('hits land on their tiles (v1.2 R3, the night since v1.3 R3)', () => {
+  // A whole night with motion on, on fake timers: seconds of work, so it
+  // has a timeout of its own rather than the default 5s under load.
+  it('GUARD R3 (a): the lock-on and the strobe land on the tile the engine named, and on no other', async () => {
     // Two turns of the prepared line, played with an empty cart, found from
     // the engine rather than pinned (the deck stream of v1.2 R5a moved
-    // them): one with two hits in one playback, and one with a hit beside a
-    // held event, which must lock onto nothing even though the engine names
+    // them): one with two hits in one night, and one with a hit beside a
+    // held move, which must lock onto nothing even though the engine names
     // the tile it was aimed at (v1.3 Round 0).
-    const hitsIn = (beats: ReturnType<typeof deriveBeats>) => beats.filter((b) => b.kind === 'threat' && b.targetAssetId).length
-    const heldIn = (beats: ReturnType<typeof deriveBeats>) => beats.some((b) => b.kind === 'threat' && b.severity?.effective === 0)
-    const turns = [firstTurnWhere((beats) => hitsIn(beats) >= 2), firstTurnWhere((beats) => hitsIn(beats) >= 1 && heldIn(beats))]
+    const hitsIn = (events: ResolvedEvent[]) => events.filter((e) => isThreat(e) && e.effectiveSeverity > 0 && e.targetAssetId).length
+    const heldIn = (events: ResolvedEvent[]) => events.some((e) => isThreat(e) && e.effectiveSeverity === 0 && e.targetAssetId)
+    const turns = [firstTurnWhere((events) => hitsIn(events) >= 2), firstTurnWhere((events) => hitsIn(events) >= 1 && heldIn(events))]
     let checked = 0
     for (const [i, turn] of turns.entries()) {
       const state = gameAt(turn)
       const expected = hitsOf(state)
       expect(expected.length, `turn ${turn} has no hit to check`).toBeGreaterThan(0)
-      if (i === 1) {
-        // The held event is aimed at a tile it never hit, so a lock-on that
-        // followed the engine's aim rather than the hit would show here.
-        const events = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn)).history.at(-1)!.events
-        const aimedOnly = events.filter((e) => e.effectiveSeverity === 0 && e.targetAssetId !== undefined)
-        expect(aimedOnly.length, `turn ${turn}: no held event is aimed at a tile, so the held half proves nothing`).toBeGreaterThan(0)
-      }
+      // The held move is aimed at a tile it never hit, so a lock-on that
+      // followed the engine's aim rather than the hit would show here.
+      if (i === 1) expect(blocksOf(state).length, `turn ${turn}: no held move is aimed at a tile, so the held half proves nothing`).toBeGreaterThan(0)
       render(state)
-      execute()
+      await execute()
       const locked: string[] = []
       const struck: string[] = []
-      tapThrough(() => {
+      await tapThrough(() => {
         const lock = inTiles('svg[data-sprite="lock-on"]')
         const strobe = inTiles('span[data-strobe]')
         expect(lock.length, 'the lock-on is on more than one tile').toBeLessThanOrEqual(1)
@@ -249,94 +272,124 @@ describe('hits land on their tiles (v1.2 R3)', () => {
         if (lock[0] && locked[locked.length - 1] !== lock[0]) locked.push(lock[0]!)
         if (strobe[0] && struck[struck.length - 1] !== strobe[0]) struck.push(strobe[0]!)
       }, 20)
-      expect(playingOut(), 'the playback never finished').toBe(false)
+      expect(inNight(), 'the night never finished').toBe(false)
       expect(locked, `turn ${turn}: the lock-on went to other tiles`).toEqual(expected)
       expect(struck, `turn ${turn}: the strobe went to other tiles`).toEqual(expected)
       checked += expected.length
     }
     expect(checked).toBeGreaterThanOrEqual(3)
+  }, 30_000)
+
+  it('bursts on the struck tile as the hit lands, and floats the score it cost off the HUD', async () => {
+    // The rest of the hit's treatment (v1.2 R3), in the strike's second
+    // part: the burst's frames on the tile and the "-n" the score fell by.
+    const turn = firstTurnWhere((events) => events.some((e) => isThreat(e) && e.effectiveSeverity > 0 && e.targetAssetId))
+    const state = gameAt(turn)
+    const first = hitsOf(state)[0]
+    render(state)
+    await execute()
+    let burst: string[] = []
+    let drop = ''
+    await tapThrough(() => {
+      burst = inTiles('svg[data-sprite="hit-burst-0"]') as string[]
+      drop = q('span[data-mai-drop]')?.textContent ?? ''
+      return burst.length > 0
+    }, 20)
+    expect(burst, 'the burst is not on the struck tile alone').toEqual([first])
+    expect(drop, 'the score did not float its fall as the hit landed').toMatch(/^-\d+(\.\d)?$/)
   })
 
-  it('flashes the shield and HELD on the headers of a held event, and nowhere else', () => {
-    const isHeld = (b: ReturnType<typeof deriveBeats>[number]) => b.kind === 'threat' && b.severity?.effective === 0
-    const state = gameAt(firstTurnWhere((beats) => beats.some(isHeld)))
-    const after = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
-    const held = deriveBeats(state, after).find(isHeld)
-    expect(held, `turn ${state.turn} no longer holds an event`).toBeDefined()
+  it('flashes the shield on the tile a held move was aimed at, and nowhere else', async () => {
+    // Since v1.3 R3 a block shows where it was aimed: a green reticle and
+    // the shield on the tile (data-shield, lock then held). HELD on a
+    // layer's header is only for a block with no tile to shield, so a
+    // block aimed at a tile leaves every header alone.
+    const state = gameAt(firstTurnWhere((events) => events.some((e) => isThreat(e) && e.effectiveSeverity === 0 && e.targetAssetId)))
+    const expected = blocksOf(state)
+    expect(expected.length, `turn ${state.turn} no longer holds a move at a tile`).toBeGreaterThan(0)
     render(state)
-    execute()
-    let seen: string[] = []
-    tapThrough(() => {
-      seen = [...container.querySelectorAll('span[data-held]')].map((el) => el.closest('[data-layer]')!.getAttribute('data-layer')!)
-      return seen.length > 0
+    await execute()
+    const shielded: string[] = []
+    let landed = false
+    let headers = 0
+    await tapThrough(() => {
+      const on = [...container.querySelectorAll('button[data-shield]')].map((t) => t.getAttribute('data-asset-id')!)
+      expect(on.length, 'the shield is on more than one tile').toBeLessThanOrEqual(1)
+      if (on[0] && shielded[shielded.length - 1] !== on[0]) shielded.push(on[0])
+      if (q('button[data-shield="held"]')) landed = true
+      headers += container.querySelectorAll('span[data-held]').length
     }, 20)
-    expect(seen.sort()).toEqual([...(held!.layers ?? [])].sort())
+    expect(shielded, 'the shield went to other tiles').toEqual(expected)
+    expect(landed, 'the shield locked on and never landed').toBe(true)
+    expect(headers, 'a block aimed at a tile flashed HELD on a header').toBe(0)
   })
 })
 
 describe('a lost pip pops out of the row (v1.2 R3)', () => {
-  it('pops the pips a hit takes, on the struck tile', () => {
-    // Turn 4 of the prepared line since the six-turn campaign of v1.3
-    // Round 0: the implant takes start-sat-1 from 100 to 64, four pips to
-    // three, while the debris on the same night is held.
-    const state = gameAt(4)
-    expect(hitsOf(state)).toContain('start-sat-1')
+  it('pops the pips a hit takes, on the struck tile', async () => {
+    // The first night of the prepared line where a hit takes a pip (turn 4
+    // since the six-turn campaign of v1.3 Round 0: the implant takes
+    // start-sat-1 from 100 to 64, four pips to three, after the debris
+    // call on the same night).
+    const takesPip = (e: ResolvedEvent) => e.integrityBefore !== undefined && e.integrityAfter !== undefined && pipsFor(e.integrityAfter) < pipsFor(e.integrityBefore)
+    const state = gameAt(firstTurnWhere((events) => events.some((e) => isThreat(e) && takesPip(e))))
+    const target = recordOf(state).find((e) => isThreat(e) && takesPip(e))!.targetAssetId!
     render(state)
-    execute()
+    await execute()
     let popped: string[] = []
-    tapThrough(() => {
+    await tapThrough(() => {
       popped = inTiles('span[data-pip-pop]') as string[]
       return popped.length > 0
     }, 10)
-    expect(popped).toEqual(['start-sat-1'])
+    expect(popped).toEqual([target])
   })
 })
 
-describe('the REAL WORLD line on the event card (v1.2 R3)', () => {
-  it('GUARD R3 (c): each card carries its own event technique and source, one tap from the card and its link', () => {
-    // A turn with two different threat cards and a condition card among
-    // them, so the checks below have all three to read.
-    const state = gameAt(
-      firstTurnWhere(
-        (beats) =>
-          new Set(beats.filter((b) => b.kind === 'threat').map((b) => b.subjectId)).size >= 2 &&
-          beats.some((b) => b.kind === 'condition-applied'),
-      ),
-    )
+describe("each card carries its own event's technique and source (v1.2 R3, the night's cards since v1.3 R3)", () => {
+  it("GUARD R3 (c): the intel card and the dossier row name the event's own technique and source, one tap from the card", async () => {
+    // A night with two different threats, so a line written for one cannot
+    // pass as both. Played twice: once with nothing filed, where each first
+    // meeting opens its intel card (COLLECT INTEL CARD), and once with both
+    // filed, where each hit card carries the IN YOUR DOSSIER row closed.
+    setReducedMotion(true)
+    const state = gameAt(firstTurnWhere((events) => new Set(events.filter(isThreat).map((e) => e.eventId)).size >= 2))
+    const ids = [...new Set(recordOf(state).filter(isThreat).map((e) => e.eventId))]
+    const own = (id: string) => {
+      const def = DEFAULT_SCENARIO.events.find((e) => e.id === id)!
+      const ref = def.techniqueRefs[0]
+      return { technique: `${techniqueLabel(ref)} ${ref.name}`, source: realWorldFor(def)!.first.title }
+    }
+    const rows = (el: Element) => {
+      const dl = [...el.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent ?? ''])
+      return { technique: dl.find(([k]) => k === 'TECHNIQUE')?.[1], source: dl.find(([k]) => k === 'SOURCE')?.[1] }
+    }
+
+    const onIntel = new Map<string, { technique?: string; source?: string }>()
     render(state)
-    execute()
-    const seen = new Map<string, string>()
-    const titles = new Set<string>()
-    const conditionCards: string[] = []
-    // Read once as each card arrives and once after its strike: what the
-    // card carries does not wait on the clock.
-    tapThrough(() => {
-      const card = container.querySelector('div[data-beat-card]')
-      const line = card?.querySelector('[data-real-world-line]')
-      const title = card?.querySelector('p.font-bold')?.textContent ?? ''
-      // The event a card is about, by its full name (a threat card) or by
-      // the condition it leaves (a condition card, "LEAKING for 2 turns"
-      // since v1.3 Round 0), from the content rather than from the line.
-      const applied = (e: (typeof DEFAULT_SCENARIO.events)[number]) => !!e.condition && title === `${e.condition.name} for ${e.condition.turns} turns`
-      const def = DEFAULT_SCENARIO.events.find((e) => title.startsWith(e.name) || applied(e))
-      if (line && def && !titles.has(title)) {
-        titles.add(title)
-        if (applied(def)) conditionCards.push(title)
-        const own = realWorldFor(def)!
-        expect(line.textContent, `${def.id}'s card`).toBe(`${techniqueLabel(def.techniqueRefs[0])} · ${own.source}`)
-        expect(own.first.title.startsWith(own.source), `${def.id}: the short name is not its source's`).toBe(true)
-        const links = [...card!.querySelectorAll('details[data-real-world] a')].map((a) => a.getAttribute('href'))
-        expect(links, `${def.id}: the card does not link its source`).toContain(def.learnMoreCards[0].sources[0].url)
-        expect(card!.querySelector('details[data-real-world] summary'), 'the line is not one tap from the card').not.toBeNull()
-        seen.set(def.id, line.textContent!)
-      }
-    }, STRIKE_MS)
-    // Two different events, so a line written for one cannot pass as both,
-    // and a condition card among the cards checked.
-    expect(seen.size, 'the turn showed fewer than two threat cards').toBeGreaterThanOrEqual(2)
-    expect(new Set(seen.values()).size).toBe(seen.size)
-    expect(conditionCards.length > 0, 'no condition card was checked').toBe(true)
-  })
+    await execute()
+    await tapThrough(() => {
+      const card = q('[data-intel-file]')
+      if (card) onIntel.set(card.getAttribute('data-intel-file')!, rows(card))
+    }, 50)
+    expect([...onIntel.keys()].sort(), 'not every first meeting opened its intel card').toEqual([...ids].sort())
+    for (const id of ids) expect(onIntel.get(id), `${id}'s intel card`).toEqual(own(id))
+
+    // A repeat meeting: the same night with both filed.
+    localStorage.setItem('dc-dossier', JSON.stringify(ids))
+    const onRow = new Map<string, { technique?: string; source?: string }>()
+    render(state)
+    await execute()
+    await tapThrough(() => {
+      const row = q('section[data-night-card="hit"] details[data-dossier-row]') as HTMLDetailsElement | null
+      if (!row) return
+      // Closed on the card, and one tap opens it.
+      expect(row.open, 'the dossier row arrived open').toBe(false)
+      expect(row.querySelector('summary'), 'the row is not one tap from the card').not.toBeNull()
+      onRow.set(row.getAttribute('data-dossier-row')!, rows(row))
+    }, 50)
+    expect([...onRow.keys()].sort(), 'not every repeat meeting carried its dossier row').toEqual([...ids].sort())
+    for (const id of ids) expect(onRow.get(id), `${id}'s dossier row`).toEqual(own(id))
+  }, 30_000)
 })
 
 describe('the intel cards (v1.2 R3)', () => {
@@ -502,7 +555,7 @@ describe('the intel cards (v1.2 R3)', () => {
     expect(container.querySelector('[data-sheet="procure"]'), 'PROCURE did not close').toBeNull()
   }
   // Opens COLDVEIL's card by its button in the full brief, reads it, and
-  // closes it on Escape (which does not skip a playback, as the test below
+  // closes it on Escape (which does not end the night, as the test below
   // pins).
   async function readCard() {
     await openFullBrief()
@@ -520,11 +573,6 @@ describe('the intel cards (v1.2 R3)', () => {
     })
     expect(container.querySelector('section[data-intel-card]'), 'Escape did not close the card').toBeNull()
     return read
-  }
-  const nextTurn = () => {
-    const button = container.querySelector('nav[aria-label="Actions"] button[data-next]')
-    expect(button?.textContent, 'no NEXT TURN after the playback').toBe('NEXT TURN')
-    click(button!)
   }
 
   it('reads THREAT INTEL · BRIEFED and names what the TONIGHT card names once the brief is ordered in the cart, and NO BRIEF without it', async () => {
@@ -565,16 +613,18 @@ describe('the intel cards (v1.2 R3)', () => {
     const state = paidNightWithLead()
     render(state)
     setBrief(true)
-    execute()
-    step(100)
-    expect(playingOut(), 'the playback did not start').toBe(true)
-    tapThrough(() => {}, STRIKE_MS)
-    expect(playingOut(), 'the playback never finished').toBe(false)
+    await execute()
+    expect(inNight(), 'the night did not start').toBe(true)
+    // Tapped through to its END OF TURN, and BEGIN TURN n+1 (v1.3 R3: the
+    // dock's NEXT TURN went with the director).
+    let begin = ''
+    await tapThrough(() => void (begin = q('button[data-begin]')?.textContent ?? begin), 100)
+    expect(begin, 'the night did not end on BEGIN TURN').toBe(`BEGIN TURN ${state.turn + 1}`)
+    expect(inNight(), 'the night never finished').toBe(false)
 
     // The next night, decided WITHOUT the brief, after a night played with
     // it: the cart decides, not any earlier night's record.
-    nextTurn()
-    expect(playingOut()).toBe(false)
+    expect(q('nav[aria-label="Actions"] button[data-execute]'), 'BEGIN TURN did not reach the board').not.toBeNull()
     const next = state.turn + 1
     await openFullBrief()
     // Ordering the brief would name something tonight (so dark is a real
@@ -588,46 +638,57 @@ describe('the intel cards (v1.2 R3)', () => {
     expect(card.line).toBeNull()
   })
 
-  it('closes on Escape during playback without skipping the playback', async () => {
+  it('closes on Escape during the night without ending the night', async () => {
     // The penultimate turn, as turn 11 of 12 was before the six-turn
-    // campaign of v1.3 Round 0. COLDVEIL's card is off the board during a
-    // playback since v1.3 R2 (it opens from the TONIGHT card), so a tile's
-    // card is the one a player can open here.
+    // campaign of v1.3 Round 0. COLDVEIL's card is off the board during the
+    // night since v1.3 R2 (it opens from the TONIGHT card), so a tile's card
+    // is the one a player can open here, and since R3 the strike is when
+    // the strip is in reach: each card dims the board under it.
     render(gameAt(DEFAULT_SCENARIO.totalTurns - 1))
-    execute()
-    step(100)
-    expect(playingOut()).toBe(true)
-    click(container.querySelector('button[data-asset-id]')!)
+    await execute()
+    await tapThrough(() => !!q('[data-strike-banner]'), 50)
+    expect(q('[data-strike-banner]'), 'the night struck nothing').not.toBeNull()
+    const tile = tiles()[0]
+    click(tile)
     await settle()
-    expect(container.querySelector('section[data-intel-card]')).not.toBeNull()
+    expect(q('section[data-intel-card]')).not.toBeNull()
     act(() => {
       document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
-    expect(container.querySelector('section[data-intel-card]')).toBeNull()
-    expect(playingOut(), 'Escape on the card skipped the playback').toBe(true)
+    expect(q('section[data-intel-card]')).toBeNull()
+    expect(inNight(), 'Escape on the card ended the night').toBe(true)
+    expect(q('nav[aria-label="Actions"]'), 'Escape on the card put the dock back mid-night').toBeNull()
   })
 })
 
-describe('GUARD R3 (e): under reduced motion nothing shakes, strobes or floats', () => {
+describe('GUARD R3 (e): under reduced motion nothing strobes, bursts, pops or floats', () => {
   const CSS = readFileSync(INDEX_CSS, 'utf8')
+  const NIGHT = readFileSync(NIGHT_CSS, 'utf8')
 
+  // Both stylesheets the night plays under, with the reduced-motion
+  // conditions stated. The index sheet is returned on its own for the
+  // keyframes the hit added there.
   function applyCss(reduced: boolean) {
     document.head.querySelectorAll('style[data-test-css]').forEach((s) => s.remove())
     const noPreference = '(prefers-reduced-motion: no-preference)'
     const reduce = '(prefers-reduced-motion: reduce)'
-    const css = CSS.replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/@import[^;]*;/g, '')
-      .replaceAll(noPreference, reduced ? 'not all' : 'all')
-      .replaceAll(reduce, reduced ? 'all' : 'not all')
-    expect(css.includes('prefers-reduced-motion'), 'a form of the reduced-motion query this test does not state').toBe(false)
-    const style = document.createElement('style')
-    style.setAttribute('data-test-css', '')
-    style.textContent = css
-    document.head.appendChild(style)
-    return style.sheet!
+    const sheets = [CSS, NIGHT].map((text) => {
+      const css = text
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/@import[^;]*;/g, '')
+        .replaceAll(noPreference, reduced ? 'not all' : 'all')
+        .replaceAll(reduce, reduced ? 'all' : 'not all')
+      expect(css.includes('prefers-reduced-motion'), 'a form of the reduced-motion query this test does not state').toBe(false)
+      const style = document.createElement('style')
+      style.setAttribute('data-test-css', '')
+      style.textContent = css
+      document.head.appendChild(style)
+      return style.sheet!
+    })
+    return { index: sheets[0], all: sheets }
   }
-  const keyframeNames = (sheet: CSSStyleSheet) =>
-    new Set([...sheet.cssRules].filter((r): r is CSSKeyframesRule => r instanceof CSSKeyframesRule).map((r) => r.name))
+  const keyframeNames = (sheets: CSSStyleSheet[]) =>
+    new Set(sheets.flatMap((sheet) => [...sheet.cssRules].filter((r): r is CSSKeyframesRule => r instanceof CSSKeyframesRule).map((r) => r.name)))
   function running(board: Element, names: Set<string>): string[] {
     const out: string[] = []
     for (const el of [board, ...board.querySelectorAll('*')]) {
@@ -638,49 +699,87 @@ describe('GUARD R3 (e): under reduced motion nothing shakes, strobes or floats',
     }
     return out
   }
+  // The night of the prepared line's first turn where a hit takes a pip,
+  // found from the engine's record (turn 11 of the twelve-turn campaign
+  // was pinned before v1.3 Round 0 cut it to six), so the strobe, the
+  // burst, the pip pop and the float all have something to do.
+  const takesPip = (e: ResolvedEvent) => e.integrityBefore !== undefined && e.integrityAfter !== undefined && pipsFor(e.integrityAfter) < pipsFor(e.integrityBefore)
+  const fixture = () => gameAt(firstTurnWhere((events) => events.some((e) => isThreat(e) && takesPip(e))))
   // The first moment the hit has landed, with its whole treatment on the
-  // board: the shake on the root, the strobe on the tile, the float on the
-  // score.
-  // The turn is the prepared line's first with a hit on a tile, found from
-  // the engine's beats (turn 11 of the twelve-turn campaign was pinned
-  // before v1.3 Round 0 cut it to six).
-  function toTheHit(reduced: boolean) {
-    setReducedMotion(reduced)
-    render(gameAt(firstTurnWhere((beats) => beats.some((b) => b.kind === 'threat' && b.targetAssetId))))
-    execute()
+  // board: the strobe and the burst on the tile, the pip pop, the float on
+  // the score.
+  async function toTheHit() {
+    setReducedMotion(false)
+    render(fixture())
+    await execute()
     let landed = false
-    tapThrough(() => (landed = !!(container.querySelector('span[data-strobe]') && container.querySelector('span[data-mai-drop]'))), 10)
+    await tapThrough(() => (landed = !!(q('span[data-strobe]') && q('span[data-pip-pop]') && q('span[data-mai-drop]'))), 10)
     if (!landed) throw new Error('the hit never landed')
   }
-  const HIT = ['dc-hit-shake', 'dc-hit-strobe', 'dc-mai-float']
+  const HIT = ['dc-hit-strobe', 'dc-burst', 'dc-pip-pop', 'dc-mai-float']
 
-  it('runs the shake, the strobe and the float with no preference (the positive control), on transform and opacity only', () => {
-    toTheHit(false)
-    const board = container.querySelector('[data-board]')!
-    expect(board.className, 'the shake class is not on the board').toMatch(/dc-hit-shake/)
-    const sheet = applyCss(false)
-    const names = running(board, keyframeNames(sheet))
+  it('runs the strobe, the burst, the pop and the float with no preference (the positive control), on transform and opacity only', async () => {
+    await toTheHit()
+    const board = q('[data-board]')!
+    const sheets = applyCss(false)
+    const names = running(board, keyframeNames(sheets.all))
     for (const name of HIT) expect(names, `${name} is not running`).toContain(name)
-    // Every keyframes rule the round added, from the stylesheet itself
-    // rather than from what happens to be running at this moment (the beam
-    // is gone by now, and nothing here is held or pops).
-    const frames = [...sheet.cssRules].filter((r): r is CSSKeyframesRule => r instanceof CSSKeyframesRule)
-    const r3 = frames.filter((f) => /^dc-(hit|lock|beam|burst|pip|mai|odo|shield|stamp)/.test(f.name))
-    expect(r3.length, 'the R3 keyframes were not found').toBeGreaterThanOrEqual(10)
+    // Every keyframes rule the hit added to the index sheet, from the
+    // stylesheet itself rather than from what happens to be running at
+    // this moment. The shake, the beam and the stamp left with the
+    // director in v1.3 R3; the lock-on, the strobe, the burst, the pip, the
+    // float, the odometer and the shield flash remain.
+    const frames = [...sheets.index.cssRules].filter((r): r is CSSKeyframesRule => r instanceof CSSKeyframesRule)
+    const r3 = frames.filter((f) => /^dc-(hit|lock|burst|pip|mai|odo|shield)/.test(f.name))
+    expect(r3.length, 'the R3 keyframes were not found').toBeGreaterThanOrEqual(7)
     const layout = r3
       .flatMap((f) => ([...f.cssRules] as CSSKeyframeRule[]).flatMap((k) => [...Array(k.style.length).keys()].map((i) => `${f.name}: ${k.style.item(i)}`)))
       .filter((t) => !/: (transform|opacity)$/.test(t))
     expect(layout).toEqual([])
   })
 
-  it('runs none of it under reduced motion', () => {
-    toTheHit(true)
-    const board = container.querySelector('[data-board]')!
-    // The classes are there; only the stylesheet can stop them, which is
-    // what this checks.
-    expect(board.className).toMatch(/dc-hit-shake/)
-    expect(container.querySelector('span[data-strobe]')!.className).toMatch(/dc-hit-strobe/)
-    const names = running(board, keyframeNames(applyCss(true)))
+  it('skips the strike under reduced motion: the card arrives with the board changed and nothing running', async () => {
+    // Brief 5.5: under reduced motion the overlay and the strike are
+    // skipped and the cards arrive at once, so the strike's treatment is
+    // never put on the board at all.
+    setReducedMotion(true)
+    const state = fixture()
+    const hit = recordOf(state).find((e) => isThreat(e) && takesPip(e))!
+    render(state)
+    await execute()
+    let seen = false
+    await tapThrough(() => {
+      for (const sel of ['[data-moving]', '[data-strike-banner]', 'span[data-strobe]', 'svg[data-sprite^="hit-burst"]', 'span[data-pip-pop]', 'span[data-mai-drop]']) {
+        expect(q(sel), `${sel} is on screen under reduced motion`).toBeNull()
+      }
+      // The lock-on's brackets rest still on the card's tile (v1.3 R3
+      // fresh-eyes review: under reduced motion nothing marked it), with
+      // none of the strike's motion on them.
+      for (const mark of container.querySelectorAll('svg[data-sprite="lock-on"]')) {
+        expect(mark.closest('button')?.getAttribute('data-struck'), 'a lock-on under reduced motion that is not the still mark').toBe('rest')
+        expect(mark.getAttribute('class') ?? '', 'the still mark animates').not.toMatch(/dc-lock-on/)
+      }
+      const card = q('section[data-night-card="hit"]')
+      if (!card || q('[data-move-name]')?.textContent !== DEFAULT_SCENARIO.events.find((e) => e.id === hit.eventId)!.name.split(' (')[0]) return
+      // The hit's card is up, and the tile under it already shows the hit.
+      const tile = q(`button[data-asset-id="${hit.targetAssetId}"]`)!
+      expect(tile.getAttribute('aria-label'), 'the tile did not change before its card').toContain(`integrity ${hit.integrityAfter}%`)
+      expect(tile.getAttribute('data-struck'), 'the card\'s tile carries no still mark').toBe('rest')
+      const names = running(q('[data-board]')!, keyframeNames(applyCss(true).all))
+      expect(names, 'animations running on the board under reduced motion').toEqual([])
+      seen = true
+      return true
+    }, 10)
+    expect(seen, 'the hit card never arrived').toBe(true)
+  })
+
+  it('stops the treatment in the stylesheet too, should it ever be rendered under reduced motion', async () => {
+    // The second line: the strike's elements, put on the board with motion
+    // on, run nothing under the reduced-motion rules. The classes are
+    // there; only the stylesheet can stop them, which is what this checks.
+    await toTheHit()
+    expect(q('span[data-strobe]')!.className).toMatch(/dc-hit-strobe/)
+    const names = running(q('[data-board]')!, keyframeNames(applyCss(true).all))
     expect(names, 'animations running on the board under reduced motion').toEqual([])
   })
 })

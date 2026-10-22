@@ -3,33 +3,41 @@
 // sound cue; fails the build otherwise").
 //
 // This is the visual coverage test's twin, and deliberately built the same
-// way: the registry is walked, the section 6 table is checked against real
-// beats rather than against a claim, and a placeholder anywhere fails. The
+// way: the registry is walked, the section 6 table is checked against the
+// code rather than against a claim, and a placeholder anywhere fails. The
 // registry is hand-keyed, so a new deck entry fails here until somebody
 // decides what it sounds like.
+//
+// Since v1.3 Round 3 the registry is src/cues.ts, keyed by the night's
+// moments (brief 5.5 and 8.4) rather than the retired director's beat
+// kinds. This file holds the node half: the registry, the table, and the
+// file each row says plays it. The behavioural half, that a real night
+// played through Game actually sounds each row at its moment, is in
+// tests/sound.dom.spec.tsx.
 
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import {
-  BEAT_CUES,
-  BEAT_KINDS,
   CONDITION_CUES,
-  COUNTER_CUES,
   EVENT_CUES,
   LONG_SOUNDS,
+  MOMENTS,
+  MOMENT_CUES,
   SECTION_6_ROWS,
   SOUND_MS,
-  deriveBeats,
-  soundFor,
+  outcomeSound,
+  resolveCue,
+  strikeSound,
   type Cue,
   type SoundCue,
-} from '../src/director'
+} from '../src/cues'
 import { VOICES } from '../src/audio/voices'
-import { beatIntensity, MAX_EFFECTIVE_SEVERITY, NEUTRAL_INTENSITY } from '../src/audio/intensity'
+import { strikeIntensity, MAX_EFFECTIVE_SEVERITY, NEUTRAL_INTENSITY } from '../src/audio/intensity'
 import { CROSSING_SOUND, TONE_SOUND } from '../src/ui/cues/Meter'
 import { CHROME_WORD_BUDGET, SOUND_TOGGLE_LABELS, chromeCopy, chromeWords, countWords, SYSTEM_GEAR_LABEL } from '../src/ui/brief'
 import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
+import { nightOf } from '../src/ui/night/nightModel'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -41,10 +49,9 @@ import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
 
 const ALL_CUES: [string, Record<string, Cue>][] = [
-  ['beat', BEAT_CUES as unknown as Record<string, Cue>],
+  ['moment', MOMENT_CUES as unknown as Record<string, Cue>],
   ['event', EVENT_CUES],
   ['condition', CONDITION_CUES],
-  ['counter', COUNTER_CUES],
 ]
 
 const events = DEFAULT_SCENARIO.events
@@ -64,17 +71,16 @@ function* playTurns(seed: number, script: Record<number, TurnActions>) {
   }
 }
 
-// Both ends of the scripts on one seed, the prepared line and then the
-// passive one. This was a surge line (the prepared script spending surge
-// authority whenever it could), which won some campaigns and lost others,
-// so both outcome rows had a real beat to prove them. SURGE left in v1.3
-// Round 0 (D2 a), and the six-turn prepared script wins every seed it is
-// played on (40 of 40 measured), so the passive line joins it to keep a
-// lost campaign, and the whole condition family, in the sweep.
-function* playBoth(seed: number) {
-  yield* playTurns(seed, WIN_SCRIPT)
-  yield* playTurns(seed, LOSS_SCRIPT)
-}
+// The file a row says plays it: the first word of soundWhere, which may
+// carry a note after it ("ui/night/Night.tsx (BEGIN TURN n)").
+const soundFile = (soundWhere: string) => soundWhere.split(' ')[0]
+
+const withoutComments = (source: string) =>
+  source
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split('\n')
+    .filter((line) => !/^\s*\/\//.test(line))
+    .join('\n')
 
 describe('sound cue coverage (Round 4d)', () => {
   it('leaves no sound placeholder anywhere in the registry', () => {
@@ -159,46 +165,44 @@ describe('sound cue coverage (Round 4d)', () => {
     for (const row of SECTION_6_ROWS) {
       expect(row.sound, `${row.beat} has a placeholder sound`).not.toBe('placeholder')
       expect(typeof VOICES[row.sound], `${row.beat} names a sound with no voice`).toBe('function')
-      expect(existsSync(join(SRC, row.soundWhere)), `${row.beat} plays from ${row.soundWhere}, which does not exist`).toBe(
-        true,
-      )
+      // A row played from nowhere is a row that owes its sound, and must
+      // say so rather than pass as done.
+      if (row.soundWhere === 'none') {
+        expect(row.deferred, `${row.beat} plays from nowhere and does not say what it owes`).toBeTruthy()
+        continue
+      }
+      const file = soundFile(row.soundWhere)
+      expect(existsSync(join(SRC, file)), `${row.beat} plays from ${row.soundWhere}, which does not exist`).toBe(true)
     }
   })
 
-  it('wires every section 6 row to code that actually plays its sound', () => {
-    // The visual side's proof, applied to the other channel. A director
-    // row is proven by a real beat of a real campaign resolving to that
-    // sound; naming the helper would not be enough. A component row is
-    // proven by the component naming the cue.
-    const beatSounds = new Set<string>()
-    // Keyed by beat kind, not merged into one set. A row repointed at an
-    // unrelated voice satisfied the merged version whenever some OTHER
-    // row's beat happened to play that voice, which is how the surge row
-    // passed while pointing at the persistence tick.
-    const soundsByKind = new Map<string, Set<string>>()
-    for (const seed of [1, 2, 3, 4, 5, 6]) {
-      for (const { before, after } of playBoth(seed)) {
-        for (const beat of deriveBeats(before, after)) {
-          const sound = soundFor(beat.cueKey, beat.kind, beat.title.startsWith('MISSION FAILED'))
-          if (!sound) continue
-          beatSounds.add(sound)
-          if (!soundsByKind.has(beat.kind)) soundsByKind.set(beat.kind, new Set())
-          soundsByKind.get(beat.kind)!.add(sound)
-        }
-      }
-    }
+  it('wires every section 6 row to the file it says plays its sound', () => {
+    // The node half of the proof; tests/sound.dom.spec.tsx is the other,
+    // and hears each row's sound in a real night. Here the file a row
+    // names must play the row's sound, which the night's files do in one
+    // of three ways: by name ('tick-up'), through the registry entry of
+    // one of the row's own moments whose sound it is
+    // (MOMENT_CUES['turn-start'], MOMENT_CUES.collect), or through the
+    // helper that resolves it per subject (strikeSound for a strike,
+    // outcomeSound for the last END OF TURN, CONDITION_CUES for the alarm
+    // family). Checked per row against the row's own moments: a merged
+    // set let a row pointed at the wrong voice pass whenever some OTHER
+    // row's moment played it, which is how the surge row once passed while
+    // pointing at the persistence tick.
+    const helpers: [string, Set<SoundCue>][] = [
+      ['strikeSound', new Set(events.flatMap((e) => [strikeSound(e.id, true), strikeSound(e.id, false)]))],
+      ['outcomeSound', new Set([outcomeSound(true), outcomeSound(false)])],
+    ]
     const unwired: string[] = []
+    let viaRegistry = 0
     for (const row of SECTION_6_ROWS) {
-      if (row.sound === 'silent') continue
-      const fromKinds = new Set<string>()
-      for (const kind of row.kinds ?? []) for (const s of soundsByKind.get(kind) ?? []) fromKinds.add(s)
+      if (row.sound === 'silent' || row.soundWhere === 'none') continue
+      const source = withoutComments(readFileSync(join(SRC, soundFile(row.soundWhere)), 'utf8'))
       if (row.soundPerSubject === 'condition') {
         // The row stands for a family; the members are the registry's, and
-        // the proof is that a real beat OF THIS ROW'S KINDS played one.
+        // the file must play the member for the condition at hand.
         const family = new Set(Object.values(CONDITION_CUES).map((c) => c.sound))
-        if (![...family].some((s) => fromKinds.has(s))) {
-          unwired.push(`${row.beat}: no beat of ${row.kinds?.join('/')} played a per-condition alarm`)
-        }
+        if (!/\bCONDITION_CUES\[/.test(source)) unwired.push(`${row.beat}: ${row.soundWhere} never plays a per-condition alarm`)
         // And the row's own declared sound is a member of the family it
         // stands for. Without this the one field this branch exists to
         // describe went unread: the row could name the defeat sting and
@@ -208,91 +212,93 @@ describe('sound cue coverage (Round 4d)', () => {
         }
         continue
       }
-      if (row.soundWhere.startsWith('director/')) {
-        if (!row.kinds?.length) {
-          unwired.push(`${row.beat}: a director row must name the beat kinds that carry it`)
-        } else if (!fromKinds.has(row.sound)) {
-          unwired.push(`${row.beat}: no ${row.kinds.join('/')} beat ever plays ${row.sound}`)
-        }
-        continue
-      }
-      const source = readFileSync(join(SRC, row.soundWhere), 'utf8')
-      if (!source.includes(row.sound)) unwired.push(`${row.beat}: ${row.soundWhere} never names ${row.sound}`)
+      const byName = new RegExp(`['"\`]${row.sound}['"\`]`).test(source)
+      const byMoment = (row.moments ?? []).some(
+        (m) => MOMENT_CUES[m].sound === row.sound && new RegExp(`MOMENT_CUES(\\.${m}\\b|\\[\\s*'${m}'\\s*\\])`).test(source),
+      )
+      const byHelper = helpers.some(([name, sounds]) => sounds.has(row.sound) && new RegExp(`\\b${name}\\(`).test(source))
+      if (byMoment || byHelper) viaRegistry += 1
+      if (!byName && !byMoment && !byHelper) unwired.push(`${row.beat}: ${row.soundWhere} never plays ${row.sound}`)
     }
     expect(unwired.join('\n')).toBe('')
-    expect(beatSounds.size, 'the sweep produced too few sounds to prove anything').toBeGreaterThan(6)
+    expect(viaRegistry, 'no row is played through the registry, so the indirect proofs are untested').toBeGreaterThan(3)
   })
 
   // RETIRED in v1.3 Round 0: the record of which rows could still sound at
   // INSTANT speed. INSTANT is gone with the speed control, every turn now
   // plays its beats, and no row has a speed at which it falls silent.
 
-  it('names only real beat kinds, and only on the rows the director plays', () => {
+  it('names only real moments, and only on the rows the night plays', () => {
+    // A row the night plays names the moments that carry it, so the DOM
+    // sweep can hear it at one of them; a row played from anywhere else
+    // (the PROCURE controls, the meters) names none. The one row that
+    // names a moment and plays from Game is EXECUTE: its sweep is the
+    // press that opens COLDVEIL IS MOVING, which is itself silent.
     for (const row of SECTION_6_ROWS) {
-      if (!row.kinds) {
-        expect(row.soundWhere.startsWith('director/'), `${row.beat} plays from a component but names beat kinds`).toBe(
-          false,
-        )
+      const fromNight = soundFile(row.soundWhere).startsWith('ui/night/')
+      if (!row.moments) {
+        expect(fromNight, `${row.beat} plays from the night but names no moment`).toBe(false)
         continue
       }
-      expect(row.soundWhere.startsWith('director/'), `${row.beat} names beat kinds but is not a director row`).toBe(true)
-      for (const kind of row.kinds) {
-        expect(BEAT_KINDS, `${row.beat} names a kind the director cannot emit: ${kind}`).toContain(kind)
+      expect(row.moments.length, `${row.beat} names an empty list of moments`).toBeGreaterThan(0)
+      for (const moment of row.moments) {
+        expect(MOMENTS, `${row.beat} names a moment the night does not play: ${moment}`).toContain(moment)
+      }
+      if (!fromNight) {
+        expect(row.moments, `${row.beat} names moments but is not a night row`).toEqual(['moving'])
+        expect(MOMENT_CUES.moving.sound, 'the overlay makes a sound of its own beside the EXECUTE sweep').toBe('silent')
       }
     }
   })
 
   it('sounds the two campaign outcomes differently', () => {
-    // One beat kind covers both endings, so the registry alone cannot tell
-    // them apart. Both are played from a real resolved campaign rather
-    // than by calling soundFor with a boolean.
-    const outcomes = new Map<string, string>()
-    // A seed the prepared line wins, found rather than pinned: which seeds
-    // it wins moved with the deck stream of v1.2 R5a.
-    const won = (seed: number) => [...playTurns(seed, WIN_SCRIPT)].at(-1)!.after.status === 'won'
-    const winSeed = Array.from({ length: 50 }, (_, i) => i + 1).find(won)
-    expect(winSeed, 'the prepared line wins none of the first fifty seeds').toBeDefined()
-    for (const [seed, script] of [
-      [winSeed!, WIN_SCRIPT],
-      [winSeed!, LOSS_SCRIPT],
-    ] as const) {
-      for (const { before, after } of playTurns(seed, script)) {
-        for (const beat of deriveBeats(before, after)) {
-          if (beat.kind !== 'outcome') continue
-          const lost = beat.title.startsWith('MISSION FAILED')
-          outcomes.set(lost ? 'lost' : 'won', soundFor(beat.cueKey, beat.kind, lost) ?? '')
-        }
-      }
-    }
-    expect([...outcomes.keys()].sort()).toEqual(['lost', 'won'])
-    expect(outcomes.get('won')).toBe('victory-fanfare')
-    expect(outcomes.get('lost')).toBe('defeat-sting')
-    expect(outcomes.get('won')).not.toBe(outcomes.get('lost'))
+    // One moment covers both endings, so the registry alone cannot tell
+    // them apart: outcomeSound does, and the two rows agree with it. A
+    // real won and lost operation, played through Game to the last END OF
+    // TURN, is heard in tests/sound.dom.spec.tsx.
+    expect(outcomeSound(true)).toBe('victory-fanfare')
+    expect(outcomeSound(false)).toBe('defeat-sting')
+    expect(outcomeSound(true)).not.toBe(outcomeSound(false))
+    expect(MOMENT_CUES.outcome.sound, 'the registry entry is the won one').toBe(outcomeSound(true))
+    const row = (beat: string) => SECTION_6_ROWS.find((r) => r.beat === beat)
+    expect(row('Campaign won')?.sound).toBe(outcomeSound(true))
+    expect(row('Campaign lost')?.sound).toBe(outcomeSound(false))
   })
 
-  it('lets the beat kind own the sound where the subject would say the wrong thing', () => {
-    // A clear that played the subject's alarm would announce the problem
-    // at the moment it went away. (A surge burn would have announced the
-    // condition it just destroyed, until SURGE and its surge-spent beat
-    // left in v1.3 Round 0.)
-    expect(soundFor('condition:pnt-jamming', 'condition-cleared')).toBe('resolve-chime')
-    expect(soundFor('condition:pnt-jamming', 'condition-pressure')).toBe('soft-tick')
-    // But an attaching condition keeps its own alarm, which is the whole
+  it('lets the strike own the sound where the move would say the wrong thing', () => {
+    // A block is the same win whatever was blocked (brief 5.5): a block
+    // that played the move's own voice would announce the threat at the
+    // moment it was stopped. The signature move is the one that matters,
+    // since its landed voice is a sequence of its own.
+    expect(strikeSound('blackout-chain', false)).toBe('all-clear')
+    expect(strikeSound('pnt-jamming', false)).toBe('all-clear')
+    // But a move that lands keeps the deck's own voice for it, which is
+    // the whole point of the deck carrying one.
+    expect(strikeSound('blackout-chain', true)).toBe('blackout-chain')
+    expect(strikeSound('pnt-jamming', true)).toBe('hit-stab')
+    for (const ev of events) {
+      expect(strikeSound(ev.id, true), `${ev.id} lands with a voice the deck does not give it`).toBe(EVENT_CUES[ev.id].sound)
+      expect(strikeSound(ev.id, false), `a block of ${ev.id} does not sound like a block`).toBe(MOMENT_CUES['strike-block'].sound)
+    }
+    // And an attaching condition keeps its own alarm, which is the whole
     // point of there being six of them.
-    expect(soundFor('condition:pnt-jamming', 'condition-applied')).toBe('alarm-gnss')
-    expect(soundFor('condition:ground-ransomware', 'condition-applied')).toBe('alarm-ransom')
+    expect(CONDITION_CUES['pnt-jamming'].sound).toBe('alarm-gnss')
+    expect(CONDITION_CUES['ground-ransomware'].sound).toBe('alarm-ransom')
   })
 
   it('returns nothing for a cue key it does not know', () => {
-    expect(soundFor('event:not-real')).toBeUndefined()
-    expect(soundFor('nonsense')).toBeUndefined()
+    expect(resolveCue('event:not-real')?.sound).toBeUndefined()
+    expect(resolveCue('nonsense')?.sound).toBeUndefined()
+    // A strike for a move the deck does not know still sounds like a
+    // strike, rather than like nothing: the night never strikes in silence.
+    expect(strikeSound('not-real', true)).toBe(MOMENT_CUES['strike-hit'].sound)
   })
 
-  it('carries a sound for every beat kind the director can emit', () => {
-    for (const kind of BEAT_KINDS) {
-      const sound = BEAT_CUES[kind].sound
-      expect(sound, `beat kind ${kind} has no sound`).not.toBe('placeholder')
-      expect(typeof VOICES[sound], `beat kind ${kind} names a sound with no voice`).toBe('function')
+  it('carries a sound for every moment the night plays', () => {
+    for (const moment of MOMENTS) {
+      const sound = MOMENT_CUES[moment].sound
+      expect(sound, `moment ${moment} has no sound`).not.toBe('placeholder')
+      expect(typeof VOICES[sound], `moment ${moment} names a sound with no voice`).toBe('function')
     }
   })
 })
@@ -308,35 +314,38 @@ describe('severity pitches the stab (Round 4d)', () => {
     expect(MAX_EFFECTIVE_SEVERITY).toBe(deckMax + CHAIN_BONUS)
     // And the top of the range is actually reachable, which is what makes
     // it a ceiling rather than a number the game never approaches.
-    expect(beatIntensity({ severity: { base: deckMax, chain: CHAIN_BONUS, mitigation: 0, effective: deckMax + CHAIN_BONUS } })).toBe(1)
+    expect(strikeIntensity(deckMax + CHAIN_BONUS)).toBe(1)
   })
 
   it('maps a real campaign-s severities into the unit range', () => {
-    let seen = 0
-    for (const { before, after } of playTurns(3, WIN_SCRIPT)) {
-      for (const beat of deriveBeats(before, after)) {
-        if (!beat.severity) continue
-        seen += 1
-        const intensity = beatIntensity(beat)
-        expect(intensity, `${beat.id} produced ${intensity}`).toBeGreaterThanOrEqual(0)
-        expect(intensity).toBeLessThanOrEqual(1)
+    // Read off the night's own steps (src/ui/night/nightModel.ts), the
+    // effective severity the night hands strikeIntensity, over a prepared
+    // line and a passive one so both ends of the range occur.
+    const seen = new Set<number>()
+    for (const script of [WIN_SCRIPT, LOSS_SCRIPT]) {
+      for (const { before, after } of playTurns(3, script)) {
+        for (const step of nightOf(before, after).steps) {
+          if (step.kind !== 'threat') continue
+          const intensity = strikeIntensity(step.ev.effectiveSeverity)
+          seen.add(step.ev.effectiveSeverity)
+          expect(intensity, `${step.ev.eventId} produced ${intensity}`).toBeGreaterThanOrEqual(0)
+          expect(intensity).toBeLessThanOrEqual(1)
+        }
       }
     }
-    expect(seen, 'the campaign produced no beat carrying severity').toBeGreaterThan(0)
+    expect(seen.size, 'the campaigns produced no spread of severities').toBeGreaterThan(2)
   })
 
   it('separates a mitigated hit from a full one', () => {
-    const light = beatIntensity({ severity: { base: 1, chain: 0, mitigation: 0, effective: 1 } })
-    const heavy = beatIntensity({ severity: { base: 3, chain: 2, mitigation: 0, effective: 5 } })
-    expect(heavy).toBeGreaterThan(light)
+    expect(strikeIntensity(5)).toBeGreaterThan(strikeIntensity(1))
   })
 
-  it('gives a beat with no severity the middle of the range rather than the bottom', () => {
-    // The bottom is what a fully mitigated event sounds like, and that
+  it('gives a strike with no severity the middle of the range rather than the bottom', () => {
+    // The bottom is what a fully blocked move sounds like, and that
     // difference is the point of the cue.
-    expect(beatIntensity({})).toBe(NEUTRAL_INTENSITY)
-    expect(beatIntensity({ severity: undefined })).toBe(NEUTRAL_INTENSITY)
-    expect(beatIntensity({ severity: { base: 0, chain: 0, mitigation: 0, effective: 0 } })).toBe(0)
+    expect(strikeIntensity(undefined)).toBe(NEUTRAL_INTENSITY)
+    expect(strikeIntensity(Number.NaN)).toBe(NEUTRAL_INTENSITY)
+    expect(strikeIntensity(0)).toBe(0)
   })
 })
 
@@ -356,13 +365,7 @@ describe('the controls the player triggers themselves (Round 4d)', () => {
     expect(row, 'the EXECUTE TURN row is gone').toBeDefined()
     expect(row!.sound).toBe('execute-sweep')
 
-    const withoutComments = (source: string) =>
-      source
-        .replace(/\/\*[\s\S]*?\*\//g, ' ')
-        .split('\n')
-        .filter((line) => !/^\s*\/\//.test(line))
-        .join('\n')
-    const registry = new Set([join(SRC, 'director', 'cues.ts'), join(SRC, 'audio', 'voices.ts')])
+    const registry = new Set([join(SRC, 'cues.ts'), join(SRC, 'audio', 'voices.ts')])
     const sites: string[] = []
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {

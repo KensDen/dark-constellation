@@ -17,7 +17,7 @@
 // of something they never saw.
 
 import { onVisibilityChange, pageVisible, audioSuspended } from '../ui/cues/visibility'
-import { SOUND_MS, type SoundCue } from '../director/cues'
+import { SOUND_MS, type SoundCue } from '../cues'
 import type { AudioContextLike, GainLike } from './graph'
 import { MENU_MUSIC_STATE, MusicBed, shouldPlayMusic, type MusicBedOptions, type MusicState } from './music'
 import { DEFAULT_SOUND_PREFS, loadSoundPrefs, saveSoundPrefs, type SoundPrefs } from './prefs'

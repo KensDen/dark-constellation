@@ -14,16 +14,15 @@
 
 import { useState } from 'react'
 import {
-  BEAT_CUES,
   CONDITION_CUES,
-  COUNTER_CUES,
   EVENT_CUES,
+  MOMENT_CUES,
   LONG_SOUNDS,
   SECTION_6_ROWS,
   SOUND_MS,
   type Cue,
   type SoundCue,
-} from '../director/cues'
+} from '../cues'
 import { getAudioEngine } from './engine'
 import { VOICES } from './voices'
 
@@ -36,10 +35,9 @@ export const SOUND_BOARD_MARKER = 'DC_DEV_SOUND_BOARD'
 function usersOf(sound: SoundCue): string[] {
   const out: string[] = []
   const maps: [string, Record<string, Cue>][] = [
-    ['beat', BEAT_CUES as unknown as Record<string, Cue>],
+    ['moment', MOMENT_CUES as unknown as Record<string, Cue>],
     ['event', EVENT_CUES],
     ['condition', CONDITION_CUES],
-    ['counter', COUNTER_CUES],
   ]
   for (const [ns, map] of maps) {
     for (const [id, entry] of Object.entries(map)) {

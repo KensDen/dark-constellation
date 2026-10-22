@@ -7,30 +7,32 @@
 // (technique, source, the learn-more card and its links). A condition's
 // turns left show with it, as on the chips (v1.3 brief 6.5).
 //
-// THE BANNER: only what the forecast already shows tonight, from
-// briefCopy, which is the banner's own copy. Without the intel brief the
-// card says the moves are unnamed and nothing more: not the posture lines
-// (they name live conditions), not the chain line, and not a quiet turn's
-// "no activity", which would itself be intel the player has not bought.
-// Under the brief, the event the banner names brings its REAL WORLD line.
+// THE BANNER: only what the TONIGHT card already shows, from briefCopy,
+// which is its own copy. Without the intel brief the card says the moves
+// are unnamed and nothing more: not the posture lines (they name live
+// conditions), not the chain line, and not a quiet turn's "no activity",
+// which would itself be intel the player has not bought. Under the brief
+// it names tonight's candidate moves (QC G-098), and the event the card
+// confirms brings its REAL WORLD line.
 
 import type { GameState } from '../../engine/types'
-import { briefFree } from '../../engine/reducer'
+import { briefFree, candidatesTonight } from '../../engine/reducer'
 import { FORECAST_DARK, briefCopy, forecastLead } from '../brief'
 import { kindLabels } from '../labels'
 import RealWorld from '../RealWorld'
 import { realWorldFor } from '../realWorldLine'
 import { STATE_WORD, callSigns, conditionsOn, spriteState } from './board'
 import { assetRole } from './board'
+import { shortName } from './boardModel'
 
 export type IntelSubject = { kind: 'tile'; assetId: string } | { kind: 'banner' }
 
 export interface IntelCardProps {
   subject: IntelSubject
-  // The state the board is showing, which during playback is the beat's.
+  // The state the board is showing, which during the night is the event's.
   state: GameState
   // The engine's turn, which a condition's age counts from, as the chips
-  // on the layer headers do (the state a playback shows keeps the turn it
+  // on the layer headers do (the state a night shows keeps the turn it
   // started on).
   turn: number
   // Whether tonight's moves are named, as the banner reads it: the brief
@@ -92,6 +94,17 @@ function BannerIntel({ state, briefed = briefFree(state) }: { state: GameState; 
       </h2>
       <p className="mt-2 text-phosphor">{copy.headline}</p>
       <p className="mt-1">{copy.vector}</p>
+      {briefed && (
+        <>
+          <p className={LABEL}>CANDIDATE MOVES</p>
+          <ul data-intel-candidates className="mt-1">
+            {candidatesTonight(state).map((id) => {
+              const ev = state.scenario.events.find((e) => e.id === id)
+              return ev ? <li key={id}>{shortName(ev)}</li> : null
+            })}
+          </ul>
+        </>
+      )}
       {line && <RealWorld line={line} />}
     </>
   )

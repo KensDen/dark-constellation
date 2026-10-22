@@ -4,9 +4,10 @@
 // timed out because every director tick and every HUD change re-rendered
 // every sprite and backdrop rect on the board: R2 took it from 214
 // elements to 832. The fix makes a sprite render when its own props
-// change; this suite holds it on the v1.3 AssetStrip. (It also held each
-// backdrop to one render per board mount, until v1.3 R2 took the backdrops
-// off the board.)
+// change; this suite holds it on the v1.3 AssetStrip, through a HUD change
+// and through the night that replaced the director in v1.3 R3. (It also
+// held each backdrop to one render per board mount, until v1.3 R2 took the
+// backdrops off the board.)
 //
 // HOW A RENDER IS COUNTED. PixelSprite looks its geometry up on every
 // render by calling spriteRects(sprite), a cached lookup, so it is the
@@ -16,7 +17,7 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 vi.mock('../src/ui/sprites/sprite', async (importOriginal) => {
@@ -44,6 +45,13 @@ declare global {
 let container: HTMLDivElement
 let root: Root
 let unlisten: () => void
+
+// The night's chunks, loaded once, so React.lazy resolves on a microtask.
+beforeAll(async () => {
+  await import('../src/ui/night/Night')
+  await import('../src/ui/night/cards')
+  await import('../src/ui/night/closeCards')
+})
 
 function memoryStorage(): Storage {
   const map = new Map<string, string>()
@@ -95,7 +103,13 @@ const click = (el: Element) => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
   })
 }
-const byText = (re: RegExp) => [...container.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''))
+// A tap, and the lazy cards and effects it sets off, settled.
+async function tap(el: Element) {
+  await act(async () => {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+  })
+  await act(async () => {})
+}
 
 // Every sprite a tile can draw: each kind at every integrity, and in
 // transit. assetSprite hands out one object per picture, so the set holds
@@ -143,9 +157,9 @@ describe('render counts on the board (v1.2 R2 fix, v1.3 R2 strip)', () => {
     expect(tileSpriteRenders(), 'tile sprites re-rendered for a HUD change').toBe(0)
   })
 
-  it('renders no tile sprite through a quiet turn of director steps', () => {
+  it('renders no tile sprite through a quiet night: the overlay, a held strike per move, and its cards', async () => {
     // The fixture: a turn that touches no asset, so every tile's sprite
-    // should hold still for the whole playback. v1.2's turn 1 scripted no
+    // should hold still for the whole night. v1.2's turn 1 scripted no
     // move and was that turn for free; v1.3's turn 1 scripts one, so the
     // fleet here already owns both of its candidates' primary defenses (the
     // two the prepared script orders on turn 1) and the night is held
@@ -162,24 +176,48 @@ describe('render counts on the board (v1.2 R2 fix, v1.3 R2 strip)', () => {
 
     const execute = container.querySelector('button[data-execute]')
     expect(execute, 'the commit control is not on screen').not.toBeNull()
-    click(execute!)
-    // The director is tap-through since v1.3 Round 0: each beat waits for
-    // Next. The timers still run what plays inside a beat, so each step
-    // lets them run a strike's length before tapping on.
-    let taps = 0
-    while (!byText(/^NEXT TURN/) && taps < 60) {
-      act(() => {
-        vi.advanceTimersByTime(STRIKE_MS)
-      })
-      const next = byText(/^Next$/)
-      if (!next) break
-      click(next)
-      taps += 1
+    await tap(execute!)
+    // Only the overlay and the strikes play on their own (v1.3 R3), so the
+    // timers run a strike's length whenever no card is up; every card
+    // waits for its tap. A strike re-renders the strip (the reticle and
+    // the shield go on the tile the move was aimed at) and that tile's
+    // sprite must hold still through it.
+    //
+    // A held move's card draws its target with the very sprite the tile
+    // does (the "before" picture), once as the card arrives. Those are the
+    // only tile-sprite renders a quiet night may make, so they are counted
+    // off each card as it comes, and any render in the strip on top of
+    // them fails the equality below.
+    const strikes = new Set<string>()
+    const cards = new Set<string>()
+    let shielded = 0
+    let cardSprites = 0
+    for (let i = 0; i < 60 && !container.querySelector('button[data-begin]'); i += 1) {
+      const banner = container.querySelector('[data-strike-banner]')
+      if (banner) strikes.add(`${banner.getAttribute('data-strike-banner')} ${banner.textContent}`)
+      if (container.querySelector('[data-strip] [data-shield="held"]')) shielded += 1
+      const card = container.querySelector('[data-night-card]')
+      const label = card?.getAttribute('aria-label')
+      if (card && label && !cards.has(label)) {
+        cards.add(label)
+        cardSprites += card.querySelectorAll('[data-target] svg[data-sprite^="target-"]').length
+      }
+      const way = container.querySelector('[data-file-it]') ?? container.querySelector('[data-collect]') ?? container.querySelector('[data-continue]')
+      if (way) await tap(way)
+      else
+        await act(async () => {
+          vi.advanceTimersByTime(STRIKE_MS)
+        })
     }
-    expect(byText(/^NEXT TURN/), 'the playback never reached the aftermath').toBeDefined()
-    expect(taps, 'no director steps ran').toBeGreaterThan(1)
+    expect(container.querySelector('button[data-begin]'), 'the night never reached END OF TURN').not.toBeNull()
+    expect([...strikes].every((s) => s.startsWith('held')), `a strike landed on a quiet night: ${[...strikes]}`).toBe(true)
+    expect(strikes.size, 'no strike played, so the strip was never re-rendered').toBe(record.events.length)
+    expect(shielded, 'no tile took the shield').toBeGreaterThan(0)
+    expect(cards.size, 'the night showed no card per move').toBeGreaterThanOrEqual(record.events.length)
 
-    expect(container.querySelector('[data-strip]'), 'the strip left the board during playback').not.toBeNull()
-    expect(tileSpriteRenders(), 'tile sprites re-rendered during a turn that touched no asset').toBe(0)
+    expect(container.querySelector('[data-strip]'), 'the strip left the board during the night').not.toBeNull()
+    // The positive control: the probe sees the night's renders at all.
+    expect(cardSprites, 'no card drew its target, so the probe saw nothing of the night').toBeGreaterThan(0)
+    expect(tileSpriteRenders(), 'tile sprites re-rendered in the strip during a night that touched no asset').toBe(cardSprites)
   })
 })

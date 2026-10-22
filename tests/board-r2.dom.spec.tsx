@@ -18,7 +18,7 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 
@@ -55,6 +55,13 @@ function memoryStorage(): Storage {
     clear: () => map.clear(),
   } as Storage
 }
+
+// END OF TURN is the night's card since v1.3 R3, in the night's chunks:
+// loaded once here, so the card is up a microtask after it is asked for.
+beforeAll(async () => {
+  await import('../src/ui/night/Night')
+  await import('../src/ui/night/closeCards')
+})
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -103,7 +110,15 @@ const click = (el: Element) => {
   })
 }
 const q = (sel: string) => container.querySelector(sel)
-const board = () => q('[data-board]')!.textContent ?? ''
+// The board's words, each text node apart: textContent runs one
+// element's last word into the next one's first, where a word-boundary
+// check finds nothing (found by GUARD R3 (f)'s mutation, v1.3 R3).
+function board(): string {
+  const walk = document.createTreeWalker(q('[data-board]')!, NodeFilter.SHOW_TEXT)
+  const out: string[] = []
+  while (walk.nextNode()) out.push(walk.currentNode.textContent ?? '')
+  return out.join(' ')
+}
 
 describe('GUARD R2 (b): no retired word on the board or in PROCURE', () => {
   const RETIRED: [string, RegExp][] = [
@@ -129,7 +144,7 @@ describe('GUARD R2 (b): no retired word on the board or in PROCURE', () => {
   ]
   const offending = (text: string) => RETIRED.filter(([, re]) => re.test(text)).map(([w, re]) => `${w} in "${text.match(re)![0]}"`)
 
-  it('finds none on turn 1, on a turn whose moves are unnamed, in PROCURE, at the end of a turn and on a Daily Op', () => {
+  it('finds none on turn 1, on a turn whose moves are unnamed, in PROCURE, at the end of a turn and on a Daily Op', async () => {
     const seen: string[] = []
     const check = (where: string) => {
       const text = board()
@@ -148,6 +163,8 @@ describe('GUARD R2 (b): no retired word on the board or in PROCURE', () => {
     expect(q('[data-move-unknown]'), 'no unnamed move on turn 3').not.toBeNull()
     check('turn 3, moves unnamed')
     render(gameAt(2), 'aftermath')
+    await act(async () => {})
+    await act(async () => {})
     check('the end of turn 1')
     render(gameAt(1), 'brief', { dateKey: '20261021', n: 25 })
     expect(q('[data-daily-tag]')?.textContent).toBe('DAILY OP #25')

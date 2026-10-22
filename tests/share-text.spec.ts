@@ -23,6 +23,12 @@
 // turn 6 (randomPolicy(1) of tests/scripts.ts: lost at turn 4, four
 // squares). A gradeLine that printed totalTurns, or a strip padded to
 // it, fails that pin and the square check below.
+//
+// Re-pinned for v1.3 Round 3, which retired MAI from player screens (v1.3
+// section 4): the grade line ends "score n" and free play's second line
+// starts "Final score n". Only those words changed; the numbers, squares,
+// lines and their order are the same pins as before (the share's shape is
+// R4's to change).
 
 import { describe, expect, it } from 'vitest'
 
@@ -60,7 +66,7 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: op.daily!.n, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade S · won T6 · MAI 86.2',
+        'Grade S · won T6 · score 86.2',
         '\u{1F7E9}\u{1F7E9}\u{1F7E9}\u{1F7E8}\u{1F7E8}\u{1F7E8}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -72,7 +78,7 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: 1, official: false })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1 (practice)',
-        'Grade D · lost T6 · MAI 49.6',
+        'Grade D · lost T6 · score 49.6',
         '\u{1F7E8}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -88,7 +94,7 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: 1, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade F · lost T4 · MAI 78.0',
+        'Grade F · lost T4 · score 78.0',
         '\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -121,8 +127,8 @@ describe("free play keeps today's longer text, with the grade line added", () =>
     expect(shareText(end)).toBe(
       [
         'DARK CONSTELLATION: MISSION ASSURED',
-        'Grade S · won T6 · MAI 85.2',
-        'Final MAI 85.2 | survived 6 of 6 turns | STANDARD | seed 20260712',
+        'Grade S · won T6 · score 85.2',
+        'Final score 85.2 | survived 6 of 6 turns | STANDARD | seed 20260712',
         '',
         'Resilient to (6): SPARTA EX-0014.04, SPARTA EX-0016.03, SPARTA EX-0001, SPARTA DE-0009.01, SPARTA DE-0003.12, ATLAS AML.T0020',
         'Compromised by (5): SPARTA PER-0002.02, ATT&CK T1195, ATT&CK T1486, SPARTA EX-0016.03, ATLAS AML.T0043',

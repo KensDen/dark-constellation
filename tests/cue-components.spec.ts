@@ -175,15 +175,15 @@ describe('meter tone', () => {
     // of not at all.
     expect(unchosenDelta(-30, true, 0)).toBe(0)
     expect(toneForDelta(unchosenDelta(-30, true, 0))).toBe('neutral')
-    // Playback folds the turn's purchase into the next visible beat, so
-    // only part of that beat's credits change is the player's.
+    // The night folds the turn's orders into the first board it shows, so
+    // only part of that board's credits change is the player's.
     expect(unchosenDelta(-63, false, 63)).toBe(0)
     expect(toneForDelta(unchosenDelta(-63, false, 63))).toBe('neutral')
-    // A beat that carries a purchase and a repair bill still flashes for
+    // A board that carries a purchase and a repair bill still flashes for
     // the repair.
     expect(unchosenDelta(-70, false, 63)).toBe(-7)
     expect(toneForDelta(unchosenDelta(-70, false, 63))).toBe('bad')
-    // Income arriving on the same beat is still a gain.
+    // Income arriving on the same board is still a gain.
     expect(unchosenDelta(-43, false, 63)).toBe(20)
     expect(toneForDelta(unchosenDelta(-43, false, 63))).toBe('good')
     // Nothing chosen, nothing changed: an ordinary hit reads as one.
@@ -269,10 +269,10 @@ describe('condition badge phases', () => {
     })
   })
 
-  it('does not tick a condition that landed during the playback just watched', () => {
-    // The turn only flips when playback hands over to the engine's
-    // after-state, so at that instant every condition applied during the
-    // playback is already in the previous list. Without the startedTurn
+  it('does not tick a condition that landed during the night just watched', () => {
+    // The turn only flips when the night hands the board back to the
+    // engine's after-state, so at that instant every condition applied
+    // during the night is already in the previous list. Without the startedTurn
     // test each one fires the "persists into a new turn" tick a second
     // after its own attach cue.
     const cond = (id: string, startedTurn: number): ActiveCondition => ({
@@ -381,13 +381,15 @@ describe('the prelude controls', () => {
     // the button lives in the dock (src/ui/board/Dock.tsx) and calls the
     // onExecute prop Game.tsx hands it. That handler sweeps and then
     // resolves, in that order and in the one handler, so a mouse click, a
-    // tap and a keyboard activation all reach both. Each element is bounded
-    // at its own end, so a sweep or a resolve belonging to some
-    // neighbouring control cannot satisfy this.
+    // tap and a keyboard activation all reach both. Since v1.3 Round 3 the
+    // resolving function is `execute`, which resolves the turn in the
+    // engine and opens the night (brief 5.5). Each element is bounded at
+    // its own end, so a sweep or a resolve belonging to some neighbouring
+    // control cannot satisfy this.
     const dockTag = /<Dock\b[\s\S]*?\/>/.exec(game)
     expect(dockTag, 'the resolve control must be the dock\'s EXECUTE').not.toBeNull()
     expect(dockTag![0], 'EXECUTE must sweep and then resolve on its click').toMatch(
-      /onExecute=\{\s*\(\)\s*=>\s*\{[^}]*?\bplay\(\s*'execute-sweep'\s*\)[^}]*?\bresolve\(\s*\)/,
+      /onExecute=\{\s*\(\)\s*=>\s*\{[^}]*?\bplay\(\s*'execute-sweep'\s*\)[^}]*?\bexecute\(\s*\)/,
     )
     const dock = readFileSync(join(SRC, 'ui', 'board', 'Dock.tsx'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, ' ')
@@ -407,21 +409,42 @@ describe('the prelude controls', () => {
     // copy ("Turn could not resolve") is not mistaken for a call and every
     // index still points into the source above.
     const code = game.replace(/'[^'\n]*'|"[^"\n]*"|`[^`]*`/g, (literal) => ' '.repeat(literal.length))
-    const uses = [...code.matchAll(/(?<![\w.])\bresolve\b(?!\w|\s*=(?!=))/g)]
+    const uses = [...code.matchAll(/(?<![\w.])\bexecute\b(?!\w|\s*=(?!=))/g)]
     expect(uses.length, 'a second control resolves the turn beside EXECUTE').toBe(1)
     const at = uses[0].index!
     expect(at > dockTag!.index && at < dockTag!.index + dockTag![0].length, 'the one resolve is not inside EXECUTE').toBe(
       true,
     )
-    // The adversary phase enters through the dim, and the dim is keyed to
-    // the turn being played. Pinning the wrapper alone left the key free
-    // to be neutralised, which renders the class once and never again.
-    expect(game, 'the playback section must enter through the dim').toMatch(
-      /<div className=\{phaseDim\}>[\s\S]{0,200}?<DirectorView/,
-    )
-    expect(game, 'the dim must be keyed to the turn it plays').toMatch(
-      /useCueClass\(\s*phase === 'playback' \? `dim-\$\{state\?\.turn \?\? 0\}` : null\s*,\s*'dc-phase-dim'/,
-    )
+    // And the engine resolves the turn nowhere else in the file: every
+    // call to resolveTurn sits inside execute's own body (two of them on a
+    // night with the debris call, one per answer to it). A resolveTurn
+    // reached from some other handler would be a second way to end the
+    // turn that never sweeps, however the count above reads.
+    const declared = /\bconst execute = \(\) => \{/.exec(code)
+    expect(declared, 'Game.tsx no longer declares execute where this guard expects it').not.toBeNull()
+    let depth = 0
+    let end = -1
+    for (let i = code.indexOf('{', declared!.index + declared![0].length - 1); i < code.length; i += 1) {
+      if (code[i] === '{') depth += 1
+      else if (code[i] === '}') {
+        depth -= 1
+        if (depth === 0) {
+          end = i
+          break
+        }
+      }
+    }
+    const calls = [...code.matchAll(/\bresolveTurn\(/g)].map((m) => m.index!)
+    expect(calls.length, 'Game.tsx never resolves the turn, so the bound below proves nothing').toBeGreaterThan(0)
+    for (const call of calls) {
+      expect(call > declared!.index && call < end, 'the engine resolves the turn outside EXECUTE\'s handler').toBe(true)
+    }
+    // The playback dim that stood here (dc-phase-dim, keyed to the turn
+    // being played) retired with the director in v1.3 Round 3. The night
+    // enters through COLDVEIL IS MOVING instead, and that is proved by
+    // behaviour rather than by a pin: tests/night-r3.dom.spec.tsx (a) has
+    // EXECUTE open it, and tests/sound.dom.spec.tsx sees it open on every
+    // night of an operation.
   })
 
   it('keys the manifest entrance to the order that was just queued', () => {

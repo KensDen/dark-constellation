@@ -7,6 +7,12 @@
 // the stats count up one at a time with a blip, the grade drops in and
 // bounces once, the strip fills left to right, and reduced motion shows
 // everything at once.
+//
+// v1.3 Round 3 retired MAI from player screens (v1.3 section 4): the
+// first stat is FINAL SCORE, and the strip's squares read "score held" and
+// "score slipped"; the last stat is BUDGET LEFT, since "credits" is retired
+// from player screens too. The first test pins those words and that no MAI
+// is left on the screen, in its text or its labels.
 
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -142,12 +148,18 @@ describe('the score screen shows the numbers grade.ts reads', () => {
       show(state)
       expect(gradeEl().textContent).toBe(gradeOf(state))
       const last = state.history[state.history.length - 1]
-      expect(statsByLabel()).toEqual({ 'FINAL MAI': last.maiScore, 'HITS TAKEN': hitsTaken(state), 'CREDITS LEFT': last.creditsAfter })
+      expect(statsByLabel()).toEqual({ 'FINAL SCORE': last.maiScore, 'HITS TAKEN': hitsTaken(state), 'BUDGET LEFT': last.creditsAfter })
       for (const [label, value] of Object.entries(statsByLabel())) {
-        expect([...container.querySelectorAll(`[data-stat="${label}"]`)].map((el) => el.textContent), label).toEqual([`${label}${value.toFixed(label === 'FINAL MAI' ? 1 : 0)}`])
+        expect([...container.querySelectorAll(`[data-stat="${label}"]`)].map((el) => el.textContent), label).toEqual([`${label}${value.toFixed(label === 'FINAL SCORE' ? 1 : 0)}`])
       }
       expect(statValues()).toEqual(expected(state))
       expect(cells().map((c) => c.getAttribute('data-strip-cell'))).toEqual(turnStrip(state))
+      // Each square says what its colour means, in score words.
+      const word = { green: 'score held', amber: 'score slipped', magenta: 'hit hard' }
+      expect(cells().map((c) => c.getAttribute('aria-label'))).toEqual(turnStrip(state).map((c, i) => `Turn ${i + 1}: ${word[c]}`))
+      expect(container.textContent).toContain('score held or rose')
+      const labels = [...container.querySelectorAll('[aria-label]')].map((el) => el.getAttribute('aria-label')).join(' ')
+      expect(`${container.textContent} ${labels}`, 'the score screen still says MAI').not.toMatch(/\bMAI\b/)
     }
     // The positive control: these campaigns took hits and their strips
     // are not one colour, so equal lists are not empty agreement.

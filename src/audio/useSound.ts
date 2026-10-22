@@ -7,7 +7,7 @@
 // engine would mean a second AudioContext and a second unlock.
 
 import { useCallback, useEffect, useState } from 'react'
-import type { SoundCue } from '../director/cues'
+import type { SoundCue } from '../cues'
 import type { GameState } from '../engine/types'
 import { getHaptics } from '../haptics/haptics'
 import { getAudioEngine, installGestureUnlock } from './engine'

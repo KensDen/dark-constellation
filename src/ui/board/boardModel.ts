@@ -199,3 +199,20 @@ export function stopsLine(cm: Countermeasure, state: GameState, named: ReadonlyS
 // The line the TONIGHT card shows while GNSS denial arms the chain.
 export const CHAIN_ARMED_LINE = `BLACKOUT CHAIN ARMED: ${SQUADRON} is on LiDAR alone.`
 export const chainLine = () => `${CHAIN_ARMED_LINE} +${CHAIN_BONUS} strength on LiDAR.`
+
+// After turn 6 the strip says the operation is over (QC G-067): a tile in
+// transit says OVER where its ETA was, and a line under the strip says why.
+export const OPERATION_OVER = 'OPERATION OVER'
+export const NO_ARRIVAL = 'OVER'
+
+// THE DEBRIS CALL (brief 5.5 item 5). The engine takes BURN or HOLD with
+// the night's orders, so EXECUTE on a conjunction night resolves both,
+// and the night plays the events up to the call from either: they are the
+// same, since the call is the first thing the two resolutions do
+// differently (tests/night-model.spec.ts holds it). This is where the
+// call sits, or -1 when there is none to make: no conjunction tonight, or
+// no satellite on its orbit.
+export function callIndex(hold: Pick<GameState, 'history'>): number {
+  const events = hold.history[hold.history.length - 1]?.events ?? []
+  return events.findIndex((e) => e.debris !== undefined && e.debris.assetId !== undefined)
+}

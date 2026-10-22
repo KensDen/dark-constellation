@@ -42,7 +42,7 @@
 // as a decision rather than an omission, and guarded: nothing in this
 // module's import graph can reach the reduced-motion reader.
 
-import { hapticPatternFor, type HapticPattern, type SoundCue } from '../director/cues'
+import { hapticPatternFor, type HapticPattern, type SoundCue } from '../cues'
 import { onVisibilityChange, pageVisible } from '../ui/cues/visibility'
 
 // The slice of Navigator this module uses, as a structural type rather

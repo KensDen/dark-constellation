@@ -19,25 +19,26 @@ vi.mock('../src/ui/board/WideBoard', async (importOriginal) => {
   return importOriginal()
 })
 
-import { beatText, container, executeNow, gameAt, installWideBoardHarness, playOut, render, setWide, settle, step } from './wideHarness'
+import { container, executeNow, gameAt, installWideBoardHarness, playOut, render, setWide, settle, stage, step } from './wideHarness'
 
 installWideBoardHarness()
 
 describe('GUARD R6 (a): the wide board loads only on a wide screen', () => {
-  it('never imports the module on a phone, through a turn played out, and imports it once the screen is wide', async () => {
+  it('never imports the module on a phone, through a night played out, and imports it once the screen is wide', async () => {
     render(gameAt(2))
     await settle()
-    // A whole turn, playback and aftermath, so no phase can fetch it: the
-    // beats tapped through, then the aftermath left on its timers for as
-    // long as the auto-advancing director's spec gave it, so a fetch armed
-    // on a delay in either phase still fires before the count is read.
+    // A whole turn, the night and its END OF TURN, so no stage can fetch
+    // it: the overlay and each strike on their clocks and every card
+    // tapped through, then END OF TURN left on its timers for two minutes,
+    // so a fetch armed on a delay anywhere in the night still fires before
+    // the count is read.
     executeNow()
-    step(100)
-    expect(beatText(), 'EXECUTE opened no playback').not.toBeNull()
-    playOut()
+    await settle()
+    expect(stage(), 'EXECUTE opened no night').toBe('moving')
+    await playOut()
     step(120_000)
     await settle()
-    expect(container.textContent, 'the turn never played out').toMatch(/NEXT TURN/)
+    expect(container.querySelector('button[data-begin]')?.textContent, 'the turn never played out').toBe('BEGIN TURN 3')
     expect(loads.n, 'the phone board fetched the wide module').toBe(0)
     expect(container.querySelector('[data-ops-log], [data-inspector]')).toBeNull()
     expect(container.querySelector('main[data-board]')!.hasAttribute('data-wide')).toBe(false)

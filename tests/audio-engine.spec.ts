@@ -12,7 +12,7 @@ import { AudioEngine, EFFECTS_LEVEL, MUSIC_LEVEL, SILENCE_FADE_S, shouldSchedule
 import { LEVEL_FADE_S, MUSIC_LAYERS } from '../src/audio/music'
 import { DEFAULT_SOUND_PREFS, parseSoundPref, serializeSoundPref } from '../src/audio/prefs'
 import { VOICES } from '../src/audio/voices'
-import { DUCKS_MUSIC, SOUND_MS, type SoundCue } from '../src/director'
+import { DUCKS_MUSIC, SOUND_MS, type SoundCue } from '../src/cues'
 import { FakeAudioContext, FakeGain, FakeOscillator, type FakeNode } from './fakeAudio'
 
 // Every engine in this file gets its context injected and its visibility

@@ -32,7 +32,7 @@ import {
   hapticPatternFor,
   type HapticPattern,
   type SoundCue,
-} from '../src/director'
+} from '../src/cues'
 import { Haptics, mobileDevice, shouldVibrate, vibrateSupported } from '../src/haptics/haptics'
 import { fireCue, silenceCues } from '../src/audio/useSound'
 import { resetAudioEngineForTests } from '../src/audio/engine'

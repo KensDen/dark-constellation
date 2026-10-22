@@ -117,17 +117,21 @@ run('dev-only sound board is excluded from the production build (brief 7)', () =
   }
 })
 
-// The zero-residual ledger sweep is the broadest correctness guard on the
-// branch and the slowest test in the suite. Its duration is REPORTED here
+// The ledger sweep is the broadest correctness guard on the branch and
+// the slowest test in the suite. Since v1.3 Round 3 it is the night's
+// (tests/night-model.spec.ts): the board the night ends on, closed by the
+// engine's ledger, is the engine's next state on every turn of 600 games,
+// where until then it was the retired director's zero-residual sweep in
+// tests/director.spec.ts. Its duration is REPORTED here
 // and never gated (brief v0.9 section 7): it belongs in the round report
 // next to the bundle size, but a threshold on it would fail under load for
 // the same reason its 5,000ms timeout did, which is to say exactly when
 // multi-agent verification is running. The layer does fail if the sweep is
 // missing from the run, so renaming or deleting it cannot quietly drop the
 // number this line exists to publish.
-const LEDGER_SWEEP_TEST = 'reproduces the after-state of every turn of every line, seed and difficulty with no settle beat'
+const LEDGER_SWEEP_TEST = 'lands on the engine: the board it ends on, closed by the ledger, is the next state, on every turn of 600 games'
 
-run('vitest suites: determinism, content, persistence, readme, director, cues, reading diet, sound, music isolation (spec 11.2, 11.3; brief 8)', () => {
+run('vitest suites: determinism, content, persistence, readme, the night, cues, reading diet, sound, music isolation (spec 11.2, 11.3; brief 8)', () => {
   const resultsPath = join(tmpdir(), `dc-battery-vitest-${process.pid}.json`)
   try {
     sh(`npx vitest run --reporter=default --reporter=json --outputFile.json=${JSON.stringify(resultsPath)}`)
@@ -243,7 +247,7 @@ run('pre-push OPSEC hook is active (local only)', () => {
 // the tagline is one line. jsdom lays nothing out, so the suite cannot
 // hold these. SKIP only when the machine has no Chrome at all; any other
 // failure is a FAIL.
-run('phone layout: briefing fit, board fit, SYSTEM in bounds, scroll reset, tagline (v1.3 R1, R2)', () => {
+run('phone layout: briefing fit, board fit, SYSTEM in bounds, scroll reset, tagline, the night fits 375 (v1.3 R1, R2, R3)', () => {
   const r = spawnSync(process.execPath, ['scripts/phone-layout.mjs'], { encoding: 'utf8', timeout: 300000 })
   if (r.status === 2) return 'skip'
   if (r.status !== 0) throw Object.assign(new Error('phone layout failed'), { stdout: r.stdout || String(r.error ?? ''), stderr: r.stderr })

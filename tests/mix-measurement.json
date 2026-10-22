@@ -139,8 +139,8 @@
   "notMeasured": "The bed's pentatonic notes. They are scheduled on the wall clock, which never advances inside an offline render, so neither the pad figures nor any other here include them.",
   "verdict": "UNSETTLED. Against the median effect voice the full pad measures about 14 dB OVER unweighted, 4 dB UNDER A-weighted and 10 dB OVER K-weighted. A models the ear at quiet listening levels and discounts a 55 Hz pad by about 30 dB; K discounts it by about 3 dB. Round 7 acted on the unweighted figure (a retune to 0.068), then on the A-weighted one (the revert), and each time chose the model that supported the conclusion in hand. The level stays at the brief's untuned 0.35 until an ear at a real listening level decides.",
   "measuredSources": {
-    "src/audio/voices.ts": "046ffd16940b0e277443b323b6a4b1a68d716b10d9ad176d433a21fff25396f1",
-    "src/audio/music.ts": "d75fb7b76ff284e712658a896e20ec5d48c0cda04e697f8781d18652ae2c3cf9"
+    "src/audio/voices.ts": "75c39055087782aef8da7e59adb8b5ed2871f2c9c2eced19df2fb31e5e6651d8",
+    "src/audio/music.ts": "f9d1066fd564095d08a4a7334db1988936b362c7bb3246f3fde6562daa864f6e"
   },
-  "sourcesNote": "sha256 of the two files whose output this record describes. tests/mix-staleness.spec.ts recomputes them and fails on any change, comments included, until the mix is re-measured with the instrument and this record updated."
+  "sourcesNote": "sha256 of the two files whose output this record describes. tests/mix-staleness.spec.ts recomputes them and fails on any change, comments included, until the mix is re-measured with the instrument and this record updated. Rehashed without a re-render in v1.3 Round 3: the one change to either file was the cue registry's import path (../director/cues to ../cues), and SOUND_MS and DUCKS_MUSIC, the only names they import from it, are byte-identical, so no rendered figure can have moved."
 }

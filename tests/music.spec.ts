@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { mulberry32, turnRng } from '../src/engine/rng'
-import { SOUND_MS, DUCKS_MUSIC, type SoundCue } from '../src/director'
+import { SOUND_MS, DUCKS_MUSIC, type SoundCue } from '../src/cues'
 import { AudioEngine, EFFECTS_LEVEL, MUSIC_LEVEL } from '../src/audio/engine'
 import { VOICES } from '../src/audio/voices'
 import {

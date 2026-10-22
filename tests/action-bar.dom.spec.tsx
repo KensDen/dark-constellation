@@ -16,15 +16,17 @@
 //   R1b (d) the SYSTEM sheet renders all its controls, pinned by count;
 //   R2b (c) and (e) EXECUTE's accessible name carries the turn number,
 //       and one tap plays the turn (the hold and its short-tap hint went
-//       in v1.3 Round 0).
+//       in v1.3 Round 0), which since v1.3 R3 is THE NIGHT (brief 5.5): the
+//       dock leaves for it, and END OF TURN's BEGIN TURN n+1 is the way on.
 // (R2b (a), (b) and (d), the suggestion, the glow and the walkthrough,
-// went with the objective line and src/ui/firstTurn.ts in v1.3 R2.)
+// went with the objective line and src/ui/firstTurn.ts in v1.3 R2. The
+// dock's NEXT TURN and its pulse went with the director in v1.3 R3.)
 // The fixture is the one tests/game.dom.spec.tsx documents; the same
 // masking constants apply.
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 
@@ -49,6 +51,13 @@ declare global {
 let container: HTMLDivElement
 let root: Root
 let unlisten: () => void
+
+// The night's chunks, loaded once, so React.lazy resolves on a microtask.
+beforeAll(async () => {
+  await import('../src/ui/night/Night')
+  await import('../src/ui/night/cards')
+  await import('../src/ui/night/closeCards')
+})
 
 function memoryStorage(): Storage {
   const map = new Map<string, string>()
@@ -129,25 +138,33 @@ const key = (k: string, target: EventTarget = window) => {
     target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }))
   })
 }
-const procureButton = () => bar().querySelector('button[data-action="procure"]') as HTMLButtonElement
-const executeButton = () => bar().querySelector('button[data-execute]') as HTMLButtonElement
+// The dock is the deciding board's: it leaves for the night (v1.3 R3).
+const procureButton = () => container.querySelector('[data-dock] button[data-action="procure"]') as HTMLButtonElement
+const executeButton = () => container.querySelector('[data-dock] button[data-execute]') as HTMLButtonElement | null
 const procureSheet = () => container.querySelector('[data-sheet="procure"]')
-const advance = (ms: number) =>
-  act(() => {
-    vi.advanceTimersByTime(ms)
+// A tap, and the lazy cards and effects it sets off, settled.
+async function tap(el: Element) {
+  await act(async () => {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
   })
-// Tap the playback through to the end of the turn: nothing advances on
-// its own since v1.3 Round 0, so each beat waits for its Next. The timers
-// run a strike's length between taps, as a player's look at the beat would.
-const afterword = () => byText(/^(NEXT TURN|FINAL REPORT)$/)
-const playOut = () => {
-  for (let i = 0; i < 100 && !afterword(); i++) {
-    const next = byText(/^Next$/)
-    expect(next, 'the playback has no Next button').toBeDefined()
-    click(next!)
-    advance(STRIKE_MS)
+  await act(async () => {})
+}
+// END OF TURN's way on: BEGIN TURN n+1, or DEBRIEF on the last.
+const begin = () => container.querySelector('[data-night-card="end"] button[data-begin]') as HTMLButtonElement | null
+// Play the night out to END OF TURN (v1.3 R3, brief 5.5): only the
+// 750ms overlay and the strikes play on their own, so the timers run a
+// strike's length whenever no card is up, and every card is tapped on, as
+// a player does (FILE IT, HOLD on the debris call, COLLECT or CONTINUE).
+async function playOut() {
+  for (let i = 0; i < 100 && !begin(); i++) {
+    const way = container.querySelector('[data-file-it]') ?? container.querySelector('[data-call="hold"]') ?? container.querySelector('[data-collect]') ?? container.querySelector('[data-continue]')
+    if (way) await tap(way)
+    else
+      await act(async () => {
+        vi.advanceTimersByTime(STRIKE_MS)
+      })
   }
-  expect(afterword(), 'tapping Next did not reach the end of the turn').toBeDefined()
+  expect(begin(), 'the night did not reach END OF TURN').not.toBeNull()
 }
 // A tick or a badge on PROCURE: the v1.2 check mark, its done marker, or
 // the order count.
@@ -186,13 +203,14 @@ describe('the dock carries the one action array (v1.2 R1b, the Dock since v1.3 R
         expect(container.querySelector(`[data-sheet="${a.sheet}"]`), `${a.hotkey} again did not close ${a.sheet}`).toBeNull()
       } else {
         expect(document.activeElement, `${a.hotkey} did not focus EXECUTE`).toBe(executeButton())
-        // Focus, not a commit: the turn is still being decided.
-        expect(bar().querySelector('[data-playback-note]')).toBeNull()
+        // Focus, not a commit: the turn is still being decided, so the
+        // dock, which leaves for the night, is still up.
+        expect(container.querySelector('[data-dock]'), `${a.hotkey} committed the turn`).not.toBeNull()
       }
     }
   })
 
-  it('GUARD R1b (b): PROCURE shows no tick or badge until an order is queued, and none again on the next turn (QC G-025)', () => {
+  it('GUARD R1b (b): PROCURE shows no tick or badge until an order is queued, and none again on the next turn (QC G-025)', async () => {
     // v1.2 ticked a step the moment its sheet opened, which told the
     // player they had done something when they had only looked. G-025: a
     // mark on PROCURE means an order. How many is GUARD R2 (e) in
@@ -212,61 +230,71 @@ describe('the dock carries the one action array (v1.2 R1b, the Dock since v1.3 R
     click(procureSheet()!.querySelector('button[data-procure-kind="drone"]')!)
     click(procureSheet()!.querySelector('button[data-confirm]')!)
     expect(procureMarks().length, 'a queued order left PROCURE unmarked').toBeGreaterThan(0)
-    // Execute, tap the playback out, and the next turn starts unmarked.
-    click(executeButton())
-    playOut()
-    click(afterword()!)
+    // Execute, tap the night out, BEGIN TURN 3, and the next turn starts
+    // unmarked.
+    await tap(executeButton()!)
+    await playOut()
+    expect(begin()!.textContent).toBe('BEGIN TURN 3')
+    await tap(begin()!)
+    expect(procureButton(), 'BEGIN TURN 3 did not bring the dock back').not.toBeNull()
     expect(procureMarks(), "the next turn began with last turn's mark").toEqual([])
   })
 
-  it('pulses NEXT TURN at the end of the turn, full width where the two buttons were, and not under reduced motion', () => {
+  it('ends the turn on END OF TURN, its BEGIN TURN n+1 full width with the dock gone, rising in only with motion on', async () => {
+    // NEXT TURN and its pulse left the dock with the director in v1.3 R3:
+    // the turn ends on END OF TURN, whose BEGIN TURN n+1 is the way on.
     render(gameAt(2), 'aftermath')
-    const next = bar().querySelector('button[data-next]')!
-    expect(next.textContent).toBe('NEXT TURN')
-    expect(next.className).toMatch(/dc-next-pulse/)
-    expect(next.className).toMatch(/w-full/)
-    expect(slots(), 'PROCURE or EXECUTE is still on the dock after the turn').toEqual([])
+    await act(async () => {})
+    const end = container.querySelector('section[data-night-card="end"]')!
+    expect(end, 'no END OF TURN after the turn').not.toBeNull()
+    expect(begin()!.textContent).toBe('BEGIN TURN 2')
+    expect(begin()!.className).toMatch(/w-full/)
+    expect(container.querySelector('[data-dock]'), 'the dock, PROCURE or EXECUTE is still up after the turn').toBeNull()
+    expect(end.className).toMatch(/dc-card-rise/)
     setReducedMotion(true)
     render(gameAt(2), 'aftermath')
-    expect(bar().querySelector('button[data-next]')!.className).not.toMatch(/dc-next-pulse/)
+    await act(async () => {})
+    expect(container.querySelector('section[data-night-card="end"]')!.className).not.toMatch(/dc-card-rise/)
   })
 
   it('draws EXECUTE outlined until an order is queued, and solid after', () => {
     // With nothing queued PROCURE is the way in and takes the emphasis;
     // once an order is queued EXECUTE takes it (brief 5.3 item 5).
     render(gameAt(2), 'brief')
-    expect(executeButton().className).toMatch(/shadow-press/)
-    expect(executeButton().className).not.toMatch(/bg-dc-go /)
+    expect(executeButton()!.className).toMatch(/shadow-press/)
+    expect(executeButton()!.className).not.toMatch(/bg-dc-go /)
     expect(procureButton().className).toMatch(/bg-dc-go /)
     // Looking is not an order.
     click(procureButton())
     click(procureButton())
-    expect(executeButton().className, 'opening PROCURE made EXECUTE solid').toMatch(/shadow-press/)
+    expect(executeButton()!.className, 'opening PROCURE made EXECUTE solid').toMatch(/shadow-press/)
     click(procureButton())
     click(procureSheet()!.querySelector('button[data-procure-kind="drone"]')!)
-    expect(executeButton().className).toMatch(/bg-dc-go /)
-    expect(executeButton().className).toMatch(/shadow-hard/)
+    expect(executeButton()!.className).toMatch(/bg-dc-go /)
+    expect(executeButton()!.className).toMatch(/shadow-hard/)
     expect(procureButton().className).toMatch(/shadow-press/)
   })
 })
 
 describe('EXECUTE says what it does (v1.2 R2b, a tap since v1.3 Round 0)', () => {
-  it('GUARD R2b (c) and (e): the accessible name carries the turn number, and one tap plays the turn', () => {
+  it('GUARD R2b (c) and (e): the accessible name carries the turn number, and one tap plays the turn', async () => {
     for (const turn of [2, 5]) {
       const state = gameAt(turn)
       render(state, 'brief')
       // Since R2 the dock prints EXECUTE and the name is the instruction,
       // resolveLabel's "Execute turn n".
-      expect(executeButton().textContent, `turn ${state.turn}`).toBe('EXECUTE')
-      expect(executeButton().getAttribute('aria-label'), `turn ${state.turn}`).toBe(`Execute turn ${state.turn}`)
+      expect(executeButton()!.textContent, `turn ${state.turn}`).toBe('EXECUTE')
+      expect(executeButton()!.getAttribute('aria-label'), `turn ${state.turn}`).toBe(`Execute turn ${state.turn}`)
     }
     const state = gameAt(2)
     render(state, 'brief')
-    expect(bar().querySelector('[data-playback-note]'), 'the turn is playing before EXECUTE was pressed').toBeNull()
-    // A tap, not a hold: one click resolves the turn and its playback is up.
-    click(executeButton())
-    expect(bar().querySelector('[data-playback-note]'), 'one tap on EXECUTE did not play the turn').not.toBeNull()
-    expect(executeButton(), 'EXECUTE stayed on the dock during playback').toBeNull()
+    const night = () => container.querySelector('[data-moving], [data-strike-banner], [data-night-card], [data-intel-file]')
+    expect(night(), 'the turn is playing before EXECUTE was pressed').toBeNull()
+    // A tap, not a hold: one click resolves the turn and the night is up,
+    // COLDVEIL IS MOVING first.
+    await tap(executeButton()!)
+    expect(container.querySelector('[data-moving]'), 'one tap on EXECUTE did not play the turn').not.toBeNull()
+    expect(executeButton(), 'EXECUTE stayed on the dock during the night').toBeNull()
   })
 })
 

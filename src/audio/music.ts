@@ -28,7 +28,7 @@
 // tests/music.spec.ts asserts the graph is identical with the preference
 // set rather than leaving that to this comment.
 
-import { DUCKS_MUSIC, SOUND_MS, type SoundCue } from '../director/cues'
+import { DUCKS_MUSIC, SOUND_MS, type SoundCue } from '../cues'
 import { gnssDenied } from '../engine/rules'
 import { maiScore } from '../engine/scoring'
 import type { GameState } from '../engine/types'

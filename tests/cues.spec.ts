@@ -1,12 +1,18 @@
-// Cue coverage battery (brief v0.5 section 8). Every event, condition and
-// countermeasure id in the content data, and every beat kind the director
-// can emit, must resolve to a cue entry. Round 3 tightens the gate: a
-// visual placeholder now fails, so the round's closing condition ("every
-// row of section 6 has its visual") is checked against the code rather
-// than asserted in a report. Sound slots stay placeholder until Round 4.
+// Cue coverage battery (brief v0.5 section 8). Every event and condition
+// id in the content data, and every moment the night plays, must resolve
+// to a cue entry. Round 3 tightens the gate: a visual placeholder now
+// fails, so the round's closing condition ("every row of section 6 has its
+// visual") is checked against the code rather than asserted in a report.
 // The registry is hand-keyed on purpose, so a new deck entry fails here
 // until someone decides what it looks and sounds like. The reverse check
 // catches stale keys.
+//
+// Since v1.3 Round 3 the registry is src/cues.ts, keyed by the night's
+// moments (brief 5.5) instead of the retired director's beat kinds, and
+// its treatments live in two stylesheets: src/index.css, and the night's
+// own src/ui/night/night.css in the night's chunk. Every stylesheet check
+// below reads both. What each moment actually shows and sounds like in a
+// real night is driven in jsdom in tests/sound.dom.spec.tsx.
 
 import { describe, expect, it } from 'vitest'
 
@@ -16,65 +22,64 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  BEAT_CUES,
-  BEAT_KINDS,
   CONDITION_CUES,
-  COUNTER_CUES,
   EVENT_CUES,
+  MOMENTS,
+  MOMENT_CUES,
   SECTION_6_ROWS,
-  CARD_SAFE_VISUALS,
   VISUAL_CLASS,
   VISUAL_MS,
-  deriveBeats,
   resolveCue,
-  visualClass,
-  visualFor,
   type Cue,
   type VisualCue,
-} from '../src/director'
-import { newGame, resolveTurn } from '../src/engine/reducer'
-import { turnRng } from '../src/engine/rng'
-import type { GameState, TurnActions } from '../src/engine/types'
-import { LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
-
-function* playTurns(seed: number, script: Record<number, TurnActions>) {
-  let state = newGame(DEFAULT_SCENARIO, seed)
-  while (state.status === 'playing') {
-    const next = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
-    yield { before: state, after: next } as { before: GameState; after: GameState }
-    state = next
-  }
-}
-
-// Both ends of the scripts on one seed, the prepared line and then the
-// passive one. This was a surge line (the prepared script spending surge
-// authority whenever it could), so the surge beat was exercised alongside
-// everything else, and it lost some campaigns as well as winning others.
-// SURGE left in v1.3 Round 0 (D2 a), and the six-turn prepared script wins
-// every seed it is played on (40 of 40 measured), so the passive line joins
-// it: both endings and the whole condition family stay in the sweep.
-function* playBoth(seed: number) {
-  yield* playTurns(seed, WIN_SCRIPT)
-  yield* playTurns(seed, LOSS_SCRIPT)
-}
+} from '../src/cues'
+import { STRIKE_MS } from '../src/ui/board/strike'
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
-const CSS = readFileSync(join(SRC, 'index.css'), 'utf8')
+// The two stylesheets a treatment can live in, each read on its own where
+// the structure of the file matters (its reduced-motion guard), and
+// together where only the declaration does.
+const SHEETS: [string, string][] = [
+  ['index.css', readFileSync(join(SRC, 'index.css'), 'utf8')],
+  ['ui/night/night.css', readFileSync(join(SRC, 'ui', 'night', 'night.css'), 'utf8')],
+]
+const CSS = SHEETS.map(([, css]) => css).join('\n')
 const ALL_CUES: [string, Record<string, Cue>][] = [
-  ['beat', BEAT_CUES as Record<string, Cue>],
+  ['moment', MOMENT_CUES as Record<string, Cue>],
   ['event', EVENT_CUES],
   ['condition', CONDITION_CUES],
-  ['counter', COUNTER_CUES],
 ]
 
 const events = DEFAULT_SCENARIO.events
 // Every event that leaves a condition: ThreatEvent.condition since v1.3
 // Round 0, which replaced the rolled duration with a fixed clock.
 const conditionEvents = events.filter((e) => e.condition)
-const counters = DEFAULT_SCENARIO.countermeasures
 
 const complete = (cue: { visual: string; sound: string; label: string } | undefined) =>
   !!cue && cue.label.length > 0 && cue.visual.length > 0 && cue.sound.length > 0
+
+// The cue layer's own reduced-motion guard in one stylesheet, bounded by
+// brace matching. Slicing from the first no-preference query of
+// index.css would start at the unrelated CRT flicker near the top, and
+// every rule below it would count as guarded whether or not it is; so the
+// guard taken is the LAST one in each file (night.css has only the one).
+function guardOf(css: string): { open: number; end: number; body: string } {
+  const open = css.lastIndexOf('@media (prefers-reduced-motion: no-preference)')
+  let depth = 0
+  let end = -1
+  if (open < 0) return { open, end, body: '' }
+  for (let i = css.indexOf('{', open); i < css.length; i += 1) {
+    if (css[i] === '{') depth += 1
+    else if (css[i] === '}') {
+      depth -= 1
+      if (depth === 0) {
+        end = i
+        break
+      }
+    }
+  }
+  return { open, end, body: css.slice(open, end) }
+}
 
 describe('cue coverage', () => {
   it('every event id resolves to a cue', () => {
@@ -92,41 +97,44 @@ describe('cue coverage', () => {
     }
   })
 
-  it('every countermeasure id resolves to a cue', () => {
-    for (const cm of counters) {
-      expect(complete(COUNTER_CUES[cm.id]), `countermeasure ${cm.id} has no cue`).toBe(true)
-      expect(resolveCue(`counter:${cm.id}`), cm.id).toBeTruthy()
-    }
-  })
+  // RETIRED in v1.3 Round 3: "every countermeasure id resolves to a cue".
+  // COUNTER_CUES left with the director's deploy-arrived beat, the one
+  // thing that played them; a defense now holds its state on its PROCURE
+  // line and has no moment of its own in the night.
 
-  it('every beat kind resolves to a cue', () => {
-    for (const kind of BEAT_KINDS) {
-      expect(complete(BEAT_CUES[kind]), `beat kind ${kind} has no cue`).toBe(true)
-      expect(resolveCue(`beat:${kind}`), kind).toBeTruthy()
+  it('every moment the night plays resolves to a cue', () => {
+    for (const moment of MOMENTS) {
+      expect(complete(MOMENT_CUES[moment]), `moment ${moment} has no cue`).toBe(true)
+      expect(resolveCue(`moment:${moment}`), moment).toBeTruthy()
     }
   })
 
   it('carries no stale keys for ids the deck no longer has', () => {
     const eventIds = new Set(events.map((e) => e.id))
     const conditionIds = new Set(conditionEvents.map((e) => e.id))
-    const counterIds = new Set<string>(counters.map((c) => c.id))
     for (const key of Object.keys(EVENT_CUES)) expect(eventIds.has(key), `stale event cue ${key}`).toBe(true)
     for (const key of Object.keys(CONDITION_CUES)) expect(conditionIds.has(key), `stale condition cue ${key}`).toBe(true)
-    for (const key of Object.keys(COUNTER_CUES)) expect(counterIds.has(key), `stale countermeasure cue ${key}`).toBe(true)
-    for (const key of Object.keys(BEAT_CUES)) expect((BEAT_KINDS as string[]).includes(key), `stale beat cue ${key}`).toBe(true)
+    for (const key of Object.keys(MOMENT_CUES)) expect((MOMENTS as string[]).includes(key), `stale moment cue ${key}`).toBe(true)
   })
 
   it('counts derive from data: the registry sizes equal the deck sizes', () => {
     expect(Object.keys(EVENT_CUES).length).toBe(events.length)
     expect(Object.keys(CONDITION_CUES).length).toBe(conditionEvents.length)
-    expect(Object.keys(COUNTER_CUES).length).toBe(counters.length)
-    expect(Object.keys(BEAT_CUES).length).toBe(BEAT_KINDS.length)
+    expect(Object.keys(MOMENT_CUES).length).toBe(MOMENTS.length)
+    // The list is the walk every check here takes, so a moment named twice
+    // would be checked twice and a moment left out not at all.
+    expect(new Set(MOMENTS).size, 'MOMENTS names a moment twice').toBe(MOMENTS.length)
   })
 
   it('rejects malformed or unknown cue keys', () => {
     expect(resolveCue('nonsense')).toBeUndefined()
     expect(resolveCue('event:not-a-real-event')).toBeUndefined()
     expect(resolveCue('sound:pnt-jamming')).toBeUndefined()
+    // The retired director's namespaces resolve to nothing, so a caller
+    // still asking for a beat or a countermeasure cue is caught rather
+    // than answered.
+    expect(resolveCue('beat:threat')).toBeUndefined()
+    expect(resolveCue('counter:antiJam')).toBeUndefined()
   })
 })
 
@@ -141,7 +149,7 @@ describe('visual cue vocabulary (Round 3)', () => {
     expect(unfinished.join(', ')).toBe('')
   })
 
-  it('backs every visual with a class that exists in the stylesheet', () => {
+  it('backs every visual with a class that exists in a stylesheet', () => {
     const missing: string[] = []
     for (const [visual, className] of Object.entries(VISUAL_CLASS)) {
       if (!className) continue
@@ -151,29 +159,16 @@ describe('visual cue vocabulary (Round 3)', () => {
   })
 
   it('keeps every animation behind the reduced-motion guard', () => {
-    // Bound the slice to the cue layer's own guard block by brace
-    // matching. Slicing from the first no-preference query would start at
-    // the unrelated CRT flicker near the top of the stylesheet, and every
-    // rule below it would count as guarded whether or not it is.
-    const open = CSS.lastIndexOf('@media (prefers-reduced-motion: no-preference)')
-    expect(open).toBeGreaterThan(-1)
-    let depth = 0
-    let end = -1
-    for (let i = CSS.indexOf('{', open); i < CSS.length; i += 1) {
-      if (CSS[i] === '{') depth += 1
-      else if (CSS[i] === '}') {
-        depth -= 1
-        if (depth === 0) {
-          end = i
-          break
-        }
-      }
+    let guarded = ''
+    for (const [file, css] of SHEETS) {
+      const guard = guardOf(css)
+      expect(guard.open, `${file} has no reduced-motion guard`).toBeGreaterThan(-1)
+      expect(guard.end, `${file}: reduced-motion guard block is unterminated`).toBeGreaterThan(guard.open)
+      // The block really is bounded: the keyframes that follow it must fall
+      // outside the slice, or the assertions below prove nothing.
+      expect(guard.body, `${file}: the guard slice runs into the keyframes`).not.toContain('@keyframes')
+      guarded += guard.body
     }
-    expect(end, 'reduced-motion guard block is unterminated').toBeGreaterThan(open)
-    const guarded = CSS.slice(open, end)
-    // The block really is bounded: the keyframes that follow it must fall
-    // outside the slice, or the assertions below prove nothing.
-    expect(guarded).not.toContain('@keyframes')
     const animated = [...new Set(Object.values(VISUAL_CLASS).filter(Boolean))]
     for (const className of animated) {
       expect(guarded, `${className} must be declared inside the reduced-motion guard`).toContain(`.${className} {`)
@@ -194,19 +189,16 @@ describe('visual cue vocabulary (Round 3)', () => {
       // dc-hold-fill stood here until v1.3 Round 0, when EXECUTE became a
       // tap and the hold ring left the stylesheet with its control.
       'dc-manifest-in',
-      'dc-phase-dim',
-      // Round 5's four scene entrances and the two treatments inside them.
-      // Applied by ui/cues/Scene.tsx rather than through the registry, so
-      // walked explicitly like the rest of this list: a scene that
-      // animated under the preference would be the Round 4e refusal-cue
-      // defect again, in the round that gives the loudest moments their
-      // treatment.
-      'dc-scene-blackout',
-      'dc-scene-commendation',
-      'dc-scene-victory',
-      'dc-scene-defeat',
-      'dc-scene-die',
-      'dc-scene-wash',
+      // dc-phase-dim and Round 5's six scene classes (dc-scene-blackout,
+      // -commendation, -victory, -defeat, -die, -wash) stood here until
+      // v1.3 Round 3, when the director that applied them retired. Their
+      // place is taken by the night's own component-applied motion: the
+      // overlay's spinner, the strike's reticle, a tile that got through,
+      // and the dossier bar on the intel card.
+      'dc-spin i',
+      'dc-reticle',
+      'dc-tile-hit',
+      'dc-bar-fill',
     ]) {
       expect(guarded, `${selector} must be declared inside the reduced-motion guard`).toContain(`.${selector} {`)
     }
@@ -223,135 +215,51 @@ describe('visual cue vocabulary (Round 3)', () => {
   })
 
   it('wires every row with a class to code that applies it', () => {
-    // Two different proofs, because the rows are carried two ways. A
-    // component row must name the class itself. A director row is resolved
-    // through the registry, so the proof is that a real beat of that kind
-    // actually produces the row's visual; naming the helper is not enough.
-    const beatVisuals = new Set<string>()
-    const kindsSeen = new Set<string>()
-    for (const seed of [1, 2, 3, 4, 5, 6]) {
-      for (const { before, after } of playBoth(seed)) {
-        for (const beat of deriveBeats(before, after)) {
-          kindsSeen.add(beat.kind)
-          const visual = visualFor(beat.cueKey, beat.kind)
-          if (visual) beatVisuals.add(visual)
-        }
-      }
-    }
+    // Every row is carried by a component since v1.3 Round 3: the night
+    // applies its treatments by name in its own files, where the director
+    // resolved them through the registry. So the proof for every row is
+    // the one the component rows always had: the file the row names
+    // applies the class. A row that names moments must also agree with
+    // the registry about what those moments look like, or the table and
+    // the registry would describe two different nights.
     const unwired: string[] = []
     for (const row of SECTION_6_ROWS) {
+      for (const moment of row.moments ?? []) {
+        if (MOMENT_CUES[moment].visual !== row.visual) {
+          unwired.push(`${row.beat}: the row shows ${row.visual}, the registry's ${moment} shows ${MOMENT_CUES[moment].visual}`)
+        }
+      }
       const className = VISUAL_CLASS[row.visual]
       if (!className) continue
-      if (row.where.startsWith('director/')) {
-        if (!beatVisuals.has(row.visual)) unwired.push(`${row.beat}: no beat ever plays ${row.visual}`)
-        continue
-      }
       const source = readFileSync(join(SRC, row.where.split(' ')[0]), 'utf8')
       if (!source.includes(className)) unwired.push(`${row.beat}: ${row.where} never names .${className}`)
     }
     expect(unwired.join('\n')).toBe('')
-    expect(kindsSeen.size, 'the sweep produced too few beat kinds to prove anything').toBeGreaterThan(8)
+    expect(
+      SECTION_6_ROWS.filter((r) => r.moments?.length).length,
+      'no row names a moment, so the agreement above proves nothing',
+    ).toBeGreaterThan(8)
   })
 
-  it('keeps the arrival row deferred while the frame it needs is off screen', () => {
-    // The row owes "lighting the matching satellite on the constellation
-    // frame", and the frame renders only on the start screen: there is
-    // nothing on screen during playback to light. Marking the row done
-    // without putting the frame there would be the brief drifting from the
-    // code, which principle 12 forbids, so the row stays deferred until
-    // the playback screen actually renders the frame.
-    const game = readFileSync(join(SRC, 'ui', 'Game.tsx'), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, ' ')
-      .split('\n')
-      .filter((line) => !/^\s*\/\//.test(line))
-      .join('\n')
-    const playbackBlock = /\{phase === 'playback' && playback && \(([\s\S]*?)\n {6}\)\}/.exec(game)
-    expect(playbackBlock, 'the playback branch is not where this guard expects it').not.toBeNull()
-    const frameOnScreen = /constellationVisual|<Constellation/.test(playbackBlock![1])
-    const row = SECTION_6_ROWS.find((r) => r.beat === 'Deployment arrives')
-    expect(row, 'the arrival row is gone').toBeDefined()
-    if (!frameOnScreen) {
-      expect(row!.deferred, 'the arrival row owes the frame lighting and must say so').toBeTruthy()
-      expect(row!.deferred, 'the deferred note must say what is missing').toMatch(/frame/i)
-    }
-  })
-
-  it('gives every cinematic row a scene, and a scene only to those rows', () => {
-    // The round's closing condition, read off the table instead of
-    // asserted in a report: the four rows flagged for Round 5 each name a
-    // scene, and no other row does.
-    const flagged = SECTION_6_ROWS.filter((r) => r.cinematicInRound5)
-    expect(flagged.length, 'the cinematic flags have gone').toBe(4)
-    for (const row of flagged) {
-      expect(row.scene, `${row.beat} is flagged for Round 5 but plays no scene`).toBeTruthy()
-    }
-    for (const row of SECTION_6_ROWS.filter((r) => !r.cinematicInRound5)) {
-      expect(row.scene, `${row.beat} plays a scene but is not a cinematic row`).toBeUndefined()
-    }
-    // Each scene is used once: two rows sharing one would mean the two
-    // outcomes, or a hit and a commendation, look the same.
-    const names = flagged.map((r) => r.scene)
-    expect(new Set(names).size, `two rows share a scene: ${names.join(', ')}`).toBe(flagged.length)
-  })
-
-  it('backs every scene with an entrance that exists in the stylesheet', () => {
-    for (const row of SECTION_6_ROWS.filter((r) => r.scene)) {
-      const className = `dc-scene-${row.scene}`
-      expect(new RegExp(`\\.${className}\\s*[{,]`).test(CSS), `${row.beat} names .${className}, which the stylesheet does not declare`).toBe(
-        true,
-      )
-    }
-  })
+  // RETIRED in v1.3 Round 3, with the rows and the director they read:
+  //   - "keeps the arrival row deferred while the frame it needs is off
+  //     screen": the Deployment arrives row and its deploy-arrived beat
+  //     left the table; the night has no arrival moment.
+  //   - "gives every cinematic row a scene" and "backs every scene with an
+  //     entrance": Scene.tsx and the dc-scene-* entrances were deleted, and
+  //     rows carry no scene or cinematicInRound5.
+  //   - "pins CARD_SAFE_VISUALS": the set decided what DirectorView ran on
+  //     its one card. Each night card names its own classes, which the
+  //     wiring test above checks file by file and tests/sound.dom.spec.tsx
+  //     sees on screen.
 
   it('records what each deferred row still owes', () => {
     // A row that ships only part of its brief treatment says so, so the
     // battery cannot report an unfinished row as done.
     for (const row of SECTION_6_ROWS) {
       if (row.deferred) expect(row.deferred.length).toBeGreaterThan(8)
-      if (row.cinematicInRound5) expect(row.visual).not.toBe('placeholder')
     }
-    expect(SECTION_6_ROWS.filter((r) => r.deferred || r.cinematicInRound5).length).toBeGreaterThan(0)
-  })
-
-  it('pins CARD_SAFE_VISUALS, because nothing can derive it and dropping a member is invisible', () => {
-    // THIS IS A PIN AND NOT A DERIVATION, and saying so is the point.
-    //
-    // DirectorView decides what runs on the card by asking this set, so
-    // the set IS the decision and there is no second structure to join it
-    // to. Two candidates were tried and both are wrong: "ends visible in
-    // the stylesheet" admits badge-attach and strobe, which end at full
-    // opacity and belong to components; "the row's where names the
-    // director" admitted token-burn, which the director ran on a marker
-    // inside the card rather than on the card (until it left with SURGE in
-    // v1.3 Round 0), and still misses transmission, which the card runs
-    // though its row names the teletype.
-    //
-    // What makes the pin worth having is the failure it catches. A
-    // treatment missing from this set does not error: the card silently
-    // falls back to dc-card-in, so the cue is present in the union, in
-    // VISUAL_CLASS, in VISUAL_MS, in the stylesheet and on a section 6
-    // row, passes every other test in this file, and never reaches the
-    // screen. Round 7b shipped exactly that and only a DOM drive found it.
-    // Dropping 'ribbon' from the set survived the entire battery.
-    //
-    // The sibling test below derives the NEGATIVE half from the stylesheet
-    // (a treatment ending hidden must never be card-safe), so this pin
-    // carries only the half nothing else can see.
-    expect([...CARD_SAFE_VISUALS].sort()).toEqual([
-      'all-clear',
-      'asset-light',
-      'blackout',
-      'card-friendly',
-      'card-hostile',
-      'outcome-sweep',
-      'ribbon',
-      'transmission',
-    ])
-    // Every member must actually have a class to paint, or it is card-safe
-    // in name only.
-    for (const v of CARD_SAFE_VISUALS) {
-      expect(VISUAL_CLASS[v], `${v} is card-safe but paints no class`).toBeTruthy()
-    }
+    expect(SECTION_6_ROWS.filter((r) => r.deferred).length).toBeGreaterThan(0)
   })
 
   it('uses every declared visual treatment at least once', () => {
@@ -363,130 +271,97 @@ describe('visual cue vocabulary (Round 3)', () => {
     }
   })
 
-  it('resolves a class for a beat cue key, and nothing for an unknown one', () => {
-    expect(visualClass('beat:threat')).toBe(VISUAL_CLASS['card-hostile'])
-    expect(visualClass('condition:pnt-jamming')).toBe(VISUAL_CLASS['badge-attach'])
-    expect(visualClass('event:not-real')).toBe('')
+  it('resolves a visual for a moment, event or condition key, and nothing for an unknown one', () => {
+    // visualClass(cueKey, kind) retired with the director; the night
+    // applies classes by name. What is left to resolve is the registry
+    // entry, through the one function every namespace goes through.
+    expect(resolveCue('moment:strike-hit')?.visual).toBe('strike')
+    expect(resolveCue('moment:strike-block')?.visual).toBe('shield')
+    expect(VISUAL_CLASS[resolveCue('moment:strike-block')!.visual]).toBe('dc-shield-tile')
+    expect(resolveCue('condition:pnt-jamming')?.visual).toBe('chip-in')
+    expect(resolveCue('event:blackout-chain')?.visual).toBe('strike')
+    expect(resolveCue('event:not-real')).toBeUndefined()
   })
 
-  it('lets the beat kind own the visual where the subject cue would say the wrong thing', () => {
-    // These carry a deck-keyed cue so the label and the later sound stay
-    // specific to the subject, but their visual belongs to what is
-    // happening. Without this the clear sweep and the persistence tick
-    // played the hostile attach glow. (The surge burn was the third such
-    // kind until SURGE and its surge-spent beat left in v1.3 Round 0.)
-    expect(visualClass('condition:pnt-jamming', 'condition-cleared')).toBe(VISUAL_CLASS['badge-clear'])
-    expect(visualClass('condition:pnt-jamming', 'condition-pressure')).toBe(VISUAL_CLASS['badge-tick'])
-    // deploy-arrived is deliberately NOT in the override set: the beat cue
-    // and every countermeasure cue already use asset-light, so overriding
-    // would only shadow a future per-countermeasure visual.
-    expect(visualClass('counter:sensorFusion', 'deploy-arrived')).toBe(VISUAL_CLASS['asset-light'])
-    // And the exclusion is deliberate: the signature move keeps the deck's
-    // own treatment rather than the generic hostile card.
-    expect(visualClass('event:blackout-chain', 'threat')).toBe(VISUAL_CLASS.blackout)
-    expect(visualClass('event:pnt-jamming', 'threat')).toBe(VISUAL_CLASS['card-hostile'])
-  })
-
-  it('plays the visual each beat kind claims, over real play rather than hand-built keys', () => {
-    // The registry can agree with itself and still be wrong about what a
-    // player sees. This derives real beats and asks what visual each one
-    // would actually play.
-    const expected: Partial<Record<string, VisualCue>> = {
-      'turn-start': 'transmission',
-      // Round 7b: `quiet` had this row's treatment, which is why turn 1
-      // played the same cue twice.
-      quiet: 'all-clear',
-      opportunity: 'card-friendly',
-      'deploy-arrived': 'asset-light',
-      'condition-pressure': 'badge-tick',
-      'condition-cleared': 'badge-clear',
-      'condition-applied': 'badge-attach',
-      'condition-renewed': 'badge-attach',
-      commendation: 'ribbon',
-      'chain-armed': 'blackout',
-      outcome: 'outcome-sweep',
-      procurement: 'silent',
-      'end-of-turn-tick': 'silent',
-    }
-    const seenVisuals = new Set<VisualCue>()
-    const seenKinds = new Set<string>()
-    const wrong: string[] = []
-    // The third run was the surge line, the prepared script plus SURGE,
-    // until SURGE left in v1.3 Round 0; the mixed script takes its place,
-    // a third way of playing rather than the prepared one again.
-    const runs = [
-      ...[1, 2, 3, 4].map((seed) => playTurns(seed, WIN_SCRIPT)),
-      ...[1, 2].map((seed) => playTurns(seed, LOSS_SCRIPT)),
-      ...[1, 2, 3].map((seed) => playTurns(seed, MIXED_SCRIPT)),
-    ]
-    for (const run of runs) {
-      for (const { before, after } of run) {
-        for (const beat of deriveBeats(before, after)) {
-          const visual = visualFor(beat.cueKey, beat.kind)
-          expect(visual, `${beat.id} resolves no visual`).toBeTruthy()
-          seenVisuals.add(visual!)
-          seenKinds.add(beat.kind)
-          const want = expected[beat.kind]
-          if (want && visual !== want) wrong.push(`${beat.kind} played ${visual}, expected ${want}`)
-        }
-      }
-    }
-    expect([...new Set(wrong)].join('\n')).toBe('')
-    // The kinds the shadowing hit must actually have occurred, or the
-    // assertions above passed vacuously (surge-spent was among them until
-    // its beat kind left with SURGE in v1.3 Round 0).
-    for (const kind of ['condition-cleared', 'condition-pressure', 'deploy-arrived']) {
-      expect(seenKinds.has(kind), `${kind} never occurred in the sweep`).toBe(true)
-    }
-  })
+  // RETIRED in v1.3 Round 3: "lets the beat kind own the visual where the
+  // subject cue would say the wrong thing" (KIND_OWNS_TREATMENT and
+  // visualFor left with the beats), and "plays the visual each beat kind
+  // claims, over real play". The second one's purpose survives and moved
+  // to tests/sound.dom.spec.tsx, which drives real nights through Game and
+  // checks each moment's treatment on the element that shows it.
 
   it('leaves no declared visual unreachable', () => {
-    // Every treatment is either played by a beat or carried by a component
-    // that a section 6 row names. A visual reachable from neither is dead
-    // code dressed as coverage.
-    const fromBeats = new Set<VisualCue>()
-    // Enough seeds that the rare draws occur: an opportunity is a one in
-    // five roll on five turns, so a handful of campaigns can miss it and
-    // the assertion would then pass for the wrong reason.
-    for (const seed of Array.from({ length: 16 }, (_, i) => i + 1)) {
-      for (const { before, after } of playBoth(seed)) {
-        for (const beat of deriveBeats(before, after)) {
-          const visual = visualFor(beat.cueKey, beat.kind)
-          if (visual) fromBeats.add(visual)
-        }
-      }
-    }
-    const fromComponents = new Set(SECTION_6_ROWS.filter((r) => !r.where.startsWith('director/')).map((r) => r.visual))
-    const unreachable = (Object.keys(VISUAL_CLASS) as VisualCue[]).filter(
-      (v) => v !== 'placeholder' && !fromBeats.has(v) && !fromComponents.has(v),
-    )
+    // Every treatment is carried by a component that a section 6 row
+    // names, now that no beat plays one. A visual reachable from no row is
+    // dead code dressed as coverage.
+    const fromRows = new Set(SECTION_6_ROWS.map((r) => r.visual))
+    const unreachable = (Object.keys(VISUAL_CLASS) as VisualCue[]).filter((v) => v !== 'placeholder' && !fromRows.has(v))
     expect(unreachable.join(', ')).toBe('')
   })
 })
 
 describe('cue timing and card safety', () => {
-  // The helper strips a cue class when its animation is over. A recorded
-  // duration shorter than the stylesheet's would cut the animation off
-  // mid-frame; longer would leave the class on the element. Both numbers
-  // are read from the same stylesheet the browser uses.
-  const declaredMs = (className: string): number | undefined => {
-    const rule = new RegExp(`\\.${className}\\s*\\{[^}]*animation:\\s*[\\w-]+\\s+([0-9.]+)(m?s)`).exec(CSS)
-    if (!rule) return undefined
-    return rule[2] === 's' ? Number(rule[1]) * 1000 : Number(rule[1])
+  // The rule for a class in whichever stylesheet declares it, bounded to
+  // the class itself so .dc-tile-in cannot pick up .dc-tile-in-x.
+  const ruleFor = (className: string): string | undefined => {
+    for (const [, css] of SHEETS) {
+      const rule = new RegExp(`\\.${className}\\s*\\{([^}]*)\\}`).exec(css)
+      if (rule && /animation:/.test(rule[1])) return rule[1]
+    }
+    return undefined
+  }
+  // A duration as the stylesheets write it: a plain time, the strike's
+  // length (var(--dc-beat, 1200ms)), or a share of it (calc(var(...) * k)).
+  // The fallback is what a treatment runs for when nothing sets the
+  // variable, and Game sets it to STRIKE_MS, so the two are checked equal
+  // below rather than assumed.
+  const BEAT = /var\(--dc-beat,\s*([0-9.]+)(m?s)\)/
+  const toMs = (n: string, unit: string) => (unit === 's' ? Number(n) * 1000 : Number(n))
+  const declared = (className: string): { ms: number; loops: boolean; name: string; beat?: number } | undefined => {
+    const body = ruleFor(className)
+    if (!body) return undefined
+    const anim = /animation:\s*([\w-]+)\s+(calc\(var\([^)]*\)[^)]*\)|var\([^)]*\)|[0-9.]+m?s)([^;]*)/.exec(body)
+    if (!anim) return undefined
+    const [, name, time, rest] = anim
+    const loops = /\binfinite\b/.test(rest)
+    const beat = BEAT.exec(time)
+    if (!beat) {
+      const plain = /^([0-9.]+)(m?s)$/.exec(time)
+      return plain ? { ms: toMs(plain[1], plain[2]), loops, name } : undefined
+    }
+    const fallback = toMs(beat[1], beat[2])
+    const share = /\*\s*([0-9.]+)\s*\)$/.exec(time)
+    return { ms: Math.round(fallback * (share ? Number(share[1]) : 1)), loops, name, beat: fallback }
   }
 
   it('records the stylesheet duration for every animated visual', () => {
+    // The helper strips a cue class when its animation is over. A recorded
+    // duration shorter than the stylesheet's would cut the animation off
+    // mid-frame; longer would leave the class on the element. Both numbers
+    // are read from the same stylesheets the browser uses.
     const wrong: string[] = []
+    let shares = 0
     for (const [visual, className] of Object.entries(VISUAL_CLASS)) {
       if (!className) continue
-      const css = declaredMs(className)
+      const css = declared(className)
       expect(css, `${className} declares no animation duration`).toBeDefined()
-      // The strobe loops until the state clears, so it has no one-shot life.
-      if (visual === 'strobe') continue
       const recorded = VISUAL_MS[visual as keyof typeof VISUAL_MS]
-      if (recorded !== css) wrong.push(`${visual}: recorded ${recorded}ms, stylesheet ${css}ms`)
+      // A treatment that loops (the strobe until the state clears, the
+      // COLLECT glow until the tap) has no one-shot life, and records none.
+      if (css!.loops) {
+        if (recorded !== 0) wrong.push(`${visual}: loops in the stylesheet but records ${recorded}ms`)
+        continue
+      }
+      if (css!.beat !== undefined) {
+        shares += 1
+        if (css!.beat !== STRIKE_MS) wrong.push(`${visual}: the stylesheet's strike falls back to ${css!.beat}ms, STRIKE_MS is ${STRIKE_MS}`)
+      }
+      if (recorded !== css!.ms) wrong.push(`${visual}: recorded ${recorded}ms, stylesheet ${css!.ms}ms`)
     }
     expect(wrong.join('\n')).toBe('')
+    // The strike's share was read at least once, or the calc branch above
+    // was never exercised and a wrong share would pass.
+    expect(shares, 'no treatment takes the strike length, so its parse is untested').toBeGreaterThan(1)
   })
 
   it('gives every visual a duration entry, and none to the ones that do not animate', () => {
@@ -496,20 +371,27 @@ describe('cue timing and card safety', () => {
     }
   })
 
-  it('never lets a treatment that ends hidden run on the whole card', () => {
-    // badge-clear finishes at opacity 0. Handing it to the card would
-    // animate the card itself away, which is what the card-safe set exists
-    // to prevent. (token-burn, which finished at 0.25, was the second known
-    // case until it left with SURGE in v1.3 Round 0.)
+  it('never lets a treatment that ends hidden rest on a card', () => {
+    // The successor of the card-safe set. A treatment whose keyframes end
+    // below full opacity takes its element away with it; on a card that
+    // waits for a tap, that is the card itself vanishing under the
+    // player's thumb. The strike's banner is the known case and is meant
+    // to go: it leaves with the strike. So the cards' treatments, the
+    // visuals of every row whose treatment lives on a night card, must all
+    // end visible. The keyframes are found through each class's own
+    // animation name, since several (the overlay's dc-fade-in, the
+    // shield's dc-shield) are not named after their class.
     const keyframeBlock = (name: string): string => {
-      const at = CSS.indexOf(`@keyframes ${name} {`)
-      if (at < 0) return ''
-      let depth = 0
-      for (let i = CSS.indexOf('{', at); i < CSS.length; i += 1) {
-        if (CSS[i] === '{') depth += 1
-        else if (CSS[i] === '}') {
-          depth -= 1
-          if (depth === 0) return CSS.slice(at, i + 1)
+      for (const [, css] of SHEETS) {
+        const at = css.indexOf(`@keyframes ${name} {`)
+        if (at < 0) continue
+        let depth = 0
+        for (let i = css.indexOf('{', at); i < css.length; i += 1) {
+          if (css[i] === '{') depth += 1
+          else if (css[i] === '}') {
+            depth -= 1
+            if (depth === 0) return css.slice(at, i + 1)
+          }
         }
       }
       return ''
@@ -517,43 +399,35 @@ describe('cue timing and card safety', () => {
     const endsHidden: string[] = []
     for (const [visual, className] of Object.entries(VISUAL_CLASS)) {
       if (!className) continue
-      const block = keyframeBlock(className)
+      const name = declared(className)?.name
+      expect(name, `${className} names no keyframes`).toBeTruthy()
+      const block = keyframeBlock(name!)
+      expect(block, `${className} animates @keyframes ${name}, which no stylesheet declares`).not.toBe('')
       const last = /100%\s*\{([^}]*)\}/.exec(block)?.[1] ?? ''
       const opacity = /opacity:\s*([0-9.]+)/.exec(last)?.[1]
       if (opacity !== undefined && Number(opacity) < 1) endsHidden.push(visual)
     }
+    const onCards = new Set(SECTION_6_ROWS.filter((r) => /^ui\/night\/(cards|closeCards)\.tsx/.test(r.where)).map((r) => r.visual))
+    expect(onCards.size, 'no row lives on a night card, so this asserts nothing').toBeGreaterThan(3)
     for (const visual of endsHidden) {
-      expect(
-        CARD_SAFE_VISUALS.has(visual as never),
-        `${visual} ends at reduced opacity and must not be card-safe`,
-      ).toBe(false)
+      expect(onCards.has(visual as VisualCue), `${visual} ends at reduced opacity and must not rest on a card`).toBe(false)
     }
     // The check is only meaningful if it found the known case.
-    expect(endsHidden).toContain('badge-clear')
+    expect(endsHidden).toContain('strike')
   })
 
   it('declares no animation for a cue class outside the reduced-motion guard', () => {
     // The containment test proves each class appears inside the guard; this
     // proves none of them also animates outside it, which is the shape of
     // the rule that was moved under the guard.
-    const open = CSS.lastIndexOf('@media (prefers-reduced-motion: no-preference)')
-    let depth = 0
-    let end = -1
-    for (let i = CSS.indexOf('{', open); i < CSS.length; i += 1) {
-      if (CSS[i] === '{') depth += 1
-      else if (CSS[i] === '}') {
-        depth -= 1
-        if (depth === 0) {
-          end = i
-          break
-        }
-      }
-    }
-    const outside = CSS.slice(0, open) + CSS.slice(end + 1)
     const leaked: string[] = []
-    for (const className of new Set(Object.values(VISUAL_CLASS).filter(Boolean))) {
-      const rule = new RegExp(`\\.${className}\\s*\\{([^}]*)\\}`).exec(outside)
-      if (rule && /animation:|transform/.test(rule[1])) leaked.push(className)
+    for (const [file, css] of SHEETS) {
+      const guard = guardOf(css)
+      const outside = css.slice(0, guard.open) + css.slice(guard.end + 1)
+      for (const className of new Set(Object.values(VISUAL_CLASS).filter(Boolean))) {
+        const rule = new RegExp(`\\.${className}\\s*\\{([^}]*)\\}`).exec(outside)
+        if (rule && /animation:|transform/.test(rule[1])) leaked.push(`${file}: ${className}`)
+      }
     }
     expect(leaked.join(', ')).toBe('')
   })

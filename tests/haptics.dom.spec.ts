@@ -26,7 +26,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { HAPTIC_PATTERNS, SOUND_MS, hapticPatternFor, type SoundCue } from '../src/director'
+import { HAPTIC_PATTERNS, SOUND_MS, hapticPatternFor, type SoundCue } from '../src/cues'
 import { Haptics, resetHapticsForTests } from '../src/haptics/haptics'
 import { prefersReducedMotionNow } from '../src/ui/cues/motion'
 import { FakeNavigator } from './fakeNavigator'

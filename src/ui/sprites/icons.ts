@@ -79,6 +79,17 @@ export const ICON_UP = mono(`
   ..iiii.. .iiiiii. .iiiiii. iiiiiiii
 `)
 
+// ▼ a fall, on END OF TURN's score (v1.3 R3).
+export const ICON_DOWN = mono(`
+  iiiiiiii .iiiiii. .iiiiii. ..iiii..
+  ..iiii.. ...ii... ...ii... ........
+`)
+// ✦ new intel, on COLLECT INTEL CARD (v1.3 R3).
+export const ICON_SPARK = mono(`
+  ...ii... ...ii... ..iiii.. iiiiiiii
+  iiiiiiii ..iiii.. ...ii... ...ii...
+`)
+
 // A one-ink icon in another token, for the tone of the status it marks
 // (hostile for EXPOSED, warn for PARTLY BLOCKED, go for BLOCKED). One
 // object per icon and token, so PixelSprite's memo holds.

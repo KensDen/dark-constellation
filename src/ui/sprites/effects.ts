@@ -1,7 +1,6 @@
-// The effect sprites (v1.2 R2, brief 5.2), drawn now and wired in R3,
-// when the director's beats land on tiles (brief 4.5). Nothing imports
-// them yet outside the suite, so they cost the bundle nothing until R3
-// uses them. 16x16.
+// The effect sprites (v1.2 R2, brief 5.2): the lock-on, the hit burst and
+// the shield flash the strike puts on a tile (v1.3 brief 5.5 item 1).
+// 16x16.
 
 import { sprite, type Palette } from './sprite'
 

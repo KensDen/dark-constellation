@@ -1,130 +1,139 @@
-// What the aftermath says when a threat landed through every applicable
-// defense (critique row M8). The one purchase left is the IR retainer, so
-// the line names it, with how much faster it recovers read off the
-// scenario: "three times" for the shipped 6 against 2, and a plain
-// "faster" when a retune leaves no whole number of times. Since v1.3
-// Round 0 the retainer is a countermeasure like any other, owned when it
-// is in state.counters (there is no irRetainer flag on the state).
+// What would have helped (critique rows M3 and M8), as the night says it.
+// The sentences used to come from src/ui/wouldHaveHelped.ts (a full form
+// for the aftermath's ledger, a short one for the hit card and the
+// verdict), which v1.3 R3 retired with the director and the aftermath
+// card. The night's hit card says it now (brief 5.5 item 2): an
+// UNDEFENDED block names the one defense that would have helped, its
+// price, what it stops and that PROCURE has it next turn; a REDUCED block
+// names the one that would have finished it. Which defense each block
+// names is the night model's defensesFor; the words are
+// src/ui/night/nightCopy.ts. The cards themselves, over real play, are in
+// tests/would-have-helped.dom.spec.tsx.
 
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
-import { newGame } from '../src/engine/reducer'
-import type { ResolvedEvent, Scenario } from '../src/engine/types'
-import { full, short } from '../src/ui/wouldHaveHelped'
+import { newGame, resolveTurn } from '../src/engine/reducer'
+import { turnRng } from '../src/engine/rng'
+import type { GameState } from '../src/engine/types'
+import * as copy from '../src/ui/night/nightCopy'
+import { defensesFor, nightOf } from '../src/ui/night/nightModel'
+import { POLICIES } from './policies'
+import { LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
 
 const scenario = DEFAULT_SCENARIO
-// A threat with defenses that is not the debris, which is a call with its
-// own sentence (v1.3 Round 0 retired the Tier A share and the maneuver
-// budget that used to gate a defense), so owning them all reaches the
-// final branch.
-const def = scenario.events.find((e) => e.kind !== 'opportunity' && e.counters.length > 0 && e.effect.special !== 'debrisStrike')!
-const ev = { eventId: def.id, chainBonus: 0, mitigation: 0 } as ResolvedEvent
-// Every applicable defense owned, and the retainer not.
-const owned = { ...newGame(scenario, 1, 'standard'), counters: [...def.counters] }
-const withRetainer = { ...owned, counters: [...def.counters, 'irRetainer' as const] }
-const retuned = (base: number, withIrRetainer: number): Scenario => ({ ...scenario, recovery: { base, withIrRetainer } })
+const nameOf = (id: string) => scenario.countermeasures.find((c) => c.id === id)!.name
+const costOf = (id: string) => scenario.countermeasures.find((c) => c.id === id)!.cost
 
-describe('the aftermath when every applicable defense was active', () => {
-  it('names the retainer when it was not owned, three times faster as shipped', () => {
-    expect(def, 'no threat in the deck reaches the final branch').toBeDefined()
-    expect(owned.counters, 'the fixture owns the retainer already').not.toContain('irRetainer')
-    expect(scenario.recovery).toEqual({ base: 2, withIrRetainer: 6 })
-    expect(full(ev, owned, scenario)).toBe(
-      'Every applicable defense was active. The incident response retainer would have recovered the damage three times faster.',
-    )
-  })
+// Which defense a block names (v1.3 brief 6.1): the event's first listed
+// defense is its primary, and the block names the first one in that order
+// the player owned (HELD, REDUCED) and the first one they did not (what
+// would have helped, what would have finished it).
+describe('the defense the outcome block names', () => {
+  const two = scenario.events.find((e) => e.kind !== 'opportunity' && e.counters.length === 2 && e.effect.special !== 'debrisStrike')!
 
-  it('keeps the ratio true when recovery is retuned', () => {
-    const say = (s: Scenario) => full(ev, { ...owned, scenario: s }, s)
-    expect(say(retuned(2, 8))).toContain('recovered the damage four times faster.')
-    expect(say(retuned(2, 5))).toContain('recovered the damage faster.')
-    expect(say(retuned(0, 6))).toContain('recovered the damage faster.')
-    // No faster than base, so the retainer is not named at all.
-    for (const s of [retuned(2, 2), retuned(3, 2)]) {
-      expect(say(s)).toBe('Every applicable defense was active. What landed got through them anyway.')
+  it('follows the threat\'s own order, whichever of its defenses is owned', () => {
+    expect(two, 'no threat in the deck lists a primary and a secondary').toBeDefined()
+    const [primary, secondary] = two.counters
+    const ids = (owned: string[]) => {
+      const d = defensesFor(two, owned, scenario)
+      return { held: d.held?.id, missing: d.missing?.id }
     }
+    expect(ids([])).toEqual({ held: undefined, missing: primary })
+    expect(ids([primary])).toEqual({ held: primary, missing: secondary })
+    // The worth follows the defense's place in the threat's list, not which
+    // of them happens to be missing.
+    expect(ids([secondary])).toEqual({ held: secondary, missing: primary })
+    // Once every applicable defense is owned, nothing is missing, and a
+    // block has nothing to name.
+    expect(ids([primary, secondary])).toEqual({ held: primary, missing: undefined })
   })
 
-  it('says what it always said once the retainer is owned', () => {
-    expect(full(ev, withRetainer, scenario)).toBe('Every applicable defense was active. What landed got through them anyway.')
+  it('names exactly what the engine credits and records missed, on every threat of real play', () => {
+    // Derived both ways, so the card and the engine cannot drift apart:
+    // the defense a HELD or REDUCED block names is the one the engine
+    // credits with the block, and the one an UNDEFENDED or REDUCED block
+    // says would have helped is the one the engine records the player
+    // missed (src/engine/reducer.ts, learn).
+    const lines = [WIN_SCRIPT, MIXED_SCRIPT, LOSS_SCRIPT].map((s) => (state: GameState) => s[state.turn] ?? NO_OP)
+    let held = 0
+    let missed = 0
+    for (const line of [...lines, ...POLICIES.map((p) => p.policy)]) {
+      for (const seed of [20260712, 4041, 1, 2, 3]) {
+        let state = newGame(scenario, seed, 'standard')
+        while (state.status === 'playing') {
+          const after = resolveTurn(state, line(state), turnRng(state.seed, state.turn))
+          for (const step of nightOf(state, after).steps) {
+            if (step.kind !== 'threat') continue
+            const d = defensesFor(step.def, step.after.counters, scenario)
+            const where = `seed ${seed} turn ${state.turn} ${step.def.id}`
+            if (d.held) {
+              expect(after.learned.some((l) => l.counter === d.held!.id && l.threat === step.def.id), `${where}: the card credits a defense the engine did not`).toBe(true)
+              held += 1
+            }
+            if (d.missing && step.ev.effectiveSeverity > 0) {
+              expect(after.learned.some((l) => l.counter === d.missing!.id && l.threat === step.def.id), `${where}: the card names a defense the engine did not record missed`).toBe(true)
+              missed += 1
+            }
+          }
+          state = after
+        }
+      }
+    }
+    expect(held, 'no block was credited in the sweep').toBeGreaterThan(0)
+    expect(missed, 'nothing was missed in the sweep').toBeGreaterThan(0)
   })
 })
 
-// Each missing defense's worth (v1.3 brief 6.1): the event's first listed
-// defense is its primary and cuts severity by 2, every other one by 1.
-// Written out rather than read from the engine, so a change to the rule
-// shows up here as well as in the engine's own tests.
-describe('the worth of a missing defense', () => {
-  const nothing = { ...newGame(scenario, 1, 'standard'), counters: [] }
-  const evOf = (id: string) => ({ eventId: id, chainBonus: 0, mitigation: 0 }) as ResolvedEvent
-  const nameOf = (id: string) => scenario.countermeasures.find((c) => c.id === id)!.name
+// The words (critique row M3: the defense by name, its price, and where to
+// get it), held to the sentences the brief gives.
+describe('what the blocks say', () => {
+  const id = scenario.countermeasures[0].id
+  const say = (parts: readonly string[]) => parts.join('')
 
-  it('says the primary cuts 2 and a secondary cuts 1, whichever of them is missing', () => {
-    const two = scenario.events.find((e) => e.kind !== 'opportunity' && e.counters.length === 2 && e.effect.special !== 'debrisStrike')
-    expect(two, 'no threat in the deck lists a primary and a secondary').toBeDefined()
-    const [primary, secondary] = two!.counters
-    expect(full(evOf(two!.id), nothing, scenario)).toBe(
-      `What would have helped: ${nameOf(primary)} (cuts severity by 2); ${nameOf(secondary)} (cuts severity by 1).`,
-    )
-    // The worth follows the defense's place in the threat's list, not
-    // which of them happens to be missing.
-    expect(full(evOf(two!.id), { ...nothing, counters: [primary] }, scenario)).toBe(
-      `What would have helped: ${nameOf(secondary)} (cuts severity by 1).`,
-    )
-    expect(full(evOf(two!.id), { ...nothing, counters: [secondary] }, scenario)).toBe(
-      `What would have helped: ${nameOf(primary)} (cuts severity by 2).`,
-    )
+  it('says what would have helped with its price, what it stops, and that PROCURE has it next turn', () => {
+    expect(say(copy.wouldHaveHelped(nameOf(id), costOf(id)))).toBe(`What would have helped: ${nameOf(id)}, ${costOf(id)} CR.`)
+    expect(copy.itStops(['GNSS spoofing'])).toBe('It stops GNSS spoofing.')
+    expect(copy.itStops(['GNSS spoofing', 'GNSS jamming'])).toBe('It stops GNSS spoofing and GNSS jamming.')
+    expect(copy.IN_PROCURE).toBe('It is in PROCURE next turn with that written on it.')
   })
 
-  it('makes the debris a call: SSA makes the burn free, and owning it leaves the hold as the gamble', () => {
+  it('says what would have finished a partial, with its price', () => {
+    expect(say(copy.finishedIt(nameOf(id), costOf(id)))).toBe(`Would have finished it: ${nameOf(id)}, ${costOf(id)} CR.`)
+  })
+
+  it('makes the debris a call: the SSA service makes the burn free, and owning it leaves the hold as the gamble', () => {
     const debris = scenario.events.find((e) => e.effect.special === 'debrisStrike')
     expect(debris, 'no debris in the deck').toBeDefined()
     expect(debris!.counters).toEqual(['ssaManeuver'])
-    expect(full(evOf(debris!.id), nothing, scenario)).toBe(
-      `What would have helped: ${nameOf('ssaManeuver')} (makes the avoidance burn free instead of 10 CR).`,
-    )
-    expect(full(evOf(debris!.id), { ...nothing, counters: ['ssaManeuver'] }, scenario)).toBe(
-      'The SSA service was owned, so a burn would have moved the satellite clear for nothing. The hold played the odds.',
-    )
+    const ssa = scenario.countermeasures.find((c) => c.id === 'ssaManeuver')!
+    // A satellite lost on the hold, and a call made without the service.
+    expect(say(copy.debrisHelp(true, ssa.name, ssa.cost))).toBe(`What would have helped: ${ssa.name}, ${ssa.cost} CR, for exact odds and free fuel.`)
+    expect(say(copy.debrisHelp(false, ssa.name, ssa.cost))).toBe(`Would have made this an easy call: ${ssa.name}, ${ssa.cost} CR, for exact odds and free fuel.`)
+    // With the service the burn is budgeted, and the odds are exact; the
+    // fuel is on the button's face (v1.3 R3 fresh-eyes review).
+    expect(copy.burnFace(0)).toBe('BURN · 0 CR')
+    expect(copy.burnFace(10)).toBe('BURN · 10 CR')
+    expect(copy.burnLine(true, 0.35, 'SG-2', null)).toBe('Fuel already budgeted. SG-2 dodges a collision chance of 35 percent.')
+    expect(copy.burnLine(false, 0.35, 'SG-2', null)).toBe('Unbudgeted fuel. SG-2 dodges a collision chance of somewhere between 20 and 60 percent.')
+    // The coverage bonus is named only when the burn puts it at risk.
+    expect(copy.burnLine(false, 0.35, 'SG-2', 10)).toContain('can cost the 10 CR coverage bonus')
+    expect(copy.burnLine(false, 0.35, 'SG-2', null)).not.toContain('coverage bonus')
   })
 })
 
-// The short form (critique row M3), for the hit card and the verdict: the
-// missing defenses by name, no parentheticals.
-describe('the short form', () => {
-  const nameOf = (id: string) => scenario.countermeasures.find((c) => c.id === id)!.name
-  const nothing = { ...newGame(scenario, 1, 'standard'), counters: [] }
-  const evOf = (id: string) => ({ eventId: id, chainBonus: 0, mitigation: 0 }) as ResolvedEvent
-  const two = scenario.events.find((e) => e.counters.length === 2)!
-
-  it('names one missing defense, two with "or", and three as a list ending in "or"', () => {
-    expect(two, 'no threat in the deck lists two defenses').toBeDefined()
-    const [a, b] = two.counters
-    expect(short(evOf(two.id), nothing, scenario)).toBe(`Would have helped: ${nameOf(a)} or ${nameOf(b)}`)
-    expect(short(evOf(two.id), { ...nothing, counters: [a] }, scenario)).toBe(`Would have helped: ${nameOf(b)}`)
-    const c = scenario.countermeasures.find((cm) => cm.counters.length > 0 && !two.counters.includes(cm.id))!.id
-    const three: Scenario = { ...scenario, events: scenario.events.map((e) => (e.id === two.id ? { ...e, counters: [a, b, c] } : e)) }
-    expect(short(evOf(two.id), nothing, three)).toBe(`Would have helped: ${nameOf(a)}, ${nameOf(b)} or ${nameOf(c)}`)
-  })
-
-  it('is empty once every applicable defense was owned', () => {
-    expect(short(evOf(two.id), { ...nothing, counters: [...two.counters] }, scenario)).toBe('')
-  })
-
-  it('names exactly the defenses the full sentence names, for every threat in the deck', () => {
-    // Derived both ways, so the two forms cannot drift apart: what the
-    // card says is missing is what the ledger says is missing.
-    const threats = scenario.events.filter((e) => e.kind !== 'opportunity')
-    expect(threats.length).toBeGreaterThan(0)
-    for (const e of threats) {
-      const inShort = short(evOf(e.id), nothing, scenario).replace('Would have helped: ', '').split(/, | or /)
-      const inFull = full(evOf(e.id), nothing, scenario)
-        .replace('What would have helped: ', '')
-        .split('; ')
-        .map((part) => part.replace(/ \(.*$/, ''))
-      expect(inShort, e.id).toEqual(inFull)
-      expect(inShort, e.id).toEqual(e.counters.map(nameOf))
-    }
+// When every applicable defense was active (critique row M8), the one
+// purchase left is the incident response retainer, and END OF TURN names it on a damaged
+// board (tests/would-have-helped.dom.spec.tsx renders it). The ratio is
+// read off the scenario, "three times" for the shipped 6 against 2, as the
+// v1.2 sentence read it, so a retune of recovery moves the words with it.
+describe('the retainer at the close', () => {
+  it('says how much faster the retainer recovers from the scenario, and claims nothing it cannot say', () => {
+    expect(scenario.recovery).toEqual({ base: 2, withIrRetainer: 6 })
+    const faster = copy.pace(scenario.recovery.base, scenario.recovery.withIrRetainer)
+    expect(copy.recoverySlow(faster)).toBe('Damaged systems repair slowly overnight. An incident response retainer makes it three times faster.')
+    expect(copy.recoveryFast(faster)).toBe('Your incident response retainer repairs damaged systems three times faster overnight.')
+    expect(copy.pace(2, 4)).toBe('two times faster')
+    expect(copy.pace(2, 5)).toBe('faster')
   })
 })

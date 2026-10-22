@@ -7,14 +7,15 @@
 // components under ./board only render what it hands them. Since v1.2 R5
 // the outcome screen is the score screen, a chunk of its own
 // (./ScoreScreen), and a campaign may be a Daily Op. The game-feel pass
-// (Round 2) adds a playback phase between resolve and aftermath: the
-// director plays the resolved turn beat by beat over a presented state.
-// Since v1.3 Round 0 every beat waits for a tap (brief 5.5): the speeds,
-// INSTANT among them, went with the dwell, and EXECUTE is a tap rather
-// than a hold. HARDEN, INTEL and SURGE left the bar the same round:
-// defenses and intel are ordered in PROCURE, and SURGE is gone (D2).
+// (Round 2) added a playback phase between resolve and aftermath. Since
+// v1.3 Round 3 that phase is THE NIGHT (brief 5.5, ./night): EXECUTE
+// resolves the turn in the engine, then the overlay, the strikes, the
+// cards and END OF TURN play it back over the board, tapped through; the
+// v1.1 director that played beats is retired. HARDEN, INTEL and SURGE
+// left the bar in Round 0: defenses and intel are ordered in PROCURE, and
+// SURGE is gone (D2).
 
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import {
   LocalDailyLedger,
   LocalScoreSink,
@@ -35,9 +36,7 @@ import { chooseDifficulty, deviceDifficulty, newOperation, randomSeed } from './
 import { DECK_LINE } from './systemControls'
 import { LearnMore } from './learnMore'
 import { DC_BTN } from './buttons'
-import DirectorView from '../director/DirectorView'
 import { useMusicState, useSound, useSoundPrefs } from '../audio'
-import { deriveBeats, type Beat } from '../director'
 import { useBadgePhases } from './cues/ConditionBadge'
 import { WIDE_QUERY, useCueClass, useMediaQuery, usePageVisible, useReducedMotion } from './cues/motion'
 import BoardHud from './board/BoardHud'
@@ -45,21 +44,21 @@ import AssetStrip, { type ChipModel } from './board/AssetStrip'
 import Tonight from './board/Tonight'
 import Orders, { type OrderId } from './board/Orders'
 import Dock from './board/Dock'
-import AftermathCard from './board/AftermathCard'
 import Procure from './board/Procure'
 import type { SheetId } from './board/actions'
 import { ACTIONS, fKeyOf, resolveLabel } from './board/actions'
-import { tonightSlots } from './board/boardModel'
+import { callIndex, tonightSlots } from './board/boardModel'
 import SystemSheet from './board/SystemSheet'
 import { conditionsOn, tilesByLayer, turnBudget } from './board/board'
-import { COUNT_SHARE, LOCK_SHARE, STRIKE_MS, strikeFor, type Strike } from './board/strike'
+import { COUNT_SHARE, STRIKE_MS } from './board/strike'
 import { DEFAULT_SCENARIO } from '../content'
 import { briefActive, briefFree, orderCost, resolveTurn } from '../engine/reducer'
 import { worstCase } from '../engine/worstCase'
 import { defenseBonus } from '../engine/learning'
 import { turnRng } from '../engine/rng'
-import { assetPrice, maiScore } from '../engine/scoring'
-import { LAYERS, type AssetKind, type Difficulty, type GameState, type ThreatEvent, type TurnActions } from '../engine/types'
+import { assetPrice } from '../engine/scoring'
+import { LAYERS, type AssetKind, type DebrisChoice, type Difficulty, type GameState, type ThreatEvent, type TurnActions } from '../engine/types'
+import type { BoardView } from './night/Night'
 
 import Wordmark from './Wordmark'
 
@@ -98,6 +97,25 @@ const FieldLibrary = lazy(() => import('./FieldLibrary').catch(() => ({ default:
 // their intel cards.
 const WideUnavailable = () => <></>
 const WideBoard = lazy(() => import('./board/WideBoard').catch(() => ({ default: WideUnavailable })))
+// THE NIGHT (v1.3 brief 5.5), in chunks of its own, all fetched as the
+// board opens so EXECUTE never waits on them, and rendered from the loaded
+// module rather than through React.lazy, whose first showing would hold
+// the night back behind a Suspense reveal. A failed fetch leaves one
+// button that ends the night, so a turn the engine resolved can always be
+// left.
+type NightModule = typeof import('./night/Night')
+type NightProps = Parameters<NightModule['default']>[0]
+let nightModule: NightModule | null = null
+const loadNight = () => import('./night/Night').then((m) => (nightModule = m))
+const NightUnavailable = ({ burn, choice, onCall, onDone }: NightProps) => (
+  <button
+    type="button"
+    onClick={() => (burn && choice === null ? onCall('hold') : onDone())}
+    className="mt-auto min-h-12 border-2 border-dc-go bg-dc-go font-display text-xs text-dc-ground"
+  >
+    CONTINUE
+  </button>
+)
 
 // A dialog over the board (the intel card, the Glossary, the Field
 // Library): focus goes in and comes back to what opened it, Escape closes
@@ -167,17 +185,26 @@ const EMPTY_ACTIONS: TurnActions = {
 // identity on every render of the start screen.
 const EMPTY_CONDITIONS: GameState['conditions'] = []
 
-// The playback phase is presentation only (Round 2): it sits between
-// resolve and aftermath and is never persisted. A reload during playback
-// lands on the aftermath, which is what instant mode shows anyway.
-type Phase = SavePhase | 'playback'
-const persistPhase = (p: Phase): SavePhase => (p === 'playback' ? 'aftermath' : p)
+// THE NIGHT is presentation only: it plays a turn the engine already
+// resolved, and is never persisted as itself. A reload during it lands on
+// END OF TURN (the save's 'aftermath'), which is what a night ends on;
+// a reload before the debris call, when nothing is committed yet, lands
+// back on the board deciding the same turn.
+type Phase = SavePhase | 'night'
 
-interface PlaybackSession {
+// The night EXECUTE opened: the state it resolved from, the engine's
+// resolution with HOLD, and with BURN when tonight has a call to make.
+interface NightSession {
   before: GameState
-  after: GameState
-  beats: Beat[]
+  hold: GameState
+  burn: GameState | null
+  choice: DebrisChoice | null
 }
+
+// The night saves as END OF TURN once the engine's turn is committed, and
+// as the board it left while the debris call is still to make.
+const persistPhase = (phase: Phase, state: GameState, night: NightSession | null): SavePhase =>
+  phase === 'night' ? (night && state === night.before ? 'brief' : 'aftermath') : phase
 
 const btn =
   'font-mono border border-phosphor/60 text-phosphor px-3 py-1 hover:bg-phosphor/10 disabled:opacity-40 disabled:cursor-not-allowed'
@@ -199,17 +226,6 @@ function arrive(phase: Phase | undefined): { phase: Phase; sheet: Sheet | null }
 const saveStore = new LocalStorageStore()
 const scoreSink = new LocalScoreSink()
 const dailyLedger = new LocalDailyLedger()
-
-// THE DEBRIS CALL, interim (v1.3 Round 0). The engine takes BURN or HOLD
-// with the night's orders (TurnActions.debris); Round 3 builds the call
-// itself (brief 5.5 item 5). Until then a night with the conjunction
-// burns when the subscription makes the burn free and holds otherwise,
-// which spends nothing the player did not choose to spend.
-function withDebrisCall(state: GameState, actions: TurnActions): TurnActions {
-  if (actions.debris) return actions
-  const ssa = state.counters.includes('ssaManeuver') || actions.buyCounters.includes('ssaManeuver')
-  return { ...actions, debris: ssa ? 'burn' : 'hold' }
-}
 
 export default function Game({
   onExit,
@@ -280,48 +296,21 @@ export default function Game({
   // a memo may be discarded and recomputed at React's discretion and this
   // value must not move once the player has read it off the screen.
   const stampRef = useRef<{ for: GameState | null; at: string }>({ for: null, at: '' })
-  // Director playback (Round 2). `presented` is the state the HUD shows
-  // while beats play; `state` is always the engine's output.
-  const [playback, setPlayback] = useState<PlaybackSession | null>(null)
-  const [presented, setPresented] = useState<GameState | null>(null)
-  // How much of the credits change the beat now on screen carries is the
-  // player's own purchase, which playback folds into the next visible beat
-  // because the procurement recap is silent.
+  // THE NIGHT (v1.3 brief 5.5): the session EXECUTE opened, and what it
+  // tells the board to show (the board between events, the strike, the
+  // score's fall). `state` is always the engine's output.
+  const [night, setNight] = useState<NightSession | null>(null)
+  const [view, setView] = useState<BoardView | null>(null)
+  // How much of the budget's change on screen is the player's own orders,
+  // so the HUD does not read tonight's orders as damage. Declared for the
+  // one change that lands them, as the night opens, and no longer: the
+  // HUD reads that change in the same commit (a child's effect runs before
+  // this one), and every later change in the night (a burn's fuel, an
+  // opportunity, the close) is read as what it is.
   const [chosenSpend, setChosenSpend] = useState(0)
-  // What the beat on screen does to the board (v1.2 R3): a hit on a tile,
-  // held on a header, or nothing. Derived from the beat and the state the
-  // board showed before it, which the ref carries between beats.
-  const [strike, setStrike] = useState<Strike | null>(null)
-  const presentedRef = useRef<GameState | null>(null)
-  const [beatId, setBeatId] = useState<string | null>(null)
-  const showPresented = useCallback((s: GameState, chosenCredits: number, beat: Beat | null) => {
-    const before = presentedRef.current
-    presentedRef.current = s
-    setPresented(s)
-    setChosenSpend(chosenCredits)
-    setBeatId(beat?.id ?? null)
-    // The same beat can be presented again (a pause and resume); its strike
-    // stays where it was rather than locking on a second time.
-    setStrike((current) => (current && current.id === beat?.id ? current : strikeFor(beat, before)))
-  }, [])
-  // Whether the turn on screen played out beat by beat. A turn whose beats
-  // could not be derived goes straight to the aftermath, which then opens
-  // its ledger, since nothing else told that turn.
-  const [unplayed, setUnplayed] = useState(false)
-  const finishPlayback = useCallback(() => {
-    setPlayback(null)
-    setPresented(null)
-    setStrike(null)
-    setBeatId(null)
-    presentedRef.current = null
-    setPhase('aftermath')
-    // chosenSpend is deliberately NOT cleared here. Skipping ends playback
-    // in the same commit that jumps the credits to the engine's
-    // after-state, and that jump still carries the purchase; clearing the
-    // declaration here would paint the player's own buy as damage on the
-    // way out. It is cleared when the next turn is resolved, and whenever a
-    // different campaign is loaded.
-  }, [])
+  useEffect(() => {
+    if (phase === 'night' && view) setChosenSpend(0)
+  }, [phase, view])
   // Cue state. These sit with the other top-level hooks because the start
   // screen returns early below, and hook order cannot depend on whether a
   // campaign is in progress.
@@ -335,17 +324,16 @@ export default function Game({
   const [wideReady, setWideReady] = useState(false)
   const laidOut = wide && wideReady
   // The tile the inspector shows. Not the intel card's state: selecting a
-  // tile leaves the board live, the playback running and the keys on.
+  // tile leaves the board live, the night running and the keys on.
   const [inspected, setInspected] = useState<string | null>(null)
   // The board's idle life, and every other animation on it, pauses while
   // the tab is hidden (v1.2 R2, brief 5.3): one class on the board root,
   // which src/index.css turns into a pause for everything under it.
   const pageVisible = usePageVisible()
   // The procurement phase's own sounds (brief section 6, rows "Buy fleet or
-  // countermeasure" and "Cannot afford"). Playback sounds are the
-  // director's; these three tiles are the only cues the player triggers
-  // themselves, which is why they live with the controls rather than with
-  // the beats.
+  // countermeasure" and "Cannot afford"). The night's sounds are the
+  // night's own (./night); these tiles are the only cues the player
+  // triggers while deciding, which is why they live with the controls.
   const play = useSound()
   // The two audio toggles ride the save row, which is the only chrome the
   // campaign screen carries in every phase.
@@ -354,71 +342,19 @@ export default function Game({
   // section 4: "item slides into the manifest"); cleared when it goes.
   const [arrived, setArrived] = useState<{ index: number; nonce: number } | null>(null)
   const manifestCue = useCueClass(arrived?.nonce ?? null, 'dc-manifest-in', reducedMotion, 320)
-  // The dim the adversary phase enters through.
-  const phaseDim = useCueClass(phase === 'playback' ? `dim-${state?.turn ?? 0}` : null, 'dc-phase-dim', reducedMotion, 420)
-  // THE HIT BEATS (v1.2 R3, brief 4.5). The strike's length sets every
-  // duration on the board (the CSS reads it as --dc-beat). The lock-on
-  // holds for LOCK_SHARE of it, then the hit lands and the board shakes.
-  // The strike is the one part of a beat that plays on its own (brief
-  // 5.5); the beat itself waits for a tap. The shake's class is applied
-  // whatever the motion preference: the stylesheet decides whether it
-  // moves, as it does for the idle life.
+  // THE STRIKE (brief 5.5 item 1). Its length sets every duration on the
+  // board (the CSS reads it as --dc-beat); the night times it.
   const beatMs = STRIKE_MS
-  useEffect(() => {
-    if (strike?.kind !== 'hit' || strike.landed) return
-    const id = window.setTimeout(
-      () => setStrike((s) => (s && s.id === strike.id && s.kind === 'hit' ? { ...s, landed: true } : s)),
-      beatMs * LOCK_SHARE,
-    )
-    return () => window.clearTimeout(id)
-  }, [strike, beatMs])
-  // Held until the strike changes (duration 0): the stylesheet times the
-  // shake from --dc-beat.
-  const hitShake = useCueClass(strike?.kind === 'hit' && strike.landed ? strike.id : null, 'dc-hit-shake', false, 0)
-  // What the beat is about, brought into view in the scrolling column: the
-  // struck tile, the held layer, the layer a condition stamps, or else the
-  // event card. On a phone the column cannot hold the card and a lower
-  // tile at once, so a hit or a stamp scrolls the card away for its beat;
-  // the beat's title stays on screen on the objective line over the bar.
-  // Under reduced motion the view does not jump to the board at all: the
-  // card is where that player reads what happened. And the dotted beam
-  // from the COLDVEIL emblem to a struck tile, measured once the tile is
-  // in view.
+  const strike = phase === 'night' ? (view?.strike ?? null) : null
+  // The struck tile, brought into view in the scrolling column as the
+  // reticle locks on (brief 5.5 item 1); not under reduced motion, where
+  // there is no strike.
   const bodyRef = useRef<HTMLDivElement | null>(null)
-  const [beam, setBeam] = useState<{ id: string; x: number; y: number; length: number; angle: number } | null>(null)
+  const strikeTile = strike && 'assetId' in strike ? strike.assetId : undefined
   useLayoutEffect(() => {
-    const body = bodyRef.current
-    if (!body || !beatId) {
-      setBeam(null)
-      return
-    }
-    const hit = strike?.kind === 'hit' && strike.id === beatId ? strike : null
-    const held = strike?.kind === 'held' && strike.id === beatId ? strike : null
-    const stamped = playback?.beats.find((b) => b.id === beatId && (b.kind === 'condition-applied' || b.kind === 'condition-renewed'))
-    const layer = held ? held.layers[0] : stamped?.layers?.[0]
-    const target = hit
-      ? body.querySelector(`button[data-asset-id="${hit.assetId}"]`)
-      : layer
-        ? body.querySelector(`section[aria-labelledby="layer-${layer}"]`)
-        : null
-    const card = body.querySelector('div[data-beat-card]')
-    ;(reducedMotion ? card : (target ?? card))?.scrollIntoView?.({ block: 'nearest' })
-    const emblem = body.querySelector('svg[data-sprite="coldveil"]')
-    if (!hit || !target || !emblem) {
-      setBeam(null)
-      return
-    }
-    const b = body.getBoundingClientRect()
-    const e = emblem.getBoundingClientRect()
-    const t = target.getBoundingClientRect()
-    const x = e.left + e.width / 2 - b.left
-    const y = e.top + e.height / 2 - b.top
-    const dx = t.left + t.width / 2 - b.left - x
-    const dy = t.top + t.height / 2 - b.top - y
-    setBeam({ id: hit.id, x, y, length: Math.hypot(dx, dy), angle: (Math.atan2(dy, dx) * 180) / Math.PI })
-    // Measured when the beat changes, not when the hit lands.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [beatId])
+    if (!strikeTile || reducedMotion) return
+    bodyRef.current?.querySelector(`[data-asset-id="${strikeTile}"]`)?.scrollIntoView?.({ block: 'nearest' })
+  }, [strikeTile, reducedMotion])
   // The intel card (v1.2 R3, brief 4.8): a tile's, or the threat banner's,
   // a board dialog (useBoardDialog).
   const [intel, setIntel] = useState<{ kind: 'tile'; assetId: string } | { kind: 'banner' } | null>(null)
@@ -452,19 +388,16 @@ export default function Game({
     setIntel(null)
     setLibrary(eventId)
   }
-  // During playback the HUD follows the director's presented state, so the
-  // badge cues fire on the beat that applies them rather than jumping to
-  // the engine's end state. Computed here because hooks run before the
-  // start-screen early return below.
-  // While a hit is locking on, the board still shows the state before it,
-  // so the tile, its pips and MAI change when the hit lands (v1.2 R3).
-  const locking = strike?.kind === 'hit' && !strike.landed
-  const shownOrNull = phase === 'playback' && presented ? (locking ? strike.before : presented) : state
+  // During the night the HUD and the strip follow the board the night
+  // shows, so a hit lands on its tile and the score falls on the event
+  // that did it, rather than jumping to the engine's end state. Computed
+  // here because hooks run before the early return below.
+  // Until the night says what to show (its chunk may still be arriving),
+  // the board stays as EXECUTE left it, never the engine's end state.
+  const shownOrNull = phase === 'night' ? (view?.shown ?? night?.before ?? state) : state
   // The music bed follows the same state the HUD does, for the same
-  // reason: during playback that is the director's presented state, so the
-  // threat layer rises on the beat that arms the chain rather than at the
-  // top of the turn that will eventually arm it. Null is the start screen,
-  // which gets the base layer only.
+  // reason: the threat layer rises on the event that arms the chain. Null
+  // is the start screen, which gets the base layer only.
   useMusicState(shownOrNull)
   const { badges } = useBadgePhases(
     shownOrNull?.conditions ?? EMPTY_CONDITIONS,
@@ -485,7 +418,7 @@ export default function Game({
   useEffect(() => {
     if (!state) return
     if (state.status === 'playing') {
-      saveStore.autosave(state, persistPhase(phase), daily)
+      saveStore.autosave(state, persistPhase(phase, state, night), daily)
     } else if (!recordedRef.current) {
       recordedRef.current = true
       saveStore.clearAutosave()
@@ -517,7 +450,7 @@ export default function Game({
         )
       }
     }
-  }, [state, phase, scenario, daily])
+  }, [state, phase, scenario, daily, night])
 
   // Fetch the score screen's chunk the moment a campaign ends, while its
   // last turn is still playing back. The same import the lazy declaration
@@ -526,6 +459,16 @@ export default function Game({
   useEffect(() => {
     if (finished) import('./ScoreScreen').catch(() => undefined)
   }, [finished])
+  // The night's chunk, fetched as the board opens, while the player is
+  // still deciding, so EXECUTE never waits on it.
+  const [nightReady, setNightReady] = useState<'loading' | 'ready' | 'failed'>(() => (nightModule ? 'ready' : 'loading'))
+  useEffect(() => {
+    if (nightModule) return
+    loadNight().then(
+      () => setNightReady('ready'),
+      () => setNightReady('failed'),
+    )
+  }, [])
 
   const flash = (msg: string) => setNotice(msg)
 
@@ -593,7 +536,7 @@ export default function Game({
   // what it did, and they are taken from a checkbox a sheet left focused,
   // since they type nothing. Not on the score screen, which is not the
   // board.
-  const decidingNow = state?.status === 'playing' && phase !== 'playback' && phase !== 'aftermath'
+  const decidingNow = state?.status === 'playing' && phase !== 'night' && phase !== 'aftermath'
   useEffect(() => {
     if (!state || glossaryFocus || intel || library) return
     const onKey = (e: KeyboardEvent) => {
@@ -633,8 +576,8 @@ export default function Game({
     setDaily(nextDaily)
     setStanding(null)
     setActions(EMPTY_ACTIONS)
-    setPlayback(null)
-    setPresented(null)
+    setNight(null)
+    setView(null)
     setChosenSpend(0)
     setPhase(arrival.phase)
     openSheet(arrival.sheet)
@@ -665,7 +608,7 @@ export default function Game({
 
   const exportCode = async () => {
     if (!state) return
-    const code = encodeSaveCode(captureGame(state, persistPhase(phase), new Date().toISOString(), daily))
+    const code = encodeSaveCode(captureGame(state, persistPhase(phase, state, night), new Date().toISOString(), daily))
     flash(
       (await copyToClipboard(code))
         ? 'Save code copied to clipboard.'
@@ -728,60 +671,61 @@ export default function Game({
   const cost = orderCost(state, actions)
   const lastRecord = state.history[state.history.length - 1]
   const displayTurn =
-    (phase === 'aftermath' || phase === 'playback') && lastRecord ? lastRecord.turn : Math.min(state.turn, scenario.totalTurns)
+    phase === 'night' && night ? night.before.turn : phase === 'aftermath' && lastRecord ? lastRecord.turn : Math.min(state.turn, scenario.totalTurns)
   // Narrowed from the nullable value computed with the hooks above.
   const shown = shownOrNull ?? state
 
-  const resolve = () => {
+  // The engine's turn, committed: every event the turn drew, landed or
+  // held, is met on this device (v1.2 R5b), and the threats the intel
+  // brief named are met too (brief 6.9), in a key of their own so FILED
+  // keeps meaning faced; the answer key reads both.
+  const commit = (next: GameState) => {
+    const record = next.history[next.history.length - 1]
+    recordMet(record.events.map((e) => e.eventId))
+    recordNamed(record.named)
+    setState(next)
+  }
+
+  // EXECUTE (brief 5.5). The engine resolves the night at once. On a night
+  // with the debris call it resolves both ways, since the engine takes the
+  // call with the orders: the night plays the events up to the call from
+  // either (they are the same), the player calls it, and only then is the
+  // turn committed. Every other night is committed here.
+  const execute = () => {
     // The engine is the authority on affordability. If the UI gate and the
     // engine ever disagree, surface the reason instead of dying silently:
     // a throw inside an event handler never reaches an error boundary.
     try {
-      const next = resolveTurn(state, withDebrisCall(state, actions), turnRng(state.seed, state.turn))
-      // Every event the turn drew, landed or held, is met on this device
-      // (v1.2 R5b): the Field Library's FILED stamps read it. The threats
-      // the intel brief named are met too (brief 6.9), in a key of their
-      // own so FILED keeps meaning faced; the answer key reads both.
-      const record = next.history[next.history.length - 1]
-      recordMet(record.events.map((e) => e.eventId))
-      recordNamed(record.named)
-      // A new turn declares its own spend; nothing carries over.
-      setChosenSpend(0)
-      // The director derives its beats from the two states. It is
-      // presentation only: if derivation ever fails the turn still stands
-      // and the aftermath shows the engine's result directly, with its
-      // ledger open. No beats means no beat sounds, so that turn plays only
-      // the sounds a component plays.
-      let beats: Beat[] | null = null
-      try {
-        beats = deriveBeats(state, next)
-      } catch {
-        beats = null
-      }
-      setUnplayed(!beats)
-      setState(next)
+      const hold = resolveTurn(state, { ...actions, debris: 'hold' }, turnRng(state.seed, state.turn))
+      const burn = callIndex(hold) >= 0 ? resolveTurn(state, { ...actions, debris: 'burn' }, turnRng(state.seed, state.turn)) : null
+      setNight({ before: state, hold, burn, choice: null })
+      setView(null)
+      setChosenSpend(hold.history[hold.history.length - 1].ledger.ordered)
       setActions(EMPTY_ACTIONS)
       openSheet(null)
       setIntel(null)
       // The orders are gone, so the entry the cue pointed at is too.
       setArrived(null)
-      if (!beats) {
-        setPlayback(null)
-        setPresented(null)
-        setPhase('aftermath')
-      } else {
-        setPlayback({ before: state, after: next, beats })
-        setPresented(state)
-        presentedRef.current = state
-        setStrike(null)
-        setPhase('playback')
-      }
+      setPhase('night')
+      if (!burn) commit(hold)
     } catch (e) {
       flash(e instanceof Error ? `Turn could not resolve: ${e.message}` : 'Turn could not resolve.')
     }
   }
 
+  // BURN or HOLD: the night goes on with the resolution the call chose.
+  const onCall = (choice: DebrisChoice) => {
+    if (!night || night.choice !== null) return
+    setNight({ ...night, choice })
+    commit(choice === 'burn' && night.burn ? night.burn : night.hold)
+  }
+
+  // BEGIN TURN n+1, or DEBRIEF: off the night and onto the next board, or
+  // the score screen once the operation is over.
   const nextTurn = () => {
+    setNight(null)
+    setView(null)
+    setChosenSpend(0)
     setShowWorst(false)
     setPhase('brief')
   }
@@ -831,13 +775,13 @@ export default function Game({
     setActions({ ...actions, buyCounters: already ? actions.buyCounters.filter((c) => c !== id) : [...actions.buyCounters, id] })
   }
 
-  // THE BOARD'S STATE, derived. During playback the panels follow the
-  // director's presented state, like the HUD, so a hit lands on the beat
-  // that applies it rather than at the engine's end state.
-  const deciding = phase !== 'playback' && phase !== 'aftermath'
+  // THE BOARD'S STATE, derived. During the night the strip follows the
+  // board the night shows, like the HUD, so a hit lands on the event that
+  // did it rather than at the engine's end state.
+  const deciding = phase !== 'night' && phase !== 'aftermath'
   // Whether tonight's moves are named: the cart while deciding (a brief
   // ordered there names them before EXECUTE), and the record of the night
-  // the playback is showing after it.
+  // being played after it.
   const briefedTonight = deciding
     ? briefActive(state, actions)
     : (state.history.find((h) => h.turn === shown.turn)?.briefed ?? briefFree(shown))
@@ -855,9 +799,9 @@ export default function Game({
   const chipsOn = (layer: (typeof LAYERS)[number]): ChipModel[] =>
     conditionsOn(layer, badges, scenario).map((c) => ({ condition: c, remaining: c.remainingTurns }))
 
-  // The deciding turn's playback and aftermath still render before the
-  // score screen, exactly as the aftermath alone did in v1.0.
-  if (state.status !== 'playing' && phase !== 'aftermath' && phase !== 'playback') {
+  // The last turn's night and its END OF TURN still render before the
+  // score screen: DEBRIEF is the way there.
+  if (state.status !== 'playing' && phase !== 'aftermath' && phase !== 'night') {
     return (
       <main className="relative min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
         <div className="relative z-10 flex items-center justify-between gap-2">
@@ -922,15 +866,22 @@ export default function Game({
     )
   }
 
-  const displayRecord = phase === 'aftermath' && lastRecord ? lastRecord : null
   // What PROCURE's badge counts: each order queued tonight (QC G-025). The
   // brief is an order only on a night it is not free.
   const free = briefFree(state)
   const orders = actions.buyAssets.length + actions.buyCounters.length + (actions.intelBrief && !free ? 1 : 0)
   const sheetOpen = sheet !== null
-  // How far the score fell on the hit that just landed, floated off it.
-  const fell = strike?.kind === 'hit' && strike.landed && presented ? Math.round((maiScore(strike.before) - maiScore(presented)) * 10) / 10 : 0
-  const maiDrop = strike && fell > 0 ? { id: strike.id, delta: fell } : null
+  // How far the score fell on the move that just landed, floated off it.
+  const maiDrop = phase === 'night' ? (view?.drop ?? null) : null
+  // The night on screen: the one EXECUTE opened, or, after a reload,
+  // END OF TURN alone for the turn the save closed on (QC G-067: nothing
+  // of the next night shows until BEGIN TURN).
+  const nightProps =
+    phase === 'night' && night
+      ? { before: night.before, hold: night.hold, burn: night.burn, choice: night.choice }
+      : phase === 'aftermath' && lastRecord
+        ? { before: null, hold: state, burn: null, choice: null }
+        : null
   const worst = worstCase(state, actions)
   const slots = deciding ? tonightSlots(state, actions) : []
   const onOrder = (id: OrderId) => {
@@ -952,7 +903,7 @@ export default function Game({
         data-board
         className={`relative flex flex-1 min-h-0 w-full max-w-[560px] mx-auto flex-col overflow-hidden bg-dc-ground text-dc-ink ${
           pageVisible ? '' : 'dc-board-hidden'
-        } ${hitShake}`}
+        }`}
         style={{ '--dc-beat': `${beatMs}ms` } as CSSProperties}
         data-wide={laidOut || undefined}
         {...(glossaryFocus || intelOpen || library ? { inert: true, 'aria-hidden': true } : {})}
@@ -976,19 +927,6 @@ export default function Game({
         }}
       />
       <div ref={bodyRef} className="relative flex min-h-0 flex-1 flex-col">
-        {/* The dotted beam from the emblem to the struck tile, over
-            everything in the body and taking no input. It draws while the
-            hit locks on; the stylesheet shows it only when motion is
-            allowed. */}
-        {beam && locking && (
-          <span
-            key={beam.id}
-            aria-hidden="true"
-            data-beam
-            className="dc-beam pointer-events-none absolute z-20 h-0 origin-left border-t-2 border-dotted border-dc-hostile"
-            style={{ left: beam.x, top: beam.y, width: beam.length, '--beam-angle': `${beam.angle}deg` } as CSSProperties}
-          />
-        )}
         {/* THE WIDE BOARD'S LOG (v1.2 R6, brief 4.6), on a screen 1024
             wide and up: a direct child of the body, which wide.css makes
             the grid, so it takes the left column. */}
@@ -1007,44 +945,35 @@ export default function Game({
             inspect={laidOut}
             hit={strike?.kind === 'hit' ? strike : null}
             held={strike?.kind === 'held' ? strike : null}
+            // After turn 6, once END OF TURN shows the close (QC G-067),
+            // not while the last night still plays.
+            over={!deciding && state.status !== 'playing' && shown === state}
           />
-          {/* The adversary phase enters through a dim. It plays on the
-              way in and blocks nothing: the engine resolved the turn
-              before this renders (principle 3). The TONIGHT card is off
-              the board while the night plays, so its full brief is closed
-              when it comes back (QC G-026). */}
-          {phase === 'playback' && playback && (
-            <div className={phaseDim}>
-              <DirectorView
-                before={playback.before}
-                after={playback.after}
-                beats={playback.beats}
-                onPresented={showPresented}
-                onDone={finishPlayback}
-                held={!!(glossaryFocus || intel || library)}
-              />
-            </div>
-          )}
-          {displayRecord && (
-            <AftermathCard record={displayRecord} state={state} scenario={scenario} reducedMotion={reducedMotion} ledgerOpen={unplayed} />
-          )}
+          {/* THE NIGHT (brief 5.5), in the board's flow under the strip: its
+              card fills the screen from there to the foot. */}
+          {nightProps &&
+            (nightModule ? (
+              <nightModule.default key={`night-${displayTurn}`} {...nightProps} onCall={onCall} onBoard={setView} onDone={nextTurn} />
+            ) : (
+              nightReady === 'failed' && <NightUnavailable {...nightProps} onCall={onCall} onBoard={setView} onDone={nextTurn} />
+            ))}
           {deciding && (
-            <>
-              <Tonight
-                state={state}
-                slots={slots}
-                brief={free ? 'free' : actions.intelBrief ? 'ordered' : 'none'}
-                briefPrice={scenario.prices.intelBrief}
-                onMove={(ev) => openSheet('procure', { move: ev })}
-                onToggleBrief={toggleBrief}
-                onIntel={() => setIntel({ kind: 'banner' })}
-                onTag={(tag) => setGlossaryFocus(tag)}
-                pulseIntel={pulseIntel}
-                pulseMoves={pulseMoves}
-                onReveal={() => setPulseIntel((n) => n + 1)}
-              />
-              <Orders state={state} actions={actions} onOrder={onOrder} />
-            </>
+              <>
+                <Tonight
+                  state={state}
+                  slots={slots}
+                  brief={free ? 'free' : actions.intelBrief ? 'ordered' : 'none'}
+                  briefPrice={scenario.prices.intelBrief}
+                  onMove={(ev) => openSheet('procure', { move: ev })}
+                  onToggleBrief={toggleBrief}
+                  onIntel={() => setIntel({ kind: 'banner' })}
+                  onTag={(tag) => setGlossaryFocus(tag)}
+                  pulseIntel={pulseIntel}
+                  pulseMoves={pulseMoves}
+                  onReveal={() => setPulseIntel((n) => n + 1)}
+                />
+                <Orders state={state} actions={actions} onOrder={onOrder} />
+              </>
           )}
           {/* The flash notice, when the SYSTEM sheet that carries it is not
               open. */}
@@ -1108,8 +1037,10 @@ export default function Game({
           />
         )}
       </div>
+      {/* The dock while deciding (brief 5.3 item 5). The night's cards carry
+          their own way on, under the thumb. */}
+      {deciding && (
       <Dock
-        phase={deciding ? 'deciding' : phase === 'playback' ? 'playback' : 'aftermath'}
         worst={worst}
         orders={orders}
         procureOpen={sheet === 'procure'}
@@ -1118,15 +1049,13 @@ export default function Game({
         executeRef={executeRef}
         onExecute={() => {
           play('execute-sweep')
-          resolve()
+          execute()
         }}
         showWorst={showWorst}
         onWorst={() => setShowWorst((v) => !v)}
         pulseWorst={pulseWorst}
-        nextLabel={state.status === 'playing' ? 'NEXT TURN' : 'FINAL REPORT'}
-        onNext={nextTurn}
-        pulseNext={phase === 'aftermath' && !reducedMotion}
       />
+      )}
     </main>
       {/* THE GLOSSARY OVERLAY, a sibling of the game rather than a child of
           it. Rendered inside this component so nothing unmounts: the
@@ -1140,7 +1069,7 @@ export default function Game({
         <div
           ref={intelRef}
           tabIndex={-1}
-          className="fixed inset-0 z-50 overflow-y-auto bg-base/95 outline-none"
+          className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground outline-none"
           role="dialog"
           aria-modal="true"
           aria-label="Intel"
@@ -1155,7 +1084,7 @@ export default function Game({
         <div
           ref={glossaryRef}
           tabIndex={-1}
-          className="fixed inset-0 z-50 overflow-y-auto bg-base/95 outline-none"
+          className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground outline-none"
           role="dialog"
           aria-modal="true"
           aria-label="Glossary"
@@ -1175,7 +1104,7 @@ export default function Game({
         <div
           ref={libraryRef}
           tabIndex={-1}
-          className="fixed inset-0 z-50 overflow-y-auto bg-base/95 outline-none"
+          className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground outline-none"
           role="dialog"
           aria-modal="true"
           aria-label="Field Library"

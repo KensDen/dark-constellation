@@ -1,40 +1,44 @@
-// What a playback beat does to the board (v1.2 R3, brief 4.5): a hit
-// lands on the tile the engine named, and a held event flashes a shield on
-// its layers' headers. Derived from the beat alone; the asset is the
-// engine's own record of it (Beat.targetAssetId, from
-// ResolvedEvent.targetAssetId), never a parse of the note.
+// THE STRIKE ON THE BOARD (v1.3 brief 5.5 item 1): the strip brings the
+// target tile into view, a reticle locks on, and the tile takes the
+// scorch, or a shield flash when a defense held. The tile is the engine's
+// own record of the move (ResolvedEvent.targetAssetId), never a parse of
+// its note; it is set whether or not the move landed, so a block can
+// flash on the tile it was aimed at.
 //
-// A hit plays in two parts inside its beat. For the first LOCK_SHARE of
-// STRIKE_MS the board still shows the state before the hit while magenta
-// brackets lock onto the tile and a dotted beam draws from the COLDVEIL
-// emblem; then it lands, and the tile, its pips and MAI change with the
-// strobe, the burst, the shake and the falling "-n".
+// A strike plays in two parts. For the first LOCK_SHARE of STRIKE_MS the
+// board still shows the state before the move while the reticle locks on;
+// then it lands, and the tile, its pips and the score change with the
+// strobe, the burst and the falling "-n" (or the shield and HELD). It is
+// one of the two things in the night that play on their own (the other is
+// the 750ms overlay); the cards wait for a tap. Skipped under reduced
+// motion, where the card arrives with the board already changed.
 
-import type { Beat } from '../../director'
 import type { GameState, Layer } from '../../engine/types'
 
-// How long a strike plays (v1.3 brief 5.5: "About 1.2 s"). It was the
-// director's dwell at 1x until v1.3 Round 0 retired the dwell; the strike
-// is the one part of the night that still plays on its own, so it keeps
-// the duration as a constant of its own. The stylesheet reads it as
-// --dc-beat.
+// "About 1.2 s" (brief 5.5). The stylesheet reads it as --dc-beat.
 export const STRIKE_MS = 1200
 export const LOCK_SHARE = 0.35
-// How much of the strike MAI's count takes once the hit lands.
+// How much of the strike the score's count takes once the move lands.
 export const COUNT_SHARE = 0.35
 
+// `rest` is the still reticle a move's tile keeps while its card is up:
+// the mark alone, none of the strike's motion.
 export type Strike =
-  | { kind: 'hit'; id: string; assetId: string; layer: Layer; before: GameState; landed: boolean }
-  | { kind: 'held'; id: string; layers: readonly Layer[] }
+  | { kind: 'hit'; id: string; assetId: string; layer: Layer; before: GameState; landed: boolean; rest?: boolean }
+  | { kind: 'held'; id: string; assetId?: string; layers: readonly Layer[]; landed: boolean; rest?: boolean }
 
-export function strikeFor(beat: Beat | null, before: GameState | null): Strike | null {
-  if (!beat || beat.kind !== 'threat' || !beat.severity) return null
-  if (beat.severity.effective > 0) {
-    const asset = beat.targetAssetId === undefined ? undefined : before?.assets.find((a) => a.id === beat.targetAssetId)
-    // With no state before the beat there is nothing to hold or lock onto;
-    // the tile still changes with the presented state.
-    if (!asset || !before) return null
-    return { kind: 'hit', id: beat.id, assetId: asset.id, layer: asset.layer, before, landed: false }
-  }
-  return { kind: 'held', id: beat.id, layers: beat.layers ?? [] }
+// The strike a move makes: a hit on the tile it was aimed at when any of
+// it got through, a held flash on that tile otherwise. A block with no
+// live tile on its layers holds on its layers' headers; a move that
+// landed with no tile to land on has only its banner.
+export function strikeOf(
+  id: string,
+  ev: { effectiveSeverity: number; targetAssetId?: string },
+  layers: readonly Layer[],
+  before: GameState,
+  landed: boolean,
+): Strike | null {
+  const asset = ev.targetAssetId === undefined ? undefined : before.assets.find((a) => a.id === ev.targetAssetId)
+  if (ev.effectiveSeverity > 0) return asset ? { kind: 'hit', id, assetId: asset.id, layer: asset.layer, before, landed } : null
+  return { kind: 'held', id, assetId: asset?.id, layers: asset ? [asset.layer] : layers, landed }
 }

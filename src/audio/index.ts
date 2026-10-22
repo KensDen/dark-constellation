@@ -52,7 +52,7 @@ export {
   type MusicState,
 } from './music'
 export { defaultMusicRng, xorshift32, type MusicRng } from './musicRng'
-export { MAX_EFFECTIVE_SEVERITY, NEUTRAL_INTENSITY, beatIntensity } from './intensity'
+export { MAX_EFFECTIVE_SEVERITY, NEUTRAL_INTENSITY, strikeIntensity } from './intensity'
 export {
   fireCue,
   silenceCues,
