@@ -25,7 +25,9 @@ import { STALE_SAVE_MESSAGE } from '../persistence'
 import type { SoundPrefs } from '../audio'
 import SystemPanel from './SystemPanel'
 import { DECK_LINE, SYSTEM_TITLE } from './systemControls'
-import { DAILY_OPEN_LINE, TITLE_TAGLINE, dailyLineNow, dossierCount } from './titleStatus'
+import { DAILY_OPEN_LINE, TITLE_TAGLINE, dailyLineNow, dossierCount, goalOne } from './titleStatus'
+import PixelSprite from './sprites/PixelSprite'
+import { ICON_CHECK, tinted } from './sprites/icons'
 import Countdown from './Countdown'
 import PixelHash from './PixelHash'
 import Wordmark from './Wordmark'
@@ -60,7 +62,7 @@ export interface TitleProps {
   notice?: string
 }
 
-const TILE = 'border-2 border-dc-line bg-dc-panel p-3 text-left shadow-hard'
+const TILE = 'flex flex-col justify-start border-2 border-dc-line bg-dc-panel p-3 text-left shadow-hard'
 const READ_BTN = 'flex min-h-11 flex-col justify-start border-2 border-dashed border-dc-line p-3 text-left'
 
 export default function Title(p: TitleProps) {
@@ -90,6 +92,7 @@ export default function Title(p: TitleProps) {
   }, [now])
   const n = dailyNumber(now)
   const goal = dossierCount()
+  const held = goalOne()
   // DONE · grade · STREAK n once today's official run is in; the grade
   // arrives with its module (see ./titleStatus.ts).
   const [dailyText, setDailyText] = useState(() => dailyLineNow(now))
@@ -136,6 +139,14 @@ export default function Title(p: TitleProps) {
           <p className="font-mono text-[10px] tracking-widest text-dc-muted">GOAL 1</p>
           <p className="mt-1 text-sm font-bold">Hold the mission</p>
           <p className="mt-1 font-mono text-xs text-dc-go">Keep the score at{'\u00a0'}{DEFAULT_SCENARIO.winThreshold}+</p>
+          {/* Whether it is done yet, as GOAL 2 shows its count (v1.3 R5):
+              an icon and a word, never colour alone (rule 8). */}
+          <p data-goal-status className="mt-2 flex items-center gap-1.5 font-mono text-[10px] tracking-wider">
+            {held?.held && <PixelSprite sprite={tinted(ICON_CHECK, 'go')} scale={1} name="goal-held" />}
+            <span className={held?.held ? 'text-dc-go' : 'text-dc-muted'}>
+              {held ? `${held.held ? 'HELD' : 'NOT YET'} · BEST ${held.best.toFixed(1)}` : 'NOT YET'}
+            </span>
+          </p>
         </div>
         <button type="button" className={TILE} data-goal="2" onClick={p.onDossier}>
           <span className="block font-mono text-[10px] tracking-widest text-dc-muted">GOAL 2</span>
@@ -173,12 +184,14 @@ export default function Title(p: TitleProps) {
           type="button"
           data-play
           onClick={p.onPlay}
-          className="flex min-h-14 flex-col items-center justify-center gap-1 border-2 border-dc-go bg-dc-go/10 py-2 text-dc-go shadow-press active:translate-y-[3px] active:shadow-none"
+          className="flex min-h-14 flex-col items-center justify-center gap-1 border-2 border-dc-go bg-dc-go py-2 text-dc-ground shadow-press active:translate-y-[3px] active:shadow-none"
         >
+          {/* Filled, as PLAY AGAIN is on the debrief (v1.3 R5): the main
+              way on looks the same wherever it is. */}
           <span className="font-display text-sm">PLAY</span>
           {/* The mode PLAY will start (Ken's R1 phone pass, item 12): the
               difficulty is changed in SYSTEM only. */}
-          <span data-play-mode className="font-mono text-[10px] tracking-wider text-dc-muted">
+          <span data-play-mode className="font-mono text-[10px] tracking-wider text-dc-ground/75">
             {DIFFICULTIES[p.difficulty].label.toUpperCase()}
           </span>
         </button>
@@ -262,7 +275,7 @@ export default function Title(p: TitleProps) {
       {system && (
         // Opaque and full height (Ken, 21 October): nothing of the title
         // shows through below a short panel.
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground" role="dialog" aria-modal="true" aria-label={SYSTEM_TITLE}>
+        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-dc-ground" role="dialog" aria-modal="true" aria-label={SYSTEM_TITLE}>
           <div className="mx-auto min-h-full max-w-[520px] border-x-2 border-dc-line bg-dc-panel pb-safe">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b-2 border-dc-line bg-dc-panel px-3 py-2 pt-safe">
               <h2 className="font-display text-[10px] text-dc-ink">{SYSTEM_TITLE}</h2>

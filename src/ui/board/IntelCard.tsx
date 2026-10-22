@@ -112,7 +112,7 @@ function BannerIntel({ state, briefed = briefFree(state) }: { state: GameState; 
 
 export default function IntelCard({ subject, state, turn, briefed, onClose }: IntelCardProps) {
   return (
-    <section aria-labelledby="intel-title" data-intel-card={subject.kind} className="mx-auto max-w-[560px] px-4 py-4 font-mono text-sm text-dc-ink">
+    <section aria-labelledby="intel-title" data-intel-card={subject.kind} className="mx-auto max-w-[520px] px-4 py-4 font-mono text-sm text-dc-ink">
       <div className="mb-2 flex justify-end">
         <button type="button" onClick={onClose} className="min-h-11 border-2 border-dc-line bg-dc-panel px-3 font-display text-[10px] text-dc-ink">
           CLOSE

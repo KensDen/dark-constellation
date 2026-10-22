@@ -11,10 +11,6 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { countUpMode, onVisibilityChange, pageVisible } from './visibility'
 
 const QUERY = '(prefers-reduced-motion: reduce)'
-// The layout's one breakpoint (v1.2 R6, brief 4.6): 1024 CSS pixels and
-// up is the three-column board. In px, as src/ui/board/wide.css writes it.
-export const WIDE_QUERY = '(min-width: 1024px)'
-
 function matchesNow(query: string): boolean {
   if (typeof window === 'undefined' || !window.matchMedia) return false
   try {

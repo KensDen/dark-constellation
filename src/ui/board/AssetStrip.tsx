@@ -16,7 +16,7 @@ import type { ActiveCondition, Layer } from '../../engine/types'
 import { LAYERS } from '../../engine/types'
 import { kindLabels } from '../labels'
 import { assetSprite } from '../sprites/assets'
-import { HIT_BURST, LOCK_ON, SHIELD_FLASH } from '../sprites/effects'
+import { HIT_BURST, LOCK_ON, SHIELD_STAMP } from '../sprites/effects'
 import PixelSprite from '../sprites/PixelSprite'
 import { STATE_WORD, pipsFor, type SpriteState, type TileModel } from './board'
 import type { Strike } from './strike'
@@ -64,7 +64,7 @@ function Art({ tile, hit }: { tile: TileModel; hit?: TileHit | null }) {
   const kind = tile.kind === 'asset' ? tile.asset.kind : tile.kind === 'transit' ? tile.pending.kind : tile.buy.kind
   const sprite = tile.kind === 'asset' ? assetSprite(kind, tile.asset.integrity) : assetSprite(kind, 100, 'transit')
   return (
-    <span aria-hidden="true" className="relative block">
+    <span aria-hidden="true" data-art className="relative block">
       <PixelSprite sprite={sprite} name={`${kind}.${tile.kind === 'asset' ? tile.state : 'transit'}`} className="block" />
       {hit && <PixelSprite key={hit.id} sprite={LOCK_ON} name="lock-on" className={`${hit.rest ? '' : 'dc-lock-on'} absolute inset-0 m-auto`} />}
       {hit?.landed &&
@@ -82,7 +82,6 @@ function Tile({
   shield,
   over,
   selected,
-  inspect,
   onSelect,
   onCancel,
 }: {
@@ -93,7 +92,6 @@ function Tile({
   shield?: { id: string; landed: boolean; rest?: boolean } | null
   over?: boolean
   selected: boolean
-  inspect?: boolean
   onSelect: () => void
   onCancel: () => void
 }) {
@@ -105,11 +103,9 @@ function Tile({
         data-asset-id={asset.id}
         data-state={state}
         data-struck={hit ? (hit.rest ? 'rest' : hit.landed ? 'hit' : 'lock') : undefined}
-        // On the wide board a tile selects for the inspector beside it; on
-        // a phone it opens its intel card.
-        aria-haspopup={inspect ? undefined : 'dialog'}
-        aria-pressed={inspect ? selected : undefined}
-        aria-controls={inspect ? 'dc-inspector' : undefined}
+        // A tile opens its intel card (the wide board's inspector went in
+        // v1.3 R5).
+        aria-haspopup="dialog"
         aria-label={`${callSign}, ${kindLabels[asset.kind]}, integrity ${asset.integrity}%${STATE_WORD[state]}`}
         onClick={onSelect}
         data-shield={shield ? (shield.rest ? 'rest' : shield.landed ? 'held' : 'lock') : undefined}
@@ -117,6 +113,13 @@ function Tile({
       >
         {hit?.landed && !hit.rest && <span key={hit.id} aria-hidden="true" data-strobe className="dc-hit-strobe pointer-events-none absolute inset-0 bg-dc-hostile/45" />}
         {shield && <i key={shield.id} aria-hidden="true" className={`${shield.rest ? '' : 'dc-reticle'} pointer-events-none absolute -inset-[3px] border-2 border-dc-go`} />}
+        {/* The stamp a block leaves on its tile (v1.3 R5), there from the
+            landing until the move's card is gone: a block's own shape. */}
+        {shield && (shield.landed || shield.rest) && (
+          <span key={`${shield.id}-stamp`} aria-hidden="true" data-shield-stamp className={`${shield.rest ? '' : 'dc-stamp-pop'} pointer-events-none absolute -right-1.5 -top-1.5 z-10`}>
+            <PixelSprite sprite={SHIELD_STAMP} scale={1} name="tile-shield-stamp" />
+          </span>
+        )}
         <Art tile={tile} hit={hit} />
         {/* Positioned, so the call sign and the pips sit above the strobe
             and stay readable through a hit (fresh-eyes review). */}
@@ -157,8 +160,6 @@ export interface AssetStripProps {
   tiles: Record<Layer, TileModel[]>
   chips: (layer: Layer) => ChipModel[]
   selectedKey: string | null
-  // The wide board: tiles select for the inspector instead of opening.
-  inspect?: boolean
   onSelect: (key: string | null) => void
   onCancelQueued: (index: number) => void
   hit?: Extract<Strike, { kind: 'hit' }> | null
@@ -167,7 +168,7 @@ export interface AssetStripProps {
   over?: boolean
 }
 
-export default function AssetStrip({ tiles, chips, selectedKey, inspect, onSelect, onCancelQueued, hit, held, over }: AssetStripProps) {
+export default function AssetStrip({ tiles, chips, selectedKey, onSelect, onCancelQueued, hit, held, over }: AssetStripProps) {
   const struck = hit ? hit.before.assets.find((a) => a.id === hit.assetId) : undefined
   const tileHit: TileHit | null = hit && struck ? { id: hit.id, landed: hit.landed, fromPips: pipsFor(struck.integrity), rest: hit.rest } : null
   // Each column starts as wide as its tiles. When the fleet outgrows the
@@ -190,7 +191,7 @@ export default function AssetStrip({ tiles, chips, selectedKey, inspect, onSelec
                 <h2 className="font-mono text-[10px] tracking-widest text-dc-muted">{layer}</h2>
                 {heldHere && (
                   <span key={heldHere} data-held className="dc-shield-flash inline-flex items-center gap-1 font-mono text-[10px] text-dc-go">
-                    <PixelSprite sprite={SHIELD_FLASH} scale={1} name="shield-flash" />
+                    <PixelSprite sprite={SHIELD_STAMP} scale={1} name="shield-stamp" />
                     HELD
                   </span>
                 )}
@@ -220,7 +221,6 @@ export default function AssetStrip({ tiles, chips, selectedKey, inspect, onSelec
                     hit={tile.kind === 'asset' && hit && tile.key === hit.assetId ? tileHit : null}
                     shield={tile.kind === 'asset' && held && tile.key === held.assetId ? { id: held.id, landed: held.landed, rest: held.rest } : null}
                     over={over}
-                    inspect={inspect}
                     onSelect={() => onSelect(tile.key === selectedKey ? null : tile.key)}
                     onCancel={() => tile.kind === 'queued' && onCancelQueued(tile.index)}
                   />

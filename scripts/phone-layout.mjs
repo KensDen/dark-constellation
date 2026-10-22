@@ -50,6 +50,22 @@
 // title with a Daily Op done, at 375 as served and in wide fonts, no text
 // leaves the width and no display-face label or button overflows its box.
 //
+// GUARD R5 (b), (d) and (e), ONE CRAWL UNDER REDUCED MOTION (v1.3 brief
+// 8.3 and section 4): the title and its SYSTEM, the four briefing beats,
+// the board, PROCURE, the board's SYSTEM, every card of a seeded night,
+// END OF TURN, a won debrief, the Dossier with its cards open, LIBRARY's
+// two tabs, the scoreboard and the credits, at 375x667 with reduced
+// motion. On every screen:
+//   (b) every element's computed animation and transition are none, and
+//       no canvas draws while the screen sits still for a second;
+//   (d) no text input, text area or select is under 16px;
+//   (e) no retired word (section 4) in the text or the accessible names.
+//
+// GUARD R5 (c), THE DESKTOP BOARD (brief section 11: the phone column
+// centered with the strip widened, no three-column board): at 1440x900
+// the board is one column of the phone's width, centered, everything on
+// it inside the column, and the strip's tiles drawn wider than a phone's.
+//
 // Exit codes: 0 pass, 1 fail, 2 skipped (no Chrome on this machine). The
 // battery runs it after the build. GitHub's ubuntu-24.04 runner has
 // google-chrome on its path; CHROME_PATH names another.
@@ -566,6 +582,202 @@ async function checkReadingRooms(b, url, [w, h]) {
   return failures
 }
 
+// (b) Every element's motion, as computed, with the reduce rule in force.
+const MOTION_ON = `(() => {
+  const bad = []
+  for (const e of document.querySelectorAll('*')) {
+    const cs = getComputedStyle(e)
+    const anim = cs.animationName !== 'none' && cs.animationDuration.split(',').some((d) => parseFloat(d) > 0)
+    const trans = cs.transitionProperty !== 'none' && cs.transitionDuration.split(',').some((d) => parseFloat(d) > 0)
+    if (anim || trans) bad.push(e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\\s+/).slice(0, 3).join('.') : '') + (anim ? ' animates (' + cs.animationName + ')' : ' transitions (' + cs.transitionProperty + ' ' + cs.transitionDuration + ')'))
+  }
+  const running = document.getAnimations().filter((a) => a.playState === 'running').length
+  if (running) bad.push(running + ' animations running')
+  return [...new Set(bad)].slice(0, 6)
+})()`
+
+// Canvas drawing counted from the first script on every page, so a field
+// that keeps painting under reduced motion shows as draws while nothing
+// happens.
+const COUNT_DRAWS = `(() => {
+  window.__dcDraws = 0
+  const proto = CanvasRenderingContext2D.prototype
+  for (const k of ['fillRect', 'clearRect', 'drawImage', 'putImageData']) {
+    const f = proto[k]
+    proto[k] = function (...a) { window.__dcDraws += 1; return f.apply(this, a) }
+  }
+})()`
+
+// (d) Text fields at 16px or more (iOS Safari zooms the page on one under).
+const SMALL_INPUTS = `(() => [...document.querySelectorAll('input:not([type=checkbox]):not([type=radio]), textarea, select')]
+  .filter((e) => parseFloat(getComputedStyle(e).fontSize) < 16)
+  .map((e) => e.tagName.toLowerCase() + ' ' + (e.getAttribute('aria-label') || e.name || '') + ' at ' + getComputedStyle(e).fontSize))()`
+
+// (e) The retired words (section 4), read from every text node apart and
+// every accessible name. The deck's own names are fiction and content
+// (the rideshare is a "Commercial rideshare slot"), the launch trade's
+// "manifest slot" is not the forecast's, and "Credits and license" and
+// the credits screen's CREDITS heading are the credits, not money.
+const RETIRED = [
+  ['buy', '\\b(buy|buys|bought)\\b', 'i'],
+  ['purchase', '\\bpurchas\\w*', 'i'],
+  ['money', '\\bmoney\\b', 'i'],
+  ['cart', '\\bcart\\b', 'i'],
+  ['credits', '\\bcredits?\\b', 'i'],
+  ['MAI', '\\bMAI\\b', ''],
+  ['Mission Assurance Index', 'Mission Assurance Index', 'i'],
+  ['RESOLVE', '\\bRESOLVE\\b', ''],
+  ['END TURN', '\\bEND TURN\\b', 'i'],
+  ['forecast', '\\bforecast\\b', 'i'],
+  ['mitigated', '\\bmitigated\\b', 'i'],
+  ['severity', '\\bseverity\\b', 'i'],
+  ['aftermath', '\\baftermath\\b', 'i'],
+  ['verdict', '\\bverdict\\b', 'i'],
+  ['commendation', '\\bcommendation\\b', 'i'],
+  ['INTEL ARCHIVE', 'INTEL ARCHIVE', 'i'],
+  ['slot', '\\bslot\\b', 'i'],
+  ['in this build', 'in this build', 'i'],
+  ['score screen', 'score screen', 'i'],
+]
+const RETIRED_WORDS = `((names) => {
+  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+  const parts = []
+  while (walk.nextNode()) {
+    const el = walk.currentNode.parentElement
+    if (el && el.closest('script, style')) continue
+    // The credits screen's own heading names the credits, not money.
+    if (el && /^H[1-3]$/.test(el.tagName) && /^credits$/i.test((walk.currentNode.textContent || '').trim())) continue
+    parts.push(walk.currentNode.textContent || '')
+  }
+  for (const e of document.querySelectorAll('[aria-label]')) parts.push(e.getAttribute('aria-label'))
+  let text = parts.join(' ')
+  for (const n of [...names, 'rideshare manifest slot']) text = text.split(n).join(' ')
+  text = text.replace(/credits and licen[cs]e/gi, ' ')
+  const found = []
+  for (const [word, re, flags] of ${JSON.stringify(RETIRED)}) {
+    const m = new RegExp(re, flags).exec(text)
+    if (m) found.push(word + ': "' + text.slice(Math.max(0, m.index - 30), m.index + 30).replace(/\\s+/g, ' ') + '"')
+  }
+  return found
+})`
+
+// One screen of the crawl: (b), (d) and (e), with the screen sitting
+// still for a second for the canvas count.
+async function screenRules(b, where, names) {
+  const failures = []
+  await sleep(250)
+  const before = await b.evaluate('window.__dcDraws')
+  await sleep(1000)
+  const draws = (await b.evaluate('window.__dcDraws')) - before
+  if (draws > 0) failures.push(`${where}: a canvas drew ${draws} times while nothing happened, under reduced motion`)
+  for (const x of await b.evaluate(MOTION_ON)) failures.push(`${where}: under reduced motion, ${x}`)
+  for (const x of await b.evaluate(SMALL_INPUTS)) failures.push(`${where}: ${x}, under 16px`)
+  for (const x of await b.evaluate(`${RETIRED_WORDS}(${JSON.stringify(names)})`)) failures.push(`${where}: retired word ${x}`)
+  return failures
+}
+
+async function checkEveryScreen(b, url) {
+  const [w, h] = VIEWPORTS[0]
+  await b.send('Page.addScriptToEvaluateOnNewDocument', { source: COUNT_DRAWS })
+  await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: true })
+  await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+  if (!(await cleanLoad(b, url))) return ['every screen: the title never showed PLAY']
+  // The deck's own names (events and their conditions), read from the
+  // content source, so the crawl exempts exactly the fiction's words.
+  const deck = ['threats.ts', 'opportunities.ts'].flatMap((f) =>
+    [...readFileSync(join(process.cwd(), 'src', 'content', f), 'utf8').matchAll(/\bname:\s*'([^']+)'/g)].map((m) => m[1]),
+  )
+  const failures = []
+  const go = async (where, js, ready) => {
+    if (js) await b.evaluate(js)
+    if (ready && !(await waitFor(b, ready, 10000))) {
+      failures.push(`${where}: never opened`)
+      return false
+    }
+    failures.push(...(await screenRules(b, where, deck)))
+    return true
+  }
+  const back = `[...document.querySelectorAll('button')].find((x) => /^back to title$/i.test(x.innerText.trim())).click(); true`
+  await go('the title', null, null)
+  await go("the title's SYSTEM", click('[data-title-system]'), '!!document.querySelector("[role=dialog] [data-system-control]")')
+  await b.evaluate(`[...document.querySelectorAll('[role=dialog] button')].find((x) => x.innerText.trim() === 'DONE').click(); true`)
+  // The briefing, every beat: a first PLAY goes through it.
+  await b.evaluate(click('[data-play]'))
+  for (let beat = 1; beat <= 4; beat += 1) {
+    if (!(await go(`briefing beat ${beat}`, null, '!!document.querySelector("[data-briefing-next]")'))) break
+    await b.evaluate(click('[data-briefing-next]'))
+  }
+  await go('the board, turn 1', null, '!!document.querySelector("[data-dock]")')
+  await go('PROCURE', click('[data-action="procure"]'), '!!document.querySelector("[data-sheet=procure]")')
+  await b.evaluate(click('[data-action="procure"]'))
+  await go("the board's SYSTEM", click('button[aria-label="System"]'), '!!document.querySelector("[data-sheet=system]")')
+  await b.evaluate(click('button[aria-label="System"]'))
+  // A seeded night, every card, to the debrief.
+  if (!(await startSeed(b, url, [w, h], true, NIGHT_SEED))) return [...failures, 'every screen: could not replay the seed']
+  for (let turn = 1; turn <= 6; turn += 1) {
+    await orderDefenses(b, NIGHT_PLAN[turn])
+    await b.evaluate(click('[data-execute]'))
+    let done = false
+    for (let steps = 0; steps < 30 && !done; steps += 1) {
+      if (!(await waitFor(b, `${NIGHT_STAGE} !== 'busy'`, 8000))) return [...failures, `turn ${turn}: the night stopped`]
+      const stage = await b.evaluate(NIGHT_STAGE)
+      if (stage === 'board') break
+      failures.push(...(await screenRules(b, `turn ${turn}, ${stage}`, deck)))
+      done = stage === 'end' && (await b.evaluate('document.querySelector("[data-begin]").innerText.trim()')) === 'DEBRIEF'
+      await b.evaluate(NIGHT_TAP)
+      await sleep(100)
+    }
+    if (done) break
+  }
+  await go('the debrief, won', null, '!!document.querySelector("[data-debrief]")')
+  await go('the Dossier, over the debrief', click('[data-open-dossier]'), '!!document.querySelector("[data-dossier-overlay] [data-dossier]")')
+  await b.evaluate(`(() => { document.querySelectorAll('[data-dossier-card][data-filed]').forEach((d) => (d.open = true)); return true })()`)
+  failures.push(...(await screenRules(b, 'the Dossier, cards open', deck)))
+  await b.evaluate(`[...document.querySelectorAll('button')].find((x) => /^back to debrief$/i.test(x.innerText.trim())).click(); true`)
+  await b.evaluate(click('[data-title-screen]'))
+  await waitFor(b, '!!document.querySelector("[data-title]")')
+  await go("LIBRARY's Field Library", click('[data-read="library"]'), '!!document.querySelector("[data-field-library]")')
+  await go("LIBRARY's Glossary", click('[data-tab="glossary"]'), '!!document.querySelector("[data-glossary]")')
+  await b.evaluate(back)
+  await waitFor(b, '!!document.querySelector("[data-title]")')
+  await b.evaluate(click('[data-title-system]'))
+  await go('the scoreboard', `setTimeout(() => document.querySelector('[data-system-control="scoreboard"]').click(), 50); true`, '!!document.querySelector("[data-scoreboard]")')
+  await b.evaluate(back)
+  await waitFor(b, '!!document.querySelector("[data-title]")')
+  await b.evaluate(click('[data-title-system]'))
+  await go('the credits', `setTimeout(() => document.querySelector('[data-system-control="credits"]').click(), 50); true`, '[...document.querySelectorAll("button")].some((x) => /back to title/i.test(x.innerText)) && !document.querySelector("[data-title]")')
+  return failures
+}
+
+// (c) The desktop board.
+async function checkDesktop(b, url) {
+  const [w, h] = [1440, 900]
+  await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false })
+  await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+  if (!(await cleanLoad(b, url, { 'dc-intro-seen': '1' }))) return [`${w}x${h}: the title never showed PLAY`]
+  await b.evaluate(click('[data-play]'))
+  if (!(await waitFor(b, '!!document.querySelector("[data-dock]") && !!document.querySelector("[data-tonight]")'))) return [`${w}x${h}: PLAY did not reach the board`]
+  await sleep(300)
+  const m = await b.evaluate(`(() => {
+    const board = document.querySelector('[data-board]').getBoundingClientRect()
+    const out = []
+    for (const e of document.querySelectorAll('[data-board] *')) {
+      const r = e.getBoundingClientRect()
+      if (r.width < 1 || r.height < 1) continue
+      if (r.left < board.left - 1 || r.right > board.right + 1) out.push(e.tagName.toLowerCase() + ' ' + Math.round(r.left) + '..' + Math.round(r.right))
+    }
+    const art = document.querySelector('[data-strip] [data-art] svg').getBoundingClientRect()
+    return { left: board.left, right: board.right, width: board.width, vw: innerWidth, out: out.slice(0, 4), art: art.width, columns: document.querySelectorAll('[data-wide], [data-ops-log], [data-inspector]').length }
+  })()`)
+  const failures = []
+  if (m.width > 600) failures.push(`${w}x${h}: the board is ${Math.round(m.width)}px wide, not the phone column`)
+  if (Math.abs(m.left - (m.vw - m.right)) > 2) failures.push(`${w}x${h}: the board is not centered (${Math.round(m.left)}px left, ${Math.round(m.vw - m.right)}px right)`)
+  for (const x of m.out) failures.push(`${w}x${h}: ${x} leaves the board's column`)
+  if (m.columns) failures.push(`${w}x${h}: a side column is back on the board`)
+  if (m.art < 40) failures.push(`${w}x${h}: the strip's tiles are drawn ${Math.round(m.art)}px wide, no wider than a phone's`)
+  return failures
+}
+
 export async function phoneLayout(chrome) {
   const server = await serve()
   const url = `http://127.0.0.1:${server.address().port}${BASE}`
@@ -579,6 +791,8 @@ export async function phoneLayout(chrome) {
     // A first game, won on NIGHT_PLAN and lost on no orders at all.
     failures.push(...(await checkDebrief(b, url, VIEWPORTS[0], NIGHT_PLAN, 'won')), ...(await checkDebrief(b, url, VIEWPORTS[0], {}, 'lost')))
     failures.push(...(await checkReadingRooms(b, url, VIEWPORTS[0])))
+    failures.push(...(await checkDesktop(b, url)))
+    failures.push(...(await checkEveryScreen(b, url)))
     return failures
   } finally {
     b.close()
@@ -602,7 +816,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
         console.log(failures.join('\n'))
         process.exit(1)
       }
-      console.log(`briefing fits, board fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}; the night's cards fit 375, the debrief's first screen fits 375x667, and the R4 screens' labels fit 375, as served and in wide fonts`)
+      console.log(`briefing fits, board fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}; the night's cards fit 375, the debrief's first screen fits 375x667, and the R4 screens' labels fit 375, as served and in wide fonts; the desktop board is one centered column; every screen is still under reduced motion, with no small input and no retired word`)
       process.exit(0)
     })
     .catch((e) => {

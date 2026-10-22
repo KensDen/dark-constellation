@@ -5,7 +5,7 @@
 
 import { DEFAULT_SCENARIO } from '../content'
 import { dailyKey } from '../engine/daily'
-import { LocalDailyLedger, dossier } from '../persistence'
+import { LocalDailyLedger, LocalScoreSink, dossier } from '../persistence'
 
 // The tagline the README, the page description and the GitHub About share.
 export const TITLE_TAGLINE = 'A turn-based space and drone cybersecurity strategy sim.'
@@ -29,6 +29,15 @@ export function dailyStreak(now: Date, ledger = new LocalDailyLedger()): number 
     day.setDate(day.getDate() - 1)
   }
   return n
+}
+
+// GOAL 1 (v1.3 R5, Ken's ruling on R4's question 10): whether this device
+// has ever held the mission, and the best final score it has finished on,
+// over practice runs and official Daily Ops alike. Null before any run.
+export function goalOne(ledger = new LocalDailyLedger(), sink = new LocalScoreSink()): { held: boolean; best: number } | null {
+  const runs = [...sink.top(10).map((e) => ({ won: e.outcome === 'won', mai: e.mai })), ...ledger.all().map(({ result }) => ({ won: result.outcome === 'won', mai: result.mai }))]
+  if (runs.length === 0) return null
+  return { held: runs.some((r) => r.won), best: Math.max(...runs.map((r) => r.mai)) }
 }
 
 // GOAL 2: intel cards filed on this device, of the threats in the deck.

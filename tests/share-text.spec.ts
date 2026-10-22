@@ -30,6 +30,10 @@
 // lines and their order are the same pins as before (the share's shape is
 // R4's to change).
 //
+// v1.3 Round 5 (Ken's ruling on R4's question 2): every grade line ends
+// with the win line it is read against, "score 55.5 / 70", Daily Op and
+// free play alike; the pins below moved by that and nothing else.
+//
 // v1.3 Round 4 (M37; QC G-056 and G-057): free play takes the Daily Op's
 // four lines. Its longer text said "survived 6 of 6 turns" on a loss, put
 // one technique in both its lists and seven beside eight hits; the four
@@ -74,7 +78,7 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: op.daily!.n, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade S · won T6 · score 86.2',
+        'Grade S · won T6 · score 86.2 / 70',
         '\u{1F7E9}\u{1F7E9}\u{1F7E9}\u{1F7E8}\u{1F7E8}\u{1F7E8}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -86,7 +90,7 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: 1, official: false })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1 (practice)',
-        'Grade D · lost T6 · score 49.6',
+        'Grade D · lost T6 · score 49.6 / 70',
         '\u{1F7E8}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -102,7 +106,7 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: 1, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade F · lost T4 · score 78.0',
+        'Grade F · lost T4 · score 78.0 / 70',
         '\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -136,7 +140,7 @@ describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
     expect(shareText(end)).toBe(
       [
         'DARK CONSTELLATION · Practice · Standard',
-        'Grade S · won T6 · score 85.2',
+        'Grade S · won T6 · score 85.2 / 70',
         '\u{1F7E9}\u{1F7E9}\u{1F7E9}\u{1F7E8}\u{1F7E8}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -149,7 +153,7 @@ describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
     expect(shareText(end)).toBe(
       [
         'DARK CONSTELLATION · Practice · Easy',
-        'Grade D · lost T6 · score 58.6',
+        'Grade D · lost T6 · score 58.6 / 70',
         '\u{1F7E8}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -170,7 +174,7 @@ describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
           const lines = text.split('\n')
           expect(lines, `${difficulty} seed ${seed}: not four lines`).toHaveLength(4)
           expect(lines[0]).toBe(`DARK CONSTELLATION · Practice · ${difficulty === 'easy' ? 'Easy' : 'Standard'}`)
-          expect(lines[1]).toBe(`Grade ${gradeOf(end)} · ${end.status === 'won' ? 'won' : 'lost'} T${end.history.length} · score ${end.history[end.history.length - 1].maiScore.toFixed(1)}`)
+          expect(lines[1]).toBe(`Grade ${gradeOf(end)} · ${end.status === 'won' ? 'won' : 'lost'} T${end.history.length} · score ${end.history[end.history.length - 1].maiScore.toFixed(1)} / 70`)
           expect(lines[2]).toBe(turnStrip(end).map((c) => SHARE_SQUARE[c]).join(''))
           expect(lines[3]).toBe(SHARE_URL)
           expect(text, `${difficulty} seed ${seed}: says survived`).not.toMatch(/surviv/i)

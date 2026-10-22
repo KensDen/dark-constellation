@@ -217,7 +217,7 @@ export default function IntroSequence({ onDone, replay = false }: IntroSequenceP
     <main
       aria-label="Briefing"
       data-briefing={index}
-      className={`fixed inset-0 z-40 mx-auto flex max-w-[560px] flex-col gap-3 overflow-hidden bg-dc-ground px-4 pt-safe pb-safe text-dc-ink ${visible ? '' : 'dc-board-hidden'}`}
+      className={`fixed inset-0 z-40 mx-auto flex max-w-[520px] flex-col gap-3 overflow-hidden bg-dc-ground px-4 pt-safe pb-safe text-dc-ink ${visible ? '' : 'dc-board-hidden'}`}
     >
       <div className="flex flex-none items-center justify-between pt-2">
         <p className="font-mono text-[11px] tracking-widest text-dc-muted">

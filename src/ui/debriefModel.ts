@@ -163,9 +163,12 @@ export const SAY_VERB: Record<LearnedHow, string> = {
   missed: 'would have stopped',
 }
 
+// One line a defense and a verb, its threats together (v1.3 R5, Ken's
+// ruling on R4's question 6): "Sensor fusion cross-checks would have
+// stopped LiDAR blinding and BLACKOUT CHAIN", not the defense three times.
 export interface Saying {
   defense: string
-  threat: string
+  threats: string[]
   how: LearnedHow
 }
 
@@ -173,10 +176,18 @@ export interface Saying {
 // engine's order within each (fresh-eyes review: a list that opened on a
 // run of misses read as a list of failures).
 const SAY_ORDER: Record<LearnedHow, number> = { held: 0, reduced: 1, missed: 2 }
-export const canSay = (state: GameState): Saying[] =>
-  state.learned
-    .map((l) => ({ defense: defenseOf(state, l.counter)?.name ?? l.counter, threat: threatName(state, l.threat), how: l.how }))
-    .sort((a, b) => SAY_ORDER[a.how] - SAY_ORDER[b.how])
+export function canSay(state: GameState): Saying[] {
+  const out: Saying[] = []
+  for (const l of state.learned) {
+    const defense = defenseOf(state, l.counter)?.name ?? l.counter
+    const threat = threatName(state, l.threat)
+    const line = out.find((s) => s.defense === defense && s.how === l.how)
+    if (line) {
+      if (!line.threats.includes(threat)) line.threats.push(threat)
+    } else out.push({ defense, threats: [threat], how: l.how })
+  }
+  return out.sort((a, b) => SAY_ORDER[a.how] - SAY_ORDER[b.how])
+}
 
 // NEXT TIME (M14): the first defense this game missed, and the turn to
 // have it by, which is the turn its threat first got through.

@@ -14,9 +14,50 @@
   line-height: 1;
 }
 
-/* A piece waiting for its turn in the reveal. */
-.dc-score-wait {
+/* THE WIN'S RAYS (v1.3 R5): pixel-hard spokes behind the shield, there
+   with or without motion, so a win reads as a win from its shape. Their
+   strength rises with the grade (data-tier). */
+.dc-rays {
+  background: repeating-conic-gradient(
+    from 0deg at 60px 50%,
+    color-mix(in srgb, var(--dc-go) 26%, transparent) 0deg 7deg,
+    transparent 7deg 20deg
+  );
+}
+
+[data-tier='C'] .dc-rays {
+  opacity: 0.45;
+}
+
+[data-tier='B'] .dc-rays {
+  opacity: 0.6;
+}
+
+[data-tier='A'] .dc-rays {
+  opacity: 0.8;
+}
+
+[data-tier='S'] .dc-rays {
+  opacity: 1;
+}
+
+/* A burst pixel: a square at the shield's centre that flies out along
+   its own --dx and --dy (Debrief sets them), only with motion. */
+.dc-burst-px {
+  position: absolute;
+  left: 60px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  z-index: 20;
   opacity: 0;
+}
+
+/* A piece waiting for its turn in the reveal; important, so a rule that
+   sets its resting opacity (the rays' strength) cannot show it early. */
+.dc-score-wait {
+  opacity: 0 !important;
 }
 
 /* THE TURN STRIP: one square a turn, sized for a full campaign so a short
@@ -57,16 +98,35 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* The grade drops in and bounces once. The duration is
-     DEBRIEF_MOTION.gradeMs. */
-  .dc-grade-drop {
-    animation: dc-grade-drop 640ms both;
-  }
-
   /* Each stat tile rises in on its step; Debrief sets each one's delay.
      The duration is DEBRIEF_MOTION.statInMs. */
   .dc-stat-in {
     animation: dc-rise-in 220ms ease-out both;
+  }
+
+  /* The win's stamp is pressed down, overshooting once; the shield pops
+     up behind it; the rays come up. The stamp and the shield take
+     DEBRIEF_MOTION.heroMs's first half. */
+  .dc-stamp-in {
+    animation: dc-stamp-in 360ms cubic-bezier(0.2, 1.4, 0.4, 1) both;
+  }
+
+  .dc-shield-pop {
+    animation: dc-shield-pop 420ms cubic-bezier(0.2, 1.5, 0.4, 1) both;
+  }
+
+  .dc-rays-in {
+    animation: dc-fade-up 600ms ease-out both;
+  }
+
+  /* The burst. The duration is DEBRIEF_MOTION.burstMs. */
+  .dc-burst-fly {
+    animation: dc-burst-fly 700ms cubic-bezier(0.1, 0.7, 0.3, 1) both;
+  }
+
+  /* A section below the fold rises in as it is scrolled to. */
+  .dc-section-in {
+    animation: dc-rise-in 320ms ease-out both;
   }
 
   /* Each filed card's row steps in after the grade. The duration is
@@ -83,33 +143,64 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dc-grade-drop,
   .dc-stat-in,
   .dc-filed-in,
-  .dc-strip-fill {
+  .dc-strip-fill,
+  .dc-stamp-in,
+  .dc-shield-pop,
+  .dc-rays-in,
+  .dc-burst-fly,
+  .dc-section-in {
     animation: none;
   }
 }
 
-/* A fall that speeds up, one bounce, and rest. */
-@keyframes dc-grade-drop {
+/* The stamp's own tilt is its rotate property (-rotate-6), which the
+   transform below composes with; so the press ends on no transform, and
+   the stamp rests exactly where reduced motion shows it (second
+   fresh-eyes pass: ending on rotate(-6deg) tilted it twice). */
+@keyframes dc-stamp-in {
   0% {
     opacity: 0;
-    transform: translateY(-180%);
-    animation-timing-function: cubic-bezier(0.5, 0, 1, 1);
+    transform: scale(1.7) rotate(-5deg);
   }
   55% {
     opacity: 1;
-    transform: translateY(0);
-    animation-timing-function: cubic-bezier(0, 0, 0.5, 1);
-  }
-  75% {
-    transform: translateY(-22%);
-    animation-timing-function: cubic-bezier(0.5, 0, 1, 1);
   }
   100% {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
+  }
+}
+
+@keyframes dc-shield-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.3) translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dc-fade-up {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes dc-burst-fly {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1.4);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy)) scale(0.6);
   }
 }
 

@@ -55,17 +55,20 @@ function FiledCard({ def, index, onLearnMore }: { def: ThreatEvent; index: numbe
       className="group min-w-0 scroll-mt-16 scroll-mb-4 border-2 border-dc-friendly/70 bg-dc-friendly/10 shadow-press open:col-span-2"
     >
       <summary className="flex h-full min-h-11 cursor-pointer list-none flex-col gap-1 p-2.5 group-open:h-auto [&::-webkit-details-marker]:hidden">
-        <span className={`flex justify-between gap-1 ${MONO}`}>
-          <span className="text-dc-friendly">
-            {vectorWord(def.vector)} → {def.layers.join(' · ')}
-          </span>
-          <span className="text-dc-muted">{num(index)}</span>
+        <span className={`${MONO} text-dc-friendly`}>
+          {vectorWord(def.vector)}
+          {'\u00a0'}→ {def.layers.join('\u00a0·\u00a0')}
         </span>
         <b className="text-[13.5px] leading-tight">{shortName(def)}</b>
         <span className="text-[12px] leading-snug text-dc-muted">{HOOK[def.id]}</span>
-        <span className="mt-auto self-end pt-1 font-mono text-[11px] text-dc-ink">
-          <span className="group-open:hidden">details ›</span>
-          <span className="hidden group-open:inline">close</span>
+        {/* The card's number and its cue share the foot (fresh-eyes
+            review: the number crowded the tag). */}
+        <span className="mt-auto flex items-baseline justify-between pt-1 font-mono text-[11px]">
+          <span className="text-dc-muted">{num(index)}</span>
+          <span className="text-dc-ink">
+            <span className="group-open:hidden">details ›</span>
+            <span className="hidden group-open:inline">close</span>
+          </span>
         </span>
       </summary>
       <div className="border-t border-dc-line px-2.5 pb-2.5 pt-2 text-sm">
@@ -105,11 +108,11 @@ function FiledCard({ def, index, onLearnMore }: { def: ThreatEvent; index: numbe
 function UnfiledCard({ id, index }: { id: string; index: number }) {
   return (
     <div data-dossier-card={id} data-unfiled className="flex min-w-0 flex-col gap-1 bg-dc-chrome p-2.5">
-      <span aria-hidden="true" className={`self-end ${MONO} text-dc-muted`}>
-        {num(index)}
-      </span>
       <b className="text-[13.5px] leading-tight text-dc-muted">Unfiled</b>
       <span className="text-[12px] leading-snug text-dc-muted">Face this move in play to file it.</span>
+      <span aria-hidden="true" className="pt-1 font-mono text-[11px] text-dc-muted">
+        {num(index)}
+      </span>
     </div>
   )
 }
@@ -181,7 +184,7 @@ export default function Dossier({
         </div>
       </Root>
       {library && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground" role="dialog" aria-modal="true" aria-label="Field Library" data-library-overlay>
+        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-dc-ground" role="dialog" aria-modal="true" aria-label="Field Library" data-library-overlay>
           <Suspense fallback={<p className="p-4 font-mono text-xs text-dc-muted">Opening the Field Library.</p>}>
             <FieldLibrary embedded focus={library} backLabel="BACK TO DOSSIER" onBack={closeLibrary} />
           </Suspense>

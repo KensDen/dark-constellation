@@ -457,7 +457,7 @@ const CUE_CLASSES = new Set(Object.values(VISUAL_CLASS).filter(Boolean))
 // put on only with motion allowed. The flash colours are not here: they
 // are meaning, not motion, and play in both modes.
 const isMotion = (c: string) =>
-  CUE_CLASSES.has(c) || /^dc-(tile-hit|reticle|lock-on|burst|hit-strobe|mai-float|shield-flash|badge-|pulse-|manifest-in)/.test(c)
+  CUE_CLASSES.has(c) || /^dc-(tile-hit|reticle|lock-on|burst|hit-strobe|mai-float|shield-flash|stamp-pop|decode|badge-|pulse-|manifest-in)/.test(c)
 
 describe('the fixture renders the real campaign screen', () => {
   it('mounts a turn in progress without a browser', () => {

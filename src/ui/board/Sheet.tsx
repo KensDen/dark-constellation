@@ -36,7 +36,7 @@ export default function Sheet({ id, title, step, steps, onClose, onBack, childre
     <section
       aria-label={stepped ? `${title}, step ${step} of ${steps}` : title}
       data-sheet={id}
-      className="dc-sheet-in absolute inset-x-0 bottom-0 z-30 max-h-4/5 overflow-y-auto border-t-2 border-dc-line bg-dc-panel text-dc-ink px-safe"
+      className="dc-sheet-in absolute inset-x-0 bottom-0 z-30 max-h-4/5 overflow-y-auto overscroll-contain border-t-2 border-dc-line bg-dc-panel text-dc-ink px-safe"
     >
       <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-dc-line bg-dc-panel px-3 py-2">
         {onBack && (

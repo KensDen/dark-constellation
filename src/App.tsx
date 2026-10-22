@@ -10,7 +10,7 @@
 // load, the app lands straight back in the game at the saved turn and
 // phase, and the title offers CONTINUE TURN n whenever one exists.
 
-import { Suspense, lazy, useLayoutEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Game from './ui/Game'
 import Title from './ui/Title'
 import { hasSeenIntro } from './ui/introSeen'
@@ -19,6 +19,7 @@ import { useGestureUnlock, useSoundPrefs } from './audio'
 import { startDailyOp } from './ui/dailyOp'
 import { chooseDifficulty, deviceDifficulty, newOperation } from './ui/session'
 import { copyToClipboard } from './ui/clipboard'
+import { usePageVisible } from './ui/cues/motion'
 import type { Difficulty } from './engine/types'
 
 // SPLIT OUT OF THE INITIAL CHUNK (v1.2 R0, brief section 8). A player who
@@ -90,6 +91,12 @@ function App() {
   // The audio context cannot start before a real gesture, so the whole app
   // arms one listener and the first tap anywhere unlocks it.
   useGestureUnlock()
+  // A hidden tab holds every animation on every screen where it is (brief
+  // 8.3): one class on the root, which src/index.css turns into a pause.
+  const visible = usePageVisible()
+  useEffect(() => {
+    document.documentElement.classList.toggle('dc-page-hidden', !visible)
+  }, [visible])
   const [soundPrefs, setSoundPrefs] = useSoundPrefs()
   // An in-progress autosave, read once at startup, seeds refresh-safe
   // resume: the game mounts with it and lands on the saved turn and phase.
@@ -186,7 +193,7 @@ function App() {
               <TerminalChrome status={STATUS[screen] ?? 'REFERENCE'} />
             </Suspense>
           )}
-          <div ref={scroller} data-screen={screen} className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+          <div ref={scroller} data-screen={screen} className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col">
             <Suspense fallback={<ScreenLoading />}>
               {screen === 'title' && (
                 <Title

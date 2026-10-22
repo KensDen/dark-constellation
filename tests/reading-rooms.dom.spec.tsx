@@ -175,7 +175,7 @@ describe('GUARD R4 (c): the Dossier counts its filed cards, and keeps them acros
     expect(q('[data-dossier-count]')!.textContent).toBe('0 / 18')
     expect(qa('[data-dossier-card][data-filed]')).toHaveLength(0)
     // Each card keeps its place in the deck, 01 to 18.
-    qa('[data-dossier-card]').forEach((card, i) => expect(card.textContent).toBe(`${String(i + 1).padStart(2, '0')}UnfiledFace this move in play to file it.`))
+    qa('[data-dossier-card]').forEach((card, i) => expect(card.textContent).toBe(`UnfiledFace this move in play to file it.${String(i + 1).padStart(2, '0')}`))
 
     localStorage.setItem('dc-dossier', JSON.stringify(['ground-ransomware', 'uplink-jamming', 'not-in-the-deck']))
     loadPage()

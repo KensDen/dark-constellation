@@ -53,6 +53,9 @@ export interface Night {
   // The board as the first event arrives: tonight's orders landed and the
   // live conditions pressed.
   opening: GameState
+  // The conditions that pressed as it opened, by name (JAMMED), for the
+  // HUD's labelled change under COLDVEIL IS MOVING (v1.3 R5).
+  pressed: string[]
   steps: NightStep[]
   // The engine's own next state, by identity: END OF TURN shows it.
   closing: GameState
@@ -104,10 +107,12 @@ export function nightOf(before: GameState, after: GameState): Night {
   board.credits = before.credits - record.ledger.ordered
   board.pipeline = [...board.pipeline, ...orderedTonight(after, before.turn)]
   // The live conditions press, read against the defenses owned now.
+  const pressed: string[] = []
   for (const c of board.conditions) {
     const def = eventDef(before, c.eventId)
     const pressure = Math.max(0, c.baseSeverity - mitigationOf(def, board.counters))
     if (pressure === 0) continue
+    if (!pressed.includes(c.name)) pressed.push(c.name)
     for (const m of def.effect.meters) board.meters[m] = Math.max(0, board.meters[m] - scaled(CONDITION_PRESSURE_PER_SEVERITY * pressure, difficulty))
   }
   const opening = copyBoard(board)
@@ -159,7 +164,7 @@ export function nightOf(before: GameState, after: GameState): Night {
     steps.push({ kind, ev, def, before: shown, after: next, scoreBefore: maiScore(shown), scoreAfter: maiScore(next), streak })
     shown = next
   }
-  return { turn: before.turn, before, record, opening, steps, closing: after }
+  return { turn: before.turn, before, record, opening, pressed, steps, closing: after }
 }
 
 // THE RESULT PANEL (brief 5.5 item 2): one tile per point of strength,

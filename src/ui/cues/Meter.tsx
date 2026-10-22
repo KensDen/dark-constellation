@@ -111,8 +111,10 @@ export const CROSSING_SOUND: Record<'below' | 'recovered', SoundCue> = {
 // One decimal while either end of the count has one (v1.2 R3): a fall
 // from 76.5 to 75 keeps its decimal until it lands, rather than opening by
 // rounding up to 77, which on MAI's odometer read as a rise before a fall.
-const format = (shown: number, target: number, from = target): string => {
-  const decimals = Number.isInteger(target) && Number.isInteger(from) ? 0 : 1
+// A readout that sets its own decimals (the score, one always since v1.3
+// R5) keeps them through the whole count.
+const format = (shown: number, target: number, from = target, fixed?: number): string => {
+  const decimals = fixed ?? (Number.isInteger(target) && Number.isInteger(from) ? 0 : 1)
   return shown.toFixed(decimals)
 }
 
@@ -147,6 +149,8 @@ export interface ReadoutProps {
   // Each digit rolls in as the count passes through it, like an odometer
   // (v1.2 R3, MAI only). The stylesheet decides whether a digit moves.
   odometer?: boolean
+  // Always this many decimals (the score: one, v1.3 R5).
+  decimals?: number
 }
 
 export default function Readout({
@@ -163,6 +167,7 @@ export default function Readout({
   valueClassName,
   countMs,
   odometer,
+  decimals,
 }: ReadoutProps) {
   const reduced = useReducedMotion()
   const shown = useCountUp(value, reduced, countMs)
@@ -220,15 +225,15 @@ export default function Readout({
           // clips them (v1.3 R3 fresh-eyes review: they drew into the label
           // above).
           className={`tabular-nums ${odometer ? 'inline-block overflow-hidden' : ''} ${valueClassName ?? 'text-sm'} ${flash ? '' : warning ? 'text-alert-amber' : TONE_TEXT[tone]} ${flash}`}
-          aria-label={`${label} ${value}${suffix ?? ''}`}
+          aria-label={`${label} ${decimals === undefined ? value : value.toFixed(decimals)}${suffix ?? ''}`}
         >
           {odometer
-            ? [...format(shown, value, countFrom)].map((ch, i) => (
+            ? [...format(shown, value, countFrom, decimals)].map((ch, i) => (
                 <span key={`${i}:${ch}`} className="dc-odo inline-block">
                   {ch}
                 </span>
               ))
-            : format(shown, value, countFrom)}
+            : format(shown, value, countFrom, decimals)}
           {suffix}
         </span>
       </div>

@@ -64,7 +64,7 @@ export function Card({
         </h2>
         {right}
       </header>
-      <div ref={body} data-card-body className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-2.5">
+      <div ref={body} data-card-body className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-2.5">
         {children}
       </div>
       {/* On a row of its own between the body and the way on, never over
@@ -143,9 +143,12 @@ function ResultPanel({ step, reduced }: { step: NightStep; reduced: boolean }) {
   // (fresh-eyes review: the unchanged score there read as nothing at all).
   // On a block what the defense saved is the big number, as a hit's cost
   // is (second fresh-eyes pass), with the brief's NO LOSS · SAVED under it.
-  const big = r.through === 0 ? (saved > 0.05 ? `+${saved.toFixed(1)}` : copy.NO_LOSS) : d.toFixed(1)
+  // A block's big word is NO LOSS, its saved points beside it (v1.3 R5
+  // fresh-eyes review: "+1.2" read as points added to a score that never
+  // moved).
+  const big = r.through === 0 ? copy.NO_LOSS : d.toFixed(1)
   const small =
-    r.through === 0 ? (saved > 0.05 ? copy.NO_LOSS_SAVED : '') : r.blocked > 0 && saved > 0.05 ? copy.savedLabel(saved) : copy.SCORE_WORD
+    r.through === 0 ? (saved > 0.05 ? copy.savedLabel(saved) : '') : r.blocked > 0 && saved > 0.05 ? copy.savedLabel(saved) : copy.SCORE_WORD
   return (
     <div data-result={r.verdict.toLowerCase()} className={`grid grid-cols-[auto_1fr_auto] items-center gap-2.5 border-l-4 p-2.5 ${BLOCK_TONE[tone]}`}>
       <div className="flex flex-col gap-0.5">
@@ -175,7 +178,7 @@ function ResultPanel({ step, reduced }: { step: NightStep; reduced: boolean }) {
         </span>
       </div>
       <div className="flex flex-col items-end gap-0.5 text-right">
-        <b data-result-score className={`whitespace-nowrap font-display leading-none ${r.through === 0 ? (saved > 0.05 ? 'text-[20px]' : 'text-[15px]') + ' text-dc-go' : 'text-[20px] text-dc-hostile'}`}>
+        <b data-result-score className={`whitespace-nowrap font-display leading-none ${r.through === 0 ? 'text-[18px] text-dc-go' : 'text-[20px] text-dc-hostile'}`}>
           {big}
         </b>
         {small && <span className={`${LABEL} ${r.through === 0 || r.blocked > 0 ? 'text-dc-go' : 'text-dc-muted'}`}>{small}</span>}
@@ -458,7 +461,7 @@ export function IntelFile({
           <span className="relative font-display text-[22px] leading-none text-dc-ink">{copy.vectorWord(def.vector)}</span>
           <span className="relative mt-1 font-mono text-xs tracking-widest">→ {def.layers.join(' · ')}</span>
         </div>
-        <div ref={body} className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-3">
+        <div ref={body} className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-4 py-3">
           <div className={`flex items-baseline justify-between ${LABEL} text-dc-muted`}>
             <span>{copy.DOSSIER_COUNT}</span>
             <b data-dossier-count className="text-[15px] text-dc-go">

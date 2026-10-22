@@ -6,10 +6,18 @@
 // (the Round 6d defect).
 //
 // ONE SCREEN BEFORE ANY DETAIL (the designer call ratified 5 October): the
-// eyebrow, the grade block (MISSION HELD or LOST, why, the final score
-// against the win line, the bonus a win is graded with, the difficulty and
-// the time on the clock), on a loss the turn it turned on (M14), the six
-// stats, and FILED THIS GAME. Below the fold: WHAT YOU CAN NOW SAY, NEXT
+// eyebrow, the grade (MISSION HELD or LOST, why, the final score against
+// the win line, the bonus a win is graded with, the difficulty and the
+// time played), the six stats, and FILED THIS GAME.
+//
+// A WIN FEELS LIKE A WIN (v1.3 R5, Ken's first priority): a won debrief
+// opens on a layout of its own, not the loss's in green. A filled pixel
+// shield carries the grade, MISSION HELD is stamped beside it, rays stand
+// behind them, and a burst flies out, all scaled by the grade, so a C
+// still reads as a win and an S feels earned. A loss stays sober: it
+// leads with what went wrong (the turn of its biggest drop, M14), then a
+// plain grade row. With motion off the win still reads from its shape:
+// the shield, the stamp and the rays are there, only nothing moves. Below the fold: WHAT YOU CAN NOW SAY, NEXT
 // TIME, DECISIONS, the grade ladder, the turn strip, SHARE, PLAY AGAIN,
 // DOSSIER n / 18, TITLE SCREEN and the countdown to the next Daily Op.
 // scripts/phone-layout.mjs holds the first screen to 375x667 unscrolled.
@@ -18,13 +26,16 @@
 // src/engine/grade.ts. No quiz and no scoring of the player's reading
 // (Ken's standing ruling): the debrief reports, it does not test.
 //
-// MOTION: after a short lead-in the six tiles rise in a step apart and
-// count up together, each landing with a blip; then the grade drops in
-// and bounces once, with its sound; then the filed cards step in and the
-// strip fills. Under reduced motion all of it is on screen at once, with
-// no count, no drop, no fill and no blips; the grade still sounds once.
+// MOTION: after a short lead-in the grade lands with its sound (on a win,
+// the stamp is pressed down, the shield pops up with the grade in it and
+// the burst flies); then the six tiles rise in a step apart and count up
+// together, each landing with a blip; then the filed cards step in, the
+// Dossier's count ticks up and the strip fills. Each section below the
+// fold rises in as it is scrolled to. Under reduced motion all of it is
+// on screen at once, with no count, no drop, no fill and no blips; the
+// grade still sounds once.
 
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useSound } from '../audio'
 import { MOMENT_CUES, gradeSound } from '../cues'
 import { dailyKey, dailyNumber, msUntilNextDaily } from '../engine/daily'
@@ -56,6 +67,7 @@ import { HOOK } from './night/nightCopy'
 import { PRIMARY } from './night/kit'
 import { shareText } from './reportCard'
 import { ICON_CHECK, ICON_CROSS, ICON_HALF, ICON_SPARK, tinted } from './sprites/icons'
+import { SHIELD_PLAIN } from './sprites/effects'
 import PixelSprite from './sprites/PixelSprite'
 import { dailyStreak, dossierCount } from './titleStatus'
 import { shortName } from './board/boardModel'
@@ -111,15 +123,31 @@ const SAY_ICON: Record<LearnedHow, { icon: typeof ICON_CHECK; tone: 'go' | 'warn
   missed: { icon: ICON_CROSS, tone: 'hostile' },
 }
 
+// What each winning grade says under its stamp, and how much it bursts.
+// Its sparks round the shield are still shapes, there with motion off.
+const TIER: Record<'S' | 'A' | 'B' | 'C', { line: string; burst: number; sparks: number }> = {
+  S: { line: 'TOP GRADE', burst: 28, sparks: 4 },
+  A: { line: 'STRONG HOLD', burst: 18, sparks: 2 },
+  B: { line: 'SOLID HOLD', burst: 12, sparks: 1 },
+  C: { line: 'HELD THE LINE', burst: 8, sparks: 0 },
+}
+// The stats a win's grid opens on.
+const WIN_STATS_FIRST = ['HELD OUTRIGHT', 'BEST STREAK', 'POINTS SAVED']
+// Where each spark sits round the shield, in the order they add.
+// Inside the hero's frame and clear of the lines beside the shield.
+const SPARK_AT = ['-right-1 -top-1', '-left-1 -top-1', '-left-1 bottom-4', '-right-1 bottom-4']
+// The burst's pixels, in the board's tokens, round the shield.
+const BURST_TONES = ['bg-dc-go', 'bg-dc-warn', 'bg-dc-friendly', 'bg-dc-ink']
+
 const EYEBROW = 'font-mono text-[10px] tracking-widest text-dc-muted'
 const HEAD = 'font-mono text-[11px] tracking-widest'
 const PANEL = 'bg-dc-panel px-3 py-2.5'
 
-// Where the reveal is: 0 before anything, 1 to n while stat i-1 has
-// started, n+1 once the grade has dropped, n+2 at the end. Reduced
-// motion, at any point, puts it at its end for good: turning it off again
-// does not take back what is already on screen.
-function useReveal(reduced: boolean, n: number, onLand: () => void, onGrade: () => void): number {
+// Where the reveal is: 0 before anything, 1 once the grade has landed,
+// 2 to n+1 while stat i-2 has started, n+2 at the end. Reduced motion, at
+// any point, puts it at its end for good: turning it off again does not
+// take back what is already on screen.
+function useReveal(reduced: boolean, n: number, won: boolean, onLand: () => void, onGrade: () => void): number {
   const last = n + 2
   const [stage, setStage] = useState(() => (reduced ? last : 0))
   const done = useRef(reduced)
@@ -133,24 +161,70 @@ function useReveal(reduced: boolean, n: number, onLand: () => void, onGrade: () 
     const M = DEBRIEF_MOTION
     const timers: number[] = []
     const at = (ms: number, fire: () => void) => timers.push(window.setTimeout(fire, ms))
-    for (let i = 0; i < n; i += 1) {
-      const start = M.leadMs + i * M.statStepMs
-      at(start, () => setStage((s) => Math.max(s, i + 1)))
-      at(start + M.countMs, onLand)
-    }
-    const grade = M.leadMs + (n - 1) * M.statStepMs + M.countMs + M.beatMs
-    at(grade, () => {
-      setStage((s) => Math.max(s, n + 1))
+    at(M.leadMs, () => {
+      setStage((s) => Math.max(s, 1))
       onGrade()
     })
-    at(grade + M.gradeMs, () => {
+    const tiles = M.leadMs + (won ? M.heroMs : M.lossMs)
+    for (let i = 0; i < n; i += 1) {
+      const start = tiles + i * M.statStepMs
+      at(start, () => setStage((s) => Math.max(s, i + 2)))
+      at(start + M.countMs, onLand)
+    }
+    at(tiles + (n - 1) * M.statStepMs + M.countMs + M.beatMs, () => {
       done.current = true
       setStage(last)
     })
     return () => timers.forEach((id) => window.clearTimeout(id))
     // The callbacks keep their identity (useCallback below).
-  }, [reduced, n, last, onLand, onGrade])
+  }, [reduced, n, won, last, onLand, onGrade])
   return reduced ? last : stage
+}
+
+// A section below the fold rises in the first time it is scrolled to, with
+// motion; without it, or without an observer, it is simply there.
+function useRiseIn(moving: boolean): [(el: HTMLElement | null) => void, string] {
+  const [el, setEl] = useState<HTMLElement | null>(null)
+  const [seen, setSeen] = useState(!moving)
+  useEffect(() => {
+    if (seen || !el) return
+    if (typeof IntersectionObserver === 'undefined') {
+      setSeen(true)
+      return
+    }
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        setSeen(true)
+        io.disconnect()
+      }
+    })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [el, seen])
+  return [setEl, seen ? (moving ? 'dc-section-in' : '') : 'dc-score-wait']
+}
+
+// THE WIN'S BURST: pixels from the shield's centre, out along even
+// spokes, two rings on an S. Only with motion.
+function Burst({ count }: { count: number }) {
+  return (
+    <span aria-hidden="true" data-burst={count}>
+      {Array.from({ length: count }, (_, i) => {
+        const ring = count > 20 && i % 2 === 1 ? 1.6 : 1
+        const a = (i / count) * Math.PI * 2
+        const r = (96 + (i % 3) * 18) * ring
+        return (
+          <i
+            key={i}
+            className={`dc-burst-px dc-burst-fly ${BURST_TONES[i % BURST_TONES.length]}`}
+            // Flat, so the pixels fly out sideways and fade inside the
+            // hero's height, never landing on the text below it.
+            style={{ '--dx': `${Math.round(Math.cos(a) * r)}px`, '--dy': `${Math.round(Math.sin(a) * r * 0.4)}px`, animationDelay: `${i * DEBRIEF_MOTION.burstStepMs}ms` } as CSSProperties}
+          />
+        )
+      })}
+    </span>
+  )
 }
 
 function Stat({ stat, index, active, reduced, moving }: { stat: DebriefStat; index: number; active: boolean; reduced: boolean; moving: boolean }) {
@@ -169,6 +243,28 @@ function Stat({ stat, index, active, reduced, moving }: { stat: DebriefStat; ind
       </span>
       <span className="font-mono text-[10px] leading-tight text-dc-muted">{stat.label}</span>
     </li>
+  )
+}
+
+// The final score against the win line, the bonus a win is graded with,
+// the difficulty and the time played.
+function FinalLines({ block, difficulty, played }: { block: ReturnType<typeof gradeBlock>; difficulty: string; played: string | null }) {
+  return (
+    <>
+      Final mission assurance <b className="font-mono font-normal text-dc-ink">{block.final.toFixed(1)}</b>,{' '}
+      <span className="whitespace-nowrap">needed {block.needed}</span>
+      {block.bonus && (
+        <>
+          <br />+ defense bonus <span className="font-mono">{block.bonus.bonus.toFixed(1)}</span> →{' '}
+          <span className="whitespace-nowrap">
+            graded on <b className="font-mono font-normal text-dc-ink">{block.bonus.graded.toFixed(1)}</b>
+          </span>
+        </>
+      )}
+      <br />
+      {difficulty}
+      {played && ` · played in ${played}`}
+    </>
   )
 }
 
@@ -203,7 +299,13 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
 
   const block = gradeBlock(state)
   const lead = lossLead(state)
-  const stats = debriefStats(state)
+  // A win leads with what held (fresh-eyes review: a win that opened on
+  // HITS TAKEN read like a loss); a loss keeps the brief's order.
+  const stats = (() => {
+    const all = debriefStats(state)
+    if (state.status !== 'won') return all
+    return WIN_STATS_FIRST.map((label) => all.find((s) => s.label === label)!).concat(all.filter((s) => !WIN_STATS_FIRST.includes(s.label)))
+  })()
   const strip = turnStrip(state)
   const sayings = canSay(state)
   const next = nextTime(state)
@@ -214,7 +316,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
 
   const blip = useCallback(() => play(MOMENT_CUES['result-tiles'].sound), [play])
   const gradeLands = useCallback(() => play(gradeSound(block.won)), [play, block.won])
-  const stage = useReveal(reduced, stats.length, blip, gradeLands)
+  const stage = useReveal(reduced, stats.length, block.won, blip, gradeLands)
   // Under reduced motion the grade is there from the start, and sounds once.
   const sounded = useRef(false)
   useEffect(() => {
@@ -224,9 +326,18 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
     // Once, on arrival.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const gradeStage = stats.length + 1
+  const gradeStage = 1
   const restStage = stats.length + 2
   const moving = !reduced
+  const tier = block.won ? TIER[block.grade as keyof typeof TIER] : null
+  // The Dossier's count ticks up to where this game left it.
+  const filedBase = Math.max(0, count.filed - (filed.ids?.length ?? 0))
+  const shownFiledCount = useCountUp(stage >= restStage ? count.filed : filedBase, reduced, DEBRIEF_MOTION.countMs)
+  const [canSayRef, canSayIn] = useRiseIn(moving)
+  const [nextRef, nextIn] = useRiseIn(moving)
+  const [decisionsRef, decisionsIn] = useRiseIn(moving)
+  const [ladderRef, ladderIn] = useRiseIn(moving)
+  const [turnsRef, turnsIn] = useRiseIn(moving)
 
   // After midnight, a Daily Op finished late belongs to the day it started
   // on, and the next one is already open rather than counting down. Only
@@ -264,53 +375,93 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
             {after}
           </p>
 
-          <div
-            data-grade-block
-            className={`grid grid-cols-[auto_1fr] items-center gap-4 border-l-4 ${block.won ? 'border-dc-go' : 'border-dc-hostile'} ${PANEL}`}
-          >
-            <span
-              data-grade
-              className={`dc-grade-letter w-14 text-center font-display ${GRADE_TONE[block.grade]} ${stage < gradeStage ? 'dc-score-wait' : moving ? 'dc-grade-drop' : ''}`}
-            >
-              {block.grade}
-            </span>
-            <div className="min-w-0">
-              <h2 id="debrief-head" data-mission className={`font-display text-sm leading-tight ${block.won ? 'text-dc-go' : 'text-dc-hostile'}`}>
-                {block.head}
-              </h2>
-              <p data-reason className="mt-1 text-[13px] leading-snug">
-                {block.reason}
-              </p>
-              <p data-final className="mt-1 text-[12px] leading-snug text-dc-muted">
-                Final mission assurance <b className="font-mono font-normal text-dc-ink">{block.final.toFixed(1)}</b>,{' '}
-                <span className="whitespace-nowrap">needed {block.needed}</span>
-                {block.bonus && (
-                  <>
-                    <br />+ defense bonus <span className="font-mono">{block.bonus.bonus.toFixed(1)}</span> →{' '}
-                    <span className="whitespace-nowrap">
-                      graded on <b className="font-mono font-normal text-dc-ink">{block.bonus.graded.toFixed(1)}</b>
+          {block.won && tier ? (
+            <>
+              {/* THE WIN'S OWN LAYOUT: the shield with the grade in it,
+                  the stamp, the rays and the burst. */}
+              <div data-win-hero data-tier={block.grade} className={`relative z-10 bg-dc-panel px-3 pb-3 pt-4 ${block.grade === 'S' ? 'border-2 border-dc-go' : ''}`}>
+                {/* The rays are clipped to the hero; the burst is not, so
+                    it flies past the hero's edges (fresh-eyes review). */}
+                <div aria-hidden="true" className="absolute inset-0 overflow-hidden">
+                  <div className={`dc-rays absolute inset-0 ${stage < gradeStage ? 'dc-score-wait' : moving ? 'dc-rays-in' : ''}`} />
+                </div>
+                {moving && stage >= gradeStage && <Burst count={tier.burst} />}
+                <div className="relative flex items-center gap-4">
+                  <div data-shield className={`relative flex-none ${stage < gradeStage ? 'dc-score-wait' : moving ? 'dc-shield-pop' : ''}`}>
+                    <PixelSprite sprite={SHIELD_PLAIN} scale={6} name="win-shield" />
+                    {SPARK_AT.slice(0, tier.sparks).map((at) => (
+                      <span key={at} data-spark aria-hidden="true" className={`absolute ${at}`}>
+                        <PixelSprite sprite={tinted(ICON_SPARK, 'warn')} scale={2} name="win-spark" />
+                      </span>
+                    ))}
+                    {/* The win's grade, the largest thing on the screen. */}
+                    <span data-grade className="absolute inset-x-0 top-[16px] text-center font-display text-[44px] leading-none text-dc-ground">
+                      {block.grade}
                     </span>
-                  </>
-                )}
-                <br />
-                {difficulty}
-                {filed.run && ` · played in ${clock(filed.run.ms)}`}
-              </p>
-            </div>
-          </div>
-
-          {lead && (
-            <div data-loss-lead className="border-l-4 border-dc-hostile bg-dc-hostile/10 px-3 py-2">
-              <p className={`${HEAD} text-dc-hostile`}>
-                BIGGEST DROP · TURN {lead.turn} · -{lead.drop.toFixed(1)}
-              </p>
-              <p className="mt-0.5 text-[13px] leading-snug">{lead.line}</p>
-            </div>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h2
+                      id="debrief-head"
+                      data-mission
+                      data-stamp
+                      className={`mt-1 inline-block -rotate-6 border-[3px] border-dc-go bg-dc-ground/70 px-2 py-1 font-display text-[15px] leading-tight text-dc-go ${block.grade === 'S' ? 'shadow-[0_0_0_3px_var(--dc-ground),0_0_0_5px_var(--dc-go)]' : ''} ${stage < gradeStage ? 'dc-score-wait' : moving ? 'dc-stamp-in' : ''}`}
+                    >
+                      {block.head}
+                    </h2>
+                    {/* Clear of the stamp's tilt: the grade's word, and how far
+                        over the win line it finished, as the HUD says it
+                        (section 4 rule 9). */}
+                    <p data-tier-line className={`mt-5 font-mono text-[11px] tracking-widest text-dc-go ${stage < gradeStage ? 'dc-score-wait' : ''}`}>
+                      {tier.line}
+                    </p>
+                    <p data-margin className={`mt-1 font-mono text-[12px] text-dc-ink ${stage < gradeStage ? 'dc-score-wait' : ''}`}>
+                      {(block.final - block.needed).toFixed(1)} ABOVE WIN LINE
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div data-win-lines className={`${PANEL} ${stage < gradeStage ? 'dc-score-wait' : ''}`}>
+                <p data-reason className="text-[13px] leading-snug">
+                  {block.reason}
+                </p>
+                <p data-final className="mt-1 text-[12px] leading-snug text-dc-muted">
+                  <FinalLines block={block} difficulty={difficulty} played={filed.run ? clock(filed.run.ms) : null} />
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* A LOSS leads with what went wrong (M14), then a plain row. */}
+              {lead && (
+                <div data-loss-lead className="border-l-4 border-dc-hostile bg-dc-hostile/10 px-3 py-2">
+                  <p className={`${HEAD} text-dc-hostile`}>
+                    BIGGEST DROP · TURN {lead.turn} · -{lead.drop.toFixed(1)}
+                  </p>
+                  <p className="mt-0.5 text-[13px] leading-snug">{lead.line}</p>
+                </div>
+              )}
+              <div data-grade-block className={`grid grid-cols-[auto_1fr] items-center gap-4 border-l-4 border-dc-hostile ${PANEL}`}>
+                <span data-grade className={`dc-grade-letter w-14 text-center font-display ${GRADE_TONE[block.grade]} ${stage < gradeStage ? 'dc-score-wait' : ''}`}>
+                  {block.grade}
+                </span>
+                <div className="min-w-0">
+                  <h2 id="debrief-head" data-mission className="font-display text-sm leading-tight text-dc-hostile">
+                    {block.head}
+                  </h2>
+                  <p data-reason className="mt-1 text-[13px] leading-snug">
+                    {block.reason}
+                  </p>
+                  <p data-final className="mt-1 text-[12px] leading-snug text-dc-muted">
+                    <FinalLines block={block} difficulty={difficulty} played={filed.run ? clock(filed.run.ms) : null} />
+                  </p>
+                </div>
+              </div>
+            </>
           )}
 
           <ul data-stats aria-label="This game" className="grid grid-cols-3 gap-1.5">
             {stats.map((s, i) => (
-              <Stat key={s.label} stat={s} index={i} active={stage >= i + 1} reduced={reduced} moving={moving} />
+              <Stat key={s.label} stat={s} index={i} active={stage >= i + 2} reduced={reduced} moving={moving} />
             ))}
           </ul>
 
@@ -318,7 +469,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
             <p className={`flex items-center gap-1.5 ${HEAD} text-dc-go`}>
               <PixelSprite sprite={tinted(ICON_SPARK, 'go')} scale={1} name="filed-spark" />
               <span>
-                FILED THIS GAME · DOSSIER <span data-dossier-total>{count.filed} / {count.total}</span>
+                FILED THIS GAME · DOSSIER <span data-dossier-total>{Math.round(shownFiledCount)} / {count.total}</span>
               </span>
             </p>
             {filed.ids && filed.ids.length > 0 ? (
@@ -338,7 +489,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
                   )
                 })}
                 {moreFiled > 0 && (
-                  <li data-filed-more className="text-[12px] text-dc-muted">
+                  <li data-filed-more className={`text-[12px] text-dc-muted ${stage < restStage ? 'dc-score-wait' : ''}`}>
                     and {moreFiled} more, in the Dossier
                   </li>
                 )}
@@ -352,17 +503,23 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
         </div>
 
         {/* BELOW THE FOLD. */}
-        <section data-can-say aria-labelledby="can-say-head" className={PANEL}>
+        <section ref={canSayRef} data-can-say aria-labelledby="can-say-head" className={`${PANEL} ${canSayIn}`}>
           <h3 id="can-say-head" className={`${HEAD} text-dc-muted`}>
             WHAT YOU CAN NOW SAY
           </h3>
           {sayings.length > 0 ? (
             <ul className="mt-1.5 flex flex-col gap-1">
               {sayings.map((s) => (
-                <li key={`${s.defense}-${s.threat}`} data-saying={s.how} className="flex items-start gap-2 bg-dc-chrome px-2 py-1.5 text-[13px] leading-snug">
+                <li key={`${s.defense}-${s.how}`} data-saying={s.how} className="flex items-start gap-2 bg-dc-chrome px-2 py-1.5 text-[13px] leading-snug">
                   <PixelSprite sprite={tinted(SAY_ICON[s.how].icon, SAY_ICON[s.how].tone)} scale={1} className="mt-1 flex-none" name={`say-${s.how}`} />
                   <span>
-                    <b>{s.defense}</b> <span className={s.how === 'missed' ? 'text-dc-hostile' : ''}>{SAY_VERB[s.how]}</span> <b>{s.threat}</b>
+                    <b>{s.defense}</b> <span className={s.how === 'missed' ? 'text-dc-hostile' : ''}>{SAY_VERB[s.how]}</span>{' '}
+                    {s.threats.map((t, i) => (
+                      <span key={t}>
+                        {i > 0 && (i === s.threats.length - 1 ? ' and ' : ', ')}
+                        <b>{t}</b>
+                      </span>
+                    ))}
                   </span>
                 </li>
               ))}
@@ -372,7 +529,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
           )}
         </section>
 
-        <section data-next-time aria-labelledby="next-time-head" className="border-l-4 border-dc-warn bg-dc-warn/10 px-3 py-2.5">
+        <section ref={nextRef} data-next-time aria-labelledby="next-time-head" className={`border-l-4 border-dc-warn bg-dc-warn/10 px-3 py-2.5 ${nextIn}`}>
           <h3 id="next-time-head" className={`${HEAD} text-dc-warn`}>
             NEXT TIME
           </h3>
@@ -397,7 +554,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
           )}
         </section>
 
-        <section data-decisions aria-labelledby="decisions-head" className={PANEL}>
+        <section ref={decisionsRef} data-decisions aria-labelledby="decisions-head" className={`${PANEL} ${decisionsIn}`}>
           <h3 id="decisions-head" className={`${HEAD} text-dc-muted`}>
             DECISIONS
           </h3>
@@ -415,7 +572,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
           </ol>
         </section>
 
-        <section data-ladder aria-labelledby="ladder-head" className={PANEL}>
+        <section ref={ladderRef} data-ladder aria-labelledby="ladder-head" className={`${PANEL} ${ladderIn}`}>
           <h3 id="ladder-head" className={`${HEAD} text-dc-muted`}>
             GRADE LADDER
           </h3>
@@ -442,7 +599,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
           </p>
         </section>
 
-        <section data-turns aria-labelledby="turns-head" className={PANEL}>
+        <section ref={turnsRef} data-turns aria-labelledby="turns-head" className={`${PANEL} ${turnsIn}`}>
           <h3 id="turns-head" className={`${HEAD} text-dc-muted`}>
             TURN BY TURN
           </h3>
@@ -483,7 +640,9 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
             4; fresh-eyes review: three screens of reading stood between a
             player and the way on). The bar rests here, in the brief's
             order, once the page is scrolled to it. */}
-        <div data-debrief-bar className="sticky bottom-0 z-20 -mx-4 border-t-2 border-dc-line bg-dc-ground px-4 pb-safe pt-2">
+        {/* Held back until the grade lands, so the first thing to read is
+            the result (second fresh-eyes pass). */}
+        <div data-debrief-bar className={`sticky bottom-0 z-20 -mx-4 border-t-2 border-dc-line bg-dc-ground px-4 pb-safe pt-2 ${stage < gradeStage ? 'dc-score-wait pointer-events-none' : ''}`}>
           {/* A fade above the bar, so the line it covers sinks under it
               rather than reading as cut in half (second fresh-eyes pass). */}
           <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 -top-7 h-6 bg-gradient-to-t from-dc-ground to-transparent" />
@@ -544,7 +703,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
       </section>
 
       {dossierOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground" role="dialog" aria-modal="true" aria-label="COLDVEIL dossier" data-dossier-overlay>
+        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-dc-ground" role="dialog" aria-modal="true" aria-label="COLDVEIL dossier" data-dossier-overlay>
           <Suspense fallback={<p className="p-4 font-mono text-xs text-dc-muted">Opening the Dossier.</p>}>
             <Dossier embedded backLabel="BACK TO DEBRIEF" onBack={closeDossier} />
           </Suspense>

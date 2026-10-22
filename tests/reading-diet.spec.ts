@@ -18,7 +18,7 @@ import { briefFree, gnssDenied, newGame, resolveTurn } from '../src/engine/reduc
 import { briefActive, countersAfter, eventById, planFor } from '../src/engine/rules'
 import { coverage, maiScore } from '../src/engine/scoring'
 import { turnRng } from '../src/engine/rng'
-import type { AssetKind, Difficulty, GameState, TurnActions, TurnRecord } from '../src/engine/types'
+import type { AssetKind, Difficulty, GameState, TurnActions } from '../src/engine/types'
 import {
   chainLine,
   CHROME_WORD_BUDGET,
@@ -59,13 +59,11 @@ import {
   winLineLabel,
 } from '../src/ui/board/boardModel'
 import { callSigns } from '../src/ui/board/board'
-import { NOTHING, OPS_LOG_HEADING, OPS_LOG_TURNS, opsLogCopy, opsLogLine } from '../src/ui/board/wide'
 import { coverageFigure } from '../src/ui/labels'
 import { HitCard } from '../src/ui/night/cards'
 import { DebrisCall, DebrisResult, EndOfTurn, OpportunityCard } from '../src/ui/night/closeCards'
 import * as nightCopy from '../src/ui/night/nightCopy'
 import { defensesFor, nightOf, type NightStep } from '../src/ui/night/nightModel'
-import { VERDICT_WORD_MAX, verdictFor } from '../src/ui/verdict'
 import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
@@ -115,16 +113,6 @@ const WORST_CARD_HEADLINE = 12
 // 2, at 45 words with its headline.
 const WORST_HELPED_LINE = 35
 const WORST_HIT_CARD_HEADLINE_AND_LINE = 45
-
-// The wide board's ops log at its longest over the EXTREME_SEEDS sweep
-// (v1.2 R6), pinned so a change that moves it comes here and says so.
-// Measured at 54 against a structural bound of 71, the lazy line after
-// turn 11 on Easy, seed 20: three rows of long verdicts. 50 since v1.3
-// Round 0, on the six-turn plan: the passive line after turn 5 on Easy,
-// seed 2, whose last three verdicts are the rogue ground station "and 1
-// more", the LiDAR dazzle alone (the debris call held its orbit) and
-// uplink jamming "and 1 more".
-const WORST_OPS_LOG = 50
 
 // The deciding board's reading at its longest over the swept lines of play
 // (v1.3 R2), pinned so a change that moves it comes here and says so;
@@ -1198,34 +1186,6 @@ describe('reading diet: the intel brief', () => {
     expect(worstCard, `worst headline and line measured: ${worstCard} words at ${worstCardAt}`).toBe(WORST_HIT_CARD_HEADLINE_AND_LINE)
   })
 
-  it('bounds the ops log, the wide board\'s own reading, and pins the measured worst (v1.2 R6)', () => {
-    // Desktop-only copy that no phone budget counts, so it gets its own
-    // bound, derived rather than picked: the heading, then per row the
-    // turn and MAI line and a verdict at the verdict's own cap. The worst
-    // is read over every state the sweep reaches after a turn, which is
-    // the history the log shows.
-    const lineWords = countWords(opsLogLine({ turn: DEFAULT_SCENARIO.totalTurns, mai: 100, verdict: '' }))
-    const bound = countWords(OPS_LOG_HEADING) + OPS_LOG_TURNS * (lineWords + VERDICT_WORD_MAX)
-    const words = (s: GameState) => opsLogCopy(s).reduce((n, l) => n + countWords(l), 0)
-    let worst = 0
-    let worstAt = ''
-    expect(extremes).toHaveLength(LINES.length * DIFFS.length * EXTREME_SEEDS)
-    for (const { name, difficulty, seed, turns } of extremes) {
-      for (const { after } of turns) {
-        const n = words(after)
-        if (n > worst) {
-          worst = n
-          worstAt = `${name}, after turn ${after.history[after.history.length - 1].turn}, ${difficulty}, seed ${seed}`
-        }
-      }
-    }
-    expect(worst, `worst ops log measured: ${worst} words at ${worstAt}`).toBeLessThanOrEqual(bound)
-    // Before any turn it says so, and nothing else.
-    expect(opsLogCopy(newGame(DEFAULT_SCENARIO, 1))).toEqual([OPS_LOG_HEADING, NOTHING])
-    // The exact figure, for the reason the pins above carry one.
-    expect(worst, `worst ops log measured: ${worst} words at ${worstAt}`).toBe(WORST_OPS_LOG)
-  })
-
   it('says "mission assurance score" in the job framing, and never MAI', () => {
     // Round 7 introduced the abbreviation in line 1, "Mission Assurance
     // Index (MAI)", because the HUD used it on every screen. v1.3 R2
@@ -1243,10 +1203,9 @@ describe('reading diet: the intel brief', () => {
 
   it('never emits an em dash in generated copy', () => {
     for (let seed = 1; seed <= SEEDS; seed += 1) {
-      for (const { before, after } of playTurns(seed, WIN_SCRIPT)) {
+      for (const { before } of playTurns(seed, WIN_SCRIPT)) {
         const copy = briefCopy(before)
-        const record = after.history[after.history.length - 1]
-        for (const line of [copy.headline, copy.vector, copy.tag ?? '', verdictFor(record, DEFAULT_SCENARIO)]) {
+        for (const line of [copy.headline, copy.vector, copy.tag ?? '']) {
           expect(line).not.toContain('\u{2014}')
         }
       }
@@ -1293,145 +1252,3 @@ describe('reading diet: the fixtures themselves', () => {
     }
   })
 })
-
-describe('reading diet: the damage report verdict', () => {
-  it('is one line inside its word cap for every turn of every line of play', () => {
-    let checked = 0
-    for (const [name, script] of LINES) {
-      for (const difficulty of DIFFS) {
-        for (let seed = 1; seed <= SEEDS; seed += 1) {
-          for (const { after } of playTurns(seed, script, difficulty)) {
-            const record = after.history[after.history.length - 1]
-            const verdict = verdictFor(record, DEFAULT_SCENARIO)
-            checked += 1
-            expect(verdict).not.toContain('\n')
-            expect(
-              countWords(verdict),
-              `${name}, turn ${record.turn}: "${verdict}"`,
-            ).toBeLessThanOrEqual(VERDICT_WORD_MAX)
-            expect(verdict.endsWith('.')).toBe(true)
-          }
-        }
-      }
-    }
-    expect(checked).toBeGreaterThan(SEEDS * DIFFS.length * LINES.length * 4)
-  })
-
-  it('names the heaviest landed event when anything lands, and says so plainly when nothing does', () => {
-    let sawLanded = false
-    let sawHeld = false
-    let sawBlocked = false
-    let sawFizzled = false
-    for (let seed = 1; seed <= SEEDS; seed += 1) {
-      for (const { after } of playTurns(seed, WIN_SCRIPT)) {
-        const record = after.history[after.history.length - 1]
-        const verdict = verdictFor(record, DEFAULT_SCENARIO)
-        const threats = record.events.filter((ev) => {
-          const def = DEFAULT_SCENARIO.events.find((e) => e.id === ev.eventId)
-          return (def?.kind ?? 'threat') === 'threat'
-        })
-        const landed = threats.filter((ev) => ev.effectiveSeverity > 0)
-        if (landed.length > 0) {
-          sawLanded = true
-          const worst = landed.reduce((a, b) => (b.effectiveSeverity > a.effectiveSeverity ? b : a))
-          expect(verdict, `turn ${record.turn}`).toContain(worst.name.split(' (')[0])
-        } else if (threats.length > 0) {
-          sawHeld = true
-          // Two different verdicts, asserted separately. As one alternation
-          // they covered each other: a branch that never fires read as
-          // covered because the other one did.
-          const countered = threats.filter((ev) => ev.mitigation > 0).length
-          if (countered > 0) {
-            sawBlocked = true
-            expect(verdict, `turn ${record.turn}`).toBe('Posture held; every attempt was blocked.')
-          } else {
-            sawFizzled = true
-            expect(verdict, `turn ${record.turn}`).toBe('Nothing landed this turn.')
-          }
-        }
-      }
-    }
-    expect(sawLanded, 'no seed produced a landed event').toBe(true)
-    expect(sawHeld, 'no seed produced a fully held turn').toBe(true)
-    // Recorded, not required: the deck reaches the blocked branch in
-    // play and does not reach the fizzle branch, which is why the two
-    // branches below are covered directly instead.
-    expect(sawBlocked || sawFizzled).toBe(true)
-  })
-
-  it('reads as English on the branches the shipped deck never produces', () => {
-    // Two branches are unreachable with this deck: a turn whose only event
-    // is an opportunity, and a turn where every threat fizzles with no
-    // countermeasure in play. The scenario schema allows both, so they are
-    // correct totality over the type rather than dead code, and they are
-    // covered here with synthetic records rather than deleted.
-    // The v1.3 record (Round 0): the ledger, the brief and the streak
-    // joined it, and the flags, commendations and surge count left.
-    const base: TurnRecord = {
-      turn: 4,
-      purchases: [],
-      briefed: false,
-      named: [],
-      events: [],
-      conditionsActive: [],
-      ledger: {
-        start: 100,
-        ordered: 0,
-        fuel: 0,
-        windfall: 0,
-        afterNight: 100,
-        repairs: 0,
-        repaired: [],
-        upkeep: 0,
-        defensesKept: 0,
-        funding: 20,
-        coverageBonus: 0,
-        bonusCoverage: 58,
-        arrivals: [],
-        recovery: 2,
-        after: 120,
-        insolvent: false,
-      },
-      creditsAfter: 120,
-      meters: { linkAvailability: 100, dataIntegrity: 100, sensorIntegrity: 100 },
-      coverage: 58,
-      maiScore: 87.4,
-      streak: 0,
-      bestStreak: 0,
-      saved: 0,
-      notes: [],
-    }
-    const resolved = (id: string, name: string, over: Partial<TurnRecord['events'][number]> = {}): TurnRecord['events'][number] => ({
-      eventId: id,
-      name,
-      baseSeverity: 2,
-      chainBonus: 0,
-      mitigation: 0,
-      effectiveSeverity: 0,
-      repairCost: 0,
-      notes: [],
-      firedTechniqueRefs: [],
-      saved: 0,
-      ...over,
-    })
-
-    const opportunity = DEFAULT_SCENARIO.events.find((e) => e.kind === 'opportunity')
-    expect(opportunity, 'the deck has no opportunity to build the branch from').toBeDefined()
-    const opportunityOnly = verdictFor(
-      { ...base, events: [resolved(opportunity!.id, opportunity!.name)] },
-      DEFAULT_SCENARIO,
-    )
-    expect(opportunityOnly).toBe('No adversary activity; the turn broke your way.')
-
-    const threat = DEFAULT_SCENARIO.events.find((e) => (e.kind ?? 'threat') === 'threat')
-    const fizzled = verdictFor({ ...base, events: [resolved(threat!.id, threat!.name)] }, DEFAULT_SCENARIO)
-    expect(fizzled).toBe('Nothing landed this turn.')
-
-    for (const line of [opportunityOnly, fizzled]) {
-      expect(countWords(line)).toBeLessThanOrEqual(VERDICT_WORD_MAX)
-      expect(line.endsWith('.')).toBe(true)
-      expect(line).not.toContain('\u{2014}')
-    }
-  })
-})
-

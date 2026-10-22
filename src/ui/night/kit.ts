@@ -31,8 +31,8 @@ export const BLOCK_TONE = {
 } as const
 export const HEAD_TONE = { go: 'text-dc-go', warn: 'text-dc-warn', hostile: 'text-dc-hostile', friendly: 'text-dc-friendly', muted: 'text-dc-muted' } as const
 
-// A score as the HUD prints it: a whole number bare, otherwise one decimal.
-export const fmtScore = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1))
+// A score as the HUD prints it: one decimal, always (v1.3 R5).
+export const fmtScore = (n: number) => n.toFixed(1)
 
 // Fires once for the card it is in: each card is keyed on its step.
 export function useOnce(fire: () => void | (() => void)) {

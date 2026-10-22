@@ -31,9 +31,6 @@ export const ACTIONS: readonly BoardAction[] = [
   { id: 'resolve', label: 'EXECUTE', number: 2, hotkey: '2', sheet: null },
 ]
 
-// The F key of an action (v1.2 R6, brief 4.6): F and its step number.
-export const fKeyOf = (a: BoardAction) => `F${a.number}`
-
 // EXECUTE's accessible name is the instruction, "Execute turn n"; the dock
 // prints EXECUTE.
 export const resolveLabel = (turn: number) => `Execute turn ${turn}`

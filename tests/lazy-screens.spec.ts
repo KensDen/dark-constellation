@@ -198,8 +198,10 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     // Five since v1.3 R1: the three.js constellation frame left Game with
     // the start screen and is the title's now (Ken, 21 October 2026).
     // Still five since v1.3 R4: the debrief (./Debrief, brief 5.6) replaced
-    // the score screen in the same place.
-    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(5)
+    // the score screen in the same place. Four since v1.3 R5: the wide
+    // board went (brief section 11: the desktop is the phone column,
+    // centered, with no three-column board).
+    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(4)
     const graph = staticGraphFrom(ENTRY)
     const offenders: string[] = []
     for (const spec of gameSpecs) {
@@ -212,7 +214,6 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     expect(gameSpecs).toContain('./board/IntelCard')
     expect(gameSpecs).toContain('./Debrief')
     expect(gameSpecs).toContain('./FieldLibrary')
-    expect(gameSpecs).toContain('./board/WideBoard')
   })
 })
 
@@ -239,21 +240,6 @@ describe("the title's constellation frame stays out of the first download (v1.3 
     const graph = staticGraphFrom(ENTRY)
     expect(graph.has(art), "the title's decoration is in the first download").toBe(false)
     expect(graph.has(frame), 'the three.js frame is in the first download').toBe(false)
-  })
-})
-
-describe("the wide board's own modules stay out of the first download (v1.2 R6)", () => {
-  const WIDE = join(SRC, 'ui', 'board', 'WideBoard.tsx')
-  const own = ['ui/board/wide.ts', 'ui/board/wide.css'].map((f) => join(SRC, f))
-
-  it('reaches them from the wide board and never from the entry point', () => {
-    const fromWide = staticGraphFrom(WIDE)
-    for (const f of own) expect(fromWide.has(f), `the wide board no longer reaches ${f.slice(SRC.length + 1)}`).toBe(true)
-    const graph = staticGraphFrom(ENTRY)
-    const offenders = [WIDE, ...own]
-      .filter((f) => graph.has(f))
-      .map((f) => `${f.slice(SRC.length + 1)} is reachable statically: ${[...graph.get(f)!.slice(1), f].map((x) => x.slice(SRC.length + 1)).join(' -> ')}`)
-    expect(offenders.join('\n'), "the wide board is in the first download").toBe('')
   })
 })
 

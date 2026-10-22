@@ -29,7 +29,7 @@ export interface BoardHudProps {
   onSystem: () => void
   systemOpen: boolean
   // A hit that just landed: how far the score fell, floated off it.
-  drop?: { id: string; delta: number } | null
+  drop?: { id: string; delta: number; label?: string } | null
   countMs?: number
 }
 
@@ -79,6 +79,9 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
             strobeOnWarn
             bare
             odometer
+            // One decimal always (v1.3 R5, R3's question 6), as every card,
+            // the debrief and the share text print it.
+            decimals={1}
             countMs={countMs}
             valueClassName="whitespace-nowrap font-display text-[22px] leading-none"
           />
@@ -96,6 +99,9 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
                 className={`dc-mai-float pointer-events-none whitespace-nowrap font-display text-sm leading-none ${drop.delta > 0 ? 'text-dc-hostile' : 'text-dc-go'}`}
               >
                 {drop.delta > 0 ? `-${drop.delta.toFixed(1)}` : 'NO LOSS'}
+                {/* What caused a fall nothing struck: the live conditions,
+                    by name (v1.3 R5, R3's question 8). */}
+                {drop.delta > 0 && drop.label && <span data-drop-label className="ml-1 font-mono text-[10px] tracking-widest">{drop.label}</span>}
               </span>
             ) : (
               <span data-margin={margin.tone} className={`whitespace-nowrap ${TONE_TEXT[margin.tone]}`}>

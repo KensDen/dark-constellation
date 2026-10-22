@@ -171,11 +171,18 @@ const cells = () => [...container.querySelectorAll<HTMLElement>('[data-strip-cel
 const tiles = () => [...container.querySelectorAll<HTMLElement>('[data-stat]')]
 const filedRows = () => [...container.querySelectorAll<HTMLElement>('[data-filed-card]')]
 const byText = (re: RegExp) => [...container.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''))
-const MOTION = ['dc-grade-drop', 'dc-stat-in', 'dc-filed-in', 'dc-strip-fill']
+const MOTION = ['dc-stamp-in', 'dc-shield-pop', 'dc-rays-in', 'dc-burst-fly', 'dc-stat-in', 'dc-filed-in', 'dc-strip-fill', 'dc-section-in']
 const hasMotion = (el: Element) => MOTION.some((c) => el.classList.contains(c))
 const waiting = (el: Element) => el.classList.contains('dc-score-wait')
 const notice = () => container.querySelector('[data-share-notice]')?.textContent ?? null
-const finals = (state: GameState) => debriefStats(state).map((s) => s.value)
+// The six values in the order the screen shows them: a win opens on what
+// held (v1.3 R5).
+const WIN_FIRST = ['HELD OUTRIGHT', 'BEST STREAK', 'POINTS SAVED']
+const finals = (state: GameState) => {
+  const all = debriefStats(state)
+  const order = state.status === 'won' ? [...WIN_FIRST.map((l) => all.find((s) => s.label === l)!), ...all.filter((s) => !WIN_FIRST.includes(s.label))] : all
+  return order.map((s) => s.value)
+}
 // An element's words, each text node apart (textContent runs one node's
 // last word into the next one's first).
 function words(el: Element): string {
@@ -202,7 +209,12 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
         'DEFENSES KEPT': state.counters.length,
         'POINTS SAVED': Math.round(state.saved * 10) / 10,
       })
-      expect(tiles().map((t) => t.getAttribute('data-stat'))).toEqual(['HITS TAKEN', 'HELD OUTRIGHT', 'BEST STREAK', 'BUDGET LEFT', 'DEFENSES KEPT', 'POINTS SAVED'])
+      // A loss in the brief's order; a win opens on what held (v1.3 R5).
+      expect(tiles().map((t) => t.getAttribute('data-stat'))).toEqual(
+        state.status === 'won'
+          ? ['HELD OUTRIGHT', 'BEST STREAK', 'POINTS SAVED', 'HITS TAKEN', 'BUDGET LEFT', 'DEFENSES KEPT']
+          : ['HITS TAKEN', 'HELD OUTRIGHT', 'BEST STREAK', 'BUDGET LEFT', 'DEFENSES KEPT', 'POINTS SAVED'],
+      )
       expect(container.querySelector('[data-final]')!.textContent).toContain(`Final mission assurance ${last.maiScore.toFixed(1)}, needed ${DEFAULT_SCENARIO.winThreshold}`)
     }
   })
@@ -320,8 +332,62 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
   })
 })
 
+describe('GUARD R5 (a): a won debrief and a lost one differ in layout, not only in colour', () => {
+  // Read with motion off, where a win must still read as a win, and by
+  // structure alone: which blocks the first screen holds, in what order,
+  // and which shapes they carry. No class and no colour is compared.
+  const C_WIN = () => {
+    let state = newGame(DEFAULT_SCENARIO, 24, 'standard')
+    const plan: Record<number, TurnActions> = {
+      2: { ...NO_OP, buyCounters: ['antiJam', 'pntAuth', 'groundZeroTrust'] },
+      3: { ...NO_OP, buyCounters: ['linkAuth'] },
+    }
+    while (state.status === 'playing') state = resolveTurn(state, plan[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+    return state
+  }
+  const blocks = () =>
+    [...container.querySelector('[data-debrief-first]')!.children].map((el) =>
+      ['data-debrief-eyebrow', 'data-win-hero', 'data-win-lines', 'data-loss-lead', 'data-grade-block', 'data-stats', 'data-filed-this-game'].find((a) => el.hasAttribute(a)) ?? el.tagName,
+    )
+  const shapes = () => ({
+    shield: !!container.querySelector('[data-debrief-first] [data-sprite="win-shield"]'),
+    stamp: !!container.querySelector('[data-debrief-first] [data-stamp]'),
+    rays: !!container.querySelector('[data-debrief-first] .dc-rays'),
+    sparks: container.querySelectorAll('[data-debrief-first] [data-spark]').length,
+  })
+
+  it('gives a win its own blocks and shapes, a C included, and a loss none of them', () => {
+    setReducedMotion(true)
+    const c = C_WIN()
+    expect(gradeOf(c), 'the C fixture no longer grades C').toBe('C')
+    show(c)
+    const win = blocks()
+    expect(win).toEqual(['data-debrief-eyebrow', 'data-win-hero', 'data-win-lines', 'data-stats', 'data-filed-this-game'])
+    expect(shapes()).toEqual({ shield: true, stamp: true, rays: true, sparks: 0 })
+    expect(container.querySelector('[data-win-hero]')!.getAttribute('data-tier')).toBe('C')
+    expect(container.querySelector('[data-tier-line]')!.textContent).toBe('HELD THE LINE')
+    expect(container.querySelector('[data-win-hero] [data-grade]')!.textContent).toBe('C')
+
+    show(LOST())
+    const loss = blocks()
+    // A loss leads with what went wrong, then a plain grade row.
+    expect(loss).toEqual(['data-debrief-eyebrow', 'data-loss-lead', 'data-grade-block', 'data-stats', 'data-filed-this-game'])
+    expect(shapes()).toEqual({ shield: false, stamp: false, rays: false, sparks: 0 })
+    expect(loss, 'a win and a loss share one layout').not.toEqual(win)
+  })
+
+  it('scales the win by its grade: an S carries more than a C', () => {
+    setReducedMotion(true)
+    show(WON())
+    expect(gradeOf(WON())).toBe('S')
+    expect(shapes()).toEqual({ shield: true, stamp: true, rays: true, sparks: 4 })
+    expect(container.querySelector('[data-win-hero]')!.getAttribute('data-tier')).toBe('S')
+    expect(container.querySelector('[data-tier-line]')!.textContent).toBe('TOP GRADE')
+  })
+})
+
 describe('the reveal (brief 5.6 and 8.3)', () => {
-  it('raises the tiles a step apart, counting up, each landing with a blip; then drops the grade with its sound; then the cards and the strip', () => {
+  it('lands a loss\'s grade first and plainly, on its tick down; then raises the tiles a step apart, counting up, a blip each; then the cards and the strip', () => {
     listen()
     const state = LOST()
     firstGameOnDevice(state)
@@ -335,6 +401,13 @@ describe('the reveal (brief 5.6 and 8.3)', () => {
 
     const M = DEBRIEF_MOTION
     step(M.leadMs)
+    // The grade, sober: no drop, no stamp, and the loss's own sound.
+    expect(waiting(gradeEl()), 'the grade did not land first').toBe(false)
+    expect(hasMotion(gradeEl()), 'a loss\'s grade moves').toBe(false)
+    expect(played.filter((c) => c === 'tick-down')).toHaveLength(1)
+    expect(played, 'a loss played the fanfare').not.toContain('commendation-fanfare')
+    expect(tiles().every(waiting), 'a tile rose with the grade').toBe(true)
+    step(M.lossMs)
     expect(waiting(tiles()[0]), 'the first tile did not rise').toBe(false)
     expect(tiles()[0].classList.contains('dc-stat-in')).toBe(true)
     expect(waiting(tiles()[1]), 'the second tile rose with the first').toBe(true)
@@ -350,14 +423,8 @@ describe('the reveal (brief 5.6 and 8.3)', () => {
     step((want.length - 1) * M.statStepMs)
     expect(statValues()).toEqual(want)
     expect(blips()).toBe(want.length)
-    expect(waiting(gradeEl()), 'the grade dropped before the beat').toBe(true)
-    expect(played.filter((c) => c === 'tick-down' || c === 'commendation-fanfare'), 'the grade sounded early').toEqual([])
+    expect(filedRows().every(waiting) && cells().every(waiting), 'the cards came before the tiles had landed').toBe(true)
     step(M.beatMs)
-    expect(gradeEl().classList.contains('dc-grade-drop')).toBe(true)
-    // A loss lands on a tick down; the fanfare is a win's.
-    expect(played.filter((c) => c === 'tick-down')).toHaveLength(1)
-    expect(filedRows().every(waiting) && cells().every(waiting), 'the cards came before the grade had dropped').toBe(true)
-    step(M.gradeMs)
     expect(filedRows().map((r) => parseFloat(r.style.animationDelay))).toEqual(filedRows().map((_, i) => i * M.rowStepMs))
     expect(cells().map((c) => parseFloat(c.style.animationDelay))).toEqual(cells().map((_, i) => i * M.stripStepMs))
     for (const el of [...filedRows(), ...cells()]) expect(hasMotion(el)).toBe(true)
@@ -365,12 +432,30 @@ describe('the reveal (brief 5.6 and 8.3)', () => {
     expect(blips(), 'a blip after the reveal').toBe(want.length)
   })
 
-  it('lands a win\'s grade on the fanfare', () => {
+  it('lands a win\'s grade first: the stamp, the shield with the grade, the rays and a burst sized by the grade, on the fanfare, then the tiles', () => {
     listen()
-    show(WON())
-    step(10_000)
+    const state = WON()
+    expect(gradeOf(state)).toBe('S')
+    show(state)
+    const hero = () => container.querySelector('[data-win-hero]')!
+    const stamp = () => hero().querySelector('[data-stamp]')!
+    const shield = () => hero().querySelector('[data-shield]')!
+    expect(waiting(stamp()) && waiting(shield()), 'the win showed before the reveal').toBe(true)
+    expect(hero().querySelector('[data-burst]'), 'the burst flew early').toBeNull()
+    const M = DEBRIEF_MOTION
+    step(M.leadMs)
+    expect(stamp().classList.contains('dc-stamp-in')).toBe(true)
+    expect(shield().classList.contains('dc-shield-pop')).toBe(true)
+    expect(hero().querySelector('.dc-rays')!.classList.contains('dc-rays-in')).toBe(true)
+    // An S bursts the most: two rings.
+    expect(hero().querySelectorAll('[data-burst] .dc-burst-fly')).toHaveLength(28)
     expect(played.filter((c) => c === 'commendation-fanfare')).toHaveLength(1)
     expect(played).not.toContain('tick-down')
+    expect(tiles().every(waiting), 'a tile rose during the win\'s moment').toBe(true)
+    step(M.heroMs)
+    expect(waiting(tiles()[0]), 'the tiles did not follow the win\'s moment').toBe(false)
+    step(10_000)
+    expect(played.filter((c) => c === 'commendation-fanfare'), 'the fanfare played twice').toHaveLength(1)
   })
 
   it('shows everything at once under reduced motion: no count, no drop, no fill, no blips, and the grade sounds once', () => {
@@ -400,7 +485,7 @@ describe('the reveal (brief 5.6 and 8.3)', () => {
     listen()
     const state = WON()
     show(state)
-    step(DEBRIEF_MOTION.leadMs + DEBRIEF_MOTION.countMs)
+    step(DEBRIEF_MOTION.leadMs + DEBRIEF_MOTION.heroMs + DEBRIEF_MOTION.countMs)
     expect(played.filter((c) => c === 'tick-up'), 'the first stat did not land').toHaveLength(1)
     flipReducedMotion(true)
     expect(statValues(), 'turning reduced motion on did not show everything').toEqual(finals(state))
@@ -462,7 +547,7 @@ describe("the debrief's stylesheet", () => {
       expect(m, `${cls} has no duration`).not.toBeNull()
       return Number(m![1]) * (m![2] === 's' ? 1000 : 1)
     }
-    expect(duration('dc-grade-drop')).toBe(DEBRIEF_MOTION.gradeMs)
+    expect(duration('dc-burst-fly')).toBe(DEBRIEF_MOTION.burstMs)
     expect(duration('dc-stat-in')).toBe(DEBRIEF_MOTION.statInMs)
     expect(duration('dc-filed-in')).toBe(DEBRIEF_MOTION.rowInMs)
     expect(duration('dc-strip-fill')).toBe(DEBRIEF_MOTION.stripCellMs)

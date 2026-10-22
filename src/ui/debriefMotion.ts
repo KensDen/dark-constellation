@@ -7,8 +7,15 @@
 import { COUNT_MS } from './cues/motion'
 
 export const DEBRIEF_MOTION = {
-  // Before the first stat starts, so the screen has settled.
+  // Before the grade lands, so the screen has settled.
   leadMs: 250,
+  // A win's moment (v1.3 R5): the stamp, the shield, the grade in it and
+  // the burst, before the tiles start. A loss holds a short beat instead.
+  heroMs: 900,
+  lossMs: 220,
+  // The burst's pixels flying out, each a step after the one before.
+  burstMs: 700,
+  burstStepMs: 12,
   // From one stat tile starting to the next: the six tiles come in a
   // step apart and count up together, each landing with a blip.
   statStepMs: 90,
@@ -16,10 +23,8 @@ export const DEBRIEF_MOTION = {
   // own arrival.
   countMs: COUNT_MS,
   statInMs: 220,
-  // The beat after the last stat lands, before the grade.
+  // The beat after the last stat lands, before the filed cards.
   beatMs: 120,
-  // The grade block's drop and its one bounce.
-  gradeMs: 640,
   // From one strip square to the next, and one square's own fill; and
   // from one filed card's row to the next.
   stripStepMs: 60,

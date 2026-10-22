@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest'
 import { SPRITE_STATES } from '../src/ui/board/board'
 import { ASSET_MAPS, ASSET_SPRITES, assetSprite } from '../src/ui/sprites/assets'
 import { CLOUD, SILHOUETTE } from '../src/ui/sprites/scenery'
-import { HIT_BURST, LOCK_ON, PART_SPARKLE, SHIELD_FLASH } from '../src/ui/sprites/effects'
+import { HIT_BURST, LOCK_ON, PART_SPARKLE, SHIELD_PLAIN, SHIELD_STAMP } from '../src/ui/sprites/effects'
 import { BOLT, COIN, COLDVEIL_EMBLEM, EYE } from '../src/ui/sprites/icons'
 import { DISASTER, FLOOD, WATCH_OFFICER } from '../src/ui/sprites/coldOpen'
 import { TRANSPARENT, type Sprite } from '../src/ui/sprites/sprite'
@@ -113,7 +113,10 @@ describe('the sprite set (v1.2 R2, v1.3 R2)', () => {
       ['bolt', BOLT, 8],
       ...HIT_BURST.map((s, i): [string, Sprite, number] => [`hit-burst.${i}`, s, 16]),
       ['lock-on', LOCK_ON, 16],
-      ['shield-flash', SHIELD_FLASH, 16],
+      // The block's stamp and the won debrief's shield (v1.3 R5; the outline
+      // shield flash before it).
+      ['shield-stamp', SHIELD_STAMP, 16],
+      ['shield-plain', SHIELD_PLAIN, 16],
       ['part-sparkle', PART_SPARKLE, 16],
       // The cold open's own (v1.2 R4): the officer is the brief's other
       // size, 26x26.

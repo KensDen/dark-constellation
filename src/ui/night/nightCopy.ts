@@ -117,6 +117,8 @@ export const attackTag = (v: Vector) => (v === 'environmental' ? 'DEBRIS' : `${v
 
 // The overlay EXECUTE opens on, and the strike's banner.
 export const MOVING = 'COLDVEIL IS MOVING'
+// The HUD's label for a fall more than one live condition caused.
+export const CONDITIONS_WORD = 'CONDITIONS'
 export const STRIKE_HIT = 'COLDVEIL MOVES'
 export const STRIKE_HELD = 'HELD'
 

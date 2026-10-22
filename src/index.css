@@ -115,14 +115,21 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* iOS hygiene (v1.3 R5): the page itself never bounces, so nothing behind
+   a sheet or an overlay rubber-bands when its own scroll runs out; each
+   scroll area contains its own (overscroll-contain on every one). */
 html {
   background-color: var(--color-base);
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   background-color: var(--color-base);
   color: var(--color-ink);
   font-family: var(--font-sans);
+  overscroll-behavior: none;
 }
 
 /* Focus visibility on a dark terminal surface. */
@@ -255,6 +262,20 @@ body {
 
   .dc-tile:active {
     transform: scale(0.97);
+  }
+
+  /* THE SHIELD STAMP (v1.3 R5): pressed down onto the HELD banner and the
+     tile a defense held, overshooting once. Under reduced motion the
+     stamp is simply there. */
+  .dc-stamp-pop {
+    animation: dc-stamp-pop 280ms cubic-bezier(0.2, 1.5, 0.4, 1) both;
+  }
+
+  /* THE DECODE (v1.3 R5, brief 8.3): green noise over a move's name as
+     the intel brief names it, fading off it, as the prototype draws it.
+     Its length is Tonight's DECODE_MS. */
+  .dc-decode {
+    animation: dc-decode 900ms ease-in both;
   }
 
   /* A bottom sheet rises over the board (v1.2 R1). Under reduced motion it
@@ -546,4 +567,66 @@ body {
 :root[data-motion='reduce'] *::after {
   animation: none !important;
   transition: none !important;
+}
+
+/* THE MOTION RULES FOR EVERY SCREEN (v1.3 brief 8.3, R5): all of it off
+   under reduced motion, and paused while the tab is hidden. Each
+   stylesheet already keeps its motion inside a no-preference guard; this
+   is the second lock, as the prototype has it, so nothing written later
+   outside a guard can move for a player who asked for none, transitions
+   included. scripts/phone-layout.mjs reads every element's computed
+   animation and transition on each screen under reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* App sets this on the root from visibilitychange: a hidden tab holds
+   every animation where it is, on every screen (the board has had its own
+   since v1.2 R2). */
+.dc-page-hidden *,
+.dc-page-hidden *::before,
+.dc-page-hidden *::after {
+  animation-play-state: paused !important;
+}
+
+/* THE DESKTOP STRIP (brief section 11, R5; the prototype at 560px and
+   up): the board stays the phone column, centered, and its tiles widen.
+   zoom scales the art and its strike marks together, crisp, since the
+   sprites draw with crispEdges. */
+@media (min-width: 560px) {
+  [data-strip] [data-art] {
+    zoom: 1.5;
+  }
+}
+
+/* THE SHIELD STAMP's landing (v1.3 R5); its rule is in the guard above. */
+
+@keyframes dc-stamp-pop {
+  0% {
+    opacity: 0;
+    transform: scale(2.2) rotate(-12deg);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* THE DECODE's fade (v1.3 R5); its rule is in the guard above. */
+
+@keyframes dc-decode {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }

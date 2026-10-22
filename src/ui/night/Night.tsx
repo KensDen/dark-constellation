@@ -22,11 +22,12 @@ import { dossier, fileCard, knownThreats } from '../../persistence'
 import { callSigns } from '../board/board'
 import { LOCK_SHARE, STRIKE_MS, strikeOf, type Strike } from '../board/strike'
 import { useReducedMotion } from '../cues/motion'
+import { maiScore } from '../../engine/scoring'
 import { dossierCount } from '../titleStatus'
 import type { StepCardProps } from './cards'
 import DotField from './DotField'
 import PixelSprite from '../sprites/PixelSprite'
-import { SHIELD_FLASH } from '../sprites/effects'
+import { SHIELD_STAMP } from '../sprites/effects'
 import * as copy from './nightCopy'
 import { callIndex, nightOf, type NightStep } from './nightModel'
 import { useStageTimer } from './useStageTimer'
@@ -49,8 +50,9 @@ export interface BoardView {
   shown: GameState
   strike: Strike | null
   // How far the score fell on a move that just landed, floated off it; a
-  // block floats NO LOSS in its place (delta 0).
-  drop: { id: string; delta: number } | null
+  // block floats NO LOSS in its place (delta 0). Under COLDVEIL IS MOVING,
+  // the live conditions' fall, with their name (v1.3 R5: "-2.5 JAMMED").
+  drop: { id: string; delta: number; label?: string } | null
 }
 
 export interface NightProps {
@@ -161,7 +163,11 @@ export default function Night(p: NightProps) {
   const onBoard = p.onBoard
   useLayoutEffect(() => {
     if (!night || stage.at === 'end') return onBoard({ shown: after, strike: null, drop: null })
-    if (stage.at === 'moving') return onBoard({ shown: night.opening, strike: null, drop: null })
+    if (stage.at === 'moving') {
+      const fell = Math.round((maiScore(night.before) - maiScore(night.opening)) * 10) / 10
+      const label = night.pressed.length === 1 ? night.pressed[0] : copy.CONDITIONS_WORD
+      return onBoard({ shown: night.opening, strike: null, drop: fell > 0 ? { id: `t${night.turn}-press`, delta: fell, label } : null })
+    }
     const step = night.steps[stage.i]
     if (stage.at === 'call') return onBoard({ shown: step.before, strike: null, drop: null })
     if (stage.at === 'strike') {
@@ -302,8 +308,8 @@ function Moving() {
 function StrikeBanner({ held, name }: { held: boolean; name: string }) {
   return (
     <div data-strike-banner={held ? 'held' : 'hit'} aria-hidden="true" className="dc-banner-in pointer-events-none fixed inset-x-0 top-[34%] z-40 flex flex-col items-center gap-2 px-4">
-      <span className={`flex items-center gap-2 font-display text-[20px] ${held ? 'text-dc-go' : 'text-dc-hostile'}`}>
-        {held && <PixelSprite sprite={SHIELD_FLASH} scale={2} name="banner-shield" />}
+      <span className={`flex items-center gap-2.5 font-display ${held ? 'text-[28px] text-dc-go' : 'text-[20px] text-dc-hostile'}`}>
+        {held && <PixelSprite sprite={SHIELD_STAMP} scale={3} name="banner-shield" className="dc-stamp-pop" />}
         {held ? copy.STRIKE_HELD : copy.STRIKE_HIT}
       </span>
       <small className="max-w-full bg-dc-ground/90 px-2.5 py-1 text-center font-mono text-xs text-dc-ink">{name}</small>

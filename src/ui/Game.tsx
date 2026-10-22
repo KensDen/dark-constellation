@@ -43,7 +43,7 @@ import { LearnMore } from './learnMore'
 import { DC_BTN } from './buttons'
 import { useMusicState, useSound, useSoundPrefs } from '../audio'
 import { useBadgePhases } from './cues/ConditionBadge'
-import { WIDE_QUERY, useCueClass, useMediaQuery, usePageVisible, useReducedMotion } from './cues/motion'
+import { useCueClass, usePageVisible, useReducedMotion } from './cues/motion'
 import BoardHud from './board/BoardHud'
 import AssetStrip, { type ChipModel } from './board/AssetStrip'
 import Tonight from './board/Tonight'
@@ -51,7 +51,7 @@ import Orders, { type OrderId } from './board/Orders'
 import Dock from './board/Dock'
 import Procure from './board/Procure'
 import type { SheetId } from './board/actions'
-import { ACTIONS, fKeyOf, resolveLabel } from './board/actions'
+import { ACTIONS, resolveLabel } from './board/actions'
 import { callIndex, tonightSlots } from './board/boardModel'
 import SystemSheet from './board/SystemSheet'
 import { conditionsOn, tilesByLayer, turnBudget } from './board/board'
@@ -95,12 +95,6 @@ const IntelCard = lazy(() => import('./board/IntelCard').catch(() => ({ default:
 // from that threat's event card. The same module as the menu's FIELD
 // LIBRARY screen, so one chunk.
 const FieldLibrary = lazy(() => import('./FieldLibrary').catch(() => ({ default: BackOnly })))
-// The wide board's columns (v1.2 R6, brief 4.6), fetched only on a screen
-// 1024 wide and up. A failed fetch renders nothing and never reports
-// ready, so the board keeps its phone layout and its tiles still open
-// their intel cards.
-const WideUnavailable = () => <></>
-const WideBoard = lazy(() => import('./board/WideBoard').catch(() => ({ default: WideUnavailable })))
 // THE NIGHT (v1.3 brief 5.5), in chunks of its own, all fetched as the
 // board opens so EXECUTE never waits on them, and rendered from the loaded
 // module rather than through React.lazy, whose first showing would hold
@@ -327,17 +321,10 @@ export default function Game({
   // screen returns early below, and hook order cannot depend on whether a
   // campaign is in progress.
   const reducedMotion = useReducedMotion()
-  // The wide board (v1.2 R6): its columns load only while this holds, and
-  // lay out once their module has mounted, which is also when its
-  // stylesheet is in. Until then, and for good if the fetch fails, the
-  // board is the phone board: tiles open their cards and the F keys stay
-  // the browser's.
-  const wide = useMediaQuery(WIDE_QUERY)
-  const [wideReady, setWideReady] = useState(false)
-  const laidOut = wide && wideReady
-  // The tile the inspector shows. Not the intel card's state: selecting a
-  // tile leaves the board live, the night running and the keys on.
-  const [inspected, setInspected] = useState<string | null>(null)
+  // THE DESKTOP LAYOUT (v1.3 brief section 11, R5) is the phone column,
+  // centered, with the strip's tiles widened (src/index.css). The v1.2 R6
+  // three-column board, its ops log, its inspector and its F keys went in
+  // R5 (M34: one key scheme, the digits).
   // The board's idle life, and every other animation on it, pauses while
   // the tab is hidden (v1.2 R2, brief 5.3): one class on the board root,
   // which src/index.css turns into a pause for everything under it.
@@ -375,13 +362,9 @@ export default function Game({
   const intelOpener = useBoardDialog(
     intelOpen,
     intelRef,
-    // On the wide board a tile's card opens from the inspector's INTEL
-    // CARD, so focus goes back there rather than to the tile, where the
-    // next Enter would let the selection go (v1.2 R6).
     () =>
       intel?.kind === 'tile'
-        ? ((laidOut ? document.querySelector<HTMLElement>('[data-inspector-intel]') : null) ??
-          document.querySelector<HTMLElement>(`button[data-asset-id="${intel.assetId}"]`))
+        ? document.querySelector<HTMLElement>(`button[data-asset-id="${intel.assetId}"]`)
         : document.querySelector<HTMLElement>('button[aria-label="Threat intel"]'),
     () => setIntel(null),
   )
@@ -539,22 +522,6 @@ export default function Game({
     setFocus(next === 'procure' ? from : null)
   }
   const toggleSheet = (next: Sheet) => openSheet(sheet === next ? null : next)
-  // A sheet opened from the wide board's inspector (v1.2 R6) covers the
-  // inspector, so focus moves into the sheet, and back to the inspector's
-  // button once the sheet closes and nothing else has taken it. A sheet
-  // opened from the action bar leaves focus on the bar, which stays live.
-  const sheetFrom = useRef<HTMLElement | null>(null)
-  useEffect(() => {
-    const from = sheetFrom.current
-    if (!from) return
-    if (sheet) {
-      bodyRef.current?.querySelector<HTMLElement>('[data-sheet] button')?.focus()
-      return
-    }
-    sheetFrom.current = null
-    const active = document.activeElement
-    if (from.isConnected && (!active || active === document.body)) from.focus()
-  }, [sheet])
 
   // The board's keys, on the one window listener the play screen has for
   // them, and not while the glossary is open: its own listener answers
@@ -562,11 +529,8 @@ export default function Game({
   // hotkeys (R1b), resolved through the one action array: a step's digit
   // opens or closes its sheet, and EXECUTE's moves focus to the control
   // rather than committing, because a turn should not end on a stray
-  // digit. On the wide board (v1.2 R6) the F keys do the same through the
-  // same array, except with Shift, so a browser's Shift+F key still does
-  // what it did, and they are taken from a checkbox a sheet left focused,
-  // since they type nothing. Not on the debrief, which is not the
-  // board.
+  // digit. Digits only (M34: one key scheme). Not on the debrief, which is
+  // not the board.
   const decidingNow = state?.status === 'playing' && phase !== 'night' && phase !== 'aftermath'
   useEffect(() => {
     if (!state || glossaryFocus || intel || library) return
@@ -579,16 +543,10 @@ export default function Game({
       }
       if (!decidingNow || e.metaKey || e.ctrlKey || e.altKey) return
       const target = e.target as HTMLInputElement | null
-      const byF = laidOut && !e.shiftKey ? ACTIONS.find((a) => fKeyOf(a) === e.key) : undefined
-      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) && !(byF && /^(checkbox|radio)$/.test(target.type))) return
-      // A held key acts once. A bound F key's repeats are still taken, so
-      // a key held down never falls through to whatever the browser binds
-      // it to, which for an F key can be a reload that takes the cart.
-      if (e.repeat) {
-        if (byF) e.preventDefault()
-        return
-      }
-      const action = byF ?? ACTIONS.find((a) => a.hotkey === e.key)
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
+      // A held key acts once.
+      if (e.repeat) return
+      const action = ACTIONS.find((a) => a.hotkey === e.key)
       if (!action) return
       e.preventDefault()
       if (action.sheet) toggleSheet(action.sheet)
@@ -614,7 +572,6 @@ export default function Game({
     openSheet(arrival.sheet)
     setShowWorst(false)
     setIntel(null)
-    setInspected(null)
     setLibrary(null)
     setNotice('')
   }
@@ -912,11 +869,10 @@ export default function Game({
           sheets all sit inside this landmark for the same reason. */}
       <main
         data-board
-        className={`relative flex flex-1 min-h-0 w-full max-w-[560px] mx-auto flex-col overflow-hidden bg-dc-ground text-dc-ink ${
+        className={`relative flex flex-1 min-h-0 w-full max-w-[520px] mx-auto flex-col overflow-hidden bg-dc-ground text-dc-ink ${
           pageVisible ? '' : 'dc-board-hidden'
         }`}
         style={{ '--dc-beat': `${beatMs}ms` } as CSSProperties}
-        data-wide={laidOut || undefined}
         {...(glossaryFocus || intelOpen || library ? { inert: true, 'aria-hidden': true } : {})}
       >
       <BoardHud
@@ -938,22 +894,13 @@ export default function Game({
         }}
       />
       <div ref={bodyRef} className="relative flex min-h-0 flex-1 flex-col">
-        {/* THE WIDE BOARD'S LOG (v1.2 R6, brief 4.6), on a screen 1024
-            wide and up: a direct child of the body, which wide.css makes
-            the grid, so it takes the left column. */}
-        {wide && (
-          <Suspense fallback={null}>
-            <WideBoard part="log" shown={shown} />
-          </Suspense>
-        )}
-        <div data-board-body className="min-h-0 flex-1 overflow-y-auto px-3 py-1 flex flex-col gap-1.5">
+        <div data-board-body className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-1 flex flex-col gap-1.5">
           <AssetStrip
             tiles={tiles}
             chips={chipsOn}
-            selectedKey={laidOut ? inspected : intel?.kind === 'tile' ? intel.assetId : null}
-            onSelect={(key) => (laidOut ? setInspected(key) : setIntel(key ? { kind: 'tile', assetId: key } : null))}
+            selectedKey={intel?.kind === 'tile' ? intel.assetId : null}
+            onSelect={(key) => setIntel(key ? { kind: 'tile', assetId: key } : null)}
             onCancelQueued={removeAsset}
-            inspect={laidOut}
             hit={strike?.kind === 'hit' ? strike : null}
             held={strike?.kind === 'held' ? strike : null}
             // After turn 6, once END OF TURN shows the close (QC G-067),
@@ -990,23 +937,6 @@ export default function Game({
               open. */}
           {notice && sheet !== 'system' && <p className="font-mono text-xs text-dc-warn">{notice}</p>}
         </div>
-        {wide && (
-          <Suspense fallback={null}>
-            <WideBoard
-              part="inspector"
-              shown={shown}
-              turn={state.turn}
-              assetId={inspected}
-              live={deciding}
-              onProcure={(kind) => {
-                sheetFrom.current = document.activeElement as HTMLElement | null
-                openSheet('procure', { kind })
-              }}
-              onIntel={(assetId) => setIntel({ kind: 'tile', assetId })}
-              onReady={setWideReady}
-            />
-          </Suspense>
-        )}
         {/* THE SHEETS, over the dimmed board and under the dock, which
             stays live so EXECUTE is one tap away from inside PROCURE. The
             backdrop closes the sheet. */}
@@ -1080,7 +1010,7 @@ export default function Game({
         <div
           ref={intelRef}
           tabIndex={-1}
-          className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground outline-none"
+          className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-dc-ground outline-none"
           role="dialog"
           aria-modal="true"
           aria-label="Intel"
@@ -1095,7 +1025,7 @@ export default function Game({
         <div
           ref={glossaryRef}
           tabIndex={-1}
-          className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground outline-none"
+          className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-dc-ground outline-none"
           role="dialog"
           aria-modal="true"
           aria-label="Glossary"
@@ -1115,7 +1045,7 @@ export default function Game({
         <div
           ref={libraryRef}
           tabIndex={-1}
-          className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground outline-none"
+          className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-dc-ground outline-none"
           role="dialog"
           aria-modal="true"
           aria-label="Field Library"

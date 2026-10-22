@@ -66,7 +66,12 @@ export function StatusTag({ status }: { status: MoveStatus }) {
 
 // The noise over an unnamed move: a field of grey pixels, redrawn about 8
 // times a second, one still field under reduced motion or a hidden tab.
-function Noise() {
+// In green, it is the decode over a move the brief has just named (v1.3
+// R5, brief 8.3, as the prototype draws it).
+const NOISE_RGB = { muted: '139,152,168', go: '124,255,155' } as const
+// The decode's length, src/index.css's .dc-decode.
+const DECODE_MS = 900
+function Noise({ tone = 'muted' }: { tone?: keyof typeof NOISE_RGB }) {
   const ref = useRef<HTMLCanvasElement | null>(null)
   const reduced = useReducedMotion()
   const visible = usePageVisible()
@@ -87,7 +92,7 @@ function Noise() {
       for (let y = 0; y < h; y += 1)
         for (let x = 0; x < w; x += 1) {
           a = (a * 1103515245 + 12345) & 0x7fffffff
-          c.fillStyle = `rgba(139,152,168,${((a >> 16) % 100) / 900})`
+          c.fillStyle = `rgba(${NOISE_RGB[tone]},${((a >> 16) % 100) / (tone === 'go' ? 300 : 900)})`
           c.fillRect(x, y, 1, 1)
         }
     }
@@ -96,11 +101,11 @@ function Noise() {
     let n = 7
     const id = window.setInterval(() => paint((n += 1)), 120)
     return () => window.clearInterval(id)
-  }, [reduced, visible])
+  }, [reduced, visible, tone])
   return <canvas ref={ref} aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full [image-rendering:pixelated]" />
 }
 
-function MoveCard({ read, onMove }: { read: MoveRead; onMove: (ev: ThreatEvent) => void }) {
+function MoveCard({ read, onMove, decoding = false }: { read: MoveRead; onMove: (ev: ThreatEvent) => void; decoding?: boolean }) {
   const { ev, status, flag } = read
   // The status changes the moment an order lands; a short highlight says so,
   // and only then: not when the card first appears.
@@ -115,6 +120,13 @@ function MoveCard({ read, onMove }: { read: MoveRead; onMove: (ev: ThreatEvent) 
       onClick={() => onMove(ev)}
       className={`dc-tile relative flex min-w-0 flex-col gap-1 border bg-dc-chrome p-2 text-left ${likely ? 'border-dc-hostile' : 'border-dc-line'}`}
     >
+      {/* The decode: green noise over the name as the brief names it,
+          fading off it. Only with motion (decoding is never set without). */}
+      {decoding && (
+        <span data-decode aria-hidden="true" className="dc-decode pointer-events-none absolute inset-0 overflow-hidden">
+          <Noise tone="go" />
+        </span>
+      )}
       {flag && (
         <span data-flag-tag className={`absolute -top-2 right-2 px-1 font-mono text-[10px] tracking-wider ${flag === 'CONFIRMED' ? 'bg-dc-warn' : 'bg-dc-hostile'} text-dc-ground`}>
           {flag}
@@ -169,6 +181,8 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
   const intro = planFor(state.scenario, state.turn)?.intro ?? ''
   const reduced = useReducedMotion()
   const decode = useCueClass(named ? 'named' : null, 'dc-manifest-in', reduced)
+  // The green noise over the names, for the decode's own length.
+  const decoding = useCueClass(named ? 'named' : null, 'dc-decode', reduced, DECODE_MS) !== ''
   const pulse = useCueClass(pulseIntel || null, 'dc-pulse-friendly', reduced)
   // Each turn's intro arrives as a transmission (the turn-start cue).
   const arriving = useCueClass(state.turn, 'dc-transmission-in', reduced)
@@ -232,7 +246,7 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
           )}
           <div className={`mt-1.5 grid gap-2 ${slot.moves.length === 1 ? 'grid-cols-1' : slot.moves.length === 2 ? 'grid-cols-2' : 'grid-cols-3'} ${slot.hidden ? '' : `${decode} ${flashMoves}`}`}>
             {slot.moves.map((read) =>
-              slot.hidden ? <UnknownCard key={read.ev.id} ev={read.ev} onReveal={onReveal} /> : <MoveCard key={read.ev.id} read={read} onMove={onMove} />,
+              slot.hidden ? <UnknownCard key={read.ev.id} ev={read.ev} onReveal={onReveal} /> : <MoveCard key={read.ev.id} read={read} onMove={onMove} decoding={decoding} />,
             )}
           </div>
         </div>
