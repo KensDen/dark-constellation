@@ -237,6 +237,32 @@ describe('GUARD R1 (b): no retired word on an R1 screen', () => {
   })
 })
 
+describe("the title's menu (Ken's R2 notes, 22 October 2026)", () => {
+  it('has no top bar: the ripple band leads, and SYSTEM is the last row of the menu, under READ', () => {
+    loadPage()
+    const title = container.querySelector('[data-title]')!
+    // The ripple band is the title's first element; nothing sits above it.
+    expect(title.firstElementChild!.className, 'something sits above the ripple band').toMatch(/\bh-28\b/)
+    const system = buttons().filter((b) => (b.textContent ?? '').trim() === 'SYSTEM')
+    expect(system, 'the title shows SYSTEM more than once, or not at all').toHaveLength(1)
+    expect(system[0].hasAttribute('data-title-system')).toBe(true)
+    expect(system[0].getAttribute('aria-haspopup')).toBe('dialog')
+    // Under READ, and the last control before the key art.
+    const read = container.querySelector('section[aria-label="Read"]')!
+    expect(read.compareDocumentPosition(system[0]) & Node.DOCUMENT_POSITION_FOLLOWING, 'SYSTEM is not under READ').toBeTruthy()
+    const controls = [...title.querySelectorAll('button')].filter((b) => !b.closest('section[aria-label="Key art"]'))
+    expect(controls.at(-1), 'SYSTEM is not the last row of the menu').toBe(system[0])
+  })
+
+  it('keeps the board its own SYSTEM button', async () => {
+    localStorage.setItem('dc-intro-seen', '1')
+    loadPage()
+    click(container.querySelector('[data-play]')!)
+    await settle()
+    expect(container.querySelector('[data-board] button[aria-label="System"]'), 'the board lost its SYSTEM').not.toBeNull()
+  })
+})
+
 describe('the R1 fixes (Ken, iPhone, 21 October 2026)', () => {
   it('opens every screen at its top, Back to title included', async () => {
     // jsdom does not scroll, so the page's scroll offset is a value this

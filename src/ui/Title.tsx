@@ -1,10 +1,15 @@
 // THE TITLE (v1.3 R1, brief 5.1): the front door that replaced the
-// nine-entry menu (M1). Top bar with the difficulty chip and SYSTEM; the
-// ripple band; DARK CONSTELLATION / OP FIRST LIGHT and the tagline; GOAL 1
-// and GOAL 2; CONTINUE TURN n when a game is resumable; PLAY; DAILY OP #n;
-// and the READ row (BRIEFING, DOSSIER, LIBRARY). Below it, the key art and
-// the constellation frame the retired start screen used to carry (Ken,
-// 21 October 2026: keep them on the title).
+// nine-entry menu (M1). The ripple band; DARK CONSTELLATION / OP FIRST
+// LIGHT and the tagline; GOAL 1 and GOAL 2; CONTINUE TURN n when a game is
+// resumable; PLAY; DAILY OP #n; the READ row (BRIEFING, DOSSIER, LIBRARY);
+// and SYSTEM as the menu's last row. Below it, the key art and the
+// constellation frame the retired start screen used to carry (Ken, 21
+// October 2026: keep them on the title).
+//
+// No top bar since v1.3 R3 (Ken's R2 notes, 22 October 2026): the
+// difficulty chip left it in R2, and SYSTEM moved to the foot of the menu,
+// like Settings in a game menu, so the ripple band starts at the top. The
+// board keeps its own SYSTEM button in the HUD.
 //
 // The Field Manual, How to Play and the menu's function keys are gone:
 // the briefing and FIRST ORDERS teach the rules (M5, M20).
@@ -104,18 +109,7 @@ export default function Title(p: TitleProps) {
 
   return (
     <main data-title className="mx-auto flex min-h-dvh w-full max-w-[520px] flex-col gap-4 px-4 pt-safe pb-10 text-dc-ink">
-      <div className="flex items-center justify-end pt-3">
-        <button
-          type="button"
-          aria-haspopup="dialog"
-          onClick={() => setSystem(true)}
-          className="min-h-11 border-2 border-dc-line bg-dc-panel px-3 font-display text-[10px] text-dc-ink"
-        >
-          {SYSTEM_TITLE}
-        </button>
-      </div>
-
-      <div className="h-28 overflow-hidden border-2 border-dc-line bg-dc-chrome">
+      <div className="mt-3 h-28 overflow-hidden border-2 border-dc-line bg-dc-chrome">
         <Suspense fallback={null}>
           <TitleArt part="ripple" />
         </Suspense>
@@ -231,6 +225,18 @@ export default function Title(p: TitleProps) {
           </button>
         </div>
       </section>
+
+      {/* SYSTEM, the menu's last row (Ken's R2 notes): difficulty, sound and
+          motion, the save code, Replay a seed, the scoreboard, credits. */}
+      <button
+        type="button"
+        data-title-system
+        aria-haspopup="dialog"
+        onClick={() => setSystem(true)}
+        className="min-h-12 border-2 border-dc-line bg-dc-panel font-display text-xs text-dc-ink shadow-press active:translate-y-[3px] active:shadow-none"
+      >
+        {SYSTEM_TITLE}
+      </button>
 
       <section aria-label="Key art" className="mt-4">
         <Suspense fallback={<div className="w-full border-2 border-dc-line" style={{ aspectRatio: '1 / 1' }} />}>

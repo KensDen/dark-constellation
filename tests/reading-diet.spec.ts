@@ -101,19 +101,20 @@ const WORST_CARD_HEADLINE = 12
 // long defense names), and the rogue ground station's card (6 words of
 // title over the 14-word line, the passive line on turn 5 on Easy, seed 2).
 //
-// 40 and 50 since v1.3 Round 3, which moved the line into the hit card's
+// 35 and 45 since v1.3 Round 3, which moved the line into the hit card's
 // outcome block (src/ui/night/cards.tsx) and retired
 // src/ui/wouldHaveHelped.ts. The UNDEFENDED line now also says what else
 // the defense stops among the threats the player has met or named (this
 // move and one more by name, the rest counted as "n more threats you have
 // met": listing them all ran the line to 42 words, and a bare "1 more"
-// read as cryptic to the fresh-eyes review), and the PROCURE sentence
-// follows it before the last turn. The worst line is the ground segment
-// ransomware's on the passive line, turn 5 on Easy, seed 16; the worst
-// card is the rogue ground station's on the same line, seed 2, at 50
-// words with its headline.
-const WORST_HELPED_LINE = 40
-const WORST_HIT_CARD_HEADLINE_AND_LINE = 50
+// read as cryptic to the fresh-eyes review), then "It is in PROCURE next
+// turn." before the last turn (Ken cut the brief's "...with that written
+// on it", 22 October 2026: 40 and 50 before). The worst line is the
+// ground segment ransomware's on the passive line, turn 5 on Easy, seed
+// 16; the worst card is the rogue ground station's on the same line, seed
+// 2, at 45 words with its headline.
+const WORST_HELPED_LINE = 35
+const WORST_HIT_CARD_HEADLINE_AND_LINE = 45
 
 // The wide board's ops log at its longest over the EXTREME_SEEDS sweep
 // (v1.2 R6), pinned so a change that moves it comes here and says so.

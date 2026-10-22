@@ -8,7 +8,8 @@
 // card, and the promise moved onto the night's hit card, the card the
 // player taps through for every move: an UNDEFENDED block says "What
 // would have helped: <defense>, n CR. It stops <threats met>. It is in
-// PROCURE next turn with that written on it." (the last sentence left off
+// PROCURE next turn." (cut by Ken from the brief's longer sentence, 22
+// October 2026; left off
 // on the last turn), and a REDUCED block "Would have finished it:
 // <defense>, n CR." The retainer advice (critique row M8) is on END OF
 // TURN, and the SSA service's on the debris result. Rendered in the real
@@ -168,7 +169,7 @@ function expectedLine(def: ThreatEvent, state: GameState, after: GameState): str
   const known = new Set([...record.events.map((e) => e.eventId), ...record.named])
   const stops = [shortName(def), ...DEFAULT_SCENARIO.events.filter((e) => e.id !== def.id && e.counters.includes(missing) && known.has(e.id)).map(shortName)]
   const last = record.turn >= DEFAULT_SCENARIO.totalTurns
-  return `What would have helped: ${nameOf(missing)}, ${costOf(missing)} CR. It stops ${stops.join(' and ')}.${last ? '' : ' It is in PROCURE next turn with that written on it.'}`
+  return `What would have helped: ${nameOf(missing)}, ${costOf(missing)} CR. It stops ${stops.join(' and ')}.${last ? '' : ' It is in PROCURE next turn.'}`
 }
 
 describe('the hit card (critique row M3)', () => {

@@ -161,7 +161,7 @@ export const itStops = (threats: string[]) =>
       ? `${threats[0]}, ${threats[1]} and ${threats.length - 2} more threat${threats.length - 2 === 1 ? '' : 's'} you have met`
       : threats.join(' and ')
   }.`
-export const IN_PROCURE = 'It is in PROCURE next turn with that written on it.'
+export const IN_PROCURE = 'It is in PROCURE next turn.'
 export const repairQueued = (n: number) => `Repair bill queued for end of turn: -${n} CR`
 // A hit to the data, not the hardware, still costs the night's response;
 // it is a cleanup, not a repair (fresh-eyes review: "Not damaged" beside a

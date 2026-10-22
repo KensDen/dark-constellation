@@ -95,7 +95,9 @@ describe('what the blocks say', () => {
     expect(say(copy.wouldHaveHelped(nameOf(id), costOf(id)))).toBe(`What would have helped: ${nameOf(id)}, ${costOf(id)} CR.`)
     expect(copy.itStops(['GNSS spoofing'])).toBe('It stops GNSS spoofing.')
     expect(copy.itStops(['GNSS spoofing', 'GNSS jamming'])).toBe('It stops GNSS spoofing and GNSS jamming.')
-    expect(copy.IN_PROCURE).toBe('It is in PROCURE next turn with that written on it.')
+    // Cut from the brief's "...next turn with that written on it." by Ken,
+    // 22 October 2026 (R3 report, question 4).
+    expect(copy.IN_PROCURE).toBe('It is in PROCURE next turn.')
   })
 
   it('says what would have finished a partial, with its price', () => {
