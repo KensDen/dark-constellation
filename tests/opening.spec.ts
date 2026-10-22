@@ -891,7 +891,7 @@ describe('the opening: the night tells the truth (Round 7b)', () => {
       // the held line itself is the watch officer's report on a block
       // (v1.3 R3 fresh-eyes review), naming the tile it was aimed at.
       const block = pick(card.html, /<div data-outcome="held"[^>]*>([\s\S]*?)<\/div>/)
-      expect(block, `${step.def.id}: the held block says "${block}"`).toBe(`HELD · ${held!.name.toUpperCase()}You can now say it: ${held!.name} stops ${shortName(step.def)}.`)
+      expect(block, `${step.def.id}: the held block says "${block}"`).toBe(`BLOCKED · ${held!.name.toUpperCase()}You can now say it: ${held!.name} stops ${shortName(step.def)}.`)
       expect(nightCopy.HELD[step.ev.eventId], `${step.def.id}: the block has no held line of its own`).toBeTruthy()
       const sign = step.ev.targetAssetId ? signsOf(night.before, after).get(step.ev.targetAssetId) : undefined
       expect(pick(card.html, /<p data-officer="held"[^>]*>([\s\S]*?)<\/p>/), `${step.def.id}: the officer's report on a block`).toBe(

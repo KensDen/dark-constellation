@@ -35,7 +35,7 @@
 // on screen at once, with no count, no drop, no fill and no blips; the
 // grade still sounds once.
 
-import { Suspense, lazy, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { Fragment, Suspense, lazy, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useSound } from '../audio'
 import { MOMENT_CUES, gradeSound } from '../cues'
 import { dailyKey, dailyNumber, msUntilNextDaily } from '../engine/daily'
@@ -257,7 +257,7 @@ function FinalLines({ block, difficulty, played }: { block: ReturnType<typeof gr
         <>
           <br />+ defense bonus <span className="font-mono">{block.bonus.bonus.toFixed(1)}</span> →{' '}
           <span className="whitespace-nowrap">
-            graded on <b className="font-mono font-normal text-dc-ink">{block.bonus.graded.toFixed(1)}</b>
+            grade score <b className="font-mono font-normal text-dc-ink">{block.bonus.graded.toFixed(1)}</b>
           </span>
         </>
       )}
@@ -581,16 +581,26 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
             {rungs.map((r) => {
               const mine = r.grade === block.grade
               return (
-                <li
-                  key={r.grade}
-                  data-rung={r.grade}
-                  {...(mine ? { 'data-mine': true } : {})}
-                  className={`flex items-center gap-3 border-l-4 px-2 py-1 ${mine ? (block.won ? 'border-dc-go bg-dc-go/10' : 'border-dc-hostile bg-dc-hostile/10') : 'border-transparent'}`}
-                >
-                  <span className={`w-5 font-display text-xs ${mine ? GRADE_TONE[r.grade] : 'text-dc-muted'}`}>{r.grade}</span>
-                  <span className={`flex-1 text-[12px] ${mine ? 'text-dc-ink' : 'text-dc-muted'}`}>{r.takes}</span>
-                  {mine && <span className={`font-mono text-[10px] tracking-widest ${block.won ? 'text-dc-go' : 'text-dc-hostile'}`}>YOUR GRADE</span>}
-                </li>
+                <Fragment key={r.grade}>
+                  {/* The win line between C and D (Ken, 22 October: question
+                      7 of the R5 report): every grade above it is a win. */}
+                  {r.grade === 'D' && (
+                    <li data-win-line aria-hidden="true" className="my-1 flex items-center gap-2 font-mono text-[10px] tracking-widest text-dc-go">
+                      <span className="flex-1 border-t border-dashed border-dc-go/70" />
+                      WIN LINE {scenario.winThreshold}
+                      <span className="flex-1 border-t border-dashed border-dc-go/70" />
+                    </li>
+                  )}
+                  <li
+                    data-rung={r.grade}
+                    {...(mine ? { 'data-mine': true } : {})}
+                    className={`flex items-center gap-3 border-l-4 px-2 py-1 ${mine ? (block.won ? 'border-dc-go bg-dc-go/10' : 'border-dc-hostile bg-dc-hostile/10') : 'border-transparent'}`}
+                  >
+                    <span className={`w-5 font-display text-xs ${mine ? GRADE_TONE[r.grade] : 'text-dc-muted'}`}>{r.grade}</span>
+                    <span className={`flex-1 text-[12px] ${mine ? 'text-dc-ink' : 'text-dc-muted'}`}>{r.takes}</span>
+                    {mine && <span className={`font-mono text-[10px] tracking-widest ${block.won ? 'text-dc-go' : 'text-dc-hostile'}`}>YOUR GRADE</span>}
+                  </li>
+                </Fragment>
               )
             })}
           </ol>

@@ -264,7 +264,7 @@ body {
     transform: scale(0.97);
   }
 
-  /* THE SHIELD STAMP (v1.3 R5): pressed down onto the HELD banner and the
+  /* THE SHIELD STAMP (v1.3 R5): pressed down onto the BLOCKED banner and the
      tile a defense held, overshooting once. Under reduced motion the
      stamp is simply there. */
   .dc-stamp-pop {

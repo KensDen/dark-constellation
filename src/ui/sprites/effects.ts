@@ -48,7 +48,7 @@ export const LOCK_ON = fx(`
 
 // THE SHIELD STAMP (v1.3 R5, R3's question 3): a filled shield with its
 // check cut out of it, so a block reads as a win by its shape, colour
-// aside. It goes on the HELD banner and on the tile a defense held.
+// aside. It goes on the BLOCKED banner and on the tile a defense held.
 export const SHIELD_STAMP = fx(`
   ................ .gggggggggggggg. .gggggggggggggg. .gggggggggggggg.
   .ggggggggggkkgg. .gggggggggkkggg. .ggkkggggkkgggg. .gggkkggkkggggg.

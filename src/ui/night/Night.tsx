@@ -303,7 +303,7 @@ function Moving() {
   )
 }
 
-// The strike's banner (brief 5.5 item 1): COLDVEIL MOVES or HELD, with the
+// The strike's banner (brief 5.5 item 1): COLDVEIL MOVES or BLOCKED, with the
 // move's name.
 function StrikeBanner({ held, name }: { held: boolean; name: string }) {
   return (

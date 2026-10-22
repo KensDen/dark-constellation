@@ -515,7 +515,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     beat: 'A defense blocks a move',
     moments: ['strike-block'],
     visual: 'shield',
-    where: 'ui/board/AssetStrip.tsx (the shield on the tile it was aimed at) and ui/night/Night.tsx (HELD)',
+    where: 'ui/board/AssetStrip.tsx (the shield on the tile it was aimed at) and ui/night/Night.tsx (BLOCKED)',
     sound: 'all-clear',
     haptic: 'none',
     soundWhere: 'ui/night/Night.tsx',

@@ -298,6 +298,11 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
       expect(container.querySelector('[data-strip-legend]')!.textContent).toBe('score held or rosedropped less than 3dropped 3 or more, or lost an asset')
       expect([...container.querySelectorAll('[data-rung]')].map((r) => r.getAttribute('data-rung'))).toEqual(['S', 'A', 'B', 'C', 'D', 'F'])
       expect(container.querySelector('[data-rung][data-mine]')!.getAttribute('data-rung')).toBe(gradeOf(state))
+      // The win line sits between C and D (R5, question 7).
+      const line = container.querySelector('[data-win-line]')!
+      expect(line.textContent).toBe(`WIN LINE ${state.scenario.winThreshold}`)
+      expect(line.previousElementSibling!.getAttribute('data-rung')).toBe('C')
+      expect(line.nextElementSibling!.getAttribute('data-rung')).toBe('D')
     }
     expect(new Set(turnStrip(LOST())).size).toBeGreaterThan(1)
   })

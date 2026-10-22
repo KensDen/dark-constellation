@@ -120,7 +120,9 @@ export const MOVING = 'COLDVEIL IS MOVING'
 // The HUD's label for a fall more than one live condition caused.
 export const CONDITIONS_WORD = 'CONDITIONS'
 export const STRIKE_HIT = 'COLDVEIL MOVES'
-export const STRIKE_HELD = 'HELD'
+// A block is BLOCKED on the banner and the lesson head; HELD is the
+// mission's (Ken, 22 October: question 5 of the R5 report).
+export const STRIKE_HELD = 'BLOCKED'
 
 // The hit card (brief 5.5 item 2).
 export const hitHeader = (turn: number) => `COLDVEIL MOVES · TURN ${turn}`
@@ -143,7 +145,7 @@ export const UNTOUCHED = 'Untouched. The defense held.'
 // The outcome's word in the display face and the defense's name beside
 // it in the mono (brief 8.5: a long name wrapped the display face across
 // two heavy lines at 375).
-export const HELD_WORD = 'HELD'
+export const HELD_WORD = 'BLOCKED'
 export const REDUCED_WORD = 'REDUCED'
 export const headName = (defense: string) => ` · ${defense.toUpperCase()}`
 export const canNowSay = (defense: string, threat: string) => ['You can now say it: ', defense, ' stops ', threat, '.'] as const
