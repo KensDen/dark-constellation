@@ -36,6 +36,9 @@ export interface DailyLedger {
   // Whether any date has an official run, which is one record that this
   // device has finished a campaign (the Field Library reads it, v1.2 R5b).
   any(): boolean
+  // Every official run, by date, newest first (the scoreboard's Daily Op
+  // half, v1.3 R4, M38).
+  all(): { dateKey: string; result: DailyResult }[]
   // Record a finished Daily Op if it is the date's first eligible finish,
   // and say which it was.
   claim(op: DailyOp, result: DailyResult): DailyStanding
@@ -60,6 +63,12 @@ export class LocalDailyLedger implements DailyLedger {
 
   any(): boolean {
     return Object.keys(this.read()).length > 0
+  }
+
+  all(): { dateKey: string; result: DailyResult }[] {
+    return Object.entries(this.read())
+      .sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0))
+      .map(([dateKey, result]) => ({ dateKey, result }))
   }
 
   claim(op: DailyOp, result: DailyResult): DailyStanding {

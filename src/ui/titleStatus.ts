@@ -12,7 +12,7 @@ export const TITLE_TAGLINE = 'A turn-based space and drone cybersecurity strateg
 
 // The Daily Op's line before the grade arrives: today's board, or DONE
 // with the streak. The grade comes from ./titleDaily.ts, fetched by dynamic
-// import so the grading module stays with the score screen and out of the
+// import so the grading module stays with the debrief and out of the
 // first download (tests/lazy-screens.spec.ts).
 export const DAILY_OPEN_LINE = 'SAME BOARD FOR EVERYONE TODAY · STANDARD'
 

@@ -1,84 +1,555 @@
-// THE DEBRIEF (v1.2 R5, brief 4.8): the threats this campaign actually
-// met, each with its technique IDs and its sources, as a study guide
-// built from the player's own run. Loaded when the score screen's DEBRIEF
-// is opened, in a chunk of its own. Built from content only, through
-// threatsFaced: no new text about any threat. ANSWERED BY (critique row
-// M3) maps each threat to the defenses that answer it, owned or not at
-// the end of the run: the answer key the player earned by meeting the
-// threat (ruling R1, 4 October 2026), still kept off the HARDEN sheet.
+// THE DEBRIEF (v1.3 brief 5.6, Round 4), at the end of every run, Daily Op
+// or practice. It replaced the v1.2 score screen and its threats-faced
+// study guide, and arrives in a chunk of its own, which Game fetches as
+// the last turn plays back. The save code stays in Game, outside this
+// chunk, so a chunk that fails to load can never cost a player their code
+// (the Round 6d defect).
+//
+// ONE SCREEN BEFORE ANY DETAIL (the designer call ratified 5 October): the
+// eyebrow, the grade block (MISSION HELD or LOST, why, the final score
+// against the win line, the bonus a win is graded with, the difficulty and
+// the time on the clock), on a loss the turn it turned on (M14), the six
+// stats, and FILED THIS GAME. Below the fold: WHAT YOU CAN NOW SAY, NEXT
+// TIME, DECISIONS, the grade ladder, the turn strip, SHARE, PLAY AGAIN,
+// DOSSIER n / 18, TITLE SCREEN and the countdown to the next Daily Op.
+// scripts/phone-layout.mjs holds the first screen to 375x667 unscrolled.
+//
+// Every number is the engine's, read through ./debriefModel.ts and
+// src/engine/grade.ts. No quiz and no scoring of the player's reading
+// (Ken's standing ruling): the debrief reports, it does not test.
+//
+// MOTION: after a short lead-in the six tiles rise in a step apart and
+// count up together, each landing with a blip; then the grade drops in
+// and bounces once, with its sound; then the filed cards step in and the
+// strip fills. Under reduced motion all of it is on screen at once, with
+// no count, no drop, no fill and no blips; the grade still sounds once.
 
-import type { GameState } from '../engine/types'
-import { techniqueLabel } from './labels'
-import { ownedMark, threatsFaced } from './threatsFaced'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { useSound } from '../audio'
+import { MOMENT_CUES, gradeSound } from '../cues'
+import { dailyKey, dailyNumber, msUntilNextDaily } from '../engine/daily'
+import { gradeFor, turnStrip, type Grade, type StripColour } from '../engine/grade'
+import { DIFFICULTIES } from '../engine/reducer'
+import type { GameState, LearnedHow } from '../engine/types'
+import { LocalDailyLedger, dossier, readRun, runKey, type DailyOp, type DailyStanding } from '../persistence'
+import { DC_BTN, DC_BTN_GO } from './buttons'
+import { shareOrCopy, shareSupported, type ShareOutcome } from './clipboard'
+import { hms, useNow } from './dailyClock'
+import { useCountUp, useReducedMotion } from './cues/motion'
+import {
+  FILED_SHOWN,
+  SAY_VERB,
+  canSay,
+  clock,
+  debriefStats,
+  decisions,
+  filedThisGame,
+  gradeBlock,
+  ladder,
+  lossLead,
+  nextTime,
+  toNextGrade,
+  type DebriefStat,
+} from './debriefModel'
+import { DEBRIEF_MOTION } from './debriefMotion'
+import { HOOK } from './night/nightCopy'
+import { PRIMARY } from './night/kit'
+import { shareText } from './reportCard'
+import { ICON_CHECK, ICON_CROSS, ICON_HALF, ICON_SPARK, tinted } from './sprites/icons'
+import PixelSprite from './sprites/PixelSprite'
+import { dailyStreak, dossierCount } from './titleStatus'
+import { shortName } from './board/boardModel'
+import './debrief.css'
 
-const LABEL = 'mt-2 font-display text-[9px] leading-none text-dc-muted'
+// The Dossier, opened over the debrief so BACK returns here: the game is
+// over and its autosave gone, so a route away could not come back.
+const DossierUnavailable = ({ onBack }: { onBack: () => void }) => (
+  <button type="button" onClick={onBack} className={`${DC_BTN} m-4`}>
+    BACK TO DEBRIEF
+  </button>
+)
+const Dossier = lazy(() => import('./Dossier').catch(() => ({ default: DossierUnavailable })))
 
-export default function Debrief({ state }: { state: GameState }) {
-  const faced = threatsFaced(state)
+export interface DebriefProps {
+  state: GameState
+  // The Daily Op this campaign is, when it is one.
+  daily?: DailyOp
+  // How this device recorded the finish: official only when this finish
+  // claimed its date here. Null for a campaign that arrived finished.
+  standing: DailyStanding | null
+  onPlayAgain: () => void
+  onTitle?: () => void
+}
+
+const GRADE_TONE: Record<Grade, string> = {
+  S: 'text-dc-go',
+  A: 'text-dc-go',
+  B: 'text-dc-go',
+  C: 'text-dc-go',
+  D: 'text-dc-hostile',
+  F: 'text-dc-hostile',
+}
+
+// The turn strip's legend (QC G-062), and each square's own words.
+const STRIP_WORD: Record<StripColour, string> = {
+  green: 'score held or rose',
+  amber: 'dropped less than 3',
+  magenta: 'dropped 3 or more, or lost an asset',
+}
+
+const SHARE_NOTICE: Record<ShareOutcome, string> = {
+  shared: 'Result shared.',
+  cancelled: '',
+  copied: 'Result copied. Paste it anywhere.',
+  failed: 'Copy failed; try again.',
+}
+
+// What a saying is, as an icon and a word (section 4 rule 8).
+const SAY_ICON: Record<LearnedHow, { icon: typeof ICON_CHECK; tone: 'go' | 'warn' | 'hostile' }> = {
+  held: { icon: ICON_CHECK, tone: 'go' },
+  reduced: { icon: ICON_HALF, tone: 'warn' },
+  missed: { icon: ICON_CROSS, tone: 'hostile' },
+}
+
+const EYEBROW = 'font-mono text-[10px] tracking-widest text-dc-muted'
+const HEAD = 'font-mono text-[11px] tracking-widest'
+const PANEL = 'bg-dc-panel px-3 py-2.5'
+
+// Where the reveal is: 0 before anything, 1 to n while stat i-1 has
+// started, n+1 once the grade has dropped, n+2 at the end. Reduced
+// motion, at any point, puts it at its end for good: turning it off again
+// does not take back what is already on screen.
+function useReveal(reduced: boolean, n: number, onLand: () => void, onGrade: () => void): number {
+  const last = n + 2
+  const [stage, setStage] = useState(() => (reduced ? last : 0))
+  const done = useRef(reduced)
+  useEffect(() => {
+    if (reduced) {
+      done.current = true
+      setStage(last)
+      return
+    }
+    if (done.current) return
+    const M = DEBRIEF_MOTION
+    const timers: number[] = []
+    const at = (ms: number, fire: () => void) => timers.push(window.setTimeout(fire, ms))
+    for (let i = 0; i < n; i += 1) {
+      const start = M.leadMs + i * M.statStepMs
+      at(start, () => setStage((s) => Math.max(s, i + 1)))
+      at(start + M.countMs, onLand)
+    }
+    const grade = M.leadMs + (n - 1) * M.statStepMs + M.countMs + M.beatMs
+    at(grade, () => {
+      setStage((s) => Math.max(s, n + 1))
+      onGrade()
+    })
+    at(grade + M.gradeMs, () => {
+      done.current = true
+      setStage(last)
+    })
+    return () => timers.forEach((id) => window.clearTimeout(id))
+    // The callbacks keep their identity (useCallback below).
+  }, [reduced, n, last, onLand, onGrade])
+  return reduced ? last : stage
+}
+
+function Stat({ stat, index, active, reduced, moving }: { stat: DebriefStat; index: number; active: boolean; reduced: boolean; moving: boolean }) {
+  const shown = useCountUp(active ? stat.value : 0, reduced, DEBRIEF_MOTION.countMs)
   return (
-    <section aria-labelledby="debrief-title" data-debrief className="border-2 border-dc-line bg-dc-panel p-3 shadow-hard">
-      <h3 id="debrief-title" className="font-display text-[10px] leading-none text-dc-go">
-        DEBRIEF
-      </h3>
-      <p className="mt-2 text-sm text-dc-ink">
-        {faced.length === 0
-          ? 'No threat reached this campaign.'
-          : `The ${faced.length} threat${faced.length === 1 ? '' : 's'} you faced, with the techniques and sources behind each.`}
-      </p>
-      <ol className="mt-1">
-        {faced.map(({ def, encounters, sources }) => (
-          <li key={def.id} data-debrief-threat={def.id} className="mt-3 border-t-2 border-dc-line pt-2">
-            <h4 className="font-mono text-sm font-bold text-dc-ink">{def.name}</h4>
-            <p data-debrief-turns className="mt-1 font-mono text-[10px] text-dc-muted">
-              {encounters.map((e, i) => (
-                <span key={i} className={e.landed ? 'text-dc-hostile' : 'text-dc-friendly'}>
-                  {i > 0 && <span className="text-dc-muted"> · </span>}T{e.turn} {e.landed ? 'hit' : 'held'}
-                </span>
-              ))}
-            </p>
-            <p className={LABEL}>ANSWERED BY</p>
-            <ul className="mt-1 font-mono text-xs">
-              {def.counters.map((id) => (
-                <li key={id} data-debrief-answer={id}>
-                  {state.scenario.countermeasures.find((cm) => cm.id === id)?.name ?? id}{' '}
-                  {state.counters.includes(id) ? (
-                    <span className="text-dc-friendly">{ownedMark(state, id)}</span>
-                  ) : (
-                    <span className="text-dc-muted">not owned</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-            <p className={LABEL}>TECHNIQUE</p>
-            <ul className="mt-1 font-mono text-xs">
-              {def.techniqueRefs.map((ref) => (
-                <li key={techniqueLabel(ref)} data-debrief-technique>
-                  <a className="underline" href={ref.url} target="_blank" rel="noopener noreferrer">
-                    {techniqueLabel(ref)}
-                  </a>{' '}
-                  <span className="text-dc-muted">{ref.name}</span>
-                </li>
-              ))}
-            </ul>
-            {sources.length > 0 && (
-              <>
-                <p className={LABEL}>SOURCES</p>
-                <ul className="mt-1 text-xs">
-                  {sources.map((src) => (
-                    <li key={src.url} data-debrief-source className="mt-0.5">
-                      <a className="underline" href={src.url} target="_blank" rel="noopener noreferrer">
-                        {src.title}
-                      </a>{' '}
-                      <span className="font-mono text-dc-muted">[{src.type}]</span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </li>
-        ))}
-      </ol>
-    </section>
+    <li
+      data-stat={stat.label}
+      data-stat-index={index}
+      className={`flex min-w-0 flex-col gap-1 ${PANEL} ${active ? (moving ? 'dc-stat-in' : '') : 'dc-score-wait'}`}
+    >
+      <span className="flex items-baseline gap-1 font-mono leading-none">
+        <span data-stat-value className="text-lg tabular-nums text-dc-ink">
+          {shown.toFixed(stat.decimals)}
+        </span>
+        {stat.unit && <span className="text-[11px] text-dc-muted">{stat.unit}</span>}
+      </span>
+      <span className="font-mono text-[10px] leading-tight text-dc-muted">{stat.label}</span>
+    </li>
   )
 }
 
+// A YYYYMMDD date key a day earlier.
+function dayBefore(dateKey: string): string {
+  const y = Number(dateKey.slice(0, 4))
+  const m = Number(dateKey.slice(4, 6))
+  const d = Number(dateKey.slice(6, 8))
+  return dailyKey(new Date(y, m - 1, d - 1, 12))
+}
+
+export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }: DebriefProps) {
+  const reduced = useReducedMotion()
+  const play = useSound()
+  const now = useNow()
+  const [shareNotice, setShareNotice] = useState('')
+  // Read once, as the debrief opens: the run's own record, and what it
+  // filed (null when the run arrived as a code and its turn 1 is unknown).
+  const [filed] = useState(() => {
+    const run = readRun(runKey(state.seed, state.difficulty, daily?.dateKey))
+    return { run, ids: filedThisGame(state, run ? new Set(run.before) : null, dossier()) }
+  })
+  // The Dossier over the debrief, and its count, read again as it closes.
+  const [dossierOpen, setDossierOpen] = useState(false)
+  const [count, setCount] = useState(dossierCount)
+  const dossierButton = useRef<HTMLButtonElement | null>(null)
+  const closeDossier = () => {
+    setDossierOpen(false)
+    setCount(dossierCount())
+    window.setTimeout(() => dossierButton.current?.focus(), 0)
+  }
+
+  const block = gradeBlock(state)
+  const lead = lossLead(state)
+  const stats = debriefStats(state)
+  const strip = turnStrip(state)
+  const sayings = canSay(state)
+  const next = nextTime(state)
+  const turns = decisions(state)
+  const rungs = ladder(state)
+  const official = !!daily && standing === 'official'
+  const scenario = state.scenario
+
+  const blip = useCallback(() => play(MOMENT_CUES['result-tiles'].sound), [play])
+  const gradeLands = useCallback(() => play(gradeSound(block.won)), [play, block.won])
+  const stage = useReveal(reduced, stats.length, blip, gradeLands)
+  // Under reduced motion the grade is there from the start, and sounds once.
+  const sounded = useRef(false)
+  useEffect(() => {
+    if (sounded.current || !reduced) return
+    sounded.current = true
+    gradeLands()
+    // Once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const gradeStage = stats.length + 1
+  const restStage = stats.length + 2
+  const moving = !reduced
+
+  // After midnight, a Daily Op finished late belongs to the day it started
+  // on, and the next one is already open rather than counting down. Only
+  // forward: a clock set back shows the countdown, never a number at or
+  // below the run's own.
+  const nowN = dailyNumber(now)
+  const openNow = daily && nowN > daily.n ? nowN : null
+  // Yesterday's grade on a Daily Op's debrief (brief 6.10, M32).
+  const yesterday = (() => {
+    if (!daily) return null
+    const r = new LocalDailyLedger().official(dayBefore(daily.dateKey))
+    return r ? gradeFor({ status: r.outcome, lossReason: r.lossReason, finalMai: r.mai, bonus: r.bonus }) : null
+  })()
+
+  // The Daily Op's number in its own colour, so a Daily's debrief says so
+  // at a glance (fresh-eyes review).
+  const mode = daily ? `DAILY #${daily.n}` : 'PRACTICE'
+  const after = daily && !official ? ' · PRACTICE' : ''
+  const streak = daily && official ? dailyStreak(now) : 0
+  const difficulty = DIFFICULTIES[state.difficulty].label
+  const share = async () => {
+    const outcome = await shareOrCopy(shareText(state, daily ? { n: daily.n, official } : undefined))
+    setShareNotice(SHARE_NOTICE[outcome])
+  }
+  const shownFiled = filed.ids?.slice(0, FILED_SHOWN) ?? []
+  const moreFiled = (filed.ids?.length ?? 0) - shownFiled.length
+
+  return (
+    <>
+      <section data-debrief aria-labelledby="debrief-head" className="flex flex-col gap-3 text-dc-ink" {...(dossierOpen ? { inert: true, 'aria-hidden': true } : {})}>
+        {/* THE FIRST SCREEN. */}
+        <div data-debrief-first className="flex flex-col gap-2.5">
+          <p data-debrief-eyebrow className={EYEBROW}>
+            DEBRIEF · OP {scenario.name} · <span className={daily ? 'text-dc-friendly' : ''}>{mode}</span>
+            {after}
+          </p>
+
+          <div
+            data-grade-block
+            className={`grid grid-cols-[auto_1fr] items-center gap-4 border-l-4 ${block.won ? 'border-dc-go' : 'border-dc-hostile'} ${PANEL}`}
+          >
+            <span
+              data-grade
+              className={`dc-grade-letter w-14 text-center font-display ${GRADE_TONE[block.grade]} ${stage < gradeStage ? 'dc-score-wait' : moving ? 'dc-grade-drop' : ''}`}
+            >
+              {block.grade}
+            </span>
+            <div className="min-w-0">
+              <h2 id="debrief-head" data-mission className={`font-display text-sm leading-tight ${block.won ? 'text-dc-go' : 'text-dc-hostile'}`}>
+                {block.head}
+              </h2>
+              <p data-reason className="mt-1 text-[13px] leading-snug">
+                {block.reason}
+              </p>
+              <p data-final className="mt-1 text-[12px] leading-snug text-dc-muted">
+                Final mission assurance <b className="font-mono font-normal text-dc-ink">{block.final.toFixed(1)}</b>,{' '}
+                <span className="whitespace-nowrap">needed {block.needed}</span>
+                {block.bonus && (
+                  <>
+                    <br />+ defense bonus <span className="font-mono">{block.bonus.bonus.toFixed(1)}</span> →{' '}
+                    <span className="whitespace-nowrap">
+                      graded on <b className="font-mono font-normal text-dc-ink">{block.bonus.graded.toFixed(1)}</b>
+                    </span>
+                  </>
+                )}
+                <br />
+                {difficulty}
+                {filed.run && ` · played in ${clock(filed.run.ms)}`}
+              </p>
+            </div>
+          </div>
+
+          {lead && (
+            <div data-loss-lead className="border-l-4 border-dc-hostile bg-dc-hostile/10 px-3 py-2">
+              <p className={`${HEAD} text-dc-hostile`}>
+                BIGGEST DROP · TURN {lead.turn} · -{lead.drop.toFixed(1)}
+              </p>
+              <p className="mt-0.5 text-[13px] leading-snug">{lead.line}</p>
+            </div>
+          )}
+
+          <ul data-stats aria-label="This game" className="grid grid-cols-3 gap-1.5">
+            {stats.map((s, i) => (
+              <Stat key={s.label} stat={s} index={i} active={stage >= i + 1} reduced={reduced} moving={moving} />
+            ))}
+          </ul>
+
+          <section data-filed-this-game aria-label="Filed this game" className="border-l-4 border-dc-go bg-dc-go/10 px-3 py-2">
+            <p className={`flex items-center gap-1.5 ${HEAD} text-dc-go`}>
+              <PixelSprite sprite={tinted(ICON_SPARK, 'go')} scale={1} name="filed-spark" />
+              <span>
+                FILED THIS GAME · DOSSIER <span data-dossier-total>{count.filed} / {count.total}</span>
+              </span>
+            </p>
+            {filed.ids && filed.ids.length > 0 ? (
+              <ul className="mt-1 flex flex-col gap-1">
+                {shownFiled.map((id, i) => {
+                  const def = scenario.events.find((e) => e.id === id)
+                  return (
+                    <li
+                      key={id}
+                      data-filed-card={id}
+                      className={`text-[13px] leading-snug ${stage < restStage ? 'dc-score-wait' : moving ? 'dc-filed-in' : ''}`}
+                      style={stage >= restStage && moving ? { animationDelay: `${i * DEBRIEF_MOTION.rowStepMs}ms` } : undefined}
+                    >
+                      <b>{def ? shortName(def) : id}</b>
+                      <span className="text-dc-muted">{'\u00a0· '}{HOOK[id] ?? ''}</span>
+                    </li>
+                  )
+                })}
+                {moreFiled > 0 && (
+                  <li data-filed-more className="text-[12px] text-dc-muted">
+                    and {moreFiled} more, in the Dossier
+                  </li>
+                )}
+              </ul>
+            ) : (
+              <p data-filed-none className="mt-1 text-[13px] text-dc-muted">
+                {filed.ids ? 'No new cards this game.' : 'Cards filed on this device show in the Dossier.'}
+              </p>
+            )}
+          </section>
+        </div>
+
+        {/* BELOW THE FOLD. */}
+        <section data-can-say aria-labelledby="can-say-head" className={PANEL}>
+          <h3 id="can-say-head" className={`${HEAD} text-dc-muted`}>
+            WHAT YOU CAN NOW SAY
+          </h3>
+          {sayings.length > 0 ? (
+            <ul className="mt-1.5 flex flex-col gap-1">
+              {sayings.map((s) => (
+                <li key={`${s.defense}-${s.threat}`} data-saying={s.how} className="flex items-start gap-2 bg-dc-chrome px-2 py-1.5 text-[13px] leading-snug">
+                  <PixelSprite sprite={tinted(SAY_ICON[s.how].icon, SAY_ICON[s.how].tone)} scale={1} className="mt-1 flex-none" name={`say-${s.how}`} />
+                  <span>
+                    <b>{s.defense}</b> <span className={s.how === 'missed' ? 'text-dc-hostile' : ''}>{SAY_VERB[s.how]}</span> <b>{s.threat}</b>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1.5 text-[13px] text-dc-muted">Nothing landed and nothing was tested.</p>
+          )}
+        </section>
+
+        <section data-next-time aria-labelledby="next-time-head" className="border-l-4 border-dc-warn bg-dc-warn/10 px-3 py-2.5">
+          <h3 id="next-time-head" className={`${HEAD} text-dc-warn`}>
+            NEXT TIME
+          </h3>
+          {next ? (
+            <p className="mt-1 text-[13px] leading-snug">
+              {next.procured !== null ? (
+                <>
+                  You procured <b>{next.defense}</b> on turn {next.procured}. Procure it by turn {next.turn} and it stops <b>{next.threat}</b>, which got through
+                  on turn {next.turn}.
+                </>
+              ) : (
+                <>
+                  Procure <b>{next.defense}</b> ({next.price} CR) by turn {next.turn}. It would have stopped <b>{next.threat}</b>, which got through on turn{' '}
+                  {next.turn}.
+                </>
+              )}
+            </p>
+          ) : (
+            <p className="mt-1 text-[13px] leading-snug">
+              {stats[0].value > 0 ? 'Every move that got through met a defense you already had.' : 'Nothing got through.'}
+            </p>
+          )}
+        </section>
+
+        <section data-decisions aria-labelledby="decisions-head" className={PANEL}>
+          <h3 id="decisions-head" className={`${HEAD} text-dc-muted`}>
+            DECISIONS
+          </h3>
+          <ol className="mt-1.5 flex flex-col">
+            {turns.map((d) => (
+              <li key={d.turn} data-decision={d.turn} className="grid grid-cols-[2rem_1fr_auto] gap-2 border-t border-dc-line/60 py-1.5 text-[13px] leading-snug first:border-t-0">
+                <b className="font-mono font-normal text-dc-ink">T{d.turn}</b>
+                <span className="flex flex-col">
+                  {d.orders.length ? d.orders.map((o, i) => <span key={i}>{o}</span>) : <span className="text-dc-muted">nothing ordered</span>}
+                  {d.call && <span className="text-dc-muted">debris call: {d.call}</span>}
+                </span>
+                <span className="font-mono text-[12px] tabular-nums text-dc-muted">{d.spent > 0 ? `${d.spent} CR` : ''}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section data-ladder aria-labelledby="ladder-head" className={PANEL}>
+          <h3 id="ladder-head" className={`${HEAD} text-dc-muted`}>
+            GRADE LADDER
+          </h3>
+          <p className="mt-1 text-[12px] text-dc-muted">Graded on the final mission assurance score plus the defense bonus.</p>
+          <ol className="mt-1.5 flex flex-col">
+            {rungs.map((r) => {
+              const mine = r.grade === block.grade
+              return (
+                <li
+                  key={r.grade}
+                  data-rung={r.grade}
+                  {...(mine ? { 'data-mine': true } : {})}
+                  className={`flex items-center gap-3 border-l-4 px-2 py-1 ${mine ? (block.won ? 'border-dc-go bg-dc-go/10' : 'border-dc-hostile bg-dc-hostile/10') : 'border-transparent'}`}
+                >
+                  <span className={`w-5 font-display text-xs ${mine ? GRADE_TONE[r.grade] : 'text-dc-muted'}`}>{r.grade}</span>
+                  <span className={`flex-1 text-[12px] ${mine ? 'text-dc-ink' : 'text-dc-muted'}`}>{r.takes}</span>
+                  {mine && <span className={`font-mono text-[10px] tracking-widest ${block.won ? 'text-dc-go' : 'text-dc-hostile'}`}>YOUR GRADE</span>}
+                </li>
+              )
+            })}
+          </ol>
+          <p data-to-next className="mt-1.5 text-[13px]">
+            {toNextGrade(state)}
+          </p>
+        </section>
+
+        <section data-turns aria-labelledby="turns-head" className={PANEL}>
+          <h3 id="turns-head" className={`${HEAD} text-dc-muted`}>
+            TURN BY TURN
+          </h3>
+          <ol
+            data-turn-strip
+            aria-label="Turn by turn"
+            className="dc-strip mt-2 max-w-60"
+            style={{ gridTemplateColumns: `repeat(${scenario.totalTurns}, minmax(0, 1fr))` }}
+          >
+            {strip.map((colour, i) => (
+              <li
+                key={i}
+                data-strip-cell={colour}
+                aria-label={`Turn ${i + 1}: ${STRIP_WORD[colour]}`}
+                className={`dc-strip-cell dc-strip-${colour} ${stage < restStage ? 'dc-score-wait' : moving ? 'dc-strip-fill' : ''}`}
+                style={stage >= restStage && moving ? { animationDelay: `${i * DEBRIEF_MOTION.stripStepMs}ms` } : undefined}
+              />
+            ))}
+          </ol>
+          <ol aria-hidden="true" className="mt-1 grid max-w-60 gap-1 font-mono text-[10px] text-dc-muted" style={{ gridTemplateColumns: `repeat(${scenario.totalTurns}, minmax(0, 1fr))` }}>
+            {strip.map((_, i) => (
+              <li key={i} className="text-center">
+                T{i + 1}
+              </li>
+            ))}
+          </ol>
+          <p data-strip-legend className="mt-2 flex flex-col gap-0.5 font-mono text-[10px] text-dc-muted">
+            {(['green', 'amber', 'magenta'] as const).map((c) => (
+              <span key={c}>
+                <span className={`dc-strip-key dc-strip-${c}`} />
+                {STRIP_WORD[c]}
+              </span>
+            ))}
+          </p>
+        </section>
+
+        {/* SHARE and PLAY AGAIN, pinned under the thumb (section 4 rule
+            4; fresh-eyes review: three screens of reading stood between a
+            player and the way on). The bar rests here, in the brief's
+            order, once the page is scrolled to it. */}
+        <div data-debrief-bar className="sticky bottom-0 z-20 -mx-4 border-t-2 border-dc-line bg-dc-ground px-4 pb-safe pt-2">
+          {/* A fade above the bar, so the line it covers sinks under it
+              rather than reading as cut in half (second fresh-eyes pass). */}
+          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 -top-7 h-6 bg-gradient-to-t from-dc-ground to-transparent" />
+          <p role="status" data-share-notice className="font-mono text-[12px] text-dc-warn empty:hidden">
+            {shareNotice}
+          </p>
+          <div className="grid grid-cols-[auto_1fr] gap-2 pb-2">
+            <button type="button" data-share className={DC_BTN_GO} onClick={share}>
+              {shareSupported() ? 'SHARE RESULT' : 'COPY RESULT'}
+            </button>
+            <button type="button" data-play-again className={PRIMARY} onClick={onPlayAgain}>
+              PLAY AGAIN
+            </button>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2">
+            <button
+              ref={dossierButton}
+              type="button"
+              data-open-dossier
+              aria-haspopup="dialog"
+              className={DC_BTN}
+              onClick={() => setDossierOpen(true)}
+            >
+              DOSSIER {count.filed} / {count.total}
+            </button>
+            {onTitle && (
+              <button type="button" data-title-screen className={DC_BTN} onClick={onTitle}>
+                TITLE SCREEN
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div data-countdown-block className="flex flex-col gap-1 border-t-2 border-dc-line pt-2.5">
+          {streak > 0 && (
+            <p data-streak className={EYEBROW}>
+              DAILY OP STREAK {streak}
+            </p>
+          )}
+          {yesterday && (
+            <p data-yesterday className={EYEBROW}>
+              YESTERDAY&apos;S DAILY OP · GRADE {yesterday}
+            </p>
+          )}
+          <p data-countdown className="flex flex-wrap items-baseline gap-2">
+            {openNow !== null ? (
+              <span className="font-mono text-[12px] tracking-widest text-dc-go">DAILY OP #{openNow} IS OPEN NOW</span>
+            ) : (
+              <>
+                <span className={EYEBROW}>NEXT DAILY OP IN</span>
+                <span className="font-mono text-sm tabular-nums text-dc-ink">{hms(msUntilNextDaily(now))}</span>
+              </>
+            )}
+          </p>
+        </div>
+      </section>
+
+      {dossierOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-dc-ground" role="dialog" aria-modal="true" aria-label="COLDVEIL dossier" data-dossier-overlay>
+          <Suspense fallback={<p className="p-4 font-mono text-xs text-dc-muted">Opening the Dossier.</p>}>
+            <Dossier embedded backLabel="BACK TO DEBRIEF" onBack={closeDossier} />
+          </Suspense>
+        </div>
+      )}
+    </>
+  )
+}

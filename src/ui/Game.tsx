@@ -5,8 +5,9 @@
 // are the v1.1 ones. All game logic is unchanged: this file still owns
 // the cart, the affordability gate, the cues and the engine call, and the
 // components under ./board only render what it hands them. Since v1.2 R5
-// the outcome screen is the score screen, a chunk of its own
-// (./ScoreScreen), and a campaign may be a Daily Op. The game-feel pass
+// the outcome screen is the score screen, a chunk of its own, and a
+// campaign may be a Daily Op; since v1.3 R4 it is the debrief
+// (./Debrief, brief 5.6). The game-feel pass
 // (Round 2) added a playback phase between resolve and aftermath. Since
 // v1.3 Round 3 that phase is THE NIGHT (brief 5.5, ./night): EXECUTE
 // resolves the turn in the engine, then the overlay, the strikes, the
@@ -21,11 +22,15 @@ import {
   LocalScoreSink,
   LocalStorageStore,
   SaveError,
+  addRunTime,
+  beginRun,
   captureGame,
   decodeSaveCode,
   encodeSaveCode,
+  dossier,
   recordMet,
   recordNamed,
+  runKey,
   type DailyOp,
   type DailyStanding,
   type RestoredGame,
@@ -60,7 +65,6 @@ import { assetPrice } from '../engine/scoring'
 import { LAYERS, type AssetKind, type DebrisChoice, type Difficulty, type GameState, type ThreatEvent, type TurnActions } from '../engine/types'
 import type { BoardView } from './night/Night'
 
-import Wordmark from './Wordmark'
 
 // The GLOSSARY overlay's module, split out in the Round 1 fix batch. The
 // overlay is an element of this component, so the split unmounts nothing:
@@ -72,9 +76,9 @@ import Wordmark from './Wordmark'
 // than rejecting the tree: the Glossary's and the Field Library's back
 // button, the intel card's CLOSE.
 type IntelCardProps = Parameters<(typeof import('./board/IntelCard'))['default']>[0]
-const BackOnly = ({ backLabel, onBack }: { backLabel?: string; onBack: () => void }) => (
-  <button type="button" onClick={onBack} className="m-4 min-h-11 border border-phosphor px-3 font-mono text-sm text-phosphor">
-    {backLabel}
+const BackOnly = ({ backLabel, onBack }: { backLabel?: string; onBack?: () => void }) => (
+  <button type="button" onClick={onBack} className="m-4 min-h-11 border-2 border-dc-line bg-dc-panel px-3 font-display text-[10px] text-dc-ink">
+    {backLabel?.toUpperCase()}
   </button>
 )
 const IntelUnavailable = ({ onClose }: IntelCardProps) => (
@@ -150,17 +154,28 @@ function useBoardDialog(open: boolean, ref: RefObject<HTMLDivElement | null>, op
   return back
 }
 
-// THE SCORE SCREEN (v1.2 R5, brief 7.2), in a chunk of its own. It holds
-// everything the end of a run shows except the save code and the ways
-// out, which stay here, outside the chunk: a fetch that fails leaves a
-// line saying so above them, never a lost code (the Round 6d defect).
-// The chunk is fetched as soon as a campaign ends, while its last turn
-// plays back, so the screen is usually there before it is asked for.
-type ScoreScreenProps = Parameters<(typeof import('./ScoreScreen'))['default']>[0]
-const ScoreUnavailable = (_: ScoreScreenProps) => (
-  <p className="relative z-10 mt-4 font-mono text-sm text-dc-warn">The score screen could not load. Your save code is below.</p>
+// THE DEBRIEF (v1.3 brief 5.6, R4; the v1.2 score screen before it), in a
+// chunk of its own. It holds everything the end of a run shows except the
+// save code, which stays here, outside the chunk: a fetch that fails
+// leaves a line saying so and the ways on, never a lost code (the Round
+// 6d defect). The chunk is fetched as soon as a campaign ends, while its
+// last turn plays back, so the debrief is usually there before it is
+// asked for.
+type DebriefProps = Parameters<(typeof import('./Debrief'))['default']>[0]
+const DebriefUnavailable = ({ onPlayAgain, onTitle }: DebriefProps) => (
+  <div className="flex flex-col gap-2">
+    <p className="font-mono text-sm text-dc-warn">The debrief could not load. Your save code is below.</p>
+    <button type="button" className={DC_BTN} onClick={onPlayAgain}>
+      PLAY AGAIN
+    </button>
+    {onTitle && (
+      <button type="button" className={DC_BTN} onClick={onTitle}>
+        TITLE SCREEN
+      </button>
+    )}
+  </div>
 )
-const ScoreScreen = lazy(() => import('./ScoreScreen').catch(() => ({ default: ScoreUnavailable })))
+const Debrief = lazy(() => import('./Debrief').catch(() => ({ default: DebriefUnavailable })))
 
 // The terminal-style fallback the other split screens use, as a block
 // rather than a landmark: it renders inside the dialog, and a second
@@ -205,9 +220,6 @@ interface NightSession {
 // as the board it left while the debris call is still to make.
 const persistPhase = (phase: Phase, state: GameState, night: NightSession | null): SavePhase =>
   phase === 'night' ? (night && state === night.before ? 'brief' : 'aftermath') : phase
-
-const btn =
-  'font-mono border border-phosphor/60 text-phosphor px-3 py-1 hover:bg-phosphor/10 disabled:opacity-40 disabled:cursor-not-allowed'
 
 // Which sheet is open. The sheet is presentation state, not a phase: the
 // v1.1 phase 'procure' still arrives in a save, and it opens PROCURE on a
@@ -424,8 +436,12 @@ export default function Game({
       saveStore.clearAutosave()
       const last = state.history[state.history.length - 1]
       const recordedAt = new Date().toISOString()
-      scoreSink.record({
+      // The scoreboard's practice half (M38): a Daily Op's finish is the
+      // ledger's, below, and is not posted here.
+      if (!daily)
+        scoreSink.record({
         outcome: state.status,
+        lossReason: state.lossReason,
         mai: last?.maiScore ?? 0,
         seed: state.seed,
         turnsSurvived: state.history.length,
@@ -452,13 +468,28 @@ export default function Game({
     }
   }, [state, phase, scenario, daily, night])
 
-  // Fetch the score screen's chunk the moment a campaign ends, while its
-  // last turn is still playing back. The same import the lazy declaration
+  // Fetch the debrief's chunk the moment a campaign ends, while its last
+  // turn is still playing back. The same import the lazy declaration
   // makes, so it is the same chunk, fetched once.
   const finished = !!state && state.status !== 'playing'
   useEffect(() => {
-    if (finished) import('./ScoreScreen').catch(() => undefined)
+    if (finished) import('./Debrief').catch(() => undefined)
   }, [finished])
+
+  // THE RUN'S OWN RECORD (src/persistence/runRecord.ts): the Dossier as it
+  // stood at turn 1, for FILED THIS GAME, and the time on the clock,
+  // counted while the board is on screen and the tab visible.
+  const runGame = state ? runKey(state.seed, state.difficulty, daily?.dateKey) : null
+  const runFresh = !!state && state.status === 'playing' && state.history.length === 0
+  useEffect(() => {
+    if (runGame && runFresh) beginRun(runGame, dossier())
+  }, [runGame, runFresh])
+  const runPlaying = state?.status === 'playing'
+  useEffect(() => {
+    if (!runGame || !runPlaying || !pageVisible) return
+    const started = performance.now()
+    return () => addRunTime(runGame, performance.now() - started)
+  }, [runGame, runPlaying, pageVisible])
   // The night's chunk, fetched as the board opens, while the player is
   // still deciding, so EXECUTE never waits on it.
   const [nightReady, setNightReady] = useState<'loading' | 'ready' | 'failed'>(() => (nightModule ? 'ready' : 'loading'))
@@ -534,7 +565,7 @@ export default function Game({
   // digit. On the wide board (v1.2 R6) the F keys do the same through the
   // same array, except with Shift, so a browser's Shift+F key still does
   // what it did, and they are taken from a checkbox a sheet left focused,
-  // since they type nothing. Not on the score screen, which is not the
+  // since they type nothing. Not on the debrief, which is not the
   // board.
   const decidingNow = state?.status === 'playing' && phase !== 'night' && phase !== 'aftermath'
   useEffect(() => {
@@ -721,7 +752,7 @@ export default function Game({
   }
 
   // BEGIN TURN n+1, or DEBRIEF: off the night and onto the next board, or
-  // the score screen once the operation is over.
+  // the debrief once the operation is over.
   const nextTurn = () => {
     setNight(null)
     setView(null)
@@ -800,68 +831,48 @@ export default function Game({
     conditionsOn(layer, badges, scenario).map((c) => ({ condition: c, remaining: c.remainingTurns }))
 
   // The last turn's night and its END OF TURN still render before the
-  // score screen: DEBRIEF is the way there.
+  // debrief: DEBRIEF is the way there.
   if (state.status !== 'playing' && phase !== 'aftermath' && phase !== 'night') {
     return (
-      <main className="relative min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
-        <div className="relative z-10 flex items-center justify-between gap-2">
-          <h1>
-            <Wordmark size="clamp(0.6rem, 3vw, 1.4rem)" />
-          </h1>
-          {onExit && (
-            <button className={`${btn} text-sm`} onClick={onExit}>
-              Back to title
-            </button>
-          )}
+      <main data-debrief-screen className="mx-auto w-full max-w-[520px] px-4 pb-10 pt-safe">
+        <div className="pt-4">
+          {/* The debrief's own boundary: Game never suspends, so App's
+              boundary never swaps the whole screen for a loading line, and
+              the save code below renders whatever the chunk is doing. */}
+          <Suspense fallback={<p className="font-mono text-[12px] text-dc-muted">Opening the debrief.</p>}>
+            <Debrief state={state} daily={daily} standing={standing} onPlayAgain={() => newCampaign()} onTitle={onExit} />
+          </Suspense>
         </div>
-        {/* The score screen's own boundary: Game never suspends, so App's
-            boundary never swaps the whole screen for a loading line, and
-            the save code below renders whatever the chunk is doing. */}
-        <Suspense fallback={<OverlayLoading />}>
-          <ScoreScreen state={state} daily={daily} standing={standing} />
-        </Suspense>
-        {/* THE SAVE CODE REVEAL (brief section 4, outcome row; Round 6e).
-            Rendered, not merely copyable. A readonly textarea rather than a
-            <code> block because it is the one element a phone will reliably
-            let a player select and copy from, and because the failure path
-            this fixes is exactly the player whose clipboard API is gated.
-            The copy button below sends this string, not a freshly stamped
-            one, so what is on screen is what lands on the clipboard. Kept
-            here rather than in the score screen's chunk (v1.2 R5), so it
-            never waits on a fetch. */}
-        <div className="relative z-10 mt-6 border-t-2 border-dc-line pt-3">
-          <label className="font-display text-[9px] text-dc-muted" htmlFor="outcome-save-code">
-            SAVE CODE
-          </label>
-          <textarea
-            id="outcome-save-code"
-            data-outcome-save-code
-            readOnly
-            value={outcomeCode}
-            onFocus={(e) => e.currentTarget.select()}
-            className="mt-1 w-full border-2 border-dc-line bg-dc-ground text-dc-ink px-2 py-1 font-mono text-xs h-16 break-all"
-            aria-label="save code for this campaign"
-          />
-        </div>
-        <div className="relative z-10 mt-3 flex flex-wrap gap-2">
-          <button className={DC_BTN} onClick={copyOutcomeCode}>
-            COPY SAVE CODE
-          </button>
-          <button className={DC_BTN} onClick={() => newCampaign()}>
-            NEW CAMPAIGN
-          </button>
-          {onScoreboard && (
-            <button className={DC_BTN} onClick={onScoreboard}>
-              SCOREBOARD
+        {/* THE SAVE CODE REVEAL (Round 6e), at the foot of the debrief and
+            folded (v1.3 R4: SYSTEM holds the save code in play, and the
+            debrief's own ways on come first). Rendered, not merely
+            copyable: a readonly textarea, the one element a phone will
+            reliably let a player select and copy from, for the player
+            whose clipboard API is gated. The copy button sends this
+            string, not a freshly stamped one. Kept here rather than in
+            the debrief's chunk, so it never waits on a fetch. */}
+        <details data-save-code className="mt-4 bg-dc-panel">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 font-mono text-[11px] tracking-widest text-dc-muted [&::-webkit-details-marker]:hidden">
+            <span>SAVE CODE</span>
+            <span>details ›</span>
+          </summary>
+          <div className="px-3 pb-3">
+            <p className="text-[13px] text-dc-muted">Paste it into SYSTEM on any device to read this debrief again.</p>
+            <textarea
+              id="outcome-save-code"
+              data-outcome-save-code
+              readOnly
+              value={outcomeCode}
+              onFocus={(e) => e.currentTarget.select()}
+              className="mt-2 h-20 w-full break-all border-2 border-dc-line bg-dc-ground px-2 py-1 font-mono text-[16px] text-dc-ink"
+              aria-label="save code for this campaign"
+            />
+            <button type="button" className={`${DC_BTN} mt-2`} onClick={copyOutcomeCode}>
+              COPY SAVE CODE
             </button>
-          )}
-          {onExit && (
-            <button className={DC_BTN} onClick={onExit}>
-              BACK TO TITLE
-            </button>
-          )}
-        </div>
-        {notice && <p className="relative z-10 mt-2 font-mono text-sm text-alert-amber">{notice}</p>}
+          </div>
+        </details>
+        {notice && <p className="mt-2 font-mono text-sm text-dc-warn">{notice}</p>}
       </main>
     )
   }

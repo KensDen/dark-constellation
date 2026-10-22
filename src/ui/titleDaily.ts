@@ -1,6 +1,6 @@
 // The Daily Op's finished line with its grade (v1.3 R1, M32), fetched by the
 // title with a dynamic import: it reads the grading module, which belongs
-// to the score screen's chunk and not to the first download.
+// to the debrief's chunk and not to the first download.
 
 import { dailyKey } from '../engine/daily'
 import { gradeFor } from '../engine/grade'

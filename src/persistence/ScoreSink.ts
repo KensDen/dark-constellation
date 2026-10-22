@@ -1,12 +1,17 @@
-// Scoreboard (R4). A ScoreSink interface behind a local top-10
+// Scoreboard (R4). Since v1.3 R4 it holds free play only: a Daily Op's
+// official run is the daily ledger's, and the scoreboard shows the two
+// apart (M38). A ScoreSink interface behind a local top-10
 // implementation. The remote seam (a shared leaderboard) is v2 and stays an
 // interface only: no remote SDK is imported, and a remote sink would drop
 // in against this same contract with zero engine or UI changes.
 
-import type { Difficulty } from '../engine/types'
+import type { Difficulty, GameState } from '../engine/types'
 
 export interface ScoreEntry {
   outcome: 'won' | 'lost'
+  // How a lost run ended, which tells a D from an F (v1.3 R4: the
+  // scoreboard shows the grade, M38); absent before R4.
+  lossReason?: GameState['lossReason']
   mai: number
   seed: number
   turnsSurvived: number

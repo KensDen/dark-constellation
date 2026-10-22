@@ -37,19 +37,22 @@ const Credits = lazy(() => import('./ui/Credits'))
 // INITIAL under 155,000 once the title's fixes landed).
 const TerminalChrome = lazy(() => import('./ui/TerminalChrome'))
 const Scoreboard = lazy(() => import('./ui/Scoreboard'))
-// The FIELD LIBRARY (v1.2 R5b) validates its list as it loads. A list that
-// failed, or a chunk that never arrived, leaves a way back rather than a
-// blank app, which is what a throw inside this Suspense would otherwise do.
-const LibraryUnavailable = ({ onBack }: { onBack: () => void }) => (
-  <main className="max-w-3xl mx-auto px-4 py-10 font-mono text-sm">
-    <p className="text-phosphor">&gt; FIELD LIBRARY UNAVAILABLE_</p>
-    <button className="mt-4 min-h-11 border border-phosphor px-3 text-phosphor" onClick={onBack}>
-      Back to title
+// LIBRARY (v1.3 R4, brief 5.1): the Field Library with the Glossary as a
+// tab, each tab a chunk of its own. The Field Library validates its list
+// as it loads; a list that failed, or a chunk that never arrived, leaves a
+// way back rather than a blank app, which is what a throw inside this
+// Suspense would otherwise do.
+const ScreenUnavailable = ({ onBack }: { onBack: () => void }) => (
+  <main className="mx-auto max-w-[520px] px-4 py-10 font-mono text-sm">
+    <p className="text-dc-warn">This screen could not load.</p>
+    <button type="button" className="mt-4 min-h-11 border-2 border-dc-line bg-dc-panel px-3 font-display text-[10px] text-dc-ink" onClick={onBack}>
+      BACK TO TITLE
     </button>
   </main>
 )
-const FieldLibrary = lazy(() => import('./ui/FieldLibrary').catch(() => ({ default: LibraryUnavailable })))
-const Glossary = lazy(() => import('./ui/Glossary'))
+const Library = lazy(() => import('./ui/Library').catch(() => ({ default: ScreenUnavailable })))
+// THE COLDVEIL DOSSIER (v1.3 R4, brief 5.7): the title's DOSSIER and GOAL 2.
+const Dossier = lazy(() => import('./ui/Dossier').catch(() => ({ default: ScreenUnavailable })))
 const IntroSequence = lazy(() => import('./ui/IntroSequence'))
 
 // The dev-only sound board (brief section 7). import.meta.env.DEV folds to
@@ -59,13 +62,12 @@ const IntroSequence = lazy(() => import('./ui/IntroSequence'))
 // board's marker rather than trusting this comment.
 const SoundBoard = import.meta.env.DEV ? lazy(() => import('./audio/SoundBoard')) : null
 
-type Screen = 'title' | 'briefing' | 'game' | 'library' | 'scoreboard' | 'glossary' | 'credits' | 'soundboard'
+type Screen = 'title' | 'briefing' | 'game' | 'library' | 'dossier' | 'scoreboard' | 'credits' | 'soundboard'
 
-// The reference screens keep the terminal chrome until R4 rebuilds them.
+// The terminal chrome frames the credits and the dev board only. The
+// screens R4 rebuilt (LIBRARY, the Dossier, the scoreboard) carry the
+// game's own bar instead.
 const STATUS: Partial<Record<Screen, string>> = {
-  library: 'REFERENCE',
-  scoreboard: 'RECORDS',
-  glossary: 'REFERENCE',
   credits: 'REFERENCE',
   soundboard: 'DEV',
 }
@@ -156,7 +158,7 @@ function App() {
     }
   }
 
-  const chrome = screen !== 'game' && screen !== 'title' && screen !== 'briefing'
+  const chrome = screen in STATUS
 
   return (
     <>
@@ -177,9 +179,8 @@ function App() {
         <div className={`${screen === 'game' ? 'h-dvh' : 'min-h-screen'} flex flex-col`}>
           {/* The board fills the viewport and scrolls its own layer area,
               so the game screen's shell is bounded to the viewport; every
-              other screen is a document that scrolls the page. The title
-              and the board carry no terminal chrome; the reference screens
-              keep it until R4. */}
+              other screen is a document that scrolls the page. Only the
+              credits and the dev board carry the terminal chrome. */}
           {chrome && (
             <Suspense fallback={null}>
               <TerminalChrome status={STATUS[screen] ?? 'REFERENCE'} />
@@ -204,7 +205,7 @@ function App() {
                     setBriefingNext(null)
                     setScreen('briefing')
                   }}
-                  onDossier={() => setScreen('glossary')}
+                  onDossier={() => setScreen('dossier')}
                   onLibrary={() => setScreen('library')}
                   staleSave={store.autosaveIsStale()}
                   soundPrefs={soundPrefs}
@@ -232,9 +233,9 @@ function App() {
                   }}
                 />
               )}
-              {screen === 'library' && <FieldLibrary onBack={toTitle} />}
+              {screen === 'library' && <Library onBack={toTitle} />}
+              {screen === 'dossier' && <Dossier onBack={toTitle} />}
               {screen === 'scoreboard' && <Scoreboard onBack={toTitle} />}
-              {screen === 'glossary' && <Glossary onBack={toTitle} />}
               {screen === 'credits' && <Credits onBack={toTitle} />}
               {screen === 'soundboard' && SoundBoard && <SoundBoard onBack={toTitle} />}
             </Suspense>

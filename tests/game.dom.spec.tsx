@@ -1367,14 +1367,16 @@ describe('the save code is on the screen, not only on the clipboard', () => {
     const firstCode = codeBox()!.value
     expect(firstCode.length).toBeGreaterThan(0)
 
-    // New campaign, WITHOUT remounting: this is the same component
-    // instance, which is the whole point.
-    const newCampaign = byText(/new campaign/i)
+    // PLAY AGAIN (NEW CAMPAIGN until v1.3 R4, when the debrief took the
+    // ways on into its chunk, so it is settled first), WITHOUT remounting:
+    // this is the same component instance, which is the whole point.
+    await settle()
+    const newCampaign = byText(/^play again$/i)
     expect(newCampaign, 'the outcome screen has no way to start again').toBeDefined()
     click(newCampaign!)
     // Straight to turn 1 of a new operation since v1.3 R1 (no start screen).
     expect(codeBox(), 'the code box survived into the new operation').toBeNull()
-    expect(container.querySelector('[data-board]'), 'NEW CAMPAIGN did not start a new operation').not.toBeNull()
+    expect(container.querySelector('[data-board]'), 'PLAY AGAIN did not start a new operation').not.toBeNull()
 
     // A different finished campaign, loaded through the paste box.
     const second = (() => {

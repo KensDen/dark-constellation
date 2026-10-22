@@ -134,7 +134,11 @@ describe('the split screens stay out of the initial chunk (v1.2 R0)', () => {
     // went with the files rather than turning static. Seven since the
     // v1.3 R1 fixes: the TERMINAL CHROME, which frames only the reference
     // screens and so travels with them, moved out to keep INITIAL under
-    // 155,000 when the title's fixes landed.
+    // 155,000 when the title's fixes landed. Still seven since v1.3 R4,
+    // with two changed: the Field Library and the Glossary left App for
+    // LIBRARY (./ui/Library, which loads each as a tab), and the COLDVEIL
+    // Dossier (./ui/Dossier, brief 5.7) took the Glossary's old place
+    // behind the title's DOSSIER.
     expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(7)
     for (const spec of lazySpecs) {
       expect(resolveLocal(APP, spec), `lazy import ${spec} resolves to no file`).toBeTruthy()
@@ -193,6 +197,8 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     // and 8: "Round 6 loads its desktop layout only on wide screens").
     // Five since v1.3 R1: the three.js constellation frame left Game with
     // the start screen and is the title's now (Ken, 21 October 2026).
+    // Still five since v1.3 R4: the debrief (./Debrief, brief 5.6) replaced
+    // the score screen in the same place.
     expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(5)
     const graph = staticGraphFrom(ENTRY)
     const offenders: string[] = []
@@ -204,7 +210,7 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     }
     expect(offenders.join('\n'), 'an overlay Game loads on demand is in the initial chunk anyway').toBe('')
     expect(gameSpecs).toContain('./board/IntelCard')
-    expect(gameSpecs).toContain('./ScoreScreen')
+    expect(gameSpecs).toContain('./Debrief')
     expect(gameSpecs).toContain('./FieldLibrary')
     expect(gameSpecs).toContain('./board/WideBoard')
   })
@@ -278,49 +284,52 @@ describe("the Field Library's list and pairings stay out of the first download (
   // reads nothing of the library.
 })
 
-describe('the score screen carries its own weight, and the debrief its own (v1.2 R5)', () => {
-  // The score screen is lazy in Game (above). It declares one lazy module
-  // of its own, the debrief (brief 4.8: loaded when opened), which neither
-  // block above reads, so it is read here from ScoreScreen.tsx, pinned by
-  // count and walked the same way. A static import of the debrief would
-  // otherwise pass unnoticed: it would still be out of the first download,
-  // only inside the score screen's chunk instead of its own.
-  const SCORE = join(SRC, 'ui', 'ScoreScreen.tsx')
-  const scoreSpecs = lazySpecifiers(readFileSync(SCORE, 'utf8'))
+describe('the debrief, the Dossier and LIBRARY carry their own weight (v1.3 R4)', () => {
+  // The debrief is lazy in Game (above), and replaced the v1.2 score screen
+  // and its threats-faced study guide there. It declares one lazy module
+  // of its own, the Dossier it opens over itself; the Dossier declares the
+  // Field Library its LEARN MORE opens; LIBRARY declares its two tabs.
+  // None of those blocks above reads these, so they are read here, pinned,
+  // and walked the same way: a static import of any would still be out of
+  // the first download, only inside another screen's chunk.
+  const DEBRIEF = join(SRC, 'ui', 'Debrief.tsx')
+  const DOSSIER = join(SRC, 'ui', 'Dossier.tsx')
+  const LIBRARY = join(SRC, 'ui', 'Library.tsx')
 
-  it('finds the debrief, and nothing reaches it statically from the entry point or the score screen', () => {
-    expect(scoreSpecs, "the score screen's lazy set changed; say why").toEqual(['./Debrief'])
-    const debrief = resolveLocal(SCORE, './Debrief')
-    expect(debrief, 'the debrief resolves to no file').toBeTruthy()
-    expect(debrief!.endsWith(join('ui', 'Debrief.tsx')), `./Debrief resolved to ${debrief}`).toBe(true)
-    for (const [from, graph] of [
-      ['main.tsx', staticGraphFrom(ENTRY)],
-      ['ScoreScreen.tsx', staticGraphFrom(SCORE)],
-    ] as const) {
-      const trail = graph.get(debrief!)
-      expect(trail && [...trail, debrief!].map((f) => f.slice(SRC.length + 1)).join(' -> '), `the debrief is static from ${from}`).toBeUndefined()
+  it('finds their lazy modules, and nothing reaches them statically', () => {
+    expect(lazySpecifiers(readFileSync(DEBRIEF, 'utf8')), "the debrief's lazy set changed; say why").toEqual(['./Dossier'])
+    expect(lazySpecifiers(readFileSync(DOSSIER, 'utf8')), "the Dossier's lazy set changed; say why").toEqual(['./FieldLibrary'])
+    expect(lazySpecifiers(readFileSync(LIBRARY, 'utf8')), "LIBRARY's lazy set changed; say why").toEqual(['./FieldLibrary', './Glossary'])
+    const pairs = [
+      [DEBRIEF, DOSSIER],
+      [DOSSIER, join(SRC, 'ui', 'FieldLibrary.tsx')],
+      [LIBRARY, join(SRC, 'ui', 'FieldLibrary.tsx')],
+      [LIBRARY, join(SRC, 'ui', 'Glossary.tsx')],
+    ] as const
+    for (const [from, target] of pairs) {
+      for (const [name, graph] of [
+        ['main.tsx', staticGraphFrom(ENTRY)],
+        [from.slice(SRC.length + 1), staticGraphFrom(from)],
+      ] as const) {
+        const trail = graph.get(target)
+        expect(trail && [...trail, target].map((f) => f.slice(SRC.length + 1)).join(' -> '), `${target.slice(SRC.length + 1)} is static from ${name}`).toBeUndefined()
+      }
     }
-    // What only the debrief reads rides in its chunk: reachable from it,
-    // and from neither the entry nor the score screen.
-    const own = join(SRC, 'ui', 'threatsFaced.ts')
-    expect(staticGraphFrom(debrief!).has(own), 'the debrief no longer reaches threatsFaced.ts').toBe(true)
-    expect(staticGraphFrom(ENTRY).has(own), 'threatsFaced.ts is in the first download').toBe(false)
-    expect(staticGraphFrom(SCORE).has(own), "threatsFaced.ts is in the score screen's chunk").toBe(false)
   })
 
-  it('keeps what only the score screen needs out of the first download', () => {
-    // What the screen reads to score a run and share it: the grade and the
-    // strip, the share text, its timing and its stylesheet. The positive
-    // control first: the score screen's own walk reaches every one, so a
-    // pass below is not a walk that found nothing.
-    const own = ['engine/grade.ts', 'ui/reportCard.ts', 'ui/scoreMotion.ts', 'ui/scoreScreen.css'].map((f) => join(SRC, f))
-    const fromScore = staticGraphFrom(SCORE)
-    for (const f of own) expect(fromScore.has(f), `the score screen no longer reaches ${f.slice(SRC.length + 1)}`).toBe(true)
+  it('keeps what only the debrief needs out of the first download', () => {
+    // What the debrief reads to grade a run, read it back and share it:
+    // the grade and the strip, its model, the share text, its timing and
+    // its stylesheet. The positive control first: the debrief's own walk
+    // reaches every one, so a pass below is not a walk that found nothing.
+    const own = ['engine/grade.ts', 'ui/debriefModel.ts', 'ui/reportCard.ts', 'ui/debriefMotion.ts', 'ui/debrief.css'].map((f) => join(SRC, f))
+    const fromDebrief = staticGraphFrom(DEBRIEF)
+    for (const f of own) expect(fromDebrief.has(f), `the debrief no longer reaches ${f.slice(SRC.length + 1)}`).toBe(true)
     const graph = staticGraphFrom(ENTRY)
     const offenders = own
       .filter((f) => graph.has(f))
       .map((f) => `${f.slice(SRC.length + 1)} is reachable statically: ${[...graph.get(f)!.slice(1), f].map((x) => x.slice(SRC.length + 1)).join(' -> ')}`)
-    expect(offenders.join('\n'), "the score screen's own modules are in the initial chunk").toBe('')
+    expect(offenders.join('\n'), "the debrief's own modules are in the initial chunk").toBe('')
   })
 })
 

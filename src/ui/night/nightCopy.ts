@@ -284,7 +284,7 @@ export const DEBRIEF = 'DEBRIEF'
 // the collapse beat speaks of mission assurance, never MAI).
 export const ENDING: Record<'won' | 'insolvency' | 'maiCollapse' | 'belowThreshold', { head: string; line: (n: number) => string }> = {
   won: { head: 'MISSION HELD', line: (n) => `The architecture held through turn ${n}.` },
-  insolvency: { head: 'MISSION FAILED', line: () => 'The budget ran out before COLDVEIL did.' },
-  maiCollapse: { head: 'MISSION FAILED', line: (n) => `Mission assurance collapsed below ${n}. The architecture came apart under the campaign.` },
-  belowThreshold: { head: 'MISSION FAILED', line: (n) => `The operation ended below the win line of ${n}.` },
+  insolvency: { head: 'MISSION LOST', line: () => 'The budget ran out before COLDVEIL did.' },
+  maiCollapse: { head: 'MISSION LOST', line: (n) => `Mission assurance collapsed below ${n}. The architecture came apart under the campaign.` },
+  belowThreshold: { head: 'MISSION LOST', line: (n) => `The operation ended below the win line of ${n}.` },
 }

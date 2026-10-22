@@ -274,12 +274,12 @@ describe('the R1 fixes (Ken, iPhone, 21 October 2026)', () => {
       top = 900
       click(container.querySelector('[data-read="dossier"]')!)
       await settle()
-      expect(container.querySelector('[data-screen="glossary"]')).not.toBeNull()
+      expect(container.querySelector('[data-screen="dossier"]')).not.toBeNull()
       expect(top, 'DOSSIER opened at the title scroll position').toBe(0)
       top = 700
-      click(byText(/^Back to title$/)!)
+      click(byText(/^Back to title$/i)!)
       expect(onTitle()).toBe(true)
-      expect(top, 'Back to title opened at the Glossary scroll position').toBe(0)
+      expect(top, 'Back to title opened at the Dossier scroll position').toBe(0)
     } finally {
       delete (document.documentElement as unknown as Record<string, unknown>).scrollTop
     }
@@ -294,8 +294,11 @@ describe('the R1 fixes (Ken, iPhone, 21 October 2026)', () => {
   })
 
   it('opens the Glossary on its counted intro (G-065)', async () => {
+    // LIBRARY's second tab since v1.3 R4.
     loadPage()
-    click(container.querySelector('[data-read="dossier"]')!)
+    click(container.querySelector('[data-read="library"]')!)
+    await settle()
+    click(container.querySelector('[data-tab="glossary"]')!)
     await settle()
     const n = glossaryEntries().length
     expect(n).toBe(51)

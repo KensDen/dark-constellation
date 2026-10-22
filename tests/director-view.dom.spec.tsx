@@ -66,13 +66,13 @@ function memoryStorage(): Storage {
   } as Storage
 }
 
-// The night's chunks and the score screen, loaded once, so each renders
-// from its loaded module at once.
+// The night's chunks and the debrief, loaded once, so each renders from
+// its loaded module at once.
 beforeAll(async () => {
   await import('../src/ui/night/Night')
   await import('../src/ui/night/cards')
   await import('../src/ui/night/closeCards')
-  await import('../src/ui/ScoreScreen')
+  await import('../src/ui/Debrief')
 })
 
 beforeEach(() => {
@@ -244,7 +244,7 @@ describe('the night: the behaviour the source pins could only spell', () => {
     expect(next.open, 'the row opened on the first card arrived open on the second').toBe(false)
   })
 
-  it('ends the deciding turn on END OF TURN with its outcome, and DEBRIEF goes to the score screen', async () => {
+  it('ends the deciding turn on END OF TURN with its outcome, and DEBRIEF goes to the debrief', async () => {
     // This was "the deciding turn ends on an outcome beat" (MISSION
     // ASSURED) in the director battery. The night ends on END OF TURN,
     // whose last edition says how the operation ended and offers DEBRIEF
@@ -263,7 +263,7 @@ describe('the night: the behaviour the source pins could only spell', () => {
     await tap(q('button[data-begin]'))
     await act(async () => {})
     expect(q('[data-night-card]'), 'a card followed END OF TURN').toBeNull()
-    expect(q('[data-score-screen]'), 'DEBRIEF did not open the score screen').not.toBeNull()
+    expect(q('[data-debrief]'), 'DEBRIEF did not open the debrief').not.toBeNull()
   })
 })
 

@@ -1,7 +1,10 @@
-// GLOSSARY screen (R3.5): every entry derived from content data, grouped by
-// category, filterable. No hand-maintained text lives here.
+// GLOSSARY (R3.5): every entry derived from content data, grouped by
+// category, filterable. No hand-maintained text lives here. LIBRARY's
+// second tab since v1.3 R4 (brief 5.1: the Glossary becomes a tab inside
+// LIBRARY), and what a technique tag opens over the board.
 
 import { useMemo, useState } from 'react'
+import { DC_BTN } from './buttons'
 import { glossaryEntries, glossaryMatches, type GlossaryEntry } from './reference'
 
 const CATEGORIES: GlossaryEntry['category'][] = ['Technique', 'Countermeasure', 'Threat event', 'Opportunity']
@@ -13,10 +16,11 @@ const CATEGORIES: GlossaryEntry['category'][] = ['Technique', 'Countermeasure', 
 export default function Glossary({
   onBack,
   focus,
-  backLabel = 'Back to title',
+  backLabel = 'BACK TO TITLE',
   embedded = false,
+  bare = false,
 }: {
-  onBack: () => void
+  onBack?: () => void
   focus?: string
   backLabel?: string
   // Rendered inside another screen's overlay rather than as a screen of
@@ -24,9 +28,12 @@ export default function Glossary({
   // visible <h1> breaks landmark and heading navigation, so the embedded
   // form is a <section> with an <h2>.
   embedded?: boolean
+  // Rendered as LIBRARY's tab, which carries the title and the way back.
+  bare?: boolean
 }) {
-  const Root = embedded ? 'section' : 'main'
+  const Root = bare ? 'div' : embedded ? 'section' : 'main'
   const Heading = embedded ? 'h2' : 'h1'
+  const Sub = embedded ? 'h3' : 'h2'
   const all = useMemo(() => glossaryEntries(), [])
   const focused = focus ? all.find((e) => e.key === focus) : undefined
   const [query, setQuery] = useState('')
@@ -34,20 +41,27 @@ export default function Glossary({
   const shown = q ? all.filter((e) => glossaryMatches(e, q)) : all
 
   return (
-    <Root className="min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
-      <div className="flex items-center justify-between gap-2">
-        <Heading className="font-display text-lg sm:text-xl text-phosphor">GLOSSARY</Heading>
-        <button className={btn} onClick={onBack}>
-          {backLabel}
-        </button>
-      </div>
-      <p className="mt-2 text-sm text-ink-dim">
+    <Root data-glossary className="mx-auto w-full max-w-[520px] pb-10 text-dc-ink">
+      {!bare && (
+        <>
+          <div className="sticky top-0 z-10 border-b-2 border-dc-line bg-dc-panel px-4 pt-safe">
+            <div className="py-2">
+              <button type="button" data-back className={DC_BTN} onClick={onBack}>
+                {backLabel.toUpperCase()}
+              </button>
+            </div>
+          </div>
+          <Heading className="px-4 pt-4 font-display text-[13px] leading-tight text-dc-ink">GLOSSARY</Heading>
+        </>
+      )}
+      <div className="px-4">
+      <p className="mt-3 text-[13px] leading-snug text-dc-muted">
         {all.length} entries: framework techniques, countermeasures with their SPARTA controls and tiers, and each threat
         and opportunity event.
       </p>
       <input
-        className="mt-3 w-full border border-phosphor/40 bg-panel text-ink px-2 py-1 font-mono text-[16px]"
-        placeholder="Filter..."
+        className="mt-3 min-h-11 w-full border-2 border-dc-line bg-dc-chrome px-2 py-1 font-mono text-[16px] text-dc-ink placeholder:text-dc-muted"
+        placeholder="Type to filter the entries"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         aria-label="filter glossary"
@@ -59,18 +73,16 @@ export default function Glossary({
           because the tag is a way in rather than a replacement for it. */}
       {focused && (
         <section className="mt-4" data-glossary-focus={focused.key}>
-          <h2 className="font-mono text-xs uppercase tracking-widest text-phosphor border-b border-phosphor/20 pb-1">
-            From the intel brief
-          </h2>
-          <div className="mt-2 border border-hero-blue/50 bg-panel p-2">
-            <p className="font-mono text-sm text-phosphor">{focused.term}</p>
+          <Sub className="font-mono text-[11px] uppercase tracking-widest text-dc-go">From the intel brief</Sub>
+          <div className="mt-2 border-l-4 border-dc-go bg-dc-go/10 px-3 py-2">
+            <p className="text-sm font-bold">{focused.term}</p>
             <p className="text-sm mt-1">{focused.body}</p>
             {focused.refs.length > 0 && (
               <p className="text-xs mt-1 font-mono">
                 {focused.refs.map((r, i) => (
                   <span key={r.url}>
                     {i > 0 ? ' | ' : ''}
-                    <a className="underline text-hero-blue" href={r.url} target="_blank" rel="noreferrer">
+                    <a className="text-dc-friendly underline underline-offset-2" href={r.url} target="_blank" rel="noreferrer">
                       {r.label}
                     </a>
                   </span>
@@ -85,20 +97,20 @@ export default function Glossary({
         if (entries.length === 0) return null
         return (
           <section key={cat} className="mt-5">
-            <h2 className="font-mono text-xs uppercase tracking-widest text-phosphor border-b border-phosphor/20 pb-1">
+            <Sub className="font-mono text-[11px] uppercase tracking-widest text-dc-go">
               {cat} ({entries.length})
-            </h2>
+            </Sub>
             <dl className="mt-2">
               {entries.map((e) => (
-                <div key={e.term} className="mt-3 border border-phosphor/20 bg-panel p-2">
-                  <dt className="font-mono text-sm text-phosphor">{e.term}</dt>
+                <div key={e.term} className="mt-2 bg-dc-panel px-3 py-2">
+                  <dt className="text-sm font-bold">{e.term}</dt>
                   <dd className="text-sm mt-1">{e.body}</dd>
                   {e.refs.length > 0 && (
                     <dd className="text-xs mt-1 font-mono">
                       {e.refs.map((r, i) => (
                         <span key={r.url}>
                           {i > 0 ? ' | ' : ''}
-                          <a className="underline text-hero-blue" href={r.url} target="_blank" rel="noreferrer">
+                          <a className="text-dc-friendly underline underline-offset-2" href={r.url} target="_blank" rel="noreferrer">
                             {r.label}
                           </a>
                         </span>
@@ -111,10 +123,8 @@ export default function Glossary({
           </section>
         )
       })}
-      {shown.length === 0 && <p className="mt-4 text-ink-dim">No entries match that filter.</p>}
+      {shown.length === 0 && <p className="mt-4 text-[13px] text-dc-muted">No entries match that filter.</p>}
+      </div>
     </Root>
   )
 }
-
-const btn =
-  'font-mono border border-phosphor/60 text-phosphor px-3 py-1 text-sm hover:bg-phosphor/10 disabled:opacity-40'

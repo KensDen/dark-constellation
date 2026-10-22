@@ -237,8 +237,12 @@ describe('the frameworks are spelled as their owners spell them', () => {
     // keep a spelling of its own.
     const labels = new Set(DEFAULT_SCENARIO.events.flatMap((e) => e.techniqueRefs).map(techniqueLabel))
     for (const t of tags) expect(labels.has(t), `a night card names "${t}", which techniqueLabel never produces`).toBe(true)
+    // The share text listed techniques until v1.3 R4, when free play took
+    // the Daily Op's four lines (M37): it names none now, so no enum can
+    // reach it either.
     const text = shareText(state)
-    expect(text).toContain('ATT&CK ')
+    expect(text.split('\n'), 'the share text is not four lines').toHaveLength(4)
+    expect(text).not.toContain('ATT&CK')
     expect(text).not.toMatch(RAW)
   })
 })

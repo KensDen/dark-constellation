@@ -329,6 +329,7 @@ export type Moment =
   | 'debris-result'
   | 'end-of-turn'
   | 'outcome'
+  | 'grade'
 
 export const MOMENTS: Moment[] = [
   'turn-start',
@@ -345,6 +346,7 @@ export const MOMENTS: Moment[] = [
   'debris-result',
   'end-of-turn',
   'outcome',
+  'grade',
 ]
 
 export const MOMENT_CUES: Record<Moment, Cue> = {
@@ -376,6 +378,9 @@ export const MOMENT_CUES: Record<Moment, Cue> = {
   // The registry entry is the win; a lost operation plays the sting
   // (outcomeSound), the one place the two endings differ.
   outcome: cue('Operation over', 'card-rise', 'victory-fanfare'),
+  // The debrief's grade landing (brief 8.4, v1.3 R4). The registry entry
+  // is a win's; a loss lands on a tick down (gradeSound).
+  grade: cue('Grade', 'card-rise', 'commendation-fanfare'),
 }
 
 // Threat and opportunity events, keyed by ThreatEvent.id: the voice each
@@ -426,6 +431,10 @@ export function strikeSound(eventId: string, landed: boolean): SoundCue {
 }
 
 export const outcomeSound = (won: boolean): SoundCue => (won ? MOMENT_CUES.outcome.sound : 'defeat-sting')
+
+// The grade landing on the debrief: the fanfare for a win, a tick down
+// for a loss, which the last END OF TURN has already stung.
+export const gradeSound = (won: boolean): SoundCue => (won ? MOMENT_CUES.grade.sound : 'tick-down')
 
 // Every row of the brief's section 6 table, with the visual that now
 // carries it and where it lives. The battery walks this so "every row has

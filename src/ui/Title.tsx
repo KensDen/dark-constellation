@@ -1,7 +1,9 @@
 // THE TITLE (v1.3 R1, brief 5.1): the front door that replaced the
 // nine-entry menu (M1). The ripple band; DARK CONSTELLATION / OP FIRST
 // LIGHT and the tagline; GOAL 1 and GOAL 2; CONTINUE TURN n when a game is
-// resumable; PLAY; DAILY OP #n; the READ row (BRIEFING, DOSSIER, LIBRARY);
+// resumable; PLAY; DAILY OP #n, which after today's official run reads
+// DONE, the grade and the streak, and counts down to the next (v1.3 R4,
+// M32); the READ row (BRIEFING, DOSSIER, LIBRARY);
 // and SYSTEM as the menu's last row. Below it, the key art and the
 // constellation frame the retired start screen used to carry (Ken, 21
 // October 2026: keep them on the title).
@@ -23,7 +25,8 @@ import { STALE_SAVE_MESSAGE } from '../persistence'
 import type { SoundPrefs } from '../audio'
 import SystemPanel from './SystemPanel'
 import { DECK_LINE, SYSTEM_TITLE } from './systemControls'
-import { TITLE_TAGLINE, dailyLineNow, dossierCount } from './titleStatus'
+import { DAILY_OPEN_LINE, TITLE_TAGLINE, dailyLineNow, dossierCount } from './titleStatus'
+import Countdown from './Countdown'
 import PixelHash from './PixelHash'
 import Wordmark from './Wordmark'
 
@@ -58,7 +61,7 @@ export interface TitleProps {
 }
 
 const TILE = 'border-2 border-dc-line bg-dc-panel p-3 text-left shadow-hard'
-const READ_BTN = 'border-2 border-dashed border-dc-line p-3 text-left min-h-11'
+const READ_BTN = 'flex min-h-11 flex-col justify-start border-2 border-dashed border-dc-line p-3 text-left'
 
 export default function Title(p: TitleProps) {
   const [system, setSystem] = useState(false)
@@ -132,7 +135,7 @@ export default function Title(p: TitleProps) {
         <div className={TILE} data-goal="1">
           <p className="font-mono text-[10px] tracking-widest text-dc-muted">GOAL 1</p>
           <p className="mt-1 text-sm font-bold">Hold the mission</p>
-          <p className="mt-1 font-mono text-xs text-dc-go">Keep the score at {DEFAULT_SCENARIO.winThreshold}+</p>
+          <p className="mt-1 font-mono text-xs text-dc-go">Keep the score at{'\u00a0'}{DEFAULT_SCENARIO.winThreshold}+</p>
         </div>
         <button type="button" className={TILE} data-goal="2" onClick={p.onDossier}>
           <span className="block font-mono text-[10px] tracking-widest text-dc-muted">GOAL 2</span>
@@ -190,8 +193,20 @@ export default function Title(p: TitleProps) {
               DAILY OP <PixelHash />
               {n}
             </span>
-            <span className="font-mono text-[10px] tracking-wider text-dc-muted">{dailyText}</span>
+            <span data-daily-line className="font-mono text-[10px] tracking-wider text-dc-muted">
+              {dailyText}
+            </span>
+            {/* Once today's official run is in, the button replays it as
+                practice, and says so (section 4 rule 3). */}
+            {dailyText !== DAILY_OPEN_LINE && <span className="font-mono text-[10px] tracking-wider text-dc-friendly">replay as practice ›</span>}
           </button>
+        )}
+        {/* The countdown once today's official run is in (brief 5.1), as
+            status under the button rather than inside it (rule 2). */}
+        {n >= 1 && dailyText !== DAILY_OPEN_LINE && (
+          <p data-daily-countdown className="-mt-1 text-center font-mono text-[10px] tracking-wider text-dc-muted">
+            NEXT DAILY OP IN <Countdown className="tabular-nums text-dc-ink" />
+          </p>
         )}
         {confirmDaily && (
           <div role="group" aria-label="Replace the operation in progress" data-confirm-daily className="border-2 border-dc-warn/50 bg-dc-panel p-3">

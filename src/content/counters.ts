@@ -19,7 +19,7 @@ export const COUNTERMEASURES: Countermeasure[] = [
       { id: 'CM0083', name: 'Antenna Nulling and Adaptive Filtering', url: 'https://sparta.aerospace.org/countermeasures/CM0083', tier: 'Tier II' },
       { id: 'CM0029', name: 'TRANSEC', url: 'https://sparta.aerospace.org/countermeasures/CM0029', tier: 'Tier I' },
     ],
-    blurb: 'Reduces jamming severity. It does not eliminate it; physics always gets a vote.',
+    blurb: 'Takes the edge off jamming. It does not eliminate it; physics always gets a vote.',
   },
   {
     id: 'linkAuth',

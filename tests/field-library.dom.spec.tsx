@@ -241,11 +241,13 @@ describe('the READ row on the title (v1.3 R1, brief 5.1)', () => {
   }
   const readButton = (which: string) => container.querySelector(`[data-read="${which}"]`) as HTMLButtonElement | null
 
-  it('opens the Field Library from LIBRARY and the Glossary from DOSSIER, and comes back to the title', async () => {
+  it('opens LIBRARY from LIBRARY and the COLDVEIL Dossier from DOSSIER, and comes back to the title', async () => {
+    // v1.3 R4 (brief 5.1 and 5.7): DOSSIER opens the Dossier, not the
+    // Glossary, which is LIBRARY's second tab now.
     loadPage()
     for (const [which, heading] of [
-      ['library', 'FIELD LIBRARY'],
-      ['dossier', 'GLOSSARY'],
+      ['library', 'LIBRARY'],
+      ['dossier', 'COLDVEIL DOSSIER'],
     ] as const) {
       expect(readButton(which), `the title has no ${which.toUpperCase()}`).not.toBeNull()
       click(readButton(which)!)

@@ -1,5 +1,5 @@
 // Copy and share. copyToClipboard moved here from Game.tsx in v1.2 R5, so
-// the board's save code and the score screen's share share one copy of it.
+// the board's save code and the debrief's share share one copy of it.
 
 // Copy text to the clipboard with a synchronous fallback for browsers that
 // gate the async clipboard API.

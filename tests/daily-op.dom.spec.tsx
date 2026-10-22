@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // THE DAILY OP (v1.2 R5, brief 7.1), driven through the real App the way a
-// player reaches it: the menu, the board, twelve turns, the score screen.
+// player reaches it: the title, the board, six turns, the debrief.
 // What is asserted is what the device records (the ledger of official
 // runs, 'dc-daily') and what the player sees and shares (the OFFICIAL or
 // PRACTICE mark and the share text's first line).
@@ -91,7 +91,7 @@ beforeEach(() => {
   vi.setSystemTime(MORNING)
   vi.stubGlobal('localStorage', memoryStorage())
   localStorage.setItem(INTRO_SEEN_KEY, '1')
-  // Reduced motion keeps the score screen still, so what it shows is
+  // Reduced motion keeps the debrief still, so what it shows is
   // there at once; the reveal has its own suite. It also skips the
   // night's overlay and strikes, so its cards arrive at once.
   setReducedMotion(true)
@@ -137,8 +137,14 @@ const dailyEntry = () => container.querySelector('[data-daily]') as HTMLButtonEl
 const dailyLabel = () => dailyEntry()?.querySelector('span')?.textContent ?? ''
 const titleSystem = () => click(buttons().find((b) => b.getAttribute('aria-haspopup') === 'dialog' && (b.textContent ?? '').trim() === 'SYSTEM')!)
 const ledger = () => JSON.parse(localStorage.getItem('dc-daily') ?? '{}') as Record<string, { n: number; turns: number }>
-const standing = () => container.querySelector('[data-standing]')?.textContent ?? null
-// The deciding board, which the score screen is not.
+// The run's standing as the debrief's eyebrow says it (v1.3 R4, brief
+// 5.6): "DAILY #1" for the official run, "DAILY #1 · PRACTICE" otherwise.
+const standing = () => {
+  const eyebrow = container.querySelector('[data-debrief-eyebrow]')?.textContent
+  if (!eyebrow) return null
+  return / · PRACTICE$/.test(eyebrow) ? 'PRACTICE' : /DAILY #\d+$/.test(eyebrow) ? 'OFFICIAL' : eyebrow
+}
+// The deciding board, which the debrief is not.
 const onBoard = () => container.querySelector('main[data-board]') !== null
 const openSystem = () => click(container.querySelector('button[aria-label="System"]')!)
 
@@ -180,14 +186,14 @@ async function playTurn(): Promise<boolean> {
 async function playToEnd() {
   for (let i = 0; i < 20 && (await playTurn()); i += 1);
   await settle()
-  expect(container.querySelector('[data-score-screen]'), 'the campaign never reached the score screen').not.toBeNull()
+  expect(container.querySelector('[data-debrief]'), 'the campaign never reached the debrief').not.toBeNull()
 }
 // What the share control hands the clipboard (jsdom has no share sheet).
 async function sharedText(): Promise<string> {
   let copied = ''
   vi.stubGlobal('navigator', { clipboard: { writeText: async (t: string) => void (copied = t) } })
   const share = byText(/copy result/i)
-  expect(share, 'the score screen has no share control').toBeDefined()
+  expect(share, 'the debrief has no share control').toBeDefined()
   await act(async () => {
     share!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
   })
@@ -302,8 +308,10 @@ describe('the title starts the Daily Op (v1.3 R1)', () => {
     expect(JSON.parse(localStorage.getItem('dc-autosave')!).daily, 'a typed seed became a Daily Op').toBeUndefined()
     await playToEnd()
     expect(ledger()).toEqual({})
-    expect(standing()).toBeNull()
-    expect((await sharedText()).split('\n')[0]).toMatch(/^DARK CONSTELLATION: MISSION (ASSURED|FAILED)$/)
+    // Free play's eyebrow names no Daily Op, and its share text is practice
+    // on the device's difficulty (EASY, a first device's, R2).
+    expect(container.querySelector('[data-debrief-eyebrow]')?.textContent).toBe('DEBRIEF · OP FIRST LIGHT · PRACTICE')
+    expect((await sharedText()).split('\n')[0]).toBe('DARK CONSTELLATION · Practice · Easy')
   })
 })
 
@@ -373,7 +381,7 @@ describe('GUARD R5 (b): the first finish of a date is official, and a second is 
     expect((await sharedText()).split('\n')[0]).toBe('DARK CONSTELLATION · Daily Op #1')
 
     // Back to the title, and the same date's Daily Op again.
-    click(byText(/^BACK TO TITLE$/)!)
+    click(byText(/^TITLE SCREEN$/)!)
     click(dailyEntry()!)
     expect(onBoard()).toBe(true)
     await playToEnd()
@@ -406,6 +414,6 @@ describe('GUARD R5 (c): a run belongs to the date it started', () => {
     // It was the 27th's mission, and the 28th's is open now.
     const code = (container.querySelector('[data-outcome-save-code]') as HTMLTextAreaElement).value
     expect(decodeSaveCode(code).state.seed).toBe(dailySeed(new Date(2026, 8, 27, 12)))
-    expect(container.querySelector('[data-countdown]')?.textContent).toMatch(/DAILY OP\s*2 IS OPEN NOW/)
+    expect(container.querySelector('[data-countdown]')?.textContent).toBe('DAILY OP #2 IS OPEN NOW')
   })
 })

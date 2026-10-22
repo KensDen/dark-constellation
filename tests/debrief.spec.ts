@@ -1,0 +1,196 @@
+// The debrief's reading of a finished game (v1.3 R4, brief 5.6), held to
+// the engine's own record of real games.
+//
+// GUARD R4 (b): THE GRADE, THE STATS AND THE FILED LIST AGREE WITH THE
+// ENGINE. Every number is recounted here straight from the history the
+// engine wrote (each event's effective severity and outcome, each turn's
+// record), not through the helpers the debrief calls, over wins and
+// losses on both difficulties. FILED THIS GAME is the threats the game met
+// whose cards were filed since turn 1, in the order the game met them,
+// and nothing the game did not meet.
+
+import { describe, expect, it } from 'vitest'
+
+import { DEFAULT_SCENARIO } from '../src/content'
+import { GRADE_THRESHOLDS, gradeOf } from '../src/engine/grade'
+import { newGame, resolveTurn } from '../src/engine/reducer'
+import { turnRng } from '../src/engine/rng'
+import { maiScore } from '../src/engine/scoring'
+import type { GameState, TurnActions } from '../src/engine/types'
+import {
+  FILED_SHOWN,
+  clock,
+  debriefStats,
+  decisions,
+  filedThisGame,
+  gradeBlock,
+  heldOutright,
+  lossLead,
+  nextTime,
+  toNextGrade,
+  turnDrops,
+} from '../src/ui/debriefModel'
+import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT, randomPolicy } from './scripts'
+
+type Line = Record<number, TurnActions> | ((state: GameState) => TurnActions)
+function play(from: GameState, line: Line): GameState {
+  const orders = typeof line === 'function' ? line : (s: GameState) => line[s.turn] ?? NO_OP
+  let state = from
+  while (state.status === 'playing') state = resolveTurn(state, orders(state), turnRng(state.seed, state.turn))
+  return state
+}
+
+const isThreat = (id: string) => (DEFAULT_SCENARIO.events.find((e) => e.id === id)?.kind ?? 'threat') === 'threat'
+
+// Real games: three lines a seed, twelve seeds, both difficulties.
+const GAMES: GameState[] = []
+for (const difficulty of ['standard', 'easy'] as const)
+  for (let seed = 1; seed <= 12; seed += 1)
+    for (const line of [WIN_SCRIPT, LOSS_SCRIPT, randomPolicy(seed)] as Line[]) GAMES.push(play(newGame(DEFAULT_SCENARIO, seed, difficulty), line))
+
+describe('GUARD R4 (b): the grade, the stats and the filed list agree with the engine', () => {
+  it('walks wins and losses, early and late', () => {
+    expect(GAMES.some((g) => g.status === 'won')).toBe(true)
+    expect(GAMES.some((g) => g.status === 'lost' && g.lossReason === 'belowThreshold')).toBe(true)
+    expect(GAMES.some((g) => g.status === 'lost' && g.lossReason !== 'belowThreshold'), 'no game ended early').toBe(true)
+  })
+
+  it('grades each game as the engine does, with MISSION HELD on a win and MISSION LOST on a loss', () => {
+    for (const g of GAMES) {
+      const block = gradeBlock(g)
+      const last = g.history[g.history.length - 1]
+      expect(block.grade).toBe(gradeOf(g))
+      expect(block.head).toBe(g.status === 'won' ? 'MISSION HELD' : 'MISSION LOST')
+      expect(block.final).toBe(last.maiScore)
+      expect(block.needed).toBe(DEFAULT_SCENARIO.winThreshold)
+      // The bonus shows on a win only, and the graded score is the sum.
+      if (block.bonus) {
+        expect(g.status).toBe('won')
+        expect(block.bonus.graded).toBe(Math.round((last.maiScore + block.bonus.bonus) * 10) / 10)
+      }
+      expect(block.reason).toMatch(new RegExp(`turn ${g.history.length}\\b`, 'i'))
+    }
+  })
+
+  it('counts the six stats from the history the engine wrote', () => {
+    for (const g of GAMES) {
+      const events = g.history.flatMap((r) => r.events)
+      const last = g.history[g.history.length - 1]
+      const got = Object.fromEntries(debriefStats(g).map((s) => [s.label, s.value]))
+      expect(got).toEqual({
+        'HITS TAKEN': events.filter((e) => e.effectiveSeverity > 0).length,
+        'HELD OUTRIGHT': events.filter((e) => e.outcome === 'held').length,
+        'BEST STREAK': last.bestStreak,
+        'BUDGET LEFT': last.creditsAfter,
+        'DEFENSES KEPT': g.counters.length,
+        'POINTS SAVED': Math.round(last.saved * 10) / 10,
+      })
+    }
+    // The positive controls: these games held moves, saved points and kept
+    // defenses, so equal numbers are not zeros agreeing.
+    expect(GAMES.some((g) => heldOutright(g) > 0)).toBe(true)
+    expect(GAMES.some((g) => g.saved > 0)).toBe(true)
+    expect(GAMES.some((g) => g.counters.length > 0)).toBe(true)
+  })
+
+  it('files only threats the game met, in the order it met them, since turn 1', () => {
+    let listed = 0
+    for (const g of GAMES) {
+      const met: string[] = []
+      for (const rec of g.history) for (const ev of rec.events) if (isThreat(ev.eventId) && !met.includes(ev.eventId)) met.push(ev.eventId)
+      // A device that filed every card it met, from an empty Dossier.
+      const now = new Set([...met, 'not-a-threat-this-game'])
+      expect(filedThisGame(g, new Set(), now)).toEqual(met)
+      // Cards filed before turn 1 are not this game's.
+      const before = new Set(met.slice(0, 1))
+      expect(filedThisGame(g, before, now)).toEqual(met.slice(1))
+      // A card the game met but did not file is not listed.
+      expect(filedThisGame(g, new Set(), new Set(met.slice(1)))).toEqual(met.slice(1))
+      // A run whose turn 1 is unknown (a pasted code) lists nothing.
+      expect(filedThisGame(g, null, now)).toBeNull()
+      listed += met.length
+    }
+    expect(listed, 'no game met a threat').toBeGreaterThan(0)
+    expect(Math.max(...GAMES.map((g) => filedThisGame(g, new Set(), new Set(DEFAULT_SCENARIO.events.map((e) => e.id)))!.length)), 'no game files more than the first screen lists').toBeGreaterThan(FILED_SHOWN)
+  })
+})
+
+describe('the rest of the debrief reads the record too', () => {
+  it('leads a loss with the turn of its largest drop and the move that cost most that turn (M14)', () => {
+    let leads = 0
+    for (const g of GAMES) {
+      const lead = lossLead(g)
+      if (g.status === 'won') {
+        expect(lead).toBeNull()
+        continue
+      }
+      let before = maiScore(newGame(g.scenario, g.seed, g.difficulty))
+      const drops = g.history.map((r) => {
+        const d = Math.round((before - r.maiScore) * 10) / 10
+        before = r.maiScore
+        return d
+      })
+      expect(turnDrops(g)).toEqual(drops)
+      const max = Math.max(...drops)
+      if (max <= 0) {
+        expect(lead).toBeNull()
+        continue
+      }
+      leads += 1
+      expect(lead!.turn).toBe(g.history[drops.indexOf(max)].turn)
+      expect(lead!.drop).toBe(max)
+      const worst = [...g.history[drops.indexOf(max)].events].filter((e) => e.effectiveSeverity > 0).sort((a, b) => b.effectiveSeverity - a.effectiveSeverity)[0]
+      if (worst) expect(lead!.line.startsWith(DEFAULT_SCENARIO.events.find((e) => e.id === worst.eventId)!.name.split(' (')[0])).toBe(true)
+    }
+    expect(leads, 'no loss had a drop to lead with').toBeGreaterThan(0)
+  })
+
+  it('names the first defense the game missed and the turn its threat got through (NEXT TIME, M14)', () => {
+    let named = 0
+    for (const g of GAMES) {
+      const miss = g.learned.find((l) => l.how === 'missed')
+      const next = nextTime(g)
+      if (!miss) {
+        expect(next).toBeNull()
+        continue
+      }
+      named += 1
+      const cm = DEFAULT_SCENARIO.countermeasures.find((c) => c.id === miss.counter)!
+      expect(next!.defense).toBe(cm.name)
+      expect(next!.price).toBe(cm.cost)
+      expect(next!.turn).toBe(g.history.find((r) => r.events.some((e) => e.eventId === miss.threat && e.effectiveSeverity > 0))!.turn)
+    }
+    expect(named).toBeGreaterThan(0)
+  })
+
+  it('writes one decision a turn, with what was ordered and spent', () => {
+    for (const g of GAMES) {
+      const d = decisions(g)
+      expect(d.map((x) => x.turn)).toEqual(g.history.map((r) => r.turn))
+      d.forEach((x, i) => {
+        expect(x.spent).toBe(g.history[i].ledger.ordered)
+        expect(x.orders).toHaveLength(g.history[i].purchases.length)
+        for (const o of x.orders) expect(o, 'an order kept its price note').not.toMatch(/\(-/)
+      })
+    }
+  })
+
+  it('says how far the next grade is, from the thresholds the engine grades by', () => {
+    for (const g of GAMES) {
+      const line = toNextGrade(g)
+      const block = gradeBlock(g)
+      const graded = Math.round((block.final + (block.bonus?.bonus ?? 0)) * 10) / 10
+      const up: Record<string, [number, string] | undefined> = { A: [GRADE_THRESHOLDS.S, 'S'], B: [GRADE_THRESHOLDS.A, 'A'], C: [GRADE_THRESHOLDS.B, 'B'] }
+      const next = up[block.grade]
+      if (next) expect(line).toBe(`${(Math.round((next[0] - graded) * 10) / 10).toFixed(1)} more graded points for ${next[1]}.`)
+      if (block.grade === 'D') expect(line).toBe(`${(Math.round((70 - block.final) * 10) / 10).toFixed(1)} more mission assurance at the end for C.`)
+      if (block.grade === 'F') expect(line).toBe('Reach the end of turn 6 for D.')
+    }
+  })
+
+  it('writes the time on the clock as minutes and seconds', () => {
+    expect(clock(0)).toBe('0:00')
+    expect(clock(61_400)).toBe('1:01')
+    expect(clock(4 * 60_000 + 59_600)).toBe('5:00')
+  })
+})

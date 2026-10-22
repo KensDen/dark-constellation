@@ -29,6 +29,14 @@
 // starts "Final score n". Only those words changed; the numbers, squares,
 // lines and their order are the same pins as before (the share's shape is
 // R4's to change).
+//
+// v1.3 Round 4 (M37; QC G-056 and G-057): free play takes the Daily Op's
+// four lines. Its longer text said "survived 6 of 6 turns" on a loss, put
+// one technique in both its lists and seven beside eight hits; the four
+// lines say only what the debrief says. The Daily Op's pins above are
+// unchanged. The free-play pins below are new, and GUARD R4 (d) holds
+// every free-play text to exactly four lines with no "survived" in it,
+// over real games that lose as well as win.
 
 import { describe, expect, it } from 'vitest'
 
@@ -121,20 +129,58 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
   })
 })
 
-describe("free play keeps today's longer text, with the grade line added", () => {
+describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
   it('is exactly this for a won campaign', () => {
     const end = play(newGame(DEFAULT_SCENARIO, 20260712, 'standard'), WIN_SCRIPT)
+    expect(end.status).toBe('won')
     expect(shareText(end)).toBe(
       [
-        'DARK CONSTELLATION: MISSION ASSURED',
+        'DARK CONSTELLATION · Practice · Standard',
         'Grade S · won T6 · score 85.2',
-        'Final score 85.2 | survived 6 of 6 turns | STANDARD | seed 20260712',
-        '',
-        'Resilient to (6): SPARTA EX-0014.04, SPARTA EX-0016.03, SPARTA EX-0001, SPARTA DE-0009.01, SPARTA DE-0003.12, ATLAS AML.T0020',
-        'Compromised by (5): SPARTA PER-0002.02, ATT&CK T1195, ATT&CK T1486, SPARTA EX-0016.03, ATLAS AML.T0043',
-        '',
+        '\u{1F7E9}\u{1F7E9}\u{1F7E9}\u{1F7E8}\u{1F7E8}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )
+  })
+
+  it('is exactly this for a lost one on EASY, which says lost and never survived', () => {
+    const end = play(newGame(DEFAULT_SCENARIO, 20260712, 'easy'), LOSS_SCRIPT)
+    expect(end.status).toBe('lost')
+    expect(shareText(end)).toBe(
+      [
+        'DARK CONSTELLATION · Practice · Easy',
+        'Grade D · lost T6 · score 58.6',
+        '\u{1F7E8}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
+        'https://kensden.github.io/dark-constellation',
+      ].join('\n'),
+    )
+  })
+
+  it('GUARD R4 (d): has exactly the four lines, and never says survived, on every line of play', () => {
+    // Wins and losses, early and late, on both difficulties: the shape is
+    // the same for all of them, and "survived" was the contradiction on a
+    // loss (G-056).
+    let lost = 0
+    let won = 0
+    for (const difficulty of ['standard', 'easy'] as const) {
+      for (let seed = 1; seed <= 12; seed += 1) {
+        for (const line of [WIN_SCRIPT, LOSS_SCRIPT, randomPolicy(seed)] as Line[]) {
+          const end = play(newGame(DEFAULT_SCENARIO, seed, difficulty), line)
+          const text = shareText(end)
+          const lines = text.split('\n')
+          expect(lines, `${difficulty} seed ${seed}: not four lines`).toHaveLength(4)
+          expect(lines[0]).toBe(`DARK CONSTELLATION · Practice · ${difficulty === 'easy' ? 'Easy' : 'Standard'}`)
+          expect(lines[1]).toBe(`Grade ${gradeOf(end)} · ${end.status === 'won' ? 'won' : 'lost'} T${end.history.length} · score ${end.history[end.history.length - 1].maiScore.toFixed(1)}`)
+          expect(lines[2]).toBe(turnStrip(end).map((c) => SHARE_SQUARE[c]).join(''))
+          expect(lines[3]).toBe(SHARE_URL)
+          expect(text, `${difficulty} seed ${seed}: says survived`).not.toMatch(/surviv/i)
+          if (end.status === 'lost') lost += 1
+          else won += 1
+        }
+      }
+    }
+    // The positive controls: the walk met both endings.
+    expect(lost, 'no line lost, so the loss case is untested').toBeGreaterThan(0)
+    expect(won, 'no line won').toBeGreaterThan(0)
   })
 })

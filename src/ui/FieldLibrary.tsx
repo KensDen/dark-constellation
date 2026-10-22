@@ -1,7 +1,8 @@
 // FIELD LIBRARY (v1.2 R5b, brief 4.8 and 7.3): the public reading behind
 // the threats, shelf by shelf in the draft's order, from content data
-// (src/content/fieldLibrary.ts). A chunk of its own, from the menu's INTEL
-// ARCHIVE and, filtered to one threat, from that threat's event card.
+// (src/content/fieldLibrary.ts). A chunk of its own: LIBRARY's first tab
+// since v1.3 R4, and, filtered to one threat, what LEARN MORE opens over
+// the board, the night's intel card and the Dossier.
 //
 // Each entry shows its title, its source and year, the why line, when it
 // was checked, and an external-link marker; every link opens in a new tab
@@ -24,20 +25,21 @@ const day = (iso: string) => {
   return `${d} ${MONTHS[m - 1]} ${y}`
 }
 
-const LABEL = 'font-display text-[9px] leading-none text-dc-muted'
+const LABEL = 'font-mono text-[10px] tracking-widest text-dc-muted'
 
 function Entry({ entry, filed, note }: { entry: LibraryEntry; filed: boolean; note?: string }) {
   return (
     <li data-library-entry={entry.title} className="relative border-t-2 border-dc-line pt-2 mt-3">
       {filed && (
-        <span data-filed className="dc-filed font-display text-[9px] text-dc-go">
+        <span data-filed className="dc-filed font-mono text-[10px] tracking-widest text-dc-go">
           FILED
         </span>
       )}
-      <a className="font-mono text-sm font-bold text-dc-ink underline" href={entry.url} target="_blank" rel="noopener noreferrer">
+      <a className="text-sm font-bold text-dc-ink underline decoration-dc-line underline-offset-2" href={entry.url} target="_blank" rel="noopener noreferrer">
         {entry.title}
-        {/\.pdf$/i.test(entry.url) && <span className="font-normal text-dc-muted"> (PDF)</span>}
-        <span aria-hidden="true"> ↗</span>
+        {/\.pdf$/i.test(entry.url) && <span className="font-normal text-dc-muted">{'\u00a0'}(PDF)</span>}
+        {/* The marker stays on the title's last line (fresh-eyes review). */}
+        <span aria-hidden="true">{'\u00a0'}↗</span>
         <span className="dc-offscreen"> (opens in a new tab)</span>
       </a>
       <p className="mt-1 font-mono text-[10px] text-dc-muted">
@@ -61,18 +63,22 @@ const HANDS_ON = 'Hands-on'
 export default function FieldLibrary({
   onBack,
   focus,
-  backLabel = 'Back to title',
+  backLabel = 'BACK TO TITLE',
   embedded = false,
+  bare = false,
 }: {
-  onBack: () => void
+  onBack?: () => void
   // An event id: the library opens filtered to that threat's entries.
   focus?: string
   backLabel?: string
-  // Rendered inside the game's overlay rather than as a screen, like the
-  // Glossary: a section with an h2, never a second main and h1.
+  // Rendered inside another screen's overlay rather than as a screen, like
+  // the Glossary: a section with an h2, never a second main and h1.
   embedded?: boolean
+  // Rendered as LIBRARY's first tab (v1.3 R4), which carries the title and
+  // the way back: no bar and no heading of its own.
+  bare?: boolean
 }) {
-  const Root = embedded ? 'section' : 'main'
+  const Root = bare ? 'div' : embedded ? 'section' : 'main'
   const Heading = embedded ? 'h2' : 'h1'
   const Sub = embedded ? 'h3' : 'h2'
   // Read once per opening: the stamps are this device's record as it
@@ -80,9 +86,10 @@ export default function FieldLibrary({
   const progress = useMemo(libraryProgress, [])
   const [filter, setFilter] = useState(focus ?? null)
   // SHOW ALL SHELVES takes itself away, so it hands focus to the title
-  // first: focus left on nothing would fall to the page, outside the
-  // dialog this screen may be in.
+  // first (the counter, in a tab): focus left on nothing would fall to the
+  // page, outside the dialog this screen may be in.
   const title = useRef<HTMLHeadingElement | null>(null)
+  const counter = useRef<HTMLParagraphElement | null>(null)
   const threat = filter ? DEFAULT_SCENARIO.events.find((e) => e.id === filter) : undefined
   const shelves = FIELD_LIBRARY.map((shelf, i) => ({
     ...shelf,
@@ -91,33 +98,39 @@ export default function FieldLibrary({
   })).filter((shelf) => shelf.entries.length > 0)
 
   return (
-    <Root data-field-library className="min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
-      {/* The back control wraps under the title on a phone rather than
-          breaking the title, which display type never does (brief 3). */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Heading ref={title} tabIndex={-1} className="font-display text-lg sm:text-xl text-phosphor whitespace-nowrap outline-none">
-          FIELD LIBRARY
-        </Heading>
-        <button className={DC_BTN} onClick={onBack}>
-          {backLabel.toUpperCase()}
-        </button>
-      </div>
-      <p data-filed-counter className="mt-3 font-display text-[10px] text-dc-go">
+    <Root data-field-library className="mx-auto w-full max-w-[520px] pb-10 text-dc-ink">
+      {!bare && (
+        <>
+          <div className="sticky top-0 z-10 border-b-2 border-dc-line bg-dc-panel px-4 pt-safe">
+            <div className="py-2">
+              <button type="button" data-back className={DC_BTN} onClick={onBack}>
+                {backLabel.toUpperCase()}
+              </button>
+            </div>
+          </div>
+          <Heading ref={title} tabIndex={-1} className="px-4 pt-4 font-display text-[13px] leading-tight text-dc-ink outline-none">
+            FIELD LIBRARY
+          </Heading>
+        </>
+      )}
+      <div className="px-4">
+      <p ref={counter} tabIndex={-1} data-filed-counter className="mt-3 font-mono text-[11px] tracking-widest text-dc-go outline-none">
         FILED {progress.count} / {progress.total}
       </p>
-      <p className="mt-2 text-sm text-dc-muted">
-        Public reading behind the threats in this game, each one checked against the live page. An entry is stamped
-        FILED once you have met a threat it covers, and general reading once you have finished a campaign; every entry
-        is open to read either way.
+      <p className="mt-2 text-[13px] leading-snug text-dc-muted">
+        The public reading behind every threat in this game, each entry checked against the live page. Everything here
+        is open to read. An entry is stamped FILED once you meet a threat it covers; the general reading is stamped once
+        you finish a game.
       </p>
       {threat && (
-        <div data-library-filter={threat.id} className="mt-4 border-2 border-dc-go/60 bg-dc-go/10 p-2">
+        <div data-library-filter={threat.id} className="mt-4 border-l-4 border-dc-go bg-dc-go/10 px-3 py-2">
           <p className={LABEL}>LEARN MORE</p>
-          <p className="mt-1 font-mono text-sm font-bold text-dc-ink">{threat.name}</p>
+          <p className="mt-1 text-sm font-bold text-dc-ink">{threat.name}</p>
           <button
+            type="button"
             className={`${DC_BTN} mt-2`}
             onClick={() => {
-              title.current?.focus()
+              ;(title.current ?? counter.current)?.focus()
               setFilter(null)
             }}
           >
@@ -126,8 +139,8 @@ export default function FieldLibrary({
         </div>
       )}
       {shelves.map((shelf) => (
-        <section key={shelf.name} data-shelf={shelf.name} className="mt-6 border-2 border-dc-line bg-dc-panel p-3 shadow-hard">
-          <Sub className="font-display text-[10px] leading-none text-dc-go">
+        <section key={shelf.name} data-shelf={shelf.name} className="mt-4 bg-dc-panel px-3 py-2.5">
+          <Sub className="font-mono text-[11px] tracking-widest text-dc-go">
             {shelf.n}. {shelf.name.toUpperCase()}
           </Sub>
           {/* Shelf note, UI text rather than entry data, so the approved list
@@ -146,6 +159,7 @@ export default function FieldLibrary({
           </ul>
         </section>
       ))}
+      </div>
     </Root>
   )
 }

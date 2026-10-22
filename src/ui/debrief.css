@@ -1,15 +1,16 @@
-/* The score screen's look and motion (v1.2 R5, brief 7.2). Imported by
-   ScoreScreen alone, so Vite splits it into the score screen's chunk and
-   the first download never carries it.
+/* The debrief's look and motion (v1.2 R5's score screen; the debrief
+   since v1.3 R4, brief 5.6 and 8.3). Imported by Debrief alone, so Vite
+   splits it into the debrief's chunk and the first download never
+   carries it.
 
    Transform and opacity only, and every rule that moves sits inside the
-   no-preference guard. ScoreScreen applies no motion class at all under
+   no-preference guard. Debrief applies no motion class at all under
    reduced motion, so the guard is the second of two locks, not the only
    one. The resting state of every piece is set outside it: the grade
    letter at its size, the strip squares in their colours. */
 
 .dc-grade-letter {
-  font-size: 44px;
+  font-size: 52px;
   line-height: 1;
 }
 
@@ -20,7 +21,7 @@
 
 /* THE TURN STRIP: one square a turn, sized for a full campaign so a short
    one is short rather than stretched. Colours are the board's tokens:
-   green is the MAI's own colour, amber the degraded one, magenta hits. */
+   green the score's own colour, amber a slip, red a hard hit. */
 .dc-strip {
   display: grid;
   gap: 4px;
@@ -51,18 +52,31 @@
   display: inline-block;
   width: 8px;
   height: 8px;
+  margin-right: 4px;
   vertical-align: 0;
 }
 
 @media (prefers-reduced-motion: no-preference) {
   /* The grade drops in and bounces once. The duration is
-     SCORE_MOTION.gradeMs. */
+     DEBRIEF_MOTION.gradeMs. */
   .dc-grade-drop {
     animation: dc-grade-drop 640ms both;
   }
 
-  /* Each square fills in turn; ScoreScreen sets each one's delay. The
-     duration is SCORE_MOTION.stripCellMs. */
+  /* Each stat tile rises in on its step; Debrief sets each one's delay.
+     The duration is DEBRIEF_MOTION.statInMs. */
+  .dc-stat-in {
+    animation: dc-rise-in 220ms ease-out both;
+  }
+
+  /* Each filed card's row steps in after the grade. The duration is
+     DEBRIEF_MOTION.rowInMs. */
+  .dc-filed-in {
+    animation: dc-rise-in 220ms ease-out both;
+  }
+
+  /* Each square fills in turn; Debrief sets each one's delay. The
+     duration is DEBRIEF_MOTION.stripCellMs. */
   .dc-strip-fill {
     animation: dc-strip-fill 160ms ease-out both;
   }
@@ -70,6 +84,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .dc-grade-drop,
+  .dc-stat-in,
+  .dc-filed-in,
   .dc-strip-fill {
     animation: none;
   }
@@ -92,6 +108,17 @@
     animation-timing-function: cubic-bezier(0.5, 0, 1, 1);
   }
   100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dc-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
     opacity: 1;
     transform: translateY(0);
   }
