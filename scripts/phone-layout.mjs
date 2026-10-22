@@ -28,6 +28,15 @@
 // CI runner has no SF or Menlo, and a board that fits only in Apple's
 // fonts does not fit (the R1 lesson).
 //
+// GUARD R3 (fit), THE NIGHT'S LABELS FIT 375 (v1.3 brief 8.5: "check
+// every label in section 5 at 375 wide"): one seeded operation played
+// through every kind of night card (a hit and its intel card, a block, a
+// partial, an opportunity, the debris call and its result, every END OF
+// TURN, the last one's DEBRIEF), at 375x667, in DC Display as served and
+// again with the sans and mono stacks forced wide. On every card no text
+// leaves the width, no display-face label overflows its own box, the
+// header is not cut, and the way on is wholly on screen.
+//
 // Exit codes: 0 pass, 1 fail, 2 skipped (no Chrome on this machine). The
 // battery runs it after the build. GitHub's ubuntu-24.04 runner has
 // google-chrome on its path; CHROME_PATH names another.
@@ -63,7 +72,7 @@ export function findChrome(env = process.env) {
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.woff2': 'font/woff2', '.txt': 'text/plain' }
 
-function serve() {
+export function serve() {
   return new Promise((resolve) => {
     const server = createServer((req, res) => {
       const url = new URL(req.url, 'http://x')
@@ -87,7 +96,7 @@ async function freePort() {
   return port
 }
 
-async function browser(chrome) {
+export async function browser(chrome) {
   const port = await freePort()
   const profile = mkdtempSync(join(tmpdir(), 'dc-fit-'))
   const proc = spawn(chrome, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--mute-audio', '--hide-scrollbars', '--no-sandbox', 'about:blank'], { stdio: 'ignore' })
@@ -144,7 +153,7 @@ async function browser(chrome) {
   return { send, evaluate, close }
 }
 
-async function waitFor(b, expression, ms = 10000) {
+export async function waitFor(b, expression, ms = 10000) {
   const t0 = Date.now()
   while (Date.now() - t0 < ms) {
     if (await b.evaluate(`!!(${expression})`).catch(() => false)) return true
@@ -153,15 +162,32 @@ async function waitFor(b, expression, ms = 10000) {
   return false
 }
 
+// A CLEAN LOAD of the title, with storage set as given. The page before
+// is left for about:blank first, so nothing it is still doing (a board's
+// autosave on its next render) can write after the storage is cleared:
+// clearing from inside the old page and reloading it raced, about one
+// load in twenty, and left an autosave that resumed straight into a game
+// with no PLAY (v1.3 R3; the Page.reload retry R2 added could not help,
+// since it reloaded into the same autosave).
+export async function cleanLoad(b, url, storage = {}) {
+  await b.send('Page.navigate', { url: 'about:blank' })
+  await waitFor(b, 'location.href === "about:blank" && document.readyState === "complete"')
+  await b.send('Storage.clearDataForOrigin', { origin: new URL(url).origin, storageTypes: 'local_storage' })
+  await b.send('Page.navigate', { url })
+  if (!(await waitFor(b, 'document.readyState === "complete" && !!document.querySelector("[data-play]")', 15000))) return false
+  const keys = Object.entries(storage)
+  if (!keys.length) return true
+  // The title writes nothing, so storage set here is what the reload reads.
+  await b.evaluate(`${keys.map(([k, v]) => `localStorage.setItem(${JSON.stringify(k)}, ${JSON.stringify(v)});`).join(' ')} location.reload(); true`)
+  await sleep(300)
+  return waitFor(b, 'document.readyState === "complete" && !!document.querySelector("[data-play]")', 15000)
+}
+
 // One viewport, one motion mode: every beat's measurements, or a failure.
 async function check(b, url, [w, h], reduced) {
   await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: true })
   await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduced ? 'reduce' : 'no-preference' }] })
-  await b.send('Page.navigate', { url })
-  await waitFor(b, 'document.readyState === "complete"')
-  await b.evaluate('localStorage.clear(); location.reload(); true')
-  await sleep(500)
-  if (!(await waitFor(b, 'document.querySelector("[data-play]")'))) return [`${w}x${h}: the title never showed PLAY`]
+  if (!(await cleanLoad(b, url))) return [`${w}x${h}: the title never showed PLAY`]
   await b.evaluate('document.querySelector("[data-play]").click(); true')
   if (!(await waitFor(b, 'document.querySelector("[data-briefing-next]")'))) return [`${w}x${h}: PLAY did not open the briefing`]
   const failures = []
@@ -195,7 +221,7 @@ async function check(b, url, [w, h], reduced) {
 
 // Every visible element under root with text of its own that leaves the
 // viewport sideways, and every text field under 16px.
-const OUT_OF_BOUNDS = `((root) => {
+export const OUT_OF_BOUNDS = `((root) => {
   const bad = []
   for (const e of root.querySelectorAll('*')) {
     const r = e.getBoundingClientRect()
@@ -210,14 +236,7 @@ const OUT_OF_BOUNDS = `((root) => {
 async function fresh(b, url, [w, h]) {
   await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: true })
   await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
-  await b.send('Page.navigate', { url })
-  await waitFor(b, 'document.readyState === "complete"')
-  await b.evaluate('localStorage.clear(); location.reload(); true')
-  await sleep(500)
-  if (await waitFor(b, 'document.querySelector("[data-play]")')) return true
-  await b.send('Page.reload', {})
-  await sleep(500)
-  return waitFor(b, 'document.querySelector("[data-play]")', 15000)
+  return cleanLoad(b, url)
 }
 
 async function checkTitle(b, url, [w, h]) {
@@ -289,23 +308,13 @@ async function checkBoardSystem(b, url, [w, h]) {
   return bad.map((x) => `${where}: board SYSTEM: ${x}`)
 }
 
-const WIDE_FONTS = `:root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; --font-mono: 'Courier New', 'DejaVu Sans Mono', monospace !important; }`
+export const WIDE_FONTS = `:root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; --font-mono: 'Courier New', 'DejaVu Sans Mono', monospace !important; }`
 
 async function checkBoard(b, url, [w, h], reduced, wideFonts) {
   const where = `${w}x${h}, motion ${reduced ? 'off' : 'on'}${wideFonts ? ', wide fonts' : ''}`
   await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: true })
   await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduced ? 'reduce' : 'no-preference' }] })
-  await b.send('Page.navigate', { url })
-  await waitFor(b, 'document.readyState === "complete"')
-  await b.evaluate(`localStorage.clear(); localStorage.setItem('dc-intro-seen', '1'); location.reload(); true`)
-  await sleep(500)
-  // A reload can race the evaluate that asked for it; one more before
-  // calling the title missing.
-  if (!(await waitFor(b, 'document.querySelector("[data-play]")'))) {
-    await b.send('Page.reload', {})
-    await sleep(500)
-    if (!(await waitFor(b, 'document.querySelector("[data-play]")', 15000))) return [`${where}: the title never showed PLAY`]
-  }
+  if (!(await cleanLoad(b, url, { 'dc-intro-seen': '1' }))) return [`${where}: the title never showed PLAY`]
   await b.evaluate('document.querySelector("[data-play]").click(); true')
   if (!(await waitFor(b, 'document.querySelector("[data-dock]") && document.querySelector("[data-tonight]")'))) return [`${where}: PLAY did not reach the board`]
   if (wideFonts) await b.evaluate(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(WIDE_FONTS)}; document.head.appendChild(s); return true })()`)
@@ -330,6 +339,106 @@ async function checkBoard(b, url, [w, h], reduced, wideFonts) {
   return failures
 }
 
+// THE NIGHT, DRIVEN (GUARD R3 (fit), and the R3 captures): a seeded
+// operation on STANDARD, replayed through SYSTEM's Replay a seed, with the
+// orders each turn gives. Seed 24 with NIGHT_PLAN meets every card: a hit
+// and its intel card on turn 1, a block on turn 2, a partial and an
+// opportunity on turn 3, the debris call on turn 4, and a won operation
+// into DEBRIEF on turn 6.
+export const NIGHT_SEED = 24
+export const NIGHT_PLAN = { 1: [], 2: ['antiJam', 'pntAuth', 'groundZeroTrust'], 3: ['linkAuth'], 4: [], 5: [], 6: [] }
+
+const click = (sel) => `(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return false; e.click(); return true })()`
+
+export async function startSeed(b, url, [w, h], reduced, seed) {
+  await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: true })
+  await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduced ? 'reduce' : 'no-preference' }] })
+  if (!(await cleanLoad(b, url, { 'dc-intro-seen': '1', 'dc-difficulty': 'standard' }))) return false
+  await b.evaluate(click('[data-play]'))
+  if (!(await waitFor(b, 'document.querySelector("[data-dock]")'))) return false
+  await b.evaluate(click('button[aria-label="System"]'))
+  if (!(await waitFor(b, 'document.querySelector(\'[data-system-control="replay"] input\')'))) return false
+  await b.evaluate(`(() => {
+    const i = document.querySelector('[data-system-control="replay"] input')
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ${JSON.stringify(String(seed))})
+    i.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  await sleep(100)
+  await b.evaluate(click('[data-system-control="replay"] button'))
+  return waitFor(b, 'document.querySelector("[data-dock]") && !document.querySelector("[data-sheet=system]")')
+}
+
+export async function orderDefenses(b, ids) {
+  if (!ids.length) return
+  await b.evaluate(click('[data-action="procure"]'))
+  await waitFor(b, 'document.querySelector("[data-sheet=procure]")')
+  for (const id of ids) await b.evaluate(click(`[data-procure-defense="${id}"]`))
+  await b.evaluate(click('[data-confirm]'))
+  await sleep(150)
+}
+
+// Which part of the night is on screen: a card waiting for a tap, the
+// intel card, or nothing yet (the overlay or a strike).
+export const NIGHT_STAGE = `(() => {
+  if (document.querySelector('[data-intel-file]')) return 'intel'
+  const c = document.querySelector('[data-night-card]')
+  return c ? c.getAttribute('data-night-card') : (document.querySelector('[data-dock]') ? 'board' : 'busy')
+})()`
+
+// The night's tap for a stage: FILE IT, COLLECT or CONTINUE, HOLD, BEGIN.
+export const NIGHT_TAP = `(() => {
+  const pick = (s) => document.querySelector(s)
+  const b = pick('[data-file-it]') || pick('[data-call="hold"]') || pick('[data-collect]') || pick('[data-continue]') || pick('[data-begin]')
+  if (!b) return false
+  b.click()
+  return true
+})()`
+
+// Every way the open card can fail to fit: text past the width, a
+// display-face label wider than its box, a cut header, the way on below
+// the screen.
+const NIGHT_FIT = `(() => {
+  const root = document.querySelector('[data-intel-file]') || document.querySelector('[data-night-card]')
+  const bad = ${OUT_OF_BOUNDS}(root)
+  for (const e of root.querySelectorAll('.font-display, [data-card-head]')) {
+    if (e.getBoundingClientRect().width < 1) continue
+    if (e.scrollWidth > e.clientWidth + 1) bad.push('"' + e.textContent.trim().slice(0, 32) + '" overflows its box (' + e.scrollWidth + ' of ' + e.clientWidth + 'px)')
+  }
+  const way = root.querySelector('[data-file-it], [data-collect], [data-continue], [data-begin], [data-call="hold"]')
+  if (way && way.getBoundingClientRect().bottom > innerHeight + 0.5) bad.push('its way on ends at ' + Math.round(way.getBoundingClientRect().bottom) + ' of ' + innerHeight)
+  if (document.documentElement.scrollWidth > innerWidth + 1) bad.push('the page scrolls sideways')
+  return bad
+})()`
+
+async function checkNight(b, url, [w, h], wideFonts) {
+  const where = `${w}x${h}${wideFonts ? ', wide fonts' : ''}`
+  if (!(await startSeed(b, url, [w, h], true, NIGHT_SEED))) return [`${where}: could not replay seed ${NIGHT_SEED}`]
+  if (wideFonts) await b.evaluate(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(WIDE_FONTS)}; document.head.appendChild(s); return true })()`)
+  const failures = []
+  const seen = new Set()
+  for (let turn = 1; turn <= 6; turn += 1) {
+    await orderDefenses(b, NIGHT_PLAN[turn])
+    await b.evaluate(click('[data-execute]'))
+    for (let steps = 0; steps < 30; steps += 1) {
+      if (!(await waitFor(b, `${NIGHT_STAGE} !== 'busy'`, 8000))) {
+        failures.push(`${where}: turn ${turn}: the night stopped`)
+        return failures
+      }
+      const stage = await b.evaluate(NIGHT_STAGE)
+      if (stage === 'board') break
+      await sleep(80)
+      seen.add(stage)
+      for (const x of await b.evaluate(NIGHT_FIT)) failures.push(`${where}: turn ${turn}, ${stage}: ${x}`)
+      const last = stage === 'end' && (await b.evaluate('document.querySelector("[data-begin]").innerText.trim()')) === 'DEBRIEF'
+      await b.evaluate(NIGHT_TAP)
+      await sleep(120)
+      if (last) return [...failures, ...['hit', 'intel', 'call', 'debris', 'opportunity', 'end'].filter((k) => !seen.has(k)).map((k) => `${where}: the run met no ${k} card`)]
+    }
+  }
+  return [...failures, `${where}: turn 6 did not reach DEBRIEF`]
+}
+
 export async function phoneLayout(chrome) {
   const server = await serve()
   const url = `http://127.0.0.1:${server.address().port}${BASE}`
@@ -339,6 +448,7 @@ export async function phoneLayout(chrome) {
     for (const vp of VIEWPORTS) for (const reduced of [false, true]) failures.push(...(await check(b, url, vp, reduced)))
     for (const vp of VIEWPORTS) failures.push(...(await checkTitle(b, url, vp)), ...(await checkBoardSystem(b, url, vp)))
     for (const vp of VIEWPORTS) for (const reduced of [false, true]) for (const wide of [false, true]) failures.push(...(await checkBoard(b, url, vp, reduced, wide)))
+    for (const wide of [false, true]) failures.push(...(await checkNight(b, url, VIEWPORTS[0], wide)))
     return failures
   } finally {
     b.close()
@@ -362,7 +472,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
         console.log(failures.join('\n'))
         process.exit(1)
       }
-      console.log(`briefing fits, board fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}`)
+      console.log(`briefing fits, board fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}; the night's cards fit 375 as served and in wide fonts`)
       process.exit(0)
     })
     .catch((e) => {
