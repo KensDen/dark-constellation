@@ -6,6 +6,8 @@
 // music's build), so a fifth beat is one more entry here and nothing else
 // (principle 17).
 
+import { DEFAULT_SCENARIO } from '../content'
+
 // Which picture a beat shows. ./briefingScenes.ts draws each one.
 export type SceneName = 'orbit' | 'disaster' | 'coldveil' | 'watch'
 
@@ -44,7 +46,9 @@ export const BEATS: readonly Beat[] = [
     scene: 'watch',
     time: '21:12Z',
     caption: ['OPS FLOOR', 'ON WATCH'],
-    text: 'You are the mission assurance architect. Six turns. Two jobs: keep mission assurance at 70 or above, and build the dossier on COLDVEIL. Every move they make teaches you how they work. Your first intel brief is already on your desk.',
+    // The turn count and the win line from the scenario (R6 question 9:
+    // README says every count on screen derives from the data).
+    text: `You are the mission assurance architect. ${DEFAULT_SCENARIO.totalTurns} turns. 2 jobs: keep mission assurance at ${DEFAULT_SCENARIO.winThreshold} or above, and build the dossier on COLDVEIL. Every move they make teaches you how they work. Your first intel brief is already on your desk.`,
   },
 ]
 

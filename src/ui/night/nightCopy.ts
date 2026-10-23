@@ -25,14 +25,14 @@ import type { Vector } from '../../engine/types'
 
 export const OFFICER: Record<string, string> = {
   'uplink-jamming':
-    '03:14Z. {t} dropped uplink lock on the pass over the area of operations. Two relief sorties are waiting on retasking we cannot send.',
+    '03:14Z. {t} dropped uplink lock on the pass over the area of operations. 2 relief sorties are waiting on retasking we cannot send.',
   'ops-phishing':
     'An ops console accepted a login from a phished credential at 22:40 local. Every flood-map delivery to the county EOC since then is suspect.',
   'pnt-jamming': '{t} lost its GNSS fix over the river crossing and is flying on LiDAR odometry alone. The convoy route survey is late.',
   'gnss-spoofing':
     '{t} reported a confident position 400 m east of truth. The levee imagery it returned is geotagged wrong and has to be reflown.',
   'downlink-eavesdropping': 'A receiver 40 km off-axis is posting our survey frames. Nothing was transmitted at us. Everything was heard.',
-  'telemetry-replay': 'Ground watched a healthy {t} for twenty minutes. {t} was drifting off its attitude the whole time.',
+  'telemetry-replay': 'Ground watched a healthy {t} for 20 minutes. {t} was drifting off its attitude the whole time.',
   'lidar-dazzle': '{t} aborted its inspection approach when the docking LiDAR saturated at 180 m. The stranded bird stays stranded another day.',
   'debris-conjunction': 'Conjunction alert on {t}: a defunct upper stage on a crossing orbit, closest approach in 14 hours.',
   'ground-ransomware': 'The mission data store is encrypted and a note is on the ops floor display. Shelter-mapping deliveries have stopped.',
@@ -40,9 +40,9 @@ export const OFFICER: Record<string, string> = {
   'backhaul-exfil': 'Survey imagery left over the unencrypted backhaul and surfaced on a forum before it reached the EOC.',
   'blackout-chain': '{t} swerved around an obstacle that was not there and clipped a power line. Signature COLDVEIL.',
   'time-spoof':
-    "{t}'s clock drifted three seconds overnight. Two stored commands fired early, and the anti-replay window is open until we resync.",
+    "{t}'s clock drifted 3 seconds overnight. 2 stored commands fired early, and the anti-replay window is open until we resync.",
   'lidar-injection': '{t} braked hard for a wall that was not there. The point cloud shows a building on an empty street.',
-  'lidar-blinding': "{t}'s LiDAR returned a clear path through a cell tower. Vision caught it at forty meters.",
+  'lidar-blinding': "{t}'s LiDAR returned a clear path through a cell tower. Vision caught it at 40 m.",
   'training-data-poisoning':
     "Last night's perception retrain pulled survey frames from a share we do not control. The new model behaves until it sees one particular marking.",
   'supply-chain-implant': 'A sensor package on {t} woke up and started talking on a frequency nobody assigned it. It shipped that way.',
@@ -208,7 +208,7 @@ export const oddsLine = (ssa: boolean, chance: number) =>
   [
     'Collision chance ',
     odds(ssa, chance),
-    ssa ? '. Your space tracking service has three fixes on the debris.' : '. Without a space tracking service the track is coarse.',
+    ssa ? '. Your space tracking service has 3 fixes on the debris.' : '. Without a space tracking service the track is coarse.',
   ] as const
 export const CHOOSE = 'Choose one:'
 export const BURN = 'BURN'
@@ -261,12 +261,11 @@ export const coverageDetail = (arrived: string[], coverage: number, needs: numbe
   `${arrived.length ? `${arrived.join(', ')} arrived: ` : ''}coverage ${coverage}, needs ${needs}${reach ? `. ${reach}` : ''}`
 export const budgetFor = (turn: number, last: boolean) => (last ? 'Final budget' : `Budget for turn ${turn + 1}`)
 // How much faster the IR retainer recovers, read off the scenario: a
-// whole number of times as a word, otherwise just "faster", and nothing
-// claimed when it is no faster at all.
-const TIMES = ['', '', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
+// whole number of times, as a numeral (rule 6, R6 question 9), otherwise
+// just "faster", and nothing claimed when it is no faster at all.
 export const pace = (base: number, retained: number) => {
   const times = retained / base
-  return Number.isInteger(times) && TIMES[times] ? `${TIMES[times]} times faster` : 'faster'
+  return Number.isInteger(times) && times >= 2 ? `${times} times faster` : 'faster'
 }
 export const recoverySlow = (faster: string) => `Damaged systems repair slowly overnight. An incident response retainer makes it ${faster}.`
 export const recoveryFast = (faster: string) => `Your incident response retainer repairs damaged systems ${faster} overnight.`

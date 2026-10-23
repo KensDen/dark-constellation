@@ -139,9 +139,9 @@ describe('the retainer at the close', () => {
   it('says how much faster the retainer recovers from the scenario, and claims nothing it cannot say', () => {
     expect(scenario.recovery).toEqual({ base: 2, withIrRetainer: 6 })
     const faster = copy.pace(scenario.recovery.base, scenario.recovery.withIrRetainer)
-    expect(copy.recoverySlow(faster)).toBe('Damaged systems repair slowly overnight. An incident response retainer makes it three times faster.')
-    expect(copy.recoveryFast(faster)).toBe('Your incident response retainer repairs damaged systems three times faster overnight.')
-    expect(copy.pace(2, 4)).toBe('two times faster')
+    expect(copy.recoverySlow(faster)).toBe('Damaged systems repair slowly overnight. An incident response retainer makes it 3 times faster.')
+    expect(copy.recoveryFast(faster)).toBe('Your incident response retainer repairs damaged systems 3 times faster overnight.')
+    expect(copy.pace(2, 4)).toBe('2 times faster')
     expect(copy.pace(2, 5)).toBe('faster')
   })
 })

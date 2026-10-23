@@ -375,7 +375,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'Firmware altered at manufacture or in transit, dormant until activation. The commodity sensor package saved thirty percent up front; the damage arrives later. Hardware without firmware attestation is the easy target.',
+      'Firmware altered at manufacture or in transit, dormant until activation. The commodity sensor package saved 30 percent up front; the damage arrives later. Hardware without firmware attestation is the easy target.',
     learnMoreCards: [
       {
         title: 'The supply chain is the attack surface',

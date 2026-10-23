@@ -44,7 +44,7 @@ export const FIRST_LIGHT: Scenario = {
   campaign: [
     {
       turn: 1,
-      intro: 'COLDVEIL is working two doors tonight. Which one they take depends on which one you leave open.',
+      intro: 'COLDVEIL is working 2 doors tonight. Which one they take depends on which one you leave open.',
       slots: [{ drawFrom: ['uplink-jamming', 'gnss-spoofing'] }],
     },
     {
@@ -55,7 +55,7 @@ export const FIRST_LIGHT: Scenario = {
     },
     {
       turn: 3,
-      intro: 'Two tracks tonight: RF pressure on a link, and a quiet one against the data itself.',
+      intro: '2 tracks tonight: RF pressure on a link, and a quiet one against the data itself.',
       slots: [{ drawFrom: ['uplink-jamming', 'pnt-jamming'] }, { drawFrom: ['downlink-eavesdropping', 'telemetry-replay', 'backhaul-exfil'] }],
       opportunity: OPPORTUNITY_DRAW,
     },
