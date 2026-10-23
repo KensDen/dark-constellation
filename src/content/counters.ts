@@ -53,7 +53,7 @@ export const COUNTERMEASURES: Countermeasure[] = [
       { id: 'CM0042', name: 'Robust Fault Management', url: 'https://sparta.aerospace.org/countermeasures/CM0042', tier: 'Tier I' },
     ],
     blurb:
-      'LiDAR, radar, and vision voting. An injected point cloud loses the vote two to one, even with GNSS gone.',
+      'LiDAR, radar, and vision voting. A naive injected point cloud loses the vote two to one, even with GNSS gone; a spoof shaped to agree with the camera can still win it.',
   },
   {
     id: 'tierAAttestation',
@@ -66,7 +66,7 @@ export const COUNTERMEASURES: Countermeasure[] = [
       { id: 'CM0024', name: 'Anti-counterfeit Hardware', url: 'https://sparta.aerospace.org/countermeasures/CM0024', tier: 'Tier II' },
     ],
     blurb:
-      'Audited firmware and an assured supply chain. An image altered at manufacture or in transit fails attestation at boot.',
+      'Audited firmware and an assured supply chain. An image altered in transit fails attestation at boot; assured sourcing guards the factory.',
   },
   {
     id: 'mlPipelineIntegrity',

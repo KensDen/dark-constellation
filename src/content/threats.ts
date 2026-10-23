@@ -40,7 +40,7 @@ export const THREATS: ThreatEvent[] = [
       {
         title: 'Why GNSS denial matters',
         body:
-          'Nearly every critical infrastructure sector depends on GNSS for position, navigation, or timing, and jamming the signal is cheap compared to the disruption it causes. US government guidance treats PNT disruption as a systemic risk and pushes operators toward detection, backup sources, and graceful degradation rather than blind trust in one signal.',
+          'Nearly every critical infrastructure sector depends on GNSS for position, navigation, or timing, and US government guidance warns that faking the signal has become relatively simple. The same guidance treats PNT disruption as a systemic risk and pushes operators toward detection, backup sources, and graceful degradation rather than blind trust in one signal.',
         sources: [
           {
             title: 'CISA: Positioning, Navigation, and Timing (PNT) risk management',
@@ -194,12 +194,12 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'Directed light saturates the docking sensor during proximity operations and the rendezvous aborts. Dazzle does not destroy the sensor; it destroys the moment the sensor was needed. Institutional analysis documents laser dazzling as an active counterspace method.',
+      'Directed light saturates the docking sensor during proximity operations and the rendezvous aborts. Dazzle does not destroy the sensor; it destroys the moment the sensor was needed. SPARTA lists dazzling among the ways an attacker spoofs sensor data.',
     learnMoreCards: [
       {
         title: 'Directed energy against space sensors',
         body:
-          'Institutional analysis of the small satellite era documents laser dazzling of optical sensors as a counterspace technique in active use, alongside cyber attacks on space systems. Sensors sized for faint returns are exactly the sensors easiest to saturate, and proximity operations concentrate the risk into short critical windows.',
+          'Institutional analysis of the small satellite era expects adversaries to turn to cyber attacks and directed energy as constellations grow. Sensors sized for faint returns are exactly the sensors easiest to saturate, and proximity operations concentrate the risk into short critical windows.',
         sources: [
           {
             title: 'Atlantic Council: Small Satellites, The Implications for National Security (2022)',
@@ -281,7 +281,7 @@ export const THREATS: ThreatEvent[] = [
       {
         title: 'Making real objects disappear',
         body:
-          'Adversarial attacks on LiDAR perception work in both directions: injecting objects that are not there and hiding objects that are. Published research covers spoofing-based removal and evasion against fused camera and LiDAR stacks, and shows that naive single-sensor trust fails first. Fusion with independent modalities raises the cost of the attack substantially.',
+          'Adversarial attacks on LiDAR perception work in both directions: injecting objects that are not there and hiding objects that are. Published research shows laser spoofing can remove genuine obstacles from the point cloud, and that a spoof kept consistent with the camera fools camera-LiDAR fusion too. Fusion with independent modalities raises the cost of the attack substantially.',
         sources: [
           {
             title: 'Sun et al., Towards Robust LiDAR-based Perception in Autonomous Driving (USENIX Security 2020)',
@@ -292,6 +292,12 @@ export const THREATS: ThreatEvent[] = [
           {
             title: 'Hallyburton et al., Security Analysis of Camera-LiDAR Fusion Against Black-Box Attacks (USENIX Security 2022)',
             url: 'https://arxiv.org/abs/2106.07098',
+            type: 'paper',
+            status: 'verified',
+          },
+          {
+            title: "Cao et al., You Can't See Me: Physical Removal Attacks on LiDAR-based Autonomous Vehicles Driving Frameworks (USENIX Security 2023)",
+            url: 'https://arxiv.org/abs/2210.09482',
             type: 'paper',
             status: 'verified',
           },
@@ -369,12 +375,12 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'Firmware altered at manufacture or in transit, dormant until activation. The commodity sensor package saved thirty percent up front; the invoice arrives later. Only hardware without firmware attestation is eligible.',
+      'Firmware altered at manufacture or in transit, dormant until activation. The commodity sensor package saved thirty percent up front; the invoice arrives later. Hardware without firmware attestation is the easy target.',
     learnMoreCards: [
       {
         title: 'The supply chain is the attack surface',
         body:
-          'Institutional analysis of the small satellite industry documents supply-chain compromise as a practical espionage and sabotage vector: hardware and firmware can be intercepted or altered before integration, then activated long after deployment. The scenario in this game is fictional, but the pattern it abstracts comes from published counterintelligence analysis, which is why assured sourcing and firmware attestation are worth real budget.',
+          'Institutional analysis of the small satellite industry warns that a global supply chain exposes satellites to cyber intrusion and physical sabotage, and that prime manufacturers often cannot see their third- and fourth-tier suppliers. The scenario in this game is fictional, which is why assured sourcing and firmware attestation are worth real budget.',
         sources: [
           {
             title: 'Atlantic Council: Small Satellites, The Implications for National Security (2022)',
@@ -405,12 +411,12 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'An attacker does not need your ground station if they can build their own. A transmitter, a dish, and an unauthenticated command protocol are a full kill chain. Cryptographic command authentication is the difference between a rogue signal and a rogue operator.',
+      'An attacker does not need your ground station if they can build their own. A transmitter, a dish, and an unauthenticated command protocol are a full kill chain. Cryptographic command authentication is the difference between a rogue signal and a rogue operator. When they cannot build a station, they borrow a login to yours.',
     learnMoreCards: [
       {
         title: 'Anyone can point a dish at your satellite',
         body:
-          'Space attack frameworks track rogue ground stations as an initial access technique: a spacecraft that accepts unauthenticated commands will accept them from anyone with the right radio. Joint government guidance after the 2022 satcom attacks pushed providers toward authenticated sessions, monitored links, and segmented ground networks for exactly this reason.',
+          'Space attack frameworks track rogue ground stations as an initial access technique: a spacecraft that accepts unauthenticated commands will accept them from anyone with the right radio. Joint government guidance after the 2022 satellite communications attacks pushed operators toward strong authentication, link encryption and monitored networks, the same habits that close this door.',
         sources: [
           {
             title: 'CISA AA22-076A: Strengthening Cybersecurity of SATCOM Network Providers and Customers',
@@ -452,6 +458,12 @@ export const THREATS: ThreatEvent[] = [
             title: 'NSA Cybersecurity Advisory: Protecting VSAT Communications (2022)',
             url: 'https://www.nsa.gov/Press-Room/Press-Releases-Statements/Press-Release-View/Article/2910409/nsa-issues-recommendations-to-protect-vsat-communications/',
             type: 'advisory',
+            status: 'verified',
+          },
+          {
+            title: 'CCSDS 350.0-G-3: The Application of Security to CCSDS Protocols (2019)',
+            url: 'https://ccsds.org/Pubs/350x0g3.pdf',
+            type: 'report',
             status: 'verified',
           },
         ],
@@ -544,7 +556,7 @@ export const THREATS: ThreatEvent[] = [
       {
         title: 'Backhaul in the clear',
         body:
-          'The same CCS 2025 study documented real unencrypted backhaul traffic recoverable from geostationary links with commodity equipment, and affected operators confirmed the findings and moved to encrypt. Government advisories had urged satellite link encryption for years before the measurement study showed how much traffic was still exposed. Encrypting the backhaul is cheap next to what it protects.',
+          'The same CCS 2025 study documented real unencrypted backhaul traffic recoverable from geostationary links with commodity equipment, and several operators told the researchers they had deployed a fix. Government advisories had urged satellite link encryption for years before the measurement study showed how much traffic was still exposed. Encrypting the backhaul is cheap next to what it protects.',
         sources: [
           {
             title: 'UCSD and UMD, Don\'t Look Up: There Are Sensitive Internal Links in the Clear on GEO Satellites (CCS 2025)',
@@ -655,23 +667,17 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'A trusted badge walks the architecture documents out the door. No exploit, no malware, just access that nobody was watching. The fiction here is invented; the pattern it abstracts is drawn from published counterintelligence analysis.',
+      'A trusted badge walks the architecture documents out the door. No exploit, no malware, just access that nobody was watching. The fiction here is invented; the pattern is the one CISA\'s insider threat guidance is written for.',
     learnMoreCards: [
       {
         title: 'The threat that already has a badge',
         body:
-          'Insider incidents are distinct because the actor starts inside the trust boundary, so perimeter controls never fire. Public CISA guidance lays out the program-level answer: define the threat, detect and assess it, and manage it with least privilege, compartmentalization, and audit logging. Institutional analysis of space-sector espionage shows the same controls failing when they are absent.',
+          'Insider incidents are distinct because the actor starts inside the trust boundary, so perimeter controls never fire. Public CISA guidance lays out the program-level answer: define the threat, detect and assess it, and manage it with privileged access management, access control, and monitored, audited systems.',
         sources: [
           {
             title: 'CISA: Insider Threat Mitigation Guide',
             url: 'https://www.cisa.gov/resources-tools/resources/insider-threat-mitigation-guide',
             type: 'advisory',
-            status: 'verified',
-          },
-          {
-            title: 'Atlantic Council: Small Satellites, The Implications for National Security (2022)',
-            url: 'https://www.atlanticcouncil.org/in-depth-research-reports/report/small-satellites-the-implications-for-national-security/',
-            type: 'report',
             status: 'verified',
           },
         ],
@@ -702,7 +708,7 @@ export const THREATS: ThreatEvent[] = [
       {
         title: 'Kessler syndrome, the real one',
         body:
-          'The cascade scenario proposed by NASA scientist Donald Kessler in 1978 describes debris collisions breeding more debris until whole orbital regimes degrade. NASA\'s Orbital Debris Program Office leads measurement, modeling, and mitigation of the environment. Conjunction assessment and maneuver budgets are the operational face of that risk, and they compete for the same credits as security. SPARTA lists debris only as cover an adversary can hide in (DE-0009.01); this conjunction is the natural hazard.',
+          'The cascade scenario proposed by NASA scientist Donald Kessler in 1978 describes debris collisions breeding more debris until whole orbital regimes degrade. NASA\'s Orbital Debris Program Office leads measurement, modeling, and mitigation of the environment. Conjunction assessment and maneuver budgets are the operational face of that risk, and they compete for the same credits as security. SPARTA\'s techniques list debris only as cover an adversary can hide in (DE-0009.01); its threat list carries the collision itself as SV-MA-1, Space Debris, and that is this conjunction.',
         sources: [
           {
             title: 'NASA Orbital Debris Program Office',

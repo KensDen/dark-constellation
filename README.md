@@ -66,7 +66,7 @@ Every adversary threat in the deck maps to a published framework technique, and 
 was checked by hand against its live source page rather than recalled, and the battery re-checks
 every link before each deploy: **18 threat events**, **19
 distinct framework techniques** across SPARTA, MITRE ATT&CK®, MITRE ATLAS, and an NSA advisory,
-**14 cited sources**, and **0 unverified references**. Each of the **11 countermeasures** maps to
+**16 cited sources**, and **0 unverified references**. Each of the **11 countermeasures** maps to
 its SPARTA countermeasure controls with their published defense-in-depth tiers (**19 distinct
 SPARTA CMs**). The in-game GLOSSARY derives all **51 entries** directly from that content data,
 with no hand-maintained text.
