@@ -57,6 +57,9 @@ export interface BoardView {
   // A view from before the night's close (every stage but END OF TURN):
   // a condition's turns left read as the close will leave them (G-103).
   preClose?: boolean
+  // A block's card under reduced motion, where no strike floats NO LOSS:
+  // the HUD's score still goes green, without the glow (v1.3 R7).
+  held?: boolean
 }
 
 export interface NightProps {
@@ -188,8 +191,9 @@ export default function Night(p: NightProps) {
     // board says which tile the card is about, with motion or without
     // (fresh-eyes review: under reduced motion nothing marked it).
     const rest = step.kind === 'threat' ? strikeOf(`t${night.turn}-${stage.i}`, step.ev, step.def.layers, step.before, true) : null
-    onBoard({ shown: step.after, strike: rest ? { ...rest, rest: true } : null, drop: null, preClose: true })
-  }, [stage, night, after, onBoard])
+    const held = reduced && step.kind === 'threat' && step.ev.effectiveSeverity === 0
+    onBoard({ shown: step.after, strike: rest ? { ...rest, rest: true } : null, drop: null, preClose: true, held })
+  }, [stage, night, after, onBoard, reduced])
 
   const onContinue = (i: number) => (collect: boolean) => {
     if (collect) {

@@ -30,10 +30,12 @@ export interface BoardHudProps {
   systemOpen: boolean
   // A hit that just landed: how far the score fell, floated off it.
   drop?: { id: string; delta: number; label?: string } | null
+  // A block's card under reduced motion (no strike, so no float).
+  held?: boolean
   countMs?: number
 }
 
-export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSystem, systemOpen, drop, countMs }: BoardHudProps) {
+export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSystem, systemOpen, drop, held: heldCard, countMs }: BoardHudProps) {
   const scenario = shown.scenario
   const score = maiScore(shown)
   const winAt = scenario.winThreshold
@@ -41,8 +43,9 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
   const fill = Math.max(0, Math.min(100, score))
   // A block lands: the score and its bar go green while NO LOSS floats
   // (v1.3 R7, R5's question 6: "nothing in the game state reacts"). The
-  // colour is meaning, so it shows with motion off too; only the glow moves.
-  const held = !!drop && drop.delta <= 0
+  // colour is meaning, so with motion off, where no strike floats, it
+  // shows while the block's card is up; only the glow moves.
+  const held = (!!drop && drop.delta <= 0) || !!heldCard
   return (
     <header data-hud className="relative flex-none border-b-2 border-dc-line bg-dc-chrome px-safe pt-safe">
       <div className="flex items-center justify-between gap-2 px-3 pt-1 pb-0.5 font-mono text-[11px] tracking-widest text-dc-muted">

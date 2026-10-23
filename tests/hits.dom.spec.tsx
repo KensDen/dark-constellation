@@ -758,6 +758,29 @@ describe('GUARD R3 (e): under reduced motion nothing strobes, bursts, pops or fl
     expect(layout).toEqual([])
   })
 
+  it("turns the score green while a block's card is up under reduced motion, where no strike floats NO LOSS (v1.3 R7)", async () => {
+    // R5's rule: a colour cue carries meaning, so it stays with motion off.
+    setReducedMotion(true)
+    const state = gameAt(firstTurnWhere((events) => events.some((e) => isThreat(e) && e.effectiveSeverity === 0) && events.some((e) => isThreat(e) && e.effectiveSeverity > 0)))
+    render(state)
+    await execute()
+    let onBlock = 0
+    let onHit = 0
+    await tapThrough(() => {
+      const result = q('[data-night-card="hit"] [data-result]')?.getAttribute('data-result')
+      const green = !!q('[data-hud] [data-score-held].dc-score-held') && !!q('[data-hud] i[data-bar-held].bg-dc-go')
+      if (result === 'blocked') {
+        expect(green, "a block's card under reduced motion left the score its own colour").toBe(true)
+        onBlock += 1
+      } else if (result) {
+        expect(q('[data-score-held]'), `the score was green on a ${result} card`).toBeNull()
+        onHit += 1
+      }
+    }, 20)
+    expect(onBlock, 'no block card was seen').toBeGreaterThan(0)
+    expect(onHit, 'no hit card was seen').toBeGreaterThan(0)
+  })
+
   it('skips the strike under reduced motion: the card arrives with the board changed and nothing running', async () => {
     // Brief 5.5: under reduced motion the overlay and the strike are
     // skipped and the cards arrive at once, so the strike's treatment is
