@@ -323,6 +323,26 @@ describe('hits land on their tiles (v1.2 R3, the night since v1.3 R3)', () => {
     expect(landed, 'the shield locked on and never landed').toBe(true)
     expect(headers, 'a block aimed at a tile flashed HELD on a header').toBe(0)
   })
+
+  it('turns the score and its bar green while a block floats NO LOSS, and only then (v1.3 R7)', async () => {
+    // R5's question 6: "nothing in the game state reacts" to a block. The
+    // score's digits and its bar take the go colour while the HUD floats
+    // NO LOSS, and never while it floats a fall.
+    const state = gameAt(firstTurnWhere((events) => events.some((e) => isThreat(e) && e.effectiveSeverity === 0) && events.some((e) => isThreat(e) && e.effectiveSeverity > 0)))
+    render(state)
+    await execute()
+    let greenOnBlock = false
+    let greenOnFall = false
+    await tapThrough(() => {
+      const drop = q('span[data-mai-drop]')?.getAttribute('data-mai-drop')
+      const green = !!q('[data-hud] [data-score-held].dc-score-held') && !!q('[data-hud] i[data-bar-held].bg-dc-go')
+      if (drop === 'held' && green) greenOnBlock = true
+      if (drop === 'fall' && (q('[data-score-held]') || q('[data-bar-held]'))) greenOnFall = true
+      if (!drop) expect(q('[data-score-held]'), 'the score stayed green after the block').toBeNull()
+    }, 20)
+    expect(greenOnBlock, 'the score and its bar did not go green as the block landed').toBe(true)
+    expect(greenOnFall, 'the score went green on a fall').toBe(false)
+  })
 })
 
 describe('a lost pip pops out of the row (v1.2 R3)', () => {

@@ -39,6 +39,10 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
   const winAt = scenario.winThreshold
   const margin = marginChip(score, winAt)
   const fill = Math.max(0, Math.min(100, score))
+  // A block lands: the score and its bar go green while NO LOSS floats
+  // (v1.3 R7, R5's question 6: "nothing in the game state reacts"). The
+  // colour is meaning, so it shows with motion off too; only the glow moves.
+  const held = !!drop && drop.delta <= 0
   return (
     <header data-hud className="relative flex-none border-b-2 border-dc-line bg-dc-chrome px-safe pt-safe">
       <div className="flex items-center justify-between gap-2 px-3 pt-1 pb-0.5 font-mono text-[11px] tracking-widest text-dc-muted">
@@ -72,6 +76,8 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
       </p>
       <div className="flex items-end justify-between gap-2 px-3">
         <div className="relative flex min-w-0 items-end gap-x-1.5">
+          {/* A wrapper, not a key: remounting the readout would restart its count. */}
+          <span data-score-held={held || undefined} className={`contents ${held ? 'dc-score-held' : ''}`}>
           <Readout
             label={SCORE_LABEL}
             value={score}
@@ -85,6 +91,7 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
             countMs={countMs}
             valueClassName="whitespace-nowrap font-display text-[22px] leading-none"
           />
+          </span>
           <span className="whitespace-nowrap pb-0.5 font-mono text-[11px] text-dc-muted">/ 100</span>
           <span className="relative flex min-w-0 flex-col pb-0.5 font-mono text-[10px] leading-tight">
             {/* The strike's float takes the margin line's place while it
@@ -129,7 +136,11 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
       </div>
       <div className="px-3 pb-1 pt-1">
         <div className="relative h-1.5 bg-dc-line" aria-hidden="true">
-          <i className={`absolute inset-y-0 left-0 ${score < winAt ? 'bg-dc-hostile' : 'bg-dc-friendly'}`} style={{ width: `${fill}%` }} />
+          <i
+            data-bar-held={held || undefined}
+            className={`absolute inset-y-0 left-0 ${held ? 'dc-score-held bg-dc-go' : score < winAt ? 'bg-dc-hostile' : 'bg-dc-friendly'}`}
+            style={{ width: `${fill}%` }}
+          />
           <b className="absolute -inset-y-0.5 w-0.5 bg-dc-go" style={{ left: `${winAt}%` }} />
         </div>
         <p data-scale className="relative mt-0.5 h-3 font-mono text-[10px] leading-none text-dc-muted">
