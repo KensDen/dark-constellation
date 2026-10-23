@@ -62,7 +62,7 @@ export const COUNTERMEASURES: Countermeasure[] = [
     counters: ['lidar-dazzle', 'lidar-injection', 'lidar-blinding', 'supply-chain-implant'],
     spartaCms: [
       { id: 'CM0025', name: 'Supplier Review', url: 'https://sparta.aerospace.org/countermeasures/CM0025', tier: 'Tier II' },
-      { id: 'CM0014', name: 'Secure Boot', url: 'https://sparta.aerospace.org/countermeasures/CM0014', tier: 'Tier I' },
+      { id: 'CM0014', name: 'Secure boot', url: 'https://sparta.aerospace.org/countermeasures/CM0014', tier: 'Tier I' },
       { id: 'CM0024', name: 'Anti-counterfeit Hardware', url: 'https://sparta.aerospace.org/countermeasures/CM0024', tier: 'Tier II' },
     ],
     blurb:
