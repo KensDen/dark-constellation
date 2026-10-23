@@ -16,6 +16,7 @@ import { BLOCK_TONE, CHOICE, HEAD_TONE, PRIMARY, fmtScore, useOnce, type Play } 
 import * as copy from './nightCopy'
 import { scoreDelta, type Night, type NightStep } from './nightModel'
 import { maiScore } from '../../engine/scoring'
+import { ASSET_HEAL_PER_TURN } from '../../engine/rules'
 
 // THE DEBRIS CALL (brief 5.5 item 5): the odds, and two buttons that each
 // say what they cost, in the odds line's own words.
@@ -288,7 +289,9 @@ export function EndOfTurn({
       {damaged(state) && !record.ledger.insolvent && state.scenario.recovery.withIrRetainer > state.scenario.recovery.base && (
         <p className="text-[13px] text-dc-ink/80">
           {(state.counters.includes('irRetainer') ? copy.recoveryFast : copy.recoverySlow)(
-            copy.pace(state.scenario.recovery.base, state.scenario.recovery.withIrRetainer),
+            ASSET_HEAL_PER_TURN,
+            state.scenario.recovery.base,
+            state.scenario.recovery.withIrRetainer,
           )}
         </p>
       )}

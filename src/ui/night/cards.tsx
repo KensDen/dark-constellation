@@ -14,7 +14,7 @@ import { useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { BLOCK_TONE, HEAD_TONE, LABEL, PRIMARY, TAG_TONE, useMore, useOnce, type Play } from './kit'
 import type { ThreatEvent } from '../../engine/types'
 import { CONDITION_CUES, MOMENT_CUES } from '../../cues'
-import { shortName } from '../board/boardModel'
+import { shortName, turnsLeft } from '../board/boardModel'
 import { techniqueLabel } from '../labels'
 import { LearnMore } from '../learnMore'
 import { assetSprite } from '../sprites/assets'
@@ -232,7 +232,7 @@ function Outcome({ step, known, lastTurn }: { step: NightStep; known: ReadonlySe
   const { ev, def } = step
   const r = resultOf(ev)
   const scenario = step.after.scenario
-  const { held, missing } = defensesFor(def, step.after.counters, scenario)
+  const { held, missing, partner } = defensesFor(def, step.after.counters, scenario)
   if (ev.outcome === 'held' && held) {
     return (
       <div data-outcome="held" className={`border-l-4 p-2.5 ${BLOCK_TONE.go}`}>
@@ -241,7 +241,7 @@ function Outcome({ step, known, lastTurn }: { step: NightStep; known: ReadonlySe
           <span className="font-mono text-[11px] font-bold tracking-wider">{copy.headName(held.name)}</span>
         </p>
         <p data-can-say className="mt-1 text-[13px] text-dc-ink/85">
-          <Named parts={copy.canNowSay(held.name, shortName(def))} />
+          <Named parts={partner ? copy.canNowSayWith(held.name, shortName(def), partner.name) : copy.canNowSay(held.name, shortName(def))} />
         </p>
       </div>
     )
@@ -386,7 +386,7 @@ export function HitCard({ step, turn, lastTurn, signs, known, first, reduced, pl
           <Tag tone="muted">{copy.aimedTag(ev.effectiveSeverity > 0, asset?.layer ?? def.layers[0])}</Tag>
           {ev.condition && (
             <Tag tone="warn" cue={reduced ? '' : 'dc-chip-in'}>
-              <span data-new-condition>{copy.conditionTag(ev.condition.name, ev.condition.turns)}</span>
+              <span data-new-condition>{copy.conditionTag(ev.condition.name, turnsLeft({ remainingTurns: ev.condition.turns }, true))}</span>
             </Tag>
           )}
         </div>

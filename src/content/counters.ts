@@ -53,7 +53,7 @@ export const COUNTERMEASURES: Countermeasure[] = [
       { id: 'CM0042', name: 'Robust Fault Management', url: 'https://sparta.aerospace.org/countermeasures/CM0042', tier: 'Tier I' },
     ],
     blurb:
-      'LiDAR, radar, and vision voting. A naive injected point cloud loses the vote two to one, even with GNSS gone; a spoof shaped to agree with the camera can still win it.',
+      'LiDAR, radar, and vision voting. A naive injected point cloud loses the vote two to one; a spoof shaped to agree with the camera can still win it.',
   },
   {
     id: 'tierAAttestation',

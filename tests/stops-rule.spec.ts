@@ -10,7 +10,10 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { PRIMARY_MITIGATION, SECONDARY_MITIGATION, mitigationOf } from '../src/engine/rules'
 import { newGame } from '../src/engine/reducer'
 import type { CountermeasureId, ThreatEvent } from '../src/engine/types'
-import { firstOrders, shortName, stopVerb, stoppedByLine, stopsLine } from '../src/ui/board/boardModel'
+import { firstOrders, shortName, stopVerb, stoppedByLine, stopsLine, turnsLeft } from '../src/ui/board/boardModel'
+import { sayVerb } from '../src/ui/debriefModel'
+import * as copy from '../src/ui/night/nightCopy'
+import { defensesFor } from '../src/ui/night/nightModel'
 
 const scenario = DEFAULT_SCENARIO
 const threats = scenario.events.filter((e) => (e.kind ?? 'threat') === 'threat')
@@ -73,6 +76,39 @@ describe('the stops rule (R6 question 2)', () => {
       const [stopped, blunted = ''] = text.split('; also blunts: ')
       for (const c of ev.counters) expect(alone.includes(c) ? stopped : blunted, `${ev.id}: ${c}`).toContain(nameOf(c))
     }
+  })
+
+  // R6b fresh eyes: a block two defenses make together was said of the
+  // first alone ("Link-layer auth ... blocked Rogue ground station"; the
+  // debrief's "stopped"), which its own points never do.
+  it('names a joint block with its partner on the hit card, and the debrief says the credited defense helped block it', () => {
+    for (const ev of threats) {
+      if (mitigationOf(ev, ev.counters) < ev.baseSeverity) continue
+      const { held, partner } = defensesFor(ev, ev.counters, scenario)
+      if (blocksAlone(held!.id, ev)) {
+        expect(partner, ev.id).toBeUndefined()
+        expect(sayVerb('held', stopVerb(held!.id, ev))).toBe('stopped')
+      } else {
+        expect(partner, `${ev.id}: a block no one defense makes, with no partner named`).toBeDefined()
+        expect(mitigationOf(ev, [held!.id, partner!.id])).toBeGreaterThanOrEqual(ev.baseSeverity)
+        expect(sayVerb('held', stopVerb(held!.id, ev))).toBe('helped block')
+      }
+    }
+    const rogue = threats.find((e) => e.id === 'rogue-ground-station')!
+    const { held, partner } = defensesFor(rogue, rogue.counters, scenario)
+    expect(copy.canNowSayWith(held!.name, shortName(rogue), partner!.name).join('')).toBe(
+      `You can now say it: ${nameOf('linkAuth')} blocked ${shortName(rogue)} tonight, with ${nameOf('groundZeroTrust')}.`,
+    )
+  })
+
+  // R6b fresh eyes: the hit card said JAMMED · 2 TURNS beside a chip that
+  // said 1T; the card now counts turns left the one way (G-103).
+  it("tags a hit's new condition with the turns left the night's chips show", () => {
+    for (const ev of threats.filter((e) => e.condition)) {
+      const left = turnsLeft({ remainingTurns: ev.condition!.turns }, true)
+      expect(copy.conditionTag(ev.condition!.name, left), ev.id).toBe(`${ev.condition!.name} · ${left === 1 ? '1 TURN LEFT' : `${left} TURNS LEFT`}`)
+    }
+    expect(copy.conditionTag('JAMMED', 0)).toBe('JAMMED · TONIGHT ONLY')
   })
 
   it('ticks FIRST ORDERS only when a move reads BLOCKED, not when an order only blunts it', () => {

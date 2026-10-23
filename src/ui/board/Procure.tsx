@@ -74,17 +74,23 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
           <PixelSprite sprite={tinted(ICON_CROSS, 'ink')} scale={2} name="close" />
         </button>
       </div>
+      {/* What the sheet was opened for stays above the list, which opens
+          scrolled to the highlighted item (R6b fresh eyes: the note had
+          scrolled off with the top of the list). */}
+      {focus && ('move' in focus || 'intel' in focus) && (
+        <p data-match-note className="flex-none border-b border-dc-line px-3 py-1.5 text-xs text-dc-ink">
+          {'move' in focus ? (
+            <>
+              <b>{shortName(focus.move)}</b>
+              {matchNote(focus.move)}
+            </>
+          ) : (
+            hiddenOrder(scenario.prices.intelBrief)
+          )}
+        </p>
+      )}
       <div ref={body} data-procure-body className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3">
-        {focus && 'move' in focus ? (
-          <p data-match-note className="mt-2 text-xs text-dc-ink">
-            <b>{shortName(focus.move)}</b>
-            {matchNote(focus.move)}
-          </p>
-        ) : focus && 'intel' in focus ? (
-          <p data-match-note className="mt-2 text-xs text-dc-ink">
-            {hiddenOrder(scenario.prices.intelBrief)}
-          </p>
-        ) : (
+        {!(focus && ('move' in focus || 'intel' in focus)) && (
           <p className="mt-2 text-xs text-dc-muted">Tap to add an order; tap again to cancel. Orders take effect when you EXECUTE.</p>
         )}
         <p data-planned className="mt-1 font-mono text-[10px] text-dc-muted">
@@ -190,7 +196,7 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
                 <span className="text-sm font-semibold">Intel brief</span>
                 <Price ordered={actions.intelBrief} price={scenario.prices.intelBrief} />
               </span>
-              <span className="text-xs text-dc-muted">Names COLDVEIL&apos;s moves tonight. The defenses then say which move they stop.</span>
+              <span className="text-xs text-dc-muted">Names COLDVEIL&apos;s moves tonight. The defenses then say which moves they stop or blunt.</span>
             </button>
           )}
         </div>

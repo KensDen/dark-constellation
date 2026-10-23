@@ -164,11 +164,13 @@ export function filedThisGame(state: GameState, before: ReadonlySet<string> | nu
 
 // WHAT YOU CAN NOW SAY (brief 5.6 and 6.9): the engine's learned list,
 // each verb true by the game's own rule (R6 questions 2 and 7): a block
-// stopped it; a partial block partly blocked it; a defense not owned
-// would have stopped it only where it blocks the move alone, and would
-// have blunted it otherwise. The debris call is answered, never stopped.
+// stopped it, or helped block it where the defense credited does not
+// block it alone (a joint block, R6b fresh eyes); a partial block partly
+// blocked it; a defense not owned would have stopped it only where it
+// blocks the move alone, and would have blunted it otherwise. The debris
+// call is answered, never stopped.
 export function sayVerb(how: LearnedHow, verb: StopVerb): string {
-  if (how === 'held') return verb === 'answers' ? 'answered' : 'stopped'
+  if (how === 'held') return verb === 'answers' ? 'answered' : verb === 'stops' ? 'stopped' : 'helped block'
   if (how === 'reduced') return 'partly blocked'
   return verb === 'stops' ? 'would have stopped' : verb === 'blunts' ? 'would have blunted' : 'would have answered'
 }

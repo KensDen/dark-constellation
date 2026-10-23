@@ -143,7 +143,10 @@ export const WILL_HIT = (n: number) => `${WILL_HIT_LEAD}${willHitCount(n)}`
 // PARTLY BLOCKED one when both take the same off.
 export const TONIGHT_REASON = 'They go for the move your defenses take the fewest points off.'
 export const TONIGHT_HIDDEN = 'The names are hidden. An intel brief reveals them.'
-export const KEY_EXPOSED = 'will hit'
+// EXPOSED says what an exposed move does if it is the one COLDVEIL takes,
+// not that it will land (R6b fresh eyes: "will hit" beside both moves
+// under COLDVEIL WILL HIT 1 OF 2).
+export const KEY_EXPOSED = 'full strength'
 export const KEY_BLOCKED = 'is safe'
 export const KEY_LIKELY = 'their pick'
 export const KEY_EITHER = 'a tie'
@@ -197,11 +200,13 @@ export function firstOrders(state: GameState, actions: TurnActions): OrderLine[]
 
 export const ordersDone = (done: number, of: number) => `${done} OF ${of} DONE`
 export const FIRST_ORDERS_SET = 'First orders set. EXECUTE to play out the night.'
-export const SECOND_ORDER = 'New vector tonight. Tap a move to see what stops it. Moves marked EXPOSED will hit at full strength.'
+// "What answers it", not "what stops it" (R6b fresh eyes): no one defense
+// stops a strength 3 move, and the move's card says so.
+export const SECOND_ORDER = 'New vector tonight. Tap a move to see what answers it. An EXPOSED move lands at full strength.'
 // SECOND ORDERS while tonight's moves are hidden, and what a tap on a hidden
 // move or "reveal ›" opens PROCURE at (R6 question 14: a player was told to
 // tap a move and look for EXPOSED while every move was Unidentified).
-export const hiddenOrder = (price: number) => `Order an intel brief (${price} CR) to name tonight's moves, then tap one to see what stops it.`
+export const hiddenOrder = (price: number) => `Order an intel brief (${price} CR) to name tonight's moves, then tap one to see what answers it.`
 
 
 // THE HUD's words (brief 5.3 item 1).

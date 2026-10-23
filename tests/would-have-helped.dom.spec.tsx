@@ -25,6 +25,7 @@ import Game from '../src/ui/Game'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
+import { ASSET_HEAL_PER_TURN } from '../src/engine/rules'
 import type { GameState, ResolvedEvent, ThreatEvent, TurnActions } from '../src/engine/types'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { shortName, stopVerb } from '../src/ui/board/boardModel'
@@ -274,11 +275,11 @@ describe('the retainer at the close (critique row M8)', () => {
     render(state, 'aftermath')
     const end = q('[data-night-card="end"]')
     expect(end, 'the reload did not open END OF TURN').not.toBeNull()
-    const faster = copy.pace(state.scenario.recovery.base, state.scenario.recovery.withIrRetainer)
-    expect(end!.textContent).toContain(copy.recoverySlow(faster))
+    const figures = [ASSET_HEAL_PER_TURN, state.scenario.recovery.base, state.scenario.recovery.withIrRetainer] as const
+    expect(end!.textContent).toContain(copy.recoverySlow(...figures))
     render({ ...state, counters: [...state.counters, 'irRetainer'] }, 'aftermath')
-    expect(q('[data-night-card="end"]')!.textContent).toContain(copy.recoveryFast(faster))
-    expect(q('[data-night-card="end"]')!.textContent).not.toContain(copy.recoverySlow(faster))
+    expect(q('[data-night-card="end"]')!.textContent).toContain(copy.recoveryFast(...figures))
+    expect(q('[data-night-card="end"]')!.textContent).not.toContain(copy.recoverySlow(...figures))
   })
 })
 

@@ -42,7 +42,7 @@ export const OFFICER: Record<string, string> = {
   'time-spoof':
     "{t}'s clock drifted 3 seconds overnight. 2 stored commands fired early, and the anti-replay window is open until we resync.",
   'lidar-injection': '{t} braked hard for a wall that was not there. The point cloud shows a building on an empty street.',
-  'lidar-blinding': "{t}'s LiDAR returned a clear path through a cell tower. Vision caught it at 40 m.",
+  'lidar-blinding': "{t}'s LiDAR returned a clear path through a cell tower. {t} clipped the tower at 40 m.",
   'training-data-poisoning':
     "Last night's perception retrain pulled survey frames from a share we do not control. The new model behaves until it sees one particular marking.",
   'supply-chain-implant': 'A sensor package on {t} woke up and started talking on a frequency nobody assigned it. It shipped that way.',
@@ -91,7 +91,7 @@ export const aimedAt = (line: string, id: string, sign?: string) => line.split('
 // What the defense that held a threat says on its HELD block, and on a
 // block what the watch officer reports in place of the attack's line.
 export const HELD: Record<string, string> = {
-  'uplink-jamming': 'The jam hit the filters and the nulling antennas kept the link. {t} never left the pass.',
+  'uplink-jamming': 'The jam hit the filters and the nulling antennas. {t} held lock through the pass.',
   'pnt-jamming': 'The squadron kept its GNSS fix through the noise. No fallback, no setup for anything else.',
   'ops-phishing': 'The credential was phished and used. It opened one segment and nothing beyond it. Ops rotated it within the hour.',
   'gnss-spoofing': 'The counterfeit fix failed authentication and disagreed with the second constellation. Logged as a fault, flown as truth by nobody.',
@@ -137,7 +137,11 @@ export const MORE = '▼ more below'
 export const savedLabel = (saved: number) => `SAVED ${saved.toFixed(1)}`
 export const SCORE_WORD = 'SCORE'
 export const aimedTag = (landed: boolean, layer: string) => `${landed ? 'HIT' : 'AIMED AT'} ${layer}`
-export const conditionTag = (name: string, turns: number) => `${name} · ${turns} TURNS`
+// The condition a hit leaves, in the one meaning of turns left (G-103,
+// brief 6.5): the nights it will still press after this one, the count
+// the night's chips and END OF TURN show beside it (R6b fresh eyes: the
+// card said 2 TURNS beside a chip that said 1T).
+export const conditionTag = (name: string, left: number) => `${name} · ${left === 0 ? 'TONIGHT ONLY' : `${left} TURN${left === 1 ? '' : 'S'} LEFT`}`
 export const WATCH_OFFICER = 'WATCH OFFICER'
 export const integrityLine = (before: number, after: number) => `integrity ${before} → ${after}${after === 0 ? ' · LOST' : ''}`
 export const NOT_DAMAGED = 'Not damaged. The hit was to the data, not the hardware.'
@@ -151,6 +155,10 @@ export const headName = (defense: string) => ` · ${defense.toUpperCase()}`
 // What the block showed, said as it happened (R6 question 2): a defense
 // that blocked a move tonight, not a claim that it always stops it.
 export const canNowSay = (defense: string, threat: string) => ['You can now say it: ', defense, ' blocked ', threat, ' tonight.'] as const
+// A block no one defense makes alone (the stops rule, R6 question 2; the
+// rogue ground station with both its defenses): the partner is named too.
+export const canNowSayWith = (defense: string, threat: string, partner: string) =>
+  ['You can now say it: ', defense, ' blocked ', threat, ' tonight, with ', partner, '.'] as const
 export const reducedLine = (strength: number, through: number, defense: string) =>
   `Strength ${strength} came in; ${through} got through. ${defense} took the rest.`
 export const CHAIN_REDUCED = 'GNSS was still denied, so the chain added a point before your defenses saw it.'
@@ -264,15 +272,14 @@ export const reachWith = (asset: string | null) => (asset ? `${asset} gets you t
 export const coverageDetail = (arrived: string[], coverage: number, needs: number, reach: string | null) =>
   `${arrived.length ? `${arrived.join(', ')} arrived: ` : ''}coverage ${coverage}, needs ${needs}${reach ? `. ${reach}` : ''}`
 export const budgetFor = (turn: number, last: boolean) => (last ? 'Final budget' : `Budget for turn ${turn + 1}`)
-// How much faster the IR retainer recovers, read off the scenario: a
-// whole number of times, as a numeral (rule 6, R6 question 9), otherwise
-// just "faster", and nothing claimed when it is no faster at all.
-export const pace = (base: number, retained: number) => {
-  const times = retained / base
-  return Number.isInteger(times) && times >= 2 ? `${times} times faster` : 'faster'
-}
-export const recoverySlow = (faster: string) => `Damaged systems repair slowly overnight. An incident response retainer makes it ${faster}.`
-export const recoveryFast = (faster: string) => `Your incident response retainer repairs damaged systems ${faster} overnight.`
+// What recovers overnight and what the IR retainer speeds, read off the
+// scenario and the rules (R6b fresh eyes: "3 times faster" was said of
+// all repair, while the retainer raises only the link, data and sensor
+// recovery and assets heal the same either way, src/engine/reducer.ts).
+export const recoverySlow = (heal: number, base: number, retained: number) =>
+  `Damaged assets recover ${heal} integrity a night either way. Link, data and sensor health recover ${base} a night; an incident response retainer makes it ${retained}.`
+export const recoveryFast = (heal: number, base: number, retained: number) =>
+  `Damaged assets recover ${heal} integrity a night. Your incident response retainer recovers link, data and sensor health ${retained} a night instead of ${base}.`
 // The score's own lines (fresh-eyes review, section 4 rule 5: every total
 // is checkable): what the live conditions took as the night opened, what
 // tonight's moves took and what the defenses saved, and the overnight

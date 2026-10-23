@@ -195,12 +195,15 @@ export const scoreDelta = (step: Pick<NightStep, 'scoreBefore' | 'scoreAfter'>) 
 
 // Which defense the outcome block names: the first in the threat's own
 // order that was owned tonight (the engine credits the same one), and the
-// first that was not.
+// first that was not; and, where the named one does not block the move
+// alone (the stops rule, R6 question 2), the owned defense it blocked it
+// with, so a joint block is not said of one defense.
 export function defensesFor(def: ThreatEvent, owned: readonly string[], scenario: GameState['scenario']) {
   const by = (id: string) => scenario.countermeasures.find((c) => c.id === id) as Countermeasure
   const held = def.counters.find((c) => owned.includes(c))
   const missing = def.counters.find((c) => !owned.includes(c))
-  return { held: held ? by(held) : undefined, missing: missing ? by(missing) : undefined }
+  const partner = held && stopVerb(held, def) !== 'stops' ? def.counters.find((c) => c !== held && owned.includes(c)) : undefined
+  return { held: held ? by(held) : undefined, missing: missing ? by(missing) : undefined, partner: partner ? by(partner) : undefined }
 }
 
 // What a defense answers that the player can name: met or named threats

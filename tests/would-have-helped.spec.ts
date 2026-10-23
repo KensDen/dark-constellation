@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
+import { ASSET_HEAL_PER_TURN } from '../src/engine/rules'
 import type { GameState } from '../src/engine/types'
 import * as copy from '../src/ui/night/nightCopy'
 import { defensesFor, nightOf } from '../src/ui/night/nightModel'
@@ -132,16 +133,20 @@ describe('what the blocks say', () => {
 
 // When every applicable defense was active (critique row M8), the one
 // purchase left is the incident response retainer, and END OF TURN names it on a damaged
-// board (tests/would-have-helped.dom.spec.tsx renders it). The ratio is
-// read off the scenario, "three times" for the shipped 6 against 2, as the
-// v1.2 sentence read it, so a retune of recovery moves the words with it.
+// board (tests/would-have-helped.dom.spec.tsx renders it). The figures are
+// read off the scenario and the rules, so a retune moves the words with
+// them; and since the R6b fresh-eyes pass the line says what the retainer
+// speeds (the link, data and sensor recovery) and what it does not (an
+// asset's overnight heal), where it had said all repair ran 3 times faster.
 describe('the retainer at the close', () => {
-  it('says how much faster the retainer recovers from the scenario, and claims nothing it cannot say', () => {
+  it('says what the retainer speeds, from the scenario and the rules, and that asset repair is the same either way', () => {
     expect(scenario.recovery).toEqual({ base: 2, withIrRetainer: 6 })
-    const faster = copy.pace(scenario.recovery.base, scenario.recovery.withIrRetainer)
-    expect(copy.recoverySlow(faster)).toBe('Damaged systems repair slowly overnight. An incident response retainer makes it 3 times faster.')
-    expect(copy.recoveryFast(faster)).toBe('Your incident response retainer repairs damaged systems 3 times faster overnight.')
-    expect(copy.pace(2, 4)).toBe('2 times faster')
-    expect(copy.pace(2, 5)).toBe('faster')
+    expect(ASSET_HEAL_PER_TURN).toBe(10)
+    expect(copy.recoverySlow(ASSET_HEAL_PER_TURN, 2, 6)).toBe(
+      'Damaged assets recover 10 integrity a night either way. Link, data and sensor health recover 2 a night; an incident response retainer makes it 6.',
+    )
+    expect(copy.recoveryFast(ASSET_HEAL_PER_TURN, 2, 6)).toBe(
+      'Damaged assets recover 10 integrity a night. Your incident response retainer recovers link, data and sensor health 6 a night instead of 2.',
+    )
   })
 })

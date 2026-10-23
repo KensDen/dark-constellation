@@ -224,7 +224,7 @@ describe('the hidden moves (R6 question 14)', () => {
     expect(order!.textContent).toContain(`Order an intel brief (${second.scenario.prices.intelBrief} CR) to name tonight's moves`)
     click(order!)
     const note = () => q('[data-sheet="procure"] [data-match-note]')?.textContent
-    expect(note()).toBe(`Order an intel brief (${second.scenario.prices.intelBrief} CR) to name tonight's moves, then tap one to see what stops it.`)
+    expect(note()).toBe(`Order an intel brief (${second.scenario.prices.intelBrief} CR) to name tonight's moves, then tap one to see what answers it.`)
     expect(q('[data-procure-intel]')!.hasAttribute('data-match'), 'the intel brief is not the highlighted order').toBe(true)
     // A tap on a hidden move does the same.
     render(gameAt(3))
