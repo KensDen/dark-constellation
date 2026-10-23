@@ -24,9 +24,12 @@ const LIST_SHA256 = 'e7fdf6ff69bf3e85828e9556776696eb4b1c3dd17c06252833b0cd3b74a
 // link note, pairings and checked date), as generated from the draft and
 // checked against it on the same day. Re-pinned on 21 October 2026 when Ken
 // re-approved eight corrections from the QC gauntlet (Decisions Q4: two
-// overclaims, three bylines, three wording slips); titles and links are
-// unchanged, so LIST_SHA256 stands.
-const ENTRIES_SHA256 = '923f4b8a4bfb401ab146cde92a420d3e5b27f7f0b16b9ff6d5db790f3d9d10cf'
+// overclaims, three bylines, three wording slips), and again on 22 October
+// 2026 when he re-approved the R6 fact gauntlet's (Decisions Q5: five why
+// lines held to what their readings show, two checked dates set to the 20
+// October check their bylines came from, the CISA byline to April 2024);
+// titles and links are unchanged, so LIST_SHA256 stands.
+const ENTRIES_SHA256 = '929663a6cc06f69e45a738a6d8d265a2efcca668cf23665841f7cb409006baf1'
 
 describe('GUARD R5b (a): every pairing names a real event, and every threat has one', () => {
   it('passes the list as approved, and the game reads that list', async () => {
@@ -121,8 +124,11 @@ describe('the list as approved', () => {
   })
 
   it('dates every check, 26 September 2026 unless the entry names its own day', () => {
-    for (const e of entries) expect(['2026-09-26', '2026-09-27'], e.title).toContain(e.checked)
+    for (const e of entries) expect(['2026-09-26', '2026-09-27', '2026-10-20'], e.title).toContain(e.checked)
     expect(entries.filter((e) => e.checked === '2026-09-27').map((e) => e.source)).toEqual(['Andy Greenberg and Matt Burgess, WIRED'])
+    // The two bylines set from the 20 October check carry its date (R6
+    // question 5).
+    expect(entries.filter((e) => e.checked === '2026-10-20').map((e) => e.source)).toEqual(['r0r0x (Romel Marín), GitHub', 'CISA'])
   })
 
   it('links every entry over https, each URL once', () => {

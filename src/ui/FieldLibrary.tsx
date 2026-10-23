@@ -122,6 +122,13 @@ export default function FieldLibrary({
         is open to read. An entry is stamped FILED once you meet a threat it covers; the general reading is stamped once
         you finish a game.
       </p>
+      {/* The legal caution for the whole list, not one shelf (R6 question 5):
+          a hands-on interception walkthrough sits on the third shelf too. UI
+          text, so the approved entries and their hashes are not touched. */}
+      <p data-library-caution className="mt-2 text-xs text-alert-amber">
+        Practice only on equipment you own or are authorized to test. Listening to other people&apos;s satellite traffic
+        can be illegal where you live.
+      </p>
       {threat && (
         <div data-library-filter={threat.id} className="mt-4 border-l-4 border-dc-go bg-dc-go/10 px-3 py-2">
           <p className={LABEL}>LEARN MORE</p>
