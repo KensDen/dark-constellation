@@ -174,7 +174,7 @@ export function firstOrders(state: GameState, actions: TurnActions): OrderLine[]
     { id: 'defense', text: 'Tap a red move above and order a defense that blocks it.', done: defended },
     {
       id: 'drone',
-      text: `Order an ISR drone, ${scenario.prices.drone} CR. It arrives tomorrow${lifts ? `, and the coverage bonus pays +${credits} CR a turn` : ''}.`,
+      text: `Order an ISR (surveillance) drone, ${scenario.prices.drone} CR. It arrives tomorrow${lifts ? `, and the coverage bonus pays +${credits} CR a turn` : ''}.`,
       done: drone,
     },
     { id: 'worst', text: 'Keep WORST CASE at 0 or above.', done: worst },

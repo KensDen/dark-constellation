@@ -33,7 +33,7 @@ export const BEATS: readonly Beat[] = [
     scene: 'disaster',
     time: '21:04Z',
     caption: ['AIR · KESTREL SQUADRON', 'FLOOD ZONE'],
-    text: 'The county EOC is routing convoys on our imagery and sending rescue crews off our maps. If the constellation goes dark, they fly blind. People are waiting on what we deliver tonight.',
+    text: 'The county emergency operations center is routing convoys on our imagery and sending rescue crews off our maps. If the constellation goes dark, they fly blind. People are waiting on what we deliver tonight.',
   },
   {
     scene: 'coldveil',

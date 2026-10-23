@@ -13,6 +13,16 @@ const CATEGORIES: GlossaryEntry['category'][] = ['Technique', 'Countermeasure', 
 // technique tag hands over exactly the key techniqueLabel produced, so the
 // entry is found by identity rather than by whether the display term
 // happens to contain the tag's characters.
+// The acronyms a first-time player meets in the first minute.
+const ACRONYMS: readonly (readonly [string, string])[] = [
+  ['EOC', 'emergency operations center'],
+  ['GNSS', 'satellite navigation: GPS and its peers'],
+  ['ISR', 'intelligence, surveillance and reconnaissance'],
+  ['PNT', 'position, navigation and timing'],
+  ['RPO', 'rendezvous and proximity operations'],
+  ['SSA', 'space situational awareness'],
+]
+
 export default function Glossary({
   onBack,
   focus,
@@ -58,6 +68,17 @@ export default function Glossary({
       <p className="mt-3 text-[13px] leading-snug text-dc-muted">
         {all.length} entries: framework techniques, countermeasures with their SPARTA controls and tiers, and each threat
         and opportunity event.
+      </p>
+      {/* The short words the briefing and the board use before anything
+          explains them (R6 question 10; R4 question 11 sent it here). */}
+      <p data-glossary-acronyms className="mt-2 text-[13px] leading-snug text-dc-muted">
+        {ACRONYMS.map(([short, long], i) => (
+          <span key={short}>
+            {i > 0 && '; '}
+            <b className="font-mono font-normal text-dc-ink">{short}</b>, {long}
+          </span>
+        ))}
+        .
       </p>
       <input
         className="mt-3 min-h-11 w-full border-2 border-dc-line bg-dc-chrome px-2 py-1 font-mono text-[16px] text-dc-ink placeholder:text-dc-muted"

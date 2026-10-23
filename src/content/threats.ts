@@ -109,7 +109,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'Counterfeit signals that look like truth. Jamming announces itself; spoofing lies quietly, and a drone that believes a false position flies a confident wrong course. Authentication makes many of those lies detectable.',
+      'GNSS (GPS and its peers): counterfeit signals that look like truth. Jamming announces itself; spoofing lies quietly, and a drone that believes a false position flies a confident wrong course. Authentication makes many of those lies detectable.',
     learnMoreCards: [
       {
         title: 'Authenticated navigation exists today',
@@ -194,7 +194,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'Directed light saturates the docking sensor during proximity operations and the rendezvous aborts. Dazzle does not destroy the sensor; it destroys the moment the sensor was needed. SPARTA lists dazzling among the ways an attacker spoofs sensor data.',
+      'Directed light saturates the docking sensor during rendezvous and proximity operations (RPO), and the docking aborts. Dazzle does not destroy the sensor; it destroys the moment the sensor was needed. SPARTA lists dazzling among the ways an attacker spoofs sensor data.',
     learnMoreCards: [
       {
         title: 'Directed energy against space sensors',
