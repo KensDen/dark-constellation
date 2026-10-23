@@ -248,6 +248,10 @@ export const reviewQueued = (n: number) => `Loss review queued for end of turn: 
 export const endHeader = (turn: number) => `END OF TURN ${turn}`
 export const LEFT_AFTER = "Left after tonight's orders"
 export const REPAIRS = 'Repairs'
+// The night's own budget lines (R6 question 12): the burn's fuel and an
+// opportunity's windfall, each a row of its own.
+export const BURN_FUEL = 'Burn fuel'
+export const RESOLD = 'Rideshare seat resold'
 export const KEEPING = 'Keeping your defenses'
 export const keepingDetail = (n: number, upkeep: number) => `${n} × ${upkeep} CR`
 export const FUNDING = 'Mission funding'

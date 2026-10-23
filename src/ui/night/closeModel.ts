@@ -37,7 +37,7 @@ export function callTerms(state: GameState, ev: ResolvedEvent) {
 // the total add up to it; tests/night-r3.dom.spec.tsx holds the card to
 // that and to the engine's next budget.
 export interface LedgerRow {
-  key: 'left' | 'repairs' | 'keeping' | 'funding' | 'bonus' | 'total'
+  key: 'left' | 'fuel' | 'windfall' | 'repairs' | 'keeping' | 'funding' | 'bonus' | 'total'
   label: string
   detail?: string
   // Signed CR, or null where the row says a word instead (frozen, missed).
@@ -55,11 +55,16 @@ export function ledgerRows(record: TurnRecord, state: GameState): LedgerRow[] {
   const bills = record.events
     .filter((e) => e.repairCost > 0)
     .map((e) => (e.integrityAfter !== undefined && e.targetAssetId ? named(e.targetAssetId) : copy.cleanupOf(shortOf(state, e.eventId))))
-  const rows: LedgerRow[] = [
-    { key: 'left', label: copy.LEFT_AFTER, value: l.afterNight },
+  // What tonight's orders left, then the night's own lines (R6 question
+  // 12): the burn's fuel and an opportunity's windfall each a row, so the
+  // first row is the orders alone and every line that made the budget shows.
+  const rows: LedgerRow[] = [{ key: 'left', label: copy.LEFT_AFTER, value: l.start - l.ordered }]
+  if (l.fuel > 0) rows.push({ key: 'fuel', label: copy.BURN_FUEL, value: -l.fuel })
+  if (l.windfall !== 0) rows.push({ key: 'windfall', label: windfallOf(record, state), value: l.windfall })
+  rows.push(
     { key: 'repairs', label: copy.REPAIRS, detail: bills.length ? bills.join('; ') : undefined, value: -l.repairs },
     { key: 'keeping', label: copy.KEEPING, detail: copy.keepingDetail(l.defensesKept, state.scenario.upkeepPerDefense), value: -l.upkeep },
-  ]
+  )
   if (l.insolvent) {
     rows.push({ key: 'funding', label: copy.FUNDING, value: 0, word: copy.FROZEN })
   } else {
@@ -81,6 +86,14 @@ export function ledgerRows(record: TurnRecord, state: GameState): LedgerRow[] {
   }
   rows.push({ key: 'total', label: copy.budgetFor(record.turn, state.status !== 'playing'), value: l.after })
   return rows
+}
+
+// Whose windfall it was: the opportunity that paid it, by name, or the
+// rideshare seat resold when nothing in transit could ride it.
+function windfallOf(record: TurnRecord, state: GameState): string {
+  const ev = record.events.map((e) => state.scenario.events.find((d) => d.id === e.eventId)).find((d) => d?.kind === 'opportunity')
+  if (!ev) return copy.RESOLD
+  return ev.benefit?.credits ? shortName(ev) : copy.RESOLD
 }
 
 // The cheapest asset PROCURE offers whose coverage alone closes the gap to
