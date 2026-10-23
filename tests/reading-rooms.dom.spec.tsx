@@ -292,7 +292,7 @@ describe("the title's Daily read-back (M32)", () => {
     )
     loadPage()
     await settle()
-    expect(q('[data-daily-line]')!.textContent).toBe('DONE · B · STREAK 2')
+    expect(q('[data-daily-line]')!.textContent).toBe('DONE · B · DAY STREAK 2')
     expect(q('[data-daily-countdown]')!.textContent).toBe('NEXT DAILY OP IN 14:00:00')
     act(() => {
       vi.advanceTimersByTime(1000)

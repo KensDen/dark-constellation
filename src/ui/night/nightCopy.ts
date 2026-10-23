@@ -211,7 +211,10 @@ export const resoldLine = (n: number) => `Nothing in transit to speed up, so the
 // tests/night-r3.dom.spec.tsx holds the two to the same phrase.
 export const callHeader = (turn: number) => `YOUR CALL · TURN ${turn}`
 export const DEBRIS_CHIP = 'DEBRIS'
-export const odds = (ssa: boolean, chance: number) => (ssa ? `${Math.round(chance * 100)} percent` : 'somewhere between 20 and 60 percent')
+// "20 to 60 percent", not "somewhere between 20 and 60 percent": the card
+// says it three times, and the long form ran its odds line under the card's
+// more cue at 375 (R7 fresh eyes).
+export const odds = (ssa: boolean, chance: number) => (ssa ? `${Math.round(chance * 100)} percent` : '20 to 60 percent')
 export const oddsLine = (ssa: boolean, chance: number) =>
   [
     'Collision chance ',
@@ -230,8 +233,11 @@ export const burnLine = (ssa: boolean, chance: number, sat: string, bonus: numbe
   `${ssa ? 'Fuel already budgeted.' : 'Unbudgeted fuel.'} ${sat} dodges a collision chance of ${odds(ssa, chance)}.${
     bonus === null ? '' : ` Off station tonight, it can lose you the ${bonus} CR coverage bonus.`
   }`
+// What HOLD risks, all of it (R7 fresh eyes: the loss review alone read
+// as the price, while a lost satellite never heals and never counts
+// toward coverage again).
 export const holdLine = (ssa: boolean, chance: number, sat: string, review: number) =>
-  `No fuel. ${sat} takes a collision chance of ${odds(ssa, chance)}; losing it means a ${review} CR loss review.`
+  `No fuel. ${sat} takes a collision chance of ${odds(ssa, chance)}; lost, it is gone for good, and a ${review} CR loss review follows.`
 export const conjunctionHeader = (turn: number) => `CONJUNCTION · TURN ${turn}`
 export const youChose = (choice: 'burn' | 'hold') => `YOU CHOSE ${choice.toUpperCase()}`
 export const debrisChip = (lost: boolean, choice: 'burn' | 'hold') => (lost ? 'SATELLITE LOST' : choice === 'burn' ? 'AVOIDED' : 'MISSED YOU')

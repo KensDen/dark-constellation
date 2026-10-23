@@ -262,7 +262,7 @@ describe('GUARD R3 (e): BURN and HOLD state the same odds as the odds line', () 
       for (let i = 0; i < 6 && stage() !== 'call'; i += 1) await tap(way())
       expect(stage(), 'turn 4 never made the call').toBe('call')
       const odds = q('[data-odds]')!.textContent!
-      expect(odds).toBe(ssa ? '35 percent' : 'somewhere between 20 and 60 percent')
+      expect(odds).toBe(ssa ? '35 percent' : '20 to 60 percent')
       for (const choice of ['burn', 'hold']) expect(q(`[data-call="${choice}"]`)!.textContent, `${choice.toUpperCase()} does not say the odds line's odds`).toContain(odds)
     })
   }

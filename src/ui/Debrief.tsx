@@ -286,6 +286,9 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
   const play = useSound()
   const now = useNow()
   const [shareNotice, setShareNotice] = useState('')
+  // A share that went through reads in the go colour, a failed copy in
+  // amber (R7 fresh eyes: "Result shared." read as a warning).
+  const [shareFailed, setShareFailed] = useState(false)
   // Read once, as the debrief opens: the run's own record, and what it
   // filed (null when the run arrived as a code and its turn 1 is unknown).
   const [filed] = useState(() => {
@@ -373,6 +376,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
   const share = async () => {
     const outcome = await shareOrCopy(shareText(state, daily ? { n: daily.n, official } : undefined))
     setShareNotice(SHARE_NOTICE[outcome])
+    setShareFailed(outcome === 'failed')
   }
   const shownFiled = filed.ids?.slice(0, FILED_SHOWN) ?? []
   const moreFiled = (filed.ids?.length ?? 0) - shownFiled.length
@@ -672,7 +676,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
           {/* A fade above the bar, so the line it covers sinks under it
               rather than reading as cut in half (second fresh-eyes pass). */}
           <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 -top-7 h-6 bg-gradient-to-t from-dc-ground to-transparent" />
-          <p role="status" data-share-notice className="font-mono text-[12px] text-dc-warn empty:hidden">
+          <p role="status" data-share-notice data-failed={shareFailed || undefined} className={`font-mono text-[12px] empty:hidden ${shareFailed ? 'text-dc-warn' : 'text-dc-go'}`}>
             {shareNotice}
           </p>
           <div className="grid grid-cols-[auto_1fr] gap-2 pb-2">

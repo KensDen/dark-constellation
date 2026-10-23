@@ -632,6 +632,8 @@ describe('the ways on', () => {
     await click(byText(/share result/i)!)
     expect(shared).toEqual([{ text: shareText(state, { n: 1, official: true }) }])
     expect(notice()).toBe('Result shared.')
+    // In the go colour, not amber (R7 fresh eyes: it read as a warning).
+    expect(container.querySelector('[data-share-notice]')!.className).toContain('text-dc-go')
     expect(container.querySelector('[data-share-notice]')!.getAttribute('role')).toBe('status')
   })
 
@@ -646,6 +648,7 @@ describe('the ways on', () => {
     expect(copied).toBe(text)
     expect(copied.split('\n'), 'free play shares four lines').toHaveLength(4)
     expect(notice()).toBe('Result copied. Paste it anywhere.')
+    expect(container.querySelector('[data-share-notice]')!.className).toContain('text-dc-go')
     const failing = (name: string) => async () => {
       throw Object.assign(new Error(name), { name })
     }
@@ -660,6 +663,12 @@ describe('the ways on', () => {
     await click(byText(/share result/i)!)
     expect(copied, 'closing the sheet copied anyway').toBe('')
     expect(notice()).toBe('')
+    // A copy that fails says so in amber, the one notice that is a warning.
+    vi.stubGlobal('navigator', { clipboard: { writeText: failing('NotAllowedError') } })
+    show(state)
+    await click(byText(/copy result/i)!)
+    expect(notice()).toBe('Copy failed; try again.')
+    expect(container.querySelector('[data-share-notice]')!.className).toContain('text-dc-warn')
   })
 
   it('offers SHARE and PLAY AGAIN on the bar pinned under the thumb, then DOSSIER n / 18 and BACK TO TITLE, in that order', async () => {

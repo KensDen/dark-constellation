@@ -93,7 +93,7 @@ export default function Title(p: TitleProps) {
   const n = dailyNumber(now)
   const goal = dossierCount()
   const held = goalOne()
-  // DONE · grade · STREAK n once today's official run is in; the grade
+  // DONE · grade · DAY STREAK n once today's official run is in; the grade
   // arrives with its module (see ./titleStatus.ts).
   const [dailyText, setDailyText] = useState(() => dailyLineNow(now))
   useEffect(() => {

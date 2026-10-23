@@ -16,5 +16,5 @@ export function dailyLine(now: Date, ledger = new LocalDailyLedger()): string {
     finalMai: today.mai,
     bonus: today.bonus,
   })
-  return `DONE · ${grade} · STREAK ${dailyStreak(now, ledger)}`
+  return `DONE · ${grade} · DAY STREAK ${dailyStreak(now, ledger)}`
 }

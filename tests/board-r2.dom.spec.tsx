@@ -207,7 +207,7 @@ describe('GUARD R7 (a): the debris tile with SSA owned reads ANSWERED, never BLO
     return state
   }
   const tile = () => q('[data-move="debris-conjunction"]')
-  it('reads ANSWERED with its icon and says the burn is free when SSA is owned', () => {
+  it('reads ANSWERED with its icon and says burn fuel is free when SSA is owned', () => {
     const state = debrisTurn()
     render({ ...state, counters: [...state.counters.filter((c) => c !== 'ssaManeuver'), 'ssaManeuver'] })
     const tag = tile()?.querySelector('[data-status]')
@@ -215,7 +215,7 @@ describe('GUARD R7 (a): the debris tile with SSA owned reads ANSWERED, never BLO
     expect(tag?.textContent?.trim()).toBe(STATUS.answered.word)
     expect(tag?.querySelector('svg[data-sprite="status-answered"]'), 'ANSWERED has no icon').not.toBeNull()
     expect(tile()?.textContent).not.toMatch(/BLOCKED|is safe/)
-    expect(q('[data-slot="fixed"]')?.textContent).toContain('the burn is free')
+    expect(q('[data-slot="fixed"]')?.textContent).toContain('burn fuel is free')
   })
   it('reads EXPOSED, your call, without SSA', () => {
     const state = debrisTurn()

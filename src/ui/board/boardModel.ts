@@ -24,7 +24,7 @@ import { SQUADRON } from '../../config'
 
 // A move's status, always an icon and a word (section 4 rule 8). ANSWERED
 // is the debris call's alone, with SSA owned (v1.3 R7, Ken's ruling on
-// R6b's fresh eyes): the burn is free, but nothing is blocked, since HOLD
+// R6b's fresh eyes): burn fuel is free, but nothing is blocked, since HOLD
 // can still lose the satellite.
 export type MoveStatus = 'exposed' | 'partial' | 'blocked' | 'answered'
 export const STATUS: Record<MoveStatus, { word: string; icon: Sprite; token: Token }> = {
@@ -155,7 +155,7 @@ export const KEY_BLOCKED = 'is safe'
 export const KEY_LIKELY = 'their pick'
 export const KEY_EITHER = 'a tie'
 export const confirmedNote = (ev: ThreatEvent, status: MoveStatus) =>
-  ev.effect.special !== 'debrisStrike' ? 'lands tonight' : status === 'answered' ? 'your call; the burn is free' : 'your call when it arrives'
+  ev.effect.special !== 'debrisStrike' ? 'lands tonight' : status === 'answered' ? 'your call; burn fuel is free' : 'your call when it arrives'
 export const INTEL_ROW = { none: 'Order an intel brief to name the moves.', ordered: 'Brief ordered. Names shown above.' } as const
 export const UNIDENTIFIED = 'Unidentified'
 export const tapHint = (status: MoveStatus) => (status === 'blocked' || status === 'answered' ? 'details ›' : 'defend ›')
@@ -199,7 +199,10 @@ export function firstOrders(state: GameState, actions: TurnActions): OrderLine[]
       text: `Order an ISR (surveillance) drone, ${scenario.prices.drone} CR. It arrives tomorrow${lifts ? `, and the coverage bonus pays +${credits} CR a turn` : ''}.`,
       done: drone,
     },
-    { id: 'worst', text: 'Keep WORST CASE at 0 or above.', done: worst },
+    // "Then": it ticks once an order is in and WORST CASE holds, so on an
+    // empty first board it is unticked while the dock reads a sound WORST
+    // CASE (R7 fresh eyes).
+    { id: 'worst', text: 'Then keep WORST CASE at 0 or above.', done: worst },
   ]
 }
 
