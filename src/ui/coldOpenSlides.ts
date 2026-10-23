@@ -24,8 +24,8 @@ export const BEATS: readonly Beat[] = [
   {
     scene: 'orbit',
     time: '21:00Z',
-    caption: ['ORBIT · STORMGLASS-9', '10 BIRDS UP'],
-    text: 'STORMGLASS-9 is nine smallsats and one inspection bird. Under it, the KESTREL squadron flies flood relief over three counties. Every frame they shoot comes home through us.',
+    caption: ['ORBIT · STORMGLASS-9', '3 BIRDS UP'],
+    text: 'STORMGLASS-9 will be nine smallsats. Tonight two are up, with one inspection bird. Under it, the KESTREL squadron flies flood relief over three counties. Every frame they shoot comes home through us.',
   },
   {
     scene: 'disaster',
@@ -36,7 +36,7 @@ export const BEATS: readonly Beat[] = [
   {
     scene: 'coldveil',
     time: '21:09Z',
-    caption: ['GROUND · GS-1 · GS-2', '⚠ UNKNOWN ACTOR'],
+    caption: ['GROUND · GS-1', '⚠ UNKNOWN ACTOR'],
     hostile: true,
     text: 'A threat group called COLDVEIL has taken an interest. They do not hit you where you are strong. They probe where you are thin, and they learn.',
   },

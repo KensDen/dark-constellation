@@ -233,14 +233,18 @@ export const SCENES: Record<SceneName, Draw> = {
     const orbitY = (x: number) => cy - Math.sqrt(Math.max(0, Ra * Ra - (x - cx) ** 2))
     ctx.fillStyle = hexA(INK.friendly, 0.2)
     for (let x = 0; x < W; x += 9) ctx.fillRect(x, Math.round(orbitY(x)), 2, 2)
-    const gap = 96
-    const loop = 10 * gap
-    for (let i = 0; i < 10; i += 1) {
+    // The birds the board starts with (R6 question 8): two smallsats and
+    // the inspection bird, spread wide enough that none pops in or out at
+    // the frame's edges.
+    const BIRDS = 3
+    const gap = Math.max(96, Math.ceil((W + 60) / (BIRDS - 1)))
+    const loop = BIRDS * gap
+    for (let i = 0; i < BIRDS; i += 1) {
       const x = ((i * gap + t * 11) % loop) - gap
       if (x < -60 || x > W + 60) continue
       const y = orbitY(x)
       const on = Math.floor(t * 2.5 + i * 1.7) % 3 === 0
-      blit(ctx, i === 4 ? RPO : SAT, x - 24, y - 24, 3, beacon(on))
+      blit(ctx, i === BIRDS - 1 ? RPO : SAT, x - 24, y - 24, 3, beacon(on))
       const p = ((t + i * 0.61) % 2.6) / 1.1
       if (p < 1) {
         const y0 = y + 24
