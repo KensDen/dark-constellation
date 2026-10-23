@@ -84,7 +84,7 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
           <p className="mt-2 text-xs text-dc-muted">Tap to add an order; tap again to cancel. Orders take effect when you EXECUTE.</p>
         )}
         <p data-planned className="mt-1 font-mono text-[10px] text-dc-muted">
-          Planned spend: {cost} of {state.credits} CR. Funding arrives at the turn close, after repairs.
+          Ordered: {cost} of {state.credits} CR. Funding arrives at the turn close, after repairs.
         </p>
 
         <p className={SECTION}>

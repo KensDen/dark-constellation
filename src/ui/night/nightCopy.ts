@@ -171,7 +171,7 @@ export const itStops = (groups: readonly (readonly [verb: 'stops' | 'blunts', th
   return `It ${said.map(([verb, threats]) => `${verb} ${threats.join(' and ')}`).join(' and ')}.`
 }
 export const IN_PROCURE = 'It is in PROCURE next turn.'
-export const repairQueued = (n: number) => `Repair bill queued for end of turn: -${n} CR`
+export const repairQueued = (n: number) => `Repairs queued for end of turn: -${n} CR`
 // A hit to the data, not the hardware, still costs the night's response;
 // it is a cleanup, not a repair (fresh-eyes review: "Not damaged" beside a
 // repair bill).
@@ -194,7 +194,7 @@ export const opportunityHeader = (turn: number) => `OPPORTUNITY · TURN ${turn}`
 export const windfallLine = (n: number) => `+${n} CR to the program.`
 export const briefFreeLine = (n: number) => `The intel brief is free for the next ${n} turns.`
 export const expeditedLine = (sign: string) => `${sign} rides along: it arrives a turn sooner.`
-export const resoldLine = (n: number) => `Nothing in transit to speed up, so the rideshare seat was sold: +${n} CR.`
+export const resoldLine = (n: number) => `Nothing in transit to speed up, so the rideshare seat was resold: +${n} CR.`
 
 // THE DEBRIS CALL (brief 5.5 item 5). The odds are said once, here, and
 // the odds line and HOLD both say them in these words: the prototype's
@@ -220,10 +220,10 @@ export const HOLD_FACE = `${HOLD} · FREE`
 // fleet at the bonus line.
 export const burnLine = (ssa: boolean, chance: number, sat: string, bonus: number | null) =>
   `${ssa ? 'Fuel already budgeted.' : 'Unbudgeted fuel.'} ${sat} dodges a collision chance of ${odds(ssa, chance)}.${
-    bonus === null ? '' : ` Off station tonight, it can cost the ${bonus} CR coverage bonus.`
+    bonus === null ? '' : ` Off station tonight, it can lose you the ${bonus} CR coverage bonus.`
   }`
 export const holdLine = (ssa: boolean, chance: number, sat: string, review: number) =>
-  `No fuel. ${sat} takes a collision chance of ${odds(ssa, chance)}; losing it costs a ${review} CR review.`
+  `No fuel. ${sat} takes a collision chance of ${odds(ssa, chance)}; losing it means a ${review} CR loss review.`
 export const conjunctionHeader = (turn: number) => `CONJUNCTION · TURN ${turn}`
 export const youChose = (choice: 'burn' | 'hold') => `YOU CHOSE ${choice.toUpperCase()}`
 export const debrisChip = (lost: boolean, choice: 'burn' | 'hold') => (lost ? 'SATELLITE LOST' : choice === 'burn' ? 'AVOIDED' : 'MISSED YOU')
@@ -241,7 +241,7 @@ export const debrisText = (d: { choice: 'burn' | 'hold'; lost: boolean; sat?: st
         : `Closest approach was a miss. ${d.sat} held its orbit. The odds were real; this time they fell your way.`
 export const debrisHelp = (lost: boolean, defense: string, price: number) =>
   [lost ? 'What would have helped: ' : 'Would have made this an easy call: ', defense, `, ${price} CR, for exact odds and free fuel.`] as const
-export const fuelNow = (n: number) => `Fuel charged now: -${n} CR`
+export const fuelNow = (n: number) => `Fuel used now: -${n} CR`
 export const reviewQueued = (n: number) => `Loss review queued for end of turn: -${n} CR`
 
 // END OF TURN (brief 5.5 item 6): every line that made the budget.
@@ -285,7 +285,7 @@ export const SCORE_RECOVERY_ARRIVALS = 'Overnight recovery and arrivals'
 export const SCORE_TO = 'End of turn'
 export const INSOLVENT = 'INSOLVENT'
 export const INSOLVENT_LINE =
-  'Repairs and defense costs are paid before funding arrives, and the budget could not cover them. The operation ends here.'
+  'Repairs and defense upkeep come out of the budget before funding arrives, and the budget could not cover them. The operation ends here.'
 export const beginTurn = (n: number) => `BEGIN TURN ${n}`
 export const DEBRIEF = 'DEBRIEF'
 // What ended the operation, said on the last END OF TURN (QC gauntlet Q19:

@@ -169,7 +169,7 @@ function postureLines(state: GameState): string[] {
   lines.push(
     cov >= min
       ? `Coverage ${coverageFigure(cov)}, clear of the ${min} the coverage bonus pays at.`
-      : `Coverage ${coverageFigure(cov)}. The coverage bonus pays ${scenario.slaBonus.credits} a turn from ${min}.`,
+      : `Coverage ${coverageFigure(cov)}. The coverage bonus pays ${scenario.slaBonus.credits} CR a turn from ${min}.`,
   )
 
   // THREE POPULATIONS, not one. The first version computed only the
@@ -214,7 +214,7 @@ function postureLines(state: GameState): string[] {
   lines.push(
     briefFree(state)
       ? "Tonight's intel brief is free and names the candidate moves."
-      : `An intel brief costs ${scenario.prices.intelBrief} and names tonight's moves.`,
+      : `An intel brief is ${scenario.prices.intelBrief} CR and names tonight's moves.`,
   )
 
   return lines
@@ -238,7 +238,7 @@ export function jobFramingLines(scenario: GameState['scenario']): string[] {
     `Finish turn ${scenario.totalTurns} with the mission assurance score at ${scenario.winThreshold} or higher.`,
     `You start above the win line. ${ADVERSARY} spends ${scenario.totalTurns} turns eroding it.`,
     `Procure fleet and defenses to slow it. A score under ${scenario.collapseThreshold} or a negative budget ends the operation.`,
-    `Some attacks become conditions that press every turn until they lift. Deployments take turns to arrive. Each defense costs ${scenario.upkeepPerDefense} CR a turn.`,
+    `Some attacks become conditions that press every turn until they lift. Deployments take turns to arrive. Each defense takes ${scenario.upkeepPerDefense} CR a turn.`,
   ]
 }
 
@@ -286,7 +286,7 @@ export function forecastLead(state: GameState, briefed = briefFree(state)): Thre
 // replaced the engine's forecast prose, which left with the intel levels.
 function namedLines(slots: ThreatEvent[][]): string[] {
   return slots.map((slot) =>
-    slot.length === 1 ? `Confirmed: ${shortName(slot[0])}.` : `COLDVEIL will hit 1 of ${slot.length}: ${slot.map(shortName).join(' / ')}.`,
+    slot.length === 1 ? `CONFIRMED: ${shortName(slot[0])}.` : `${WILL_HIT(slot.length)}: ${slot.map(shortName).join(' / ')}.`,
   )
 }
 
@@ -339,7 +339,7 @@ export function briefCopy(state: GameState, briefed = briefFree(state)): BriefCo
     const headline =
       slots.length > 1
         ? capWords(`${slots.length} strikes assessed on ${layerList}`, HEADLINE_WORD_MAX)
-        : capWords(`One of ${candidates} on ${layerList}`, HEADLINE_WORD_MAX)
+        : capWords(`1 of ${candidates} on ${layerList}`, HEADLINE_WORD_MAX)
     return {
       headline,
       vector: `${candidates} candidates on ${layerList}; ${vectors.join(', ')} signature.`,

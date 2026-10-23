@@ -638,6 +638,14 @@ const RETIRED = [
   ['slot', '\\bslot\\b', 'i'],
   ['in this build', 'in this build', 'i'],
   ['score screen', 'score screen', 'i'],
+  // R6 (Decisions Q6): "cost" as a verb, a bill, paid and charged, which
+  // section 4 and Decisions Q25 A retired for game spending ("a cost" as a
+  // noun stays allowed; an appropriations "funding bill" is legislation and
+  // exempt below).
+  ['cost (as a verb)', '\\b(costs|costing|costed)\\b|\\b(can|will|would|could|might|may|to|it|they|repairs) cost\\b', 'i'],
+  ['bill', '\\bbills?\\b', 'i'],
+  ['paid', '\\bpaid\\b', 'i'],
+  ['charged', '\\bcharged\\b', 'i'],
 ]
 const RETIRED_WORDS = `((names) => {
   const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
@@ -652,7 +660,7 @@ const RETIRED_WORDS = `((names) => {
   for (const e of document.querySelectorAll('[aria-label]')) parts.push(e.getAttribute('aria-label'))
   let text = parts.join(' ')
   for (const n of [...names, 'rideshare manifest slot']) text = text.split(n).join(' ')
-  text = text.replace(/credits and licen[cs]e/gi, ' ')
+  text = text.replace(/credits and licen[cs]e/gi, ' ').replace(/funding bill/gi, ' ')
   const found = []
   for (const [word, re, flags] of ${JSON.stringify(RETIRED)}) {
     const m = new RegExp(re, flags).exec(text)

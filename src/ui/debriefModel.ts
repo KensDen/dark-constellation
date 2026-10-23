@@ -131,7 +131,7 @@ export function lossLead(state: GameState): LossLead | null {
     const kind = asset ? kindLabels[asset.kind].replace(/^([A-Z])([a-z])/, (_, a: string, b: string) => a.toLowerCase() + b) : ''
     line = sign ? `${threatName(state, worst.eventId)} hit the ${kind} ${sign}.` : `${threatName(state, worst.eventId)} got through.`
   } else {
-    line = rec.conditionsActive.length ? `Ongoing conditions: ${rec.conditionsActive.join(', ')}.` : 'Damage from earlier turns kept costing.'
+    line = rec.conditionsActive.length ? `Ongoing conditions: ${rec.conditionsActive.join(', ')}.` : 'Damage from earlier turns kept pulling the score down.'
   }
   return { turn: rec.turn, drop: drops[at], line }
 }

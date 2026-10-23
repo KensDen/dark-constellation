@@ -125,7 +125,7 @@ describe('what the blocks say', () => {
     expect(copy.burnLine(true, 0.35, 'SG-2', null)).toBe('Fuel already budgeted. SG-2 dodges a collision chance of 35 percent.')
     expect(copy.burnLine(false, 0.35, 'SG-2', null)).toBe('Unbudgeted fuel. SG-2 dodges a collision chance of somewhere between 20 and 60 percent.')
     // The coverage bonus is named only when the burn puts it at risk.
-    expect(copy.burnLine(false, 0.35, 'SG-2', 10)).toContain('can cost the 10 CR coverage bonus')
+    expect(copy.burnLine(false, 0.35, 'SG-2', 10)).toContain('can lose you the 10 CR coverage bonus')
     expect(copy.burnLine(false, 0.35, 'SG-2', null)).not.toContain('coverage bonus')
   })
 })

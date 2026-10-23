@@ -32,7 +32,7 @@ export interface DifficultyProfile {
 export const DIFFICULTIES: Record<Difficulty, DifficultyProfile> = {
   easy: {
     label: 'EASY',
-    blurb: 'Hits do less damage and repairs cost less. For learning the deck.',
+    blurb: 'Hits do less damage and repairs take less of the budget. For learning the deck.',
     damage: 0.75,
   },
   standard: {

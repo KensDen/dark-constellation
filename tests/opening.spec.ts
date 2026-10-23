@@ -833,14 +833,14 @@ describe('the opening: the night tells the truth (Round 7b)', () => {
         expect(posture, `${at}: the posture panel says "${posture}"`).toContain(
           `Coverage ${printed}, clear of the ${coverageMin} the coverage bonus pays at.`,
         )
-        expect(posture, `${at}: the posture panel takes the under branch`).not.toContain(`The coverage bonus pays ${credits} a turn from`)
+        expect(posture, `${at}: the posture panel takes the under branch`).not.toContain(`The coverage bonus pays ${credits} CR a turn from`)
       } else {
         expect(bonus.word, `${at}: END OF TURN pays a fleet under the minimum`).toBe(nightCopy.MISSED)
         expect(row, `${at}: END OF TURN reads "${row}"`).toMatch(
           new RegExp(`^${nightCopy.COVERAGE_BONUS} \\(coverage ${printed.replace('.', '\\.')}, needs ${coverageMin}\\. .+ gets you there\\.\\)${nightCopy.MISSED}$`),
         )
         expect(posture, `${at}: the posture panel says "${posture}"`).toContain(
-          `Coverage ${printed}. The coverage bonus pays ${credits} a turn from ${coverageMin}.`,
+          `Coverage ${printed}. The coverage bonus pays ${credits} CR a turn from ${coverageMin}.`,
         )
         expect(posture, `${at}: the posture panel calls a fleet under the minimum clear of it`).not.toContain('clear of the')
         for (const [surface, text] of [

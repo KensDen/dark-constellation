@@ -723,9 +723,10 @@ describe('reading diet: the intel brief', () => {
     // fleet whole and nothing in transit (the prepared line, turn 2 on
     // Easy, seed 1): the dark summary already says "Order an intel brief to
     // name the moves" and names the layers, so the panel's last line, "An
-    // intel brief costs 8 and names tonight's moves.", adds little more
-    // than its price. Still four times the floor.
-    expect(worstNovel, `thinnest disclosure measured: ${worstNovel} novel tokens at ${worstNovelAt}`).toBe(25)
+    // intel brief is 8 CR and names tonight's moves.", adds little more
+    // than its price. Still four times the floor. 26 since R6 (Decisions
+    // Q6): the price says its unit, CR.
+    expect(worstNovel, `thinnest disclosure measured: ${worstNovel} novel tokens at ${worstNovelAt}`).toBe(26)
   })
 
   it('varies the expansion with the state it describes, so a frozen string fails', () => {
@@ -758,7 +759,7 @@ describe('reading diet: the intel brief', () => {
         expect(body, `seed ${seed}, turn ${st.turn}: the panel does not report whether tonight's brief is free`).toContain(
           briefFree(st)
             ? "Tonight's intel brief is free"
-            : `An intel brief costs ${st.scenario.prices.intelBrief}`,
+            : `An intel brief is ${st.scenario.prices.intelBrief} CR`,
         )
       }
     }
@@ -874,7 +875,7 @@ describe('reading diet: the intel brief', () => {
             expect(body, `${at}: coverage ${cov}`).toContain(`Coverage ${figure}, clear of the ${coverageMin} the coverage bonus pays at.`)
           } else {
             sawUnder = true
-            expect(body, `${at}: coverage ${cov}`).toContain(`Coverage ${figure}. The coverage bonus pays ${credits} a turn from ${coverageMin}.`)
+            expect(body, `${at}: coverage ${cov}`).toContain(`Coverage ${figure}. The coverage bonus pays ${credits} CR a turn from ${coverageMin}.`)
             expect(Number(shown), `${at}: coverage ${cov} under the minimum printed as "${shown}"`).toBeLessThan(coverageMin)
           }
         }
@@ -937,7 +938,7 @@ describe('reading diet: the intel brief', () => {
       expect(body, `${at}: the posture panel says "${body}"`).toContain(
         clear
           ? `Coverage ${printed}, clear of the ${coverageMin} the coverage bonus pays at.`
-          : `Coverage ${printed}. The coverage bonus pays ${credits} a turn from ${coverageMin}.`,
+          : `Coverage ${printed}. The coverage bonus pays ${credits} CR a turn from ${coverageMin}.`,
       )
       if (!clear) {
         expect(body, `${at}: the posture panel prints the minimum as the coverage`).not.toContain(`Coverage ${coverageMin}`)
@@ -1034,8 +1035,9 @@ describe('reading diet: the intel brief', () => {
     // posture's coverage line "the coverage bonus pays" where it said "the
     // SLA pays" (one more). Two over the cap of 120, so R2 cut three words
     // rather than raise it: line 3 reads "Procure fleet and defenses to
-    // slow it." 119, one under the cap.
-    expect(worst, `worst disclosure measured: ${worst} words at ${worstAt}`).toBe(119)
+    // slow it." 119, one under the cap. 120 since R6 (Decisions Q6): the
+    // coverage bonus "pays 10 CR a turn", with its unit; at the cap.
+    expect(worst, `worst disclosure measured: ${worst} words at ${worstAt}`).toBe(120)
   })
 
   it('bounds the night card\'s headline, the other channel no budget measured', () => {
