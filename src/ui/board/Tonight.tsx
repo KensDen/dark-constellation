@@ -128,7 +128,7 @@ function MoveCard({ read, onMove, decoding = false }: { read: MoveRead; onMove: 
         </span>
       )}
       {flag && (
-        <span data-flag-tag className={`absolute -top-2 right-2 px-1 font-mono text-[10px] tracking-wider ${flag === 'CONFIRMED' ? 'bg-dc-warn' : 'bg-dc-hostile'} text-dc-ground`}>
+        <span data-flag-tag className={`absolute -top-2 right-2 whitespace-nowrap px-1 font-mono text-[10px] tracking-wider ${flag === 'CONFIRMED' ? 'bg-dc-warn' : 'bg-dc-hostile'} text-dc-ground`}>
           {flag}
         </span>
       )}
