@@ -345,7 +345,9 @@ describe('GUARD R5 (a): a won debrief and a lost one differ in layout, not only 
     let state = newGame(DEFAULT_SCENARIO, 24, 'standard')
     const plan: Record<number, TurnActions> = {
       2: { ...NO_OP, buyCounters: ['antiJam', 'pntAuth', 'groundZeroTrust'] },
-      3: { ...NO_OP, buyCounters: ['linkAuth'] },
+      // Encrypted backhaul since the engine round of R6 (Decisions Q1), which
+      // took link authentication off the listening threats.
+      3: { ...NO_OP, buyCounters: ['encryptedBackhaul'] },
     }
     while (state.status === 'playing') state = resolveTurn(state, plan[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
     return state

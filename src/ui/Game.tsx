@@ -52,7 +52,7 @@ import Dock from './board/Dock'
 import Procure from './board/Procure'
 import type { SheetId } from './board/actions'
 import { ACTIONS, resolveLabel } from './board/actions'
-import { MORE_BELOW, callIndex, tonightSlots } from './board/boardModel'
+import { MORE_BELOW, callIndex, tonightSlots, turnsLeft } from './board/boardModel'
 import SystemSheet from './board/SystemSheet'
 import { conditionsOn, tilesByLayer, turnBudget } from './board/board'
 import { COUNT_SHARE, STRIKE_MS } from './board/strike'
@@ -381,7 +381,7 @@ export default function Game({
     () =>
       intel?.kind === 'tile'
         ? document.querySelector<HTMLElement>(`button[data-asset-id="${intel.assetId}"]`)
-        : document.querySelector<HTMLElement>('button[aria-label="Threat intel"]'),
+        : document.querySelector<HTMLElement>('button[aria-label="COLDVEIL intel"]'),
     () => setIntel(null),
   )
   // The Field Library at one threat (v1.2 R5b), opened by a card's "learn
@@ -798,10 +798,12 @@ export default function Game({
       }
     }
   }
+  // A night's view before its close (G-103): turns left as the close leaves them.
+  const preClose = phase === 'night' && !!view?.preClose
   // Condition chips per layer (brief 5.3 item 2), with the turns left
   // (brief 6.5: the player plans around the clock).
   const chipsOn = (layer: (typeof LAYERS)[number]): ChipModel[] =>
-    conditionsOn(layer, badges, scenario).map((c) => ({ condition: c, remaining: c.remainingTurns }))
+    conditionsOn(layer, badges, scenario).map((c) => ({ condition: c, remaining: turnsLeft(c, preClose) }))
 
   // The last turn's night and its END OF TURN still render before the
   // debrief: DEBRIEF is the way there.
@@ -1038,7 +1040,7 @@ export default function Game({
           data-intel-overlay
         >
           <Suspense fallback={<OverlayLoading />}>
-            <IntelCard subject={intel} state={shown} turn={state.turn} briefed={briefedTonight} onClose={() => setIntel(null)} />
+            <IntelCard subject={intel} state={shown} turn={state.turn} preClose={preClose} briefed={briefedTonight} onClose={() => setIntel(null)} />
           </Suspense>
         </div>
       )}

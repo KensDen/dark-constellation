@@ -59,7 +59,7 @@ export const THREATS: ThreatEvent[] = [
     layers: ['ORBIT'],
     vector: 'rf',
     baseSeverity: 2,
-    counters: ['antiJam', 'linkAuth'],
+    counters: ['antiJam'],
     effect: { meters: ['linkAvailability'], repairCostPerSeverity: 2 },
     condition: { name: 'JAMMED', turns: 2 },
     techniqueRefs: [
@@ -181,7 +181,9 @@ export const THREATS: ThreatEvent[] = [
     layers: ['ORBIT'],
     vector: 'optical',
     baseSeverity: 2,
-    counters: ['sensorFusion', 'tierAAttestation'],
+    // It strikes the RPO sat when one is held (G-028).
+    prefersKinds: ['rpoSat'],
+    counters: ['sensorFusion'],
     effect: { meters: ['sensorIntegrity'], repairCostPerSeverity: 3 },
     techniqueRefs: [
       {
@@ -218,7 +220,7 @@ export const THREATS: ThreatEvent[] = [
     layers: ['AIR'],
     vector: 'optical',
     baseSeverity: 2,
-    counters: ['sensorFusion', 'tierAAttestation'],
+    counters: ['sensorFusion'],
     chainsWith: ['pnt-jamming'],
     effect: { meters: ['sensorIntegrity'], special: 'chainExploit', repairCostPerSeverity: 3 },
     techniqueRefs: [
@@ -262,7 +264,7 @@ export const THREATS: ThreatEvent[] = [
     layers: ['AIR'],
     vector: 'optical',
     baseSeverity: 2,
-    counters: ['sensorFusion', 'tierAAttestation'],
+    counters: ['sensorFusion'],
     chainsWith: ['pnt-jamming'],
     effect: { meters: ['sensorIntegrity'], special: 'chainExploit', repairCostPerSeverity: 3 },
     techniqueRefs: [
@@ -315,18 +317,22 @@ export const THREATS: ThreatEvent[] = [
     counters: ['mlPipelineIntegrity'],
     effect: { meters: ['sensorIntegrity'], assetDamage: false, repairCostPerSeverity: 3 },
     techniqueRefs: [
+      // ATLAS first (R6 question 1): the move is a backdoored perception
+      // model, which AML.T0020 describes; DE-0003.12 poisons a security
+      // monitor's model so an intrusion evades it. AML.T0020's name as ATLAS
+      // has given it since its 2026.07 release.
+      {
+        framework: 'ATLAS',
+        id: 'AML.T0020',
+        name: 'Training Data Poisoning',
+        url: 'https://atlas.mitre.org/techniques/AML.T0020',
+        status: 'verified',
+      },
       {
         framework: 'SPARTA',
         id: 'DE-0003.12',
         name: 'On-Board Values Obfuscation: Poison AI/ML Training for Evasion',
         url: 'https://sparta.aerospace.org/technique/DE-0003/12/',
-        status: 'verified',
-      },
-      {
-        framework: 'ATLAS',
-        id: 'AML.T0020',
-        name: 'Poison Training Data',
-        url: 'https://atlas.mitre.org/techniques/AML.T0020',
         status: 'verified',
       },
     ],
@@ -477,7 +483,7 @@ export const THREATS: ThreatEvent[] = [
     layers: ['ORBIT', 'GROUND'],
     vector: 'rf',
     baseSeverity: 1,
-    counters: ['encryptedBackhaul', 'linkAuth'],
+    counters: ['encryptedBackhaul'],
     effect: { meters: ['dataIntegrity'], assetDamage: false, repairCostPerSeverity: 1 },
     condition: { name: 'TAPPED', turns: 2 },
     techniqueRefs: [
@@ -529,7 +535,7 @@ export const THREATS: ThreatEvent[] = [
     layers: ['ORBIT', 'GROUND'],
     vector: 'rf',
     baseSeverity: 2,
-    counters: ['encryptedBackhaul', 'linkAuth'],
+    counters: ['encryptedBackhaul'],
     effect: { meters: ['dataIntegrity'], assetDamage: false, repairCostPerSeverity: 2 },
     condition: { name: 'LEAKING', turns: 2 },
     techniqueRefs: [

@@ -12,6 +12,15 @@
 // proofs that rebuilt earlier snapshots from this engine (GUARD R3 (b),
 // GUARD R5a (a) and the prepared line's second move) replayed v1.2 rules,
 // which no longer exist, and left with them.
+//
+// IT MOVED ONCE MORE IN v1.3 ROUND 6b, the engine round before v1.3.0 (Ken,
+// 22 October 2026, R6 Decisions Q1 and the parked engine items): link
+// authentication off uplink jamming, downlink eavesdropping and backhaul
+// exfiltration, and firmware attestation off the three LiDAR moves, so no
+// pairing teaches a false defense; AML.T0020 under its current ATLAS name
+// and first on the poisoning card; the docking dazzle striking the RPO sat
+// when one is held (G-028); and every resolved event carrying the score it
+// found and left (the per-event score). win f6025194..., loss e5160981...
 
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -72,9 +81,10 @@ describe('determinism', () => {
     expect(actual).toEqual(JSON.parse(readFileSync(SNAPSHOT_PATH, 'utf8')))
     // The committed file, pinned, so a regenerated snapshot is an edit to
     // this line as well as to the file: the snapshot moves deliberately or
-    // not at all. be6509e3 is the v1.3 Round 0 move (see the header).
+    // not at all. be6509e3 was the v1.3 Round 0 move; 2a5966f1 is the
+    // Round 6b move (see the header).
     expect(createHash('sha1').update(readFileSync(SNAPSHOT_PATH, 'utf8')).digest('hex'), 'the committed snapshot file changed').toBe(
-      'be6509e378fad32093941207caa84e632b8a30da',
+      '2a5966f1c0f8d18837bc4da66ad19a4049ea4921',
     )
   })
 
@@ -156,14 +166,21 @@ describe('the v1.3 rules (brief 6.1)', () => {
   })
 
   it('mitigates by primary 2 and every other owned defense 1', () => {
-    const uplink = event('uplink-jamming') // antiJam, linkAuth
-    expect(mitigationOf(uplink, [])).toBe(0)
-    expect(mitigationOf(uplink, ['antiJam'])).toBe(PRIMARY_MITIGATION)
-    expect(mitigationOf(uplink, ['linkAuth'])).toBe(SECONDARY_MITIGATION)
-    expect(mitigationOf(uplink, ['antiJam', 'linkAuth'])).toBe(PRIMARY_MITIGATION + SECONDARY_MITIGATION)
-    // Brief 6.7: encryption first for the two listening threats.
-    expect(event('downlink-eavesdropping').counters[0]).toBe('encryptedBackhaul')
-    expect(event('backhaul-exfil').counters[0]).toBe('encryptedBackhaul')
+    // The rogue ground station, the one move with two defenses since the
+    // engine round of v1.3 R6 (Decisions Q1).
+    const rogue = event('rogue-ground-station') // linkAuth, groundZeroTrust
+    expect(mitigationOf(rogue, [])).toBe(0)
+    expect(mitigationOf(rogue, ['linkAuth'])).toBe(PRIMARY_MITIGATION)
+    expect(mitigationOf(rogue, ['groundZeroTrust'])).toBe(SECONDARY_MITIGATION)
+    expect(mitigationOf(rogue, ['linkAuth', 'groundZeroTrust'])).toBe(PRIMARY_MITIGATION + SECONDARY_MITIGATION)
+    // Brief 6.7: encryption first for the two listening threats, and, since
+    // R6 Q1, alone: authentication gives no confidentiality.
+    expect(event('downlink-eavesdropping').counters).toEqual(['encryptedBackhaul'])
+    expect(event('backhaul-exfil').counters).toEqual(['encryptedBackhaul'])
+    // Q1 too: authentication does not stop a jammer, and firmware
+    // attestation does not stop a laser or a LiDAR spoof.
+    expect(event('uplink-jamming').counters).toEqual(['antiJam'])
+    for (const id of ['lidar-dazzle', 'lidar-injection', 'lidar-blinding']) expect(event(id).counters, id).toEqual(['sensorFusion'])
     // The debris is a call, not an attack.
     expect(mitigationOf(event('debris-conjunction'), ['ssaManeuver'])).toBe(0)
   })

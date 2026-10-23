@@ -14,7 +14,7 @@ import { worstCase } from '../../engine/worstCase'
 import { COVERAGE_PER_KIND, coverage } from '../../engine/scoring'
 import { CHAIN_BONUS, PRIMARY_MITIGATION, SECONDARY_MITIGATION, briefActive, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, planFor } from '../../engine/rules'
 import { answerKey } from '../../engine/learning'
-import type { AssetKind, Countermeasure, CountermeasureId, GameState, ThreatEvent, TurnActions } from '../../engine/types'
+import type { ActiveCondition, AssetKind, Countermeasure, CountermeasureId, GameState, ThreatEvent, TurnActions } from '../../engine/types'
 import type { WorstCase } from '../../engine/worstCase'
 import { vectorsOf } from './board'
 import { ICON_CHECK, ICON_HALF, ICON_WARN } from '../sprites/icons'
@@ -152,6 +152,13 @@ export const INTEL_ROW = { none: 'Order an intel brief to name the moves.', orde
 export const UNIDENTIFIED = 'Unidentified'
 export const tapHint = (status: MoveStatus) => (status === 'blocked' ? 'details ›' : 'defend ›')
 export const REVEAL = 'reveal ›'
+// A condition's turns left, one meaning everywhere (v1.3 R6, G-103; brief
+// 6.5): the nights it will still press after the one being played. The
+// engine counts it down at each turn close, so a board between turns reads
+// it as stored, and a night in play (before its close) reads it as its
+// close will leave it, so the night's chips and its END OF TURN agree.
+export const turnsLeft = (c: Pick<ActiveCondition, 'remainingTurns'>, preClose: boolean) => (preClose ? Math.max(0, c.remainingTurns - 1) : c.remainingTurns)
+
 // The board's cue when its moves run under the dock (R6 question 14).
 export const MORE_BELOW = '▼ more below'
 

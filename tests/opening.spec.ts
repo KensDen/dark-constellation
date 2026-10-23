@@ -944,7 +944,8 @@ describe('the opening: the reading diet has a floor as well as a ceiling (Round 
     // one) and the brief not bought: the HUD's 21, the intro, two
     // drawn slots of five Unidentified cards with the hidden-names line
     // under each, and the intel row. Turn 1 is no longer the shortest
-    // because FIRST ORDERS sits under it.
-    expect(shortest, `shortest opening screen: ${shortest} words at ${at}`).toBe(100)
+    // because FIRST ORDERS sits under it. 91 since R6: the hidden-names line
+    // is said once a night, on the first drawn slot, not under each.
+    expect(shortest, `shortest opening screen: ${shortest} words at ${at}`).toBe(91)
   })
 })

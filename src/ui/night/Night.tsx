@@ -54,6 +54,9 @@ export interface BoardView {
   // block floats NO LOSS in its place (delta 0). Under COLDVEIL IS MOVING,
   // the live conditions' fall, with their name (v1.3 R5: "-2.5 JAMMED").
   drop: { id: string; delta: number; label?: string } | null
+  // A view from before the night's close (every stage but END OF TURN):
+  // a condition's turns left read as the close will leave them (G-103).
+  preClose?: boolean
 }
 
 export interface NightProps {
@@ -167,10 +170,10 @@ export default function Night(p: NightProps) {
     if (stage.at === 'moving') {
       const fell = Math.round((maiScore(night.before) - maiScore(night.opening)) * 10) / 10
       const label = night.pressed.length === 1 ? night.pressed[0] : copy.CONDITIONS_WORD
-      return onBoard({ shown: night.opening, strike: null, drop: fell > 0 ? { id: `t${night.turn}-press`, delta: fell, label } : null })
+      return onBoard({ shown: night.opening, strike: null, drop: fell > 0 ? { id: `t${night.turn}-press`, delta: fell, label } : null, preClose: true })
     }
     const step = night.steps[stage.i]
-    if (stage.at === 'call') return onBoard({ shown: step.before, strike: null, drop: null })
+    if (stage.at === 'call') return onBoard({ shown: step.before, strike: null, drop: null, preClose: true })
     if (stage.at === 'strike') {
       const strike = strikeOf(`t${night.turn}-${stage.i}`, step.ev, step.def.layers, step.before, stage.landed)
       const fell = Math.round((step.scoreBefore - step.scoreAfter) * 10) / 10
@@ -178,13 +181,14 @@ export default function Night(p: NightProps) {
         shown: stage.landed ? step.after : step.before,
         strike,
         drop: stage.landed && (fell > 0 || step.ev.effectiveSeverity === 0) ? { id: `t${night.turn}-${stage.i}`, delta: Math.max(0, fell) } : null,
+        preClose: true,
       })
     }
     // While a move's card is up, its tile keeps a still reticle, so the
     // board says which tile the card is about, with motion or without
     // (fresh-eyes review: under reduced motion nothing marked it).
     const rest = step.kind === 'threat' ? strikeOf(`t${night.turn}-${stage.i}`, step.ev, step.def.layers, step.before, true) : null
-    onBoard({ shown: step.after, strike: rest ? { ...rest, rest: true } : null, drop: null })
+    onBoard({ shown: step.after, strike: rest ? { ...rest, rest: true } : null, drop: null, preClose: true })
   }, [stage, night, after, onBoard])
 
   const onContinue = (i: number) => (collect: boolean) => {

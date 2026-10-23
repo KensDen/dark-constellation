@@ -223,9 +223,10 @@ describe('the hit card (critique row M3)', () => {
   })
 
   it('says nothing on a move that was held, or once every applicable defense was owned', async () => {
-    // A held move with a defense still missing, so there is something the
-    // card could name and only the outcome keeps it off.
-    const held = threatWhere((ev, def, state) => ev.outcome === 'held' && def.counters.some((c) => !state.counters.includes(c)))
+    // A held move. Since the engine round of R6 (Decisions Q1) no move is
+    // held while one of its defenses is missing (the rogue ground station,
+    // the one move with two, needs both), so the card has nothing to name.
+    const held = threatWhere((ev) => ev.outcome === 'held')
     let card = await toHitCard(held.state, held.def)
     expect(card.querySelector('[data-outcome="held"]'), 'the control: the HELD block did not render').not.toBeNull()
     expect(card.querySelector('[data-can-say]')!.textContent).toBe(`You can now say it: ${nameOf(held.def.counters.find((c) => held.state.counters.includes(c))!)} blocked ${shortName(held.def)} tonight.`)

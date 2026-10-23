@@ -182,7 +182,11 @@ function maiAfterHit(state: GameState, ev: ThreatEvent, target: Asset | undefine
   return after
 }
 
-function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng): ResolvedEvent {
+// What a resolver returns: the event as it resolved, before the turn's loop
+// stamps the score it found and left (the per-event score).
+type Unscored = Omit<ResolvedEvent, 'scoreBefore' | 'scoreAfter'>
+
+function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng): Unscored {
   const { scenario, difficulty } = state
   const notes: string[] = []
   const chainBonus = chainBonusOf(ev, gnssDenied(state.conditions, scenario))
@@ -192,9 +196,13 @@ function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng): ResolvedEve
   const effectiveSeverity = Math.max(0, strength - mitigation)
   const outcome = effectiveSeverity === 0 ? 'held' : mitigation > 0 ? 'reduced' : 'open'
 
-  // The tile it is aimed at: a live asset on its layers, held or not.
+  // The tile it is aimed at: a live asset on its layers, held or not, and
+  // of a kind the move prefers when the player holds one (G-028: the
+  // docking dazzle strikes the RPO sat, not an imaging sat).
   const onLayers = liveAssets(state.assets).filter((a) => ev.layers.includes(a.layer))
-  const target = onLayers.length > 0 ? rng.pick(onLayers) : undefined
+  const preferred = ev.prefersKinds ? onLayers.filter((a) => ev.prefersKinds!.includes(a.kind)) : []
+  const pool = preferred.length > 0 ? preferred : onLayers
+  const target = pool.length > 0 ? rng.pick(pool) : undefined
   const struck = ev.effect.assetDamage !== false ? target : undefined
 
   const before = maiRaw(state)
@@ -277,7 +285,7 @@ function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng): ResolvedEve
 // loses the satellite on DEBRIS_LOSS_CHANCE, which queues a loss review.
 // The call neither extends nor breaks the defense streak, as the
 // prototype plays it: no defense blocks debris, the player decides.
-function resolveDebris(state: GameState, ev: ThreatEvent, choice: DebrisChoice, rng: Rng, offStation: Set<string>): ResolvedEvent {
+function resolveDebris(state: GameState, ev: ThreatEvent, choice: DebrisChoice, rng: Rng, offStation: Set<string>): Unscored {
   const ssa = state.counters.includes('ssaManeuver')
   const sat = debrisTarget(state)
   const notes: string[] = []
@@ -328,7 +336,7 @@ function resolveDebris(state: GameState, ev: ThreatEvent, choice: DebrisChoice, 
   }
 }
 
-function resolveOpportunity(state: GameState, ev: ThreatEvent): ResolvedEvent {
+function resolveOpportunity(state: GameState, ev: ThreatEvent): Unscored {
   const notes: string[] = []
   const b = ev.benefit ?? {}
   if (b.credits) {
@@ -406,7 +414,9 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
   const resolved: ResolvedEvent[] = []
   for (const read of adversaryPicks(next, next.counters, deck)) {
     const ev = eventById(scenario, read.pick)
-    resolved.push(ev.effect.special === 'debrisStrike' ? resolveDebris(next, ev, actions.debris ?? 'hold', rng, offStation) : resolveThreat(next, ev, rng))
+    const scoreBefore = maiScore(next)
+    const r = ev.effect.special === 'debrisStrike' ? resolveDebris(next, ev, actions.debris ?? 'hold', rng, offStation) : resolveThreat(next, ev, rng)
+    resolved.push({ ...r, scoreBefore, scoreAfter: maiScore(next) })
   }
   const fuel = resolved.reduce((n, r) => n + (r.debris?.fuel ?? 0), 0)
 
@@ -415,7 +425,9 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
   let windfall = 0
   if (plan?.opportunity && plan.opportunity.drawFrom.length > 0 && deck.chance(plan.opportunity.chance)) {
     const before = next.credits
-    resolved.push(resolveOpportunity(next, eventById(scenario, deck.pick(plan.opportunity.drawFrom))))
+    const scoreBefore = maiScore(next)
+    const r = resolveOpportunity(next, eventById(scenario, deck.pick(plan.opportunity.drawFrom)))
+    resolved.push({ ...r, scoreBefore, scoreAfter: maiScore(next) })
     windfall = next.credits - before
   }
   const afterNight = next.credits

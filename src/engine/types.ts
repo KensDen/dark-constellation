@@ -135,6 +135,8 @@ export interface ThreatEvent {
   chainsWith?: string[]
   effect: ThreatEffect
   condition?: ThreatCondition
+  // The kinds of tile it strikes when the player holds one (G-028).
+  prefersKinds?: AssetKind[]
   benefit?: OpportunityBenefit
   blurb: string // plain-English why-this-matters, one paragraph
   learnMoreCards: LearnMoreCard[]
@@ -259,6 +261,10 @@ export interface ResolvedEvent {
   // The condition this event left, when it landed with one.
   condition?: ThreatCondition
   debris?: DebrisCall
+  // The score as this event found it and as it left it (v1.3 R6, the
+  // per-event score): the hit card's figure reads these, not a replay.
+  scoreBefore: number
+  scoreAfter: number
 }
 
 // What the player can now say (brief 6.9, WHAT YOU CAN NOW SAY): a defense

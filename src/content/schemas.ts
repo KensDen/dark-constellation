@@ -78,6 +78,9 @@ export const threatEventSchema = z
     // A landed event with a condition leaves it for a fixed number of
     // turns, shown to the player as turns left (v1.3 brief 6.5).
     condition: z.object({ name: z.string().min(1), turns: z.number().int().min(1) }).optional(),
+    // The kinds of tile the move strikes when the player holds one (v1.3
+    // R6, G-028: the docking dazzle aims at an RPO sat when there is one).
+    prefersKinds: z.array(z.enum(['sat', 'rpoSat', 'drone', 'groundStation'])).optional(),
     benefit: z
       .object({
         credits: z.number().int().positive().optional(),

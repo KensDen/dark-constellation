@@ -685,12 +685,13 @@ describe('the night sounds the moment it is showing', () => {
     // successor of tests/cues.spec.ts's "plays the visual each beat kind
     // claims, over real play rather than hand-built keys".
     //
-    // Seed 24 on STANDARD meets every kind of card with these orders
-    // (tests/night-r3.dom.spec.tsx (f) plays the same operation), and the
-    // passive line on the same seed loses; seed 4 on the same plan loses
-    // the satellite on the conjunction. Between them every row of the
-    // night is reached, BLACKOUT CHAIN and both debris results included.
-    const PLAN: Record<number, CountermeasureId[]> = { 2: ['antiJam', 'pntAuth', 'groundZeroTrust'], 3: ['linkAuth'] }
+    // Seed 24 on STANDARD meets every kind of card with these orders, and the
+    // passive line on the same seed loses; seed 10 on the same plan loses
+    // the satellite on the conjunction, and the operation. Between them
+    // every row of the night is reached, BLACKOUT CHAIN and both debris
+    // results included. Turn 3 orders encrypted backhaul since the engine
+    // round of R6 (Decisions Q1), and seed 10 replaced seed 4, which now wins.
+    const PLAN: Record<number, CountermeasureId[]> = { 2: ['antiJam', 'pntAuth', 'groundZeroTrust'], 3: ['encryptedBackhaul'] }
     const heardAt = new Map<Moment, SoundCue[]>()
     const endings: GameState['status'][] = []
     let metersHeard = 0
@@ -870,9 +871,9 @@ describe('the night sounds the moment it is showing', () => {
     it('sounds each moment as the registry says and shows its treatment, and hears every row the night plays', async () => {
       await playOperation(24, PLAN)
       await playOperation(24, {})
-      // The same plan on seed 4 holds on the conjunction and loses the
+      // The same plan on seed 10 holds on the conjunction and loses the
       // satellite, so the debris result's other voice is heard too.
-      await playOperation(4, PLAN)
+      await playOperation(10, PLAN)
       expect(endings.sort(), 'the operations did not end as their seeds do (won, lost, lost)').toEqual(['lost', 'lost', 'won'])
       expect(metersHeard, 'no readout ticked, so the filter that sets them aside proves nothing').toBeGreaterThan(0)
       expect(shields, 'no block landed on a tile, so the shield went unchecked').toBeGreaterThan(0)

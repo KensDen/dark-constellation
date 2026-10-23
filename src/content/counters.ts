@@ -25,7 +25,7 @@ export const COUNTERMEASURES: Countermeasure[] = [
     id: 'linkAuth',
     name: 'Link-layer auth and key rotation',
     cost: 8,
-    counters: ['uplink-jamming', 'rogue-ground-station', 'telemetry-replay', 'downlink-eavesdropping', 'backhaul-exfil'],
+    counters: ['rogue-ground-station', 'telemetry-replay'],
     spartaCms: [
       { id: 'CM0031', name: 'Authentication', url: 'https://sparta.aerospace.org/countermeasures/CM0031', tier: 'Tier I' },
       { id: 'CM0030', name: 'Crypto Key Management', url: 'https://sparta.aerospace.org/countermeasures/CM0030', tier: 'Tier I' },
@@ -59,7 +59,7 @@ export const COUNTERMEASURES: Countermeasure[] = [
     id: 'tierAAttestation',
     name: 'Firmware attestation and assured sourcing',
     cost: 12,
-    counters: ['lidar-dazzle', 'lidar-injection', 'lidar-blinding', 'supply-chain-implant'],
+    counters: ['supply-chain-implant'],
     spartaCms: [
       { id: 'CM0025', name: 'Supplier Review', url: 'https://sparta.aerospace.org/countermeasures/CM0025', tier: 'Tier II' },
       { id: 'CM0014', name: 'Secure boot', url: 'https://sparta.aerospace.org/countermeasures/CM0014', tier: 'Tier I' },

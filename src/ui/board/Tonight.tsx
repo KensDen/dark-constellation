@@ -205,6 +205,7 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
     void preloadFullBrief()
   }, [])
   const chain = gnssDenied(state.conditions, state.scenario)
+  const firstDraw = slots.findIndex((s) => !s.fixed)
   return (
     <section ref={card} aria-label="Tonight" data-tonight className="flex-none border border-dc-line bg-dc-panel px-3 py-1">
       <div className="flex items-center justify-between gap-2">
@@ -225,6 +226,8 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
         </p>
       )}
       {slots.map((slot, i) => (
+        // The rule (or the hidden line) once a night, on its first drawn
+        // slot: it is the same sentence for every slot (v1.3 R6).
         <div key={i} data-slot={slot.fixed ? 'fixed' : 'draw'} className="mt-1.5">
           {slot.fixed ? (
             <p className="font-mono text-[10px] tracking-widest text-dc-warn">
@@ -236,24 +239,26 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
                 {WILL_HIT_LEAD}
                 <b className="text-dc-hostile">{willHitCount(slot.moves.length)}</b>
               </p>
-              <p className="text-xs text-dc-muted">
-                {slot.hidden ? TONIGHT_HIDDEN : TONIGHT_REASON}
-                {/* The flags' key (R6 question 11), set after the rule that
-                    names a pick and a tie, on the room its second line leaves:
-                    on a key line of their own they pushed the turn-1 board
-                    past 375x667. */}
-                {!slot.hidden && state.turn <= 2 && (
-                  <span data-flag-key className="text-[10px]">
-                    {' '}
-                    <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                      <span className={`${FLAG_TAG} bg-dc-hostile`}>LIKELY TARGET</span> {KEY_LIKELY}
-                    </span>{' '}
-                    <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                      <span className={`${FLAG_TAG} bg-dc-hostile`}>EITHER</span> {KEY_EITHER}
+              {i === firstDraw && (
+                <p className="text-xs text-dc-muted">
+                  {slot.hidden ? TONIGHT_HIDDEN : TONIGHT_REASON}
+                  {/* The flags' key (R6 question 11), set after the rule that
+                      names a pick and a tie, on the room its second line leaves:
+                      on a key line of their own they pushed the turn-1 board
+                      past 375x667. */}
+                  {!slot.hidden && state.turn <= 2 && (
+                    <span data-flag-key className="text-[10px]">
+                      {' '}
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                        <span className={`${FLAG_TAG} bg-dc-hostile`}>LIKELY TARGET</span> {KEY_LIKELY}
+                      </span>{' '}
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                        <span className={`${FLAG_TAG} bg-dc-hostile`}>EITHER</span> {KEY_EITHER}
+                      </span>
                     </span>
-                  </span>
-                )}
-              </p>
+                  )}
+                </p>
+              )}
               {!slot.hidden && state.turn <= 2 && (
                 <p data-key className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[10px] text-dc-muted">
                   <span className="inline-flex items-center gap-1">

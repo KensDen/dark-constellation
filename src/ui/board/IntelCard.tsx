@@ -23,7 +23,7 @@ import RealWorld from '../RealWorld'
 import { realWorldFor } from '../realWorldLine'
 import { STATE_WORD, callSigns, conditionsOn, spriteState } from './board'
 import { assetRole } from './board'
-import { shortName } from './boardModel'
+import { shortName, turnsLeft } from './boardModel'
 
 export type IntelSubject = { kind: 'tile'; assetId: string } | { kind: 'banner' }
 
@@ -35,6 +35,9 @@ export interface IntelCardProps {
   // on the layer headers do (the state a night shows keeps the turn it
   // started on).
   turn: number
+  // A night's view before its close: turns left as the close leaves them
+  // (G-103), as on the chips.
+  preClose?: boolean
   // Whether tonight's moves are named, as the banner reads it: the brief
   // ordered in the cart, or the record of the night being played back.
   // Without it the card reads the free brief alone.
@@ -45,7 +48,7 @@ export interface IntelCardProps {
 const HEAD = 'font-display text-[10px] leading-none text-dc-go'
 const LABEL = 'mt-3 font-display text-[9px] leading-none text-dc-muted'
 
-function TileIntel({ state, turn, assetId }: { state: GameState; turn: number; assetId: string }) {
+function TileIntel({ state, turn, assetId, preClose }: { state: GameState; turn: number; assetId: string; preClose: boolean }) {
   const asset = state.assets.find((a) => a.id === assetId)
   if (!asset) return null
   const conditions = conditionsOn(asset.layer, state.conditions, state.scenario)
@@ -71,7 +74,7 @@ function TileIntel({ state, turn, assetId }: { state: GameState; turn: number; a
             return (
               <li key={c.instanceId} data-intel-condition={c.eventId} className="mt-2">
                 <p>
-                  {c.name} T+{turn - c.startedTurn} {c.remainingTurns} left
+                  {c.name} T+{turn - c.startedTurn} {turnsLeft(c, preClose)} left
                 </p>
                 {line && <RealWorld line={line} />}
               </li>
@@ -110,7 +113,7 @@ function BannerIntel({ state, briefed = briefFree(state) }: { state: GameState; 
   )
 }
 
-export default function IntelCard({ subject, state, turn, briefed, onClose }: IntelCardProps) {
+export default function IntelCard({ subject, state, turn, preClose = false, briefed, onClose }: IntelCardProps) {
   return (
     <section aria-labelledby="intel-title" data-intel-card={subject.kind} className="mx-auto max-w-[520px] px-4 py-4 font-mono text-sm text-dc-ink">
       <div className="mb-2 flex justify-end">
@@ -119,7 +122,7 @@ export default function IntelCard({ subject, state, turn, briefed, onClose }: In
         </button>
       </div>
       <div className="border-2 border-dc-line bg-dc-panel p-3 shadow-hard">
-        {subject.kind === 'tile' ? <TileIntel state={state} turn={turn} assetId={subject.assetId} /> : <BannerIntel state={state} briefed={briefed} />}
+        {subject.kind === 'tile' ? <TileIntel state={state} turn={turn} assetId={subject.assetId} preClose={preClose} /> : <BannerIntel state={state} briefed={briefed} />}
       </div>
     </section>
   )

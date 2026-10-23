@@ -78,8 +78,8 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: op.daily!.n, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade S · won T6 · score 86.2 / 70',
-        '\u{1F7E9}\u{1F7E9}\u{1F7E9}\u{1F7E8}\u{1F7E8}\u{1F7E8}',
+        'Grade S · won T6 · score 85.2 / 70',
+        '\u{1F7E9}\u{1F7E9}\u{1F7E9}\u{1F7E8}\u{1F7E8}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )
@@ -140,8 +140,8 @@ describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
     expect(shareText(end)).toBe(
       [
         'DARK CONSTELLATION · Practice · Standard',
-        'Grade S · won T6 · score 85.2 / 70',
-        '\u{1F7E9}\u{1F7E9}\u{1F7E9}\u{1F7E8}\u{1F7E8}\u{1F7E5}',
+        'Grade S · won T6 · score 86.2 / 70',
+        '\u{1F7E9}\u{1F7E9}\u{1F7E9}\u{1F7E8}\u{1F7E8}\u{1F7E8}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )

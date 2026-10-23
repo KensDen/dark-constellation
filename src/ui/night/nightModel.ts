@@ -161,7 +161,9 @@ export function nightOf(before: GameState, after: GameState): Night {
       streak = ev.effectiveSeverity === 0 ? streak + 1 : 0
     }
     next.streak = streak
-    steps.push({ kind, ev, def, before: shown, after: next, scoreBefore: maiScore(shown), scoreAfter: maiScore(next), streak })
+    // The figure is the engine's own (the per-event score, v1.3 R6); a
+    // record from before the engine kept it falls back to the replay.
+    steps.push({ kind, ev, def, before: shown, after: next, scoreBefore: ev.scoreBefore ?? maiScore(shown), scoreAfter: ev.scoreAfter ?? maiScore(next), streak })
     shown = next
   }
   return { turn: before.turn, before, record, opening, pressed, steps, closing: after }

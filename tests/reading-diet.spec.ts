@@ -113,19 +113,23 @@ const WORST_CARD_HEADLINE = 12
 // on it", 22 October 2026: 40 and 50 before). Since R6 (question 2) the
 // line says "stops" only of what the defense blocks alone and "blunts" of
 // the rest; past two names it keeps this move and counts the rest as
-// answered (the two verbs with every name ran it to 41). The worst line
-// and the worst card are both the rogue ground station's on the passive
-// line, turn 5 on Easy, seed 2: 33 words, 44 with its headline (35 and 45
-// before).
-const WORST_HELPED_LINE = 33
-const WORST_HIT_CARD_HEADLINE_AND_LINE = 44
+// answered (the two verbs with every name ran it to 41). After the engine
+// round (Decisions Q1: fewer pairings, so fewer threats a defense answers)
+// the worst line is ground segment ransomware's on the passive line, turn 5
+// on Easy, seed 16, at 30 words, and the worst card the rogue ground
+// station's on the same line, seed 2, at 40 with its headline (33 and 44
+// before it, 35 and 45 before R6).
+const WORST_HELPED_LINE = 30
+const WORST_HIT_CARD_HEADLINE_AND_LINE = 40
 
 // The deciding board's reading at its longest over the swept lines of play
 // (v1.3 R2), pinned so a change that moves it comes here and says so;
 // src/ui/brief.ts quotes it as the reason FIRST_INPUT_WORD_BUDGET is 150.
 // 150 since R6 (Decisions Q11): the rule line's true words take 4 more on
-// each of turn 5's two slots; at the bound, with no word to spare.
-const WORST_BOARD = 150
+// each of turn 5's two slots; at the bound, with no word to spare. 139 once
+// the engine round's longer defense streaks put a STREAK chip on that board
+// (151) and the rule is said once a night, not on every drawn slot.
+const WORST_BOARD = 139
 
 const tokensOf = (text: string) => new Set(text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
 
@@ -1154,7 +1158,17 @@ describe('reading diet: the intel brief', () => {
     const cases: Case[] = []
     const branchOf = new Map<string, Case>()
     expect(extremes).toHaveLength(LINES.length * DIFFS.length * EXTREME_SEEDS)
-    for (const { name, difficulty, seed, turns } of extremes) {
+    // Since R6's engine round (Decisions Q1) the rogue ground station is the
+    // one move with two defenses, so a REDUCED block names a missing defense
+    // only when COLDVEIL takes it with one of the two owned. None of the five
+    // lines does, so one more line is played for this test alone: the ground
+    // segmentation on turn 2 and the insider program on turn 4 make the rogue
+    // station the move on turn 5, blunted and not stopped.
+    const reducing: Campaign[] = []
+    const REDUCING: Record<number, TurnActions> = { 2: { ...NO_OP, buyCounters: ['groundZeroTrust'] }, 4: { ...NO_OP, buyCounters: ['insiderProgram'] } }
+    for (const difficulty of DIFFS)
+      for (let seed = 1; seed <= EXTREME_SEEDS; seed += 1) reducing.push({ name: 'reducing', difficulty, seed, turns: [...playTurns(seed, REDUCING, difficulty)] })
+    for (const { name, difficulty, seed, turns } of [...extremes, ...reducing]) {
       for (const { before, after } of turns) {
         const known = knownBy(after)
         const last = lastTurnOf(after)

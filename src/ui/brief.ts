@@ -28,6 +28,7 @@ import {
   FIRST_ORDERS_SET,
   SECOND_ORDER,
   hiddenOrder,
+  turns,
   TONIGHT_HIDDEN,
   TONIGHT_REASON,
   UNIDENTIFIED,
@@ -89,7 +90,9 @@ import {
 // prepared line, turn 5; turn 1 reads 124), so the bound is 150. Since R6
 // (Decisions Q11) the rule line says what the engine does, "They go for the
 // move your defenses take the fewest points off.", four words longer on
-// each slot: the worst board reads 150, at the bound. The
+// each slot: the worst board reads 150, at the bound. After the engine
+// round the rule is said once a night, on the first drawn slot, and the
+// worst board reads 139 (prepared, turn 5, with a STREAK chip). The
 // chrome bound stays 40: the board's labels and controls measure 29 at
 // worst. The headline cap stays for the full brief's own lines.
 export const HEADLINE_WORD_MAX = 8
@@ -211,7 +214,7 @@ function postureLines(state: GameState): string[] {
 
   lines.push(
     state.conditions.length > 0
-      ? `Running against you: ${state.conditions.map((c) => `${c.name} since turn ${c.startedTurn}`).join(', ')}.`
+      ? `Running against you: ${state.conditions.map((c) => `${c.name}, ${turns(c.remainingTurns)} left`).join(', ')}.`
       : 'No conditions running against you.',
   )
 
@@ -435,10 +438,13 @@ export function firstInputCopy(state: GameState, actions: TurnActions = NO_ORDER
     planFor(scenario, state.turn)?.intro ?? '',
     ...(gnssDenied(state.conditions, scenario) ? [chainLine()] : []),
   ]
-  for (const slot of tonightSlots(state, actions)) {
+  const slots = tonightSlots(state, actions)
+  const firstDraw = slots.findIndex((s) => !s.fixed)
+  for (const [i, slot] of slots.entries()) {
     if (slot.fixed) out.push(`CONFIRMED · ${confirmedNote(slot.moves[0].ev)}`)
     else {
-      out.push(WILL_HIT(slot.moves.length), slot.hidden ? TONIGHT_HIDDEN : TONIGHT_REASON)
+      out.push(WILL_HIT(slot.moves.length))
+      if (i === firstDraw) out.push(slot.hidden ? TONIGHT_HIDDEN : TONIGHT_REASON)
       if (!slot.hidden && state.turn <= 2)
         out.push(`${STATUS.exposed.word} ${KEY_EXPOSED}`, `${STATUS.blocked.word} ${KEY_BLOCKED}`, `LIKELY TARGET ${KEY_LIKELY}`, `EITHER ${KEY_EITHER}`)
     }
