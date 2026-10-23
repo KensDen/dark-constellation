@@ -32,7 +32,7 @@ export const OFFICER: Record<string, string> = {
   'gnss-spoofing':
     '{t} reported a confident position 400 m east of truth. The levee imagery it returned is geotagged wrong and has to be reflown.',
   'downlink-eavesdropping': 'A receiver 40 km off-axis is posting our survey frames. Nothing was transmitted at us. Everything was heard.',
-  'telemetry-replay': 'Ground watched a healthy {t} for twenty minutes. {t} was tumbling the whole time.',
+  'telemetry-replay': 'Ground watched a healthy {t} for twenty minutes. {t} was drifting off its attitude the whole time.',
   'lidar-dazzle': '{t} aborted its inspection approach when the docking LiDAR saturated at 180 m. The stranded bird stays stranded another day.',
   'debris-conjunction': 'Conjunction alert on {t}: a defunct upper stage on a crossing orbit, closest approach in 14 hours.',
   'ground-ransomware': 'The mission data store is encrypted and a note is on the ops floor display. Shelter-mapping deliveries have stopped.',
@@ -47,17 +47,17 @@ export const OFFICER: Record<string, string> = {
     "Last night's perception retrain pulled survey frames from a share we do not control. The new model behaves until it sees one particular marking.",
   'supply-chain-implant': 'A sensor package on {t} woke up and started talking on a frequency nobody assigned it. It shipped that way.',
   'insider-exfil':
-    "The architecture binder left the building in a contractor's bag. The badge logs say the access was valid. That is the problem.",
+    'The architecture binder was synced to a personal cloud account overnight. The access logs say the access was valid. That is the problem.',
 }
 
 export const HOOK: Record<string, string> = {
-  'uplink-jamming': 'Why a cheap transmitter can silence a satellite',
+  'uplink-jamming': 'Why a ground transmitter can stop a satellite hearing you',
   'ops-phishing': 'One click, one stolen login, and the door is open',
   'pnt-jamming': 'Why drones lose their way when GPS goes quiet',
   'gnss-spoofing': 'How a fake GPS signal flies a drone off course',
   'downlink-eavesdropping': 'Anyone under the beam can listen in',
   'telemetry-replay': 'Old data, replayed, can hide a dying satellite',
-  'lidar-dazzle': 'How a laser can blind a docking sensor',
+  'lidar-dazzle': 'How a laser can dazzle a docking sensor',
   'debris-conjunction': "Space junk doesn't need a motive",
   'ground-ransomware': 'Why attackers hit the ground, not the satellite',
   'rogue-ground-station': 'Build your own dish, send your own commands',
@@ -100,7 +100,7 @@ export const HELD: Record<string, string> = {
   'lidar-dazzle': 'The LiDAR saturated; radar and vision outvoted it and the approach continued.',
   'ground-ransomware': 'The payload detonated inside one segment and the segment boundary held. Backups restored it by morning.',
   'rogue-ground-station': 'The forged command failed authentication and {t} ignored it. The dish is now a known location.',
-  'backhaul-exfil': 'The backhaul carried only ciphertext. Whoever was listening got noise.',
+  'backhaul-exfil': 'The backhaul carried only ciphertext. Whoever was listening got traffic patterns, not the data.',
   'blackout-chain': 'The injected point cloud lost the vote two to one. The chain broke at its second link.',
   'time-spoof': 'The drift failed the cross-check against the second timing source. Stored commands held for the resync.',
   'lidar-injection': 'Radar and vision outvoted the LiDAR. The squadron flew the real street.',

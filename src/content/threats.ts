@@ -72,7 +72,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'The constellation stops hearing you. Satellites ride out the silence in safe mode while tasking backlogs pile up. Availability is a security property.',
+      'The constellation stops hearing you. Satellites keep flying their stored plans while new tasking backs up. Availability is a security property.',
     learnMoreCards: [
       {
         title: 'Satellite links under attack',
@@ -667,7 +667,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'A trusted badge walks the architecture documents out the door. No exploit, no malware, just access that nobody was watching. The fiction here is invented; the pattern is the one CISA\'s insider threat guidance is written for.',
+      'A trusted account syncs the architecture documents to a cloud drive it controls. No exploit, no malware, just access that nobody was watching. The fiction here is invented; the pattern is the one CISA\'s insider threat guidance is written for.',
     learnMoreCards: [
       {
         title: 'The threat that already has a badge',
@@ -708,7 +708,7 @@ export const THREATS: ThreatEvent[] = [
       {
         title: 'Kessler syndrome, the real one',
         body:
-          'The cascade scenario proposed by NASA scientist Donald Kessler in 1978 describes debris collisions breeding more debris until whole orbital regimes degrade. NASA\'s Orbital Debris Program Office leads measurement, modeling, and mitigation of the environment. Conjunction assessment and maneuver budgets are the operational face of that risk, and they compete for the same credits as security. SPARTA\'s techniques list debris only as cover an adversary can hide in (DE-0009.01); its threat list carries the collision itself as SV-MA-1, Space Debris, and that is this conjunction.',
+          'The cascade scenario proposed by NASA scientist Donald Kessler in 1978 describes debris collisions breeding more debris until whole orbital regimes degrade. NASA\'s Orbital Debris Program Office leads measurement, modeling, and mitigation of the environment. Conjunction assessment and maneuver budgets are the operational face of that risk, and they compete for the same credits as security. Real operators maneuver at a collision chance of about 1 in 10,000; the game raises the odds so the call matters. SPARTA\'s techniques list debris only as cover an adversary can hide in (DE-0009.01); its threat list carries the collision itself as SV-MA-1, Space Debris, and that is this conjunction.',
         sources: [
           {
             title: 'NASA Orbital Debris Program Office',
