@@ -74,8 +74,8 @@ with no hand-maintained text.
 SPARTA® is a registered trademark of The Aerospace Corporation. MITRE ATT&CK® and ATT&CK® are
 registered trademarks of The MITRE Corporation; MITRE ATLAS™ is a trademark of The MITRE
 Corporation. Technique and countermeasure IDs, names and tiers are cited from them for education;
-no endorsement is implied. Both frameworks' copyright designations and licence terms ship with the
-site at `/legal/THIRD-PARTY-NOTICES.txt`
+no endorsement is implied. The SPARTA and MITRE ATT&CK copyright designations and license terms
+ship with the site at `/legal/THIRD-PARTY-NOTICES.txt`
 ([public/legal/THIRD-PARTY-NOTICES.txt](public/legal/THIRD-PARTY-NOTICES.txt)).
 
 The **FIELD LIBRARY**, in the menu's INTEL ARCHIVE beside the GLOSSARY,
@@ -138,10 +138,10 @@ Deliberately out of scope, recorded here as future work:
 
 I did the design, code, writing, and direction.
 
-**Artwork: AI-generated, human-commanded.** The key art and outcome backdrops were generated
-with AI tools under my direction and selection. The interface art (wordmark,
-event icons, layer badges, constellation frame) was authored as original vector work for this
-project. The pixel sprites and briefing scenes were drawn in code for this project.
+**Artwork: AI-generated, human-commanded.** The key art was generated with AI tools under my
+direction and selection. The constellation frame was authored as original vector work for this
+project, the wordmark is set in the DC Display face, and the pixel sprites, icons and briefing
+scenes were drawn in code for this project.
 
 ## Releases
 
