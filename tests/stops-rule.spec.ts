@@ -10,7 +10,7 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { PRIMARY_MITIGATION, SECONDARY_MITIGATION, mitigationOf } from '../src/engine/rules'
 import { newGame } from '../src/engine/reducer'
 import type { CountermeasureId, ThreatEvent } from '../src/engine/types'
-import { firstOrders, shortName, stopVerb, stoppedByLine, stopsLine, turnsLeft } from '../src/ui/board/boardModel'
+import { STATUS, firstOrders, moveStatus, shortName, stopVerb, stoppedByLine, stopsLine, turnsLeft } from '../src/ui/board/boardModel'
 import { sayVerb } from '../src/ui/debriefModel'
 import * as copy from '../src/ui/night/nightCopy'
 import { defensesFor } from '../src/ui/night/nightModel'
@@ -109,6 +109,22 @@ describe('the stops rule (R6 question 2)', () => {
       expect(copy.conditionTag(ev.condition!.name, left), ev.id).toBe(`${ev.condition!.name} · ${left === 1 ? '1 TURN LEFT' : `${left} TURNS LEFT`}`)
     }
     expect(copy.conditionTag('JAMMED', 0)).toBe('JAMMED · TONIGHT ONLY')
+  })
+
+  // GUARD R7 (a), the model half: SSA answers the debris call; it never
+  // blocks it (mitigation is 0 and HOLD can still lose the satellite), and
+  // ANSWERED is a status of its own, its own word and icon.
+  it('reads the debris call ANSWERED with SSA and EXPOSED without, and nothing else ever ANSWERED', () => {
+    const state = newGame(scenario, 1, 'standard')
+    const debris = threats.find((e) => e.effect.special === 'debrisStrike')!
+    expect(moveStatus(state, debris, ['ssaManeuver'])).toBe('answered')
+    expect(moveStatus(state, debris, [])).toBe('exposed')
+    const everything = scenario.countermeasures.map((c) => c.id)
+    for (const ev of threats) if (ev !== debris) expect(moveStatus(state, ev, everything), ev.id).not.toBe('answered')
+    expect(moveStatus(state, debris, everything)).toBe('answered')
+    const others = (['exposed', 'partial', 'blocked'] as const).map((k) => STATUS[k])
+    expect(others.map((s) => s.word)).not.toContain(STATUS.answered.word)
+    expect(others.map((s) => s.icon)).not.toContain(STATUS.answered.icon)
   })
 
   it('ticks FIRST ORDERS only when a move reads BLOCKED, not when an order only blunts it', () => {

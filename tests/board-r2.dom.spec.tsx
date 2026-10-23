@@ -196,6 +196,35 @@ describe('GUARD R2 (c): every status is an icon and a word, and none is a contro
   })
 })
 
+// GUARD R7 (a), Ken's ruling on R6b's fresh eyes (item 11): with SSA owned
+// the debris call is ANSWERED, its own icon and word, and says the burn is
+// free; never BLOCKED or "is safe", since HOLD can still lose the
+// satellite (src/engine/reducer.ts, the debris strike).
+describe('GUARD R7 (a): the debris tile with SSA owned reads ANSWERED, never BLOCKED', () => {
+  const debrisTurn = () => {
+    const state = gameAt(4)
+    expect(state.turn, 'the run did not reach the debris turn').toBe(4)
+    return state
+  }
+  const tile = () => q('[data-move="debris-conjunction"]')
+  it('reads ANSWERED with its icon and says the burn is free when SSA is owned', () => {
+    const state = debrisTurn()
+    render({ ...state, counters: [...state.counters.filter((c) => c !== 'ssaManeuver'), 'ssaManeuver'] })
+    const tag = tile()?.querySelector('[data-status]')
+    expect(tag?.getAttribute('data-status')).toBe('answered')
+    expect(tag?.textContent?.trim()).toBe(STATUS.answered.word)
+    expect(tag?.querySelector('svg[data-sprite="status-answered"]'), 'ANSWERED has no icon').not.toBeNull()
+    expect(tile()?.textContent).not.toMatch(/BLOCKED|is safe/)
+    expect(q('[data-slot="fixed"]')?.textContent).toContain('the burn is free')
+  })
+  it('reads EXPOSED, your call, without SSA', () => {
+    const state = debrisTurn()
+    render({ ...state, counters: state.counters.filter((c) => c !== 'ssaManeuver') })
+    expect(tile()?.querySelector('[data-status]')?.getAttribute('data-status')).toBe('exposed')
+    expect(q('[data-slot="fixed"]')?.textContent).toContain('your call when it arrives')
+  })
+})
+
 describe('GUARD R2 (d): EXECUTE is off while REMAINING is below zero', () => {
   it('turns EXECUTE off with the reason when an order crosses zero, and on again when it is cancelled', () => {
     // Turn 3 with 5 CR left: the 8 CR brief crosses zero.

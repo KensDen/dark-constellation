@@ -17,17 +17,21 @@ import { answerKey } from '../../engine/learning'
 import type { ActiveCondition, AssetKind, Countermeasure, CountermeasureId, GameState, ThreatEvent, TurnActions } from '../../engine/types'
 import type { WorstCase } from '../../engine/worstCase'
 import { vectorsOf } from './board'
-import { ICON_CHECK, ICON_HALF, ICON_WARN } from '../sprites/icons'
+import { ICON_BURN, ICON_CHECK, ICON_HALF, ICON_WARN } from '../sprites/icons'
 import type { Sprite, Token } from '../sprites/sprite'
 import { vectorLabels } from '../labels'
 import { SQUADRON } from '../../config'
 
-// A move's status, always an icon and a word (section 4 rule 8).
-export type MoveStatus = 'exposed' | 'partial' | 'blocked'
+// A move's status, always an icon and a word (section 4 rule 8). ANSWERED
+// is the debris call's alone, with SSA owned (v1.3 R7, Ken's ruling on
+// R6b's fresh eyes): the burn is free, but nothing is blocked, since HOLD
+// can still lose the satellite.
+export type MoveStatus = 'exposed' | 'partial' | 'blocked' | 'answered'
 export const STATUS: Record<MoveStatus, { word: string; icon: Sprite; token: Token }> = {
   exposed: { word: 'EXPOSED', icon: ICON_WARN, token: 'hostile' },
   partial: { word: 'PARTLY BLOCKED', icon: ICON_HALF, token: 'warn' },
   blocked: { word: 'BLOCKED', icon: ICON_CHECK, token: 'go' },
+  answered: { word: 'ANSWERED', icon: ICON_BURN, token: 'friendly' },
 }
 
 // The defense that answers the debris conjunction: not an attack, so it
@@ -38,7 +42,7 @@ const SSA: CountermeasureId = 'ssaManeuver'
 // or at full strength. The chain exploit's extra severity counts while
 // GNSS denial is live, as it does in the engine.
 export function moveStatus(state: Pick<GameState, 'conditions' | 'scenario'>, ev: ThreatEvent, counters: readonly CountermeasureId[]): MoveStatus {
-  if (ev.effect.special === 'debrisStrike') return counters.includes(SSA) ? 'blocked' : 'exposed'
+  if (ev.effect.special === 'debrisStrike') return counters.includes(SSA) ? 'answered' : 'exposed'
   const mitigation = mitigationOf(ev, counters)
   const effective = Math.max(0, ev.baseSeverity + chainBonusOf(ev, gnssDenied(state.conditions, state.scenario)) - mitigation)
   if (effective === 0) return 'blocked'
@@ -150,10 +154,11 @@ export const KEY_EXPOSED = 'full strength'
 export const KEY_BLOCKED = 'is safe'
 export const KEY_LIKELY = 'their pick'
 export const KEY_EITHER = 'a tie'
-export const confirmedNote = (ev: ThreatEvent) => (ev.effect.special === 'debrisStrike' ? 'your call when it arrives' : 'lands tonight')
+export const confirmedNote = (ev: ThreatEvent, status: MoveStatus) =>
+  ev.effect.special !== 'debrisStrike' ? 'lands tonight' : status === 'answered' ? 'your call; the burn is free' : 'your call when it arrives'
 export const INTEL_ROW = { none: 'Order an intel brief to name the moves.', ordered: 'Brief ordered. Names shown above.' } as const
 export const UNIDENTIFIED = 'Unidentified'
-export const tapHint = (status: MoveStatus) => (status === 'blocked' ? 'details ›' : 'defend ›')
+export const tapHint = (status: MoveStatus) => (status === 'blocked' || status === 'answered' ? 'details ›' : 'defend ›')
 export const REVEAL = 'reveal ›'
 // A condition's turns left, one meaning everywhere (v1.3 R6, G-103; brief
 // 6.5): the nights it will still press after the one being played. The

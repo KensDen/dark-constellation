@@ -68,6 +68,13 @@ export const ICON_CHECK = mono(`
   ........ .......i ......ii .....ii.
   i...ii.. ii.ii... .iii.... ..i.....
 `)
+// ↗ ANSWERED: the debris call with SSA owned, a burn out of the corridor
+// that costs nothing (v1.3 R7). Not a block: HOLD can still lose the
+// satellite.
+export const ICON_BURN = mono(`
+  ..iiiiii .....iii ....ii.i ...ii..i
+  ..ii...i .ii....i ii...... i.......
+`)
 // ✕ closes and cancels.
 export const ICON_CROSS = mono(`
   i......i .i....i. ..i..i.. ...ii...

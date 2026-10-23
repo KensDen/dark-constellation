@@ -54,7 +54,7 @@ const FullBrief = lazy(() => import('./FullBrief'))
 const preloadFullBrief = () => import('./FullBrief').catch(() => undefined)
 
 
-const TONE_TEXT: Record<string, string> = { hostile: 'text-dc-hostile', warn: 'text-dc-warn', go: 'text-dc-go' }
+const TONE_TEXT: Record<string, string> = { hostile: 'text-dc-hostile', warn: 'text-dc-warn', go: 'text-dc-go', friendly: 'text-dc-friendly' }
 
 export function StatusTag({ status }: { status: MoveStatus }) {
   const s = STATUS[status]
@@ -231,7 +231,7 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
         <div key={i} data-slot={slot.fixed ? 'fixed' : 'draw'} className="mt-1.5">
           {slot.fixed ? (
             <p className="font-mono text-[10px] tracking-widest text-dc-warn">
-              CONFIRMED <span className="text-dc-muted">· {confirmedNote(slot.moves[0].ev)}</span>
+              CONFIRMED <span className="text-dc-muted">· {confirmedNote(slot.moves[0].ev, slot.moves[0].status)}</span>
             </p>
           ) : (
             <>

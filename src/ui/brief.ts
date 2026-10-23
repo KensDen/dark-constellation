@@ -441,7 +441,7 @@ export function firstInputCopy(state: GameState, actions: TurnActions = NO_ORDER
   const slots = tonightSlots(state, actions)
   const firstDraw = slots.findIndex((s) => !s.fixed)
   for (const [i, slot] of slots.entries()) {
-    if (slot.fixed) out.push(`CONFIRMED · ${confirmedNote(slot.moves[0].ev)}`)
+    if (slot.fixed) out.push(`CONFIRMED · ${confirmedNote(slot.moves[0].ev, slot.moves[0].status)}`)
     else {
       out.push(WILL_HIT(slot.moves.length))
       if (i === firstDraw) out.push(slot.hidden ? TONIGHT_HIDDEN : TONIGHT_REASON)
