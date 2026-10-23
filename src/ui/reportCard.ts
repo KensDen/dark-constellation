@@ -22,14 +22,15 @@ export const SHARE_SQUARE: Record<StripColour, string> = {
   magenta: '\u{1F7E5}', // red square
 }
 
-// The grade line (brief 7.2): "Grade A · won T6 · score 81.4 / 70". T is
-// the turn the campaign ended on, and the score keeps its one decimal
+// The grade line (brief 7.2): "Grade A · won T6 · score 81.4, win line 70".
+// T is the turn the campaign ended on, and the score keeps its one decimal
 // place (v1.3 section 4: MAI is retired from every player screen). Since
 // v1.3 R5 it carries the win line it is read against (the R4 fresh-eyes
-// review: "score 56.6" told a friend nothing).
+// review: "score 56.6" told a friend nothing), and since R7 names it (R5's
+// question 4: "score 72.7 / 70" read as 72.7 out of 70).
 export function gradeLine(state: GameState): string {
   const mai = state.history[state.history.length - 1]?.maiScore ?? 0
-  return `Grade ${gradeOf(state)} · ${state.status === 'won' ? 'won' : 'lost'} T${state.history.length} · score ${mai.toFixed(1)} / ${state.scenario.winThreshold}`
+  return `Grade ${gradeOf(state)} · ${state.status === 'won' ? 'won' : 'lost'} T${state.history.length} · score ${mai.toFixed(1)}, win line ${state.scenario.winThreshold}`
 }
 
 // The Daily Op a share is for: its number, and whether this run is the
