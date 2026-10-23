@@ -187,7 +187,10 @@ describe('the library screen', () => {
     for (const focus of [undefined, 'downlink-eavesdropping']) {
       showLibrary(focus)
       const links = [...container.querySelectorAll('[data-field-library] a')]
-      expect(links.length, 'no links, so this asserts nothing').toBe(titles().length)
+      // Every entry's link, and, opened at a threat, its technique's (R6
+      // question 14).
+      expect(links.length, 'no links, so this asserts nothing').toBe(titles().length + (focus ? 1 : 0))
+      if (focus) expect(container.querySelector('[data-library-technique]'), 'LEARN MORE does not link the technique').not.toBeNull()
       for (const a of links) {
         expect(a.getAttribute('target'), a.getAttribute('href')!).toBe('_blank')
         const rel = (a.getAttribute('rel') ?? '').split(/\s+/)

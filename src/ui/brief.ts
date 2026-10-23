@@ -27,6 +27,7 @@ import {
   STATUS,
   FIRST_ORDERS_SET,
   SECOND_ORDER,
+  hiddenOrder,
   TONIGHT_HIDDEN,
   TONIGHT_REASON,
   UNIDENTIFIED,
@@ -451,7 +452,8 @@ export function firstInputCopy(state: GameState, actions: TurnActions = NO_ORDER
     const lines = firstOrders(state, actions)
     const done = lines.filter((l) => l.done).length
     out.push(...(done === lines.length ? [FIRST_ORDERS_SET] : ['FIRST ORDERS', ordersDone(done, lines.length), ...lines.map((l) => l.text)]))
-  } else if (state.turn === 2) out.push('SECOND ORDERS', SECOND_ORDER)
+  } else if (state.turn === 2)
+    out.push('SECOND ORDERS', tonightSlots(state, actions).some((s) => s.hidden) ? hiddenOrder(scenario.prices.intelBrief) : SECOND_ORDER)
   return out
 }
 

@@ -52,7 +52,7 @@ import Dock from './board/Dock'
 import Procure from './board/Procure'
 import type { SheetId } from './board/actions'
 import { ACTIONS, resolveLabel } from './board/actions'
-import { callIndex, tonightSlots } from './board/boardModel'
+import { MORE_BELOW, callIndex, tonightSlots } from './board/boardModel'
 import SystemSheet from './board/SystemSheet'
 import { conditionsOn, tilesByLayer, turnBudget } from './board/board'
 import { COUNT_SHARE, STRIKE_MS } from './board/strike'
@@ -259,12 +259,11 @@ export default function Game({
   // Where each sheet is in its steps, and what PROCURE has picked so far.
   // What PROCURE was opened from (v1.3 brief 5.4): a move, whose
   // defenses it highlights, or the drone FIRST ORDERS points at.
-  const [focus, setFocus] = useState<{ move: ThreatEvent } | { kind: AssetKind } | null>(null)
+  const [focus, setFocus] = useState<{ move: ThreatEvent } | { kind: AssetKind } | { intel: true } | null>(null)
   // The WORST CASE sum, shown on a tap (brief section 4 rule 5).
   const [showWorst, setShowWorst] = useState(false)
   // Nonces that pulse the dock's line, the intel row, and the move cards.
   const [pulseWorst, setPulseWorst] = useState(0)
-  const [pulseIntel, setPulseIntel] = useState(0)
   const [pulseMoves, setPulseMoves] = useState(0)
   const executeRef = useRef<HTMLButtonElement | null>(null)
   const [actions, setActions] = useState<TurnActions>(EMPTY_ACTIONS)
@@ -349,6 +348,23 @@ export default function Game({
   // reticle locks on (brief 5.5 item 1); not under reduced motion, where
   // there is no strike.
   const bodyRef = useRef<HTMLDivElement | null>(null)
+  // The board's cue when tonight's moves run under the dock (R6 question
+  // 14): checked after every render, since orders, slots and sheets change
+  // the column's height, and on scroll.
+  const boardBody = useRef<HTMLDivElement | null>(null)
+  const [moreBelow, setMoreBelow] = useState(false)
+  useEffect(() => {
+    const el = boardBody.current
+    const check = () => setMoreBelow(!!el && phase !== 'night' && phase !== 'aftermath' && el.scrollHeight - el.scrollTop - el.clientHeight > 4)
+    check()
+    if (!el) return
+    el.addEventListener('scroll', check, { passive: true })
+    window.addEventListener('resize', check)
+    return () => {
+      el.removeEventListener('scroll', check)
+      window.removeEventListener('resize', check)
+    }
+  })
   const strikeTile = strike && 'assetId' in strike ? strike.assetId : undefined
   useLayoutEffect(() => {
     if (!strikeTile || reducedMotion) return
@@ -854,6 +870,7 @@ export default function Game({
   const slots = deciding ? tonightSlots(state, actions) : []
   const onOrder = (id: OrderId) => {
     if (id === 'drone') return openSheet('procure', { kind: 'drone' })
+    if (id === 'intel') return openSheet('procure', { intel: true })
     if (id === 'worst') {
       setShowWorst(true)
       return setPulseWorst((n) => n + 1)
@@ -894,7 +911,7 @@ export default function Game({
         }}
       />
       <div ref={bodyRef} className="relative flex min-h-0 flex-1 flex-col">
-        <div data-board-body className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-1 flex flex-col gap-1.5">
+        <div ref={boardBody} data-board-body className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-1 flex flex-col gap-1.5">
           <AssetStrip
             tiles={tiles}
             chips={chipsOn}
@@ -926,9 +943,8 @@ export default function Game({
                   onToggleBrief={toggleBrief}
                   onIntel={() => setIntel({ kind: 'banner' })}
                   onTag={(tag) => setGlossaryFocus(tag)}
-                  pulseIntel={pulseIntel}
                   pulseMoves={pulseMoves}
-                  onReveal={() => setPulseIntel((n) => n + 1)}
+                  onReveal={() => openSheet('procure', { intel: true })}
                 />
                 <Orders state={state} actions={actions} onOrder={onOrder} />
               </>
@@ -937,6 +953,11 @@ export default function Game({
               open. */}
           {notice && sheet !== 'system' && <p className="font-mono text-xs text-dc-warn">{notice}</p>}
         </div>
+        {moreBelow && (
+          <p data-board-more aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 border-t border-dc-line/60 bg-dc-ground/90 py-0.5 text-center font-mono text-[10px] tracking-widest text-dc-ink">
+            {MORE_BELOW}
+          </p>
+        )}
         {/* THE SHEETS, over the dimmed board and under the dock, which
             stays live so EXECUTE is one tap away from inside PROCURE. The
             backdrop closes the sheet. */}

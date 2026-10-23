@@ -21,13 +21,13 @@ import { knownThreats } from '../../persistence'
 import PixelSprite from '../sprites/PixelSprite'
 import { ICON_CROSS, tinted } from '../sprites/icons'
 import { KIND_LAYER } from './board'
-import { PROCURE_KINDS, PROCURE_LABEL, matchNote, shortName, stopsLine, turns } from './boardModel'
+import { PROCURE_KINDS, PROCURE_LABEL, hiddenOrder, matchNote, shortName, stopsLine, turns } from './boardModel'
 
 export interface ProcureProps {
   state: GameState
   actions: TurnActions
   // The move the sheet was opened from, or the asset an order pointed at.
-  focus: { move: ThreatEvent } | { kind: AssetKind } | null
+  focus: { move: ThreatEvent } | { kind: AssetKind } | { intel: true } | null
   onToggleAsset: (kind: AssetKind) => void
   onToggleCounter: (id: CountermeasureId) => void
   onToggleBrief: () => void
@@ -79,6 +79,10 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
           <p data-match-note className="mt-2 text-xs text-dc-ink">
             <b>{shortName(focus.move)}</b>
             {matchNote(focus.move)}
+          </p>
+        ) : focus && 'intel' in focus ? (
+          <p data-match-note className="mt-2 text-xs text-dc-ink">
+            {hiddenOrder(scenario.prices.intelBrief)}
           </p>
         ) : (
           <p className="mt-2 text-xs text-dc-muted">Tap to add an order; tap again to cancel. Orders take effect when you EXECUTE.</p>
@@ -176,10 +180,11 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
             <button
               type="button"
               data-procure-intel
+              data-match={(focus && 'intel' in focus) || undefined}
               aria-pressed={actions.intelBrief}
               disabled={!actions.intelBrief && !afford(scenario.prices.intelBrief)}
               onClick={onToggleBrief}
-              className={`${ITEM} ${actions.intelBrief ? 'border-dc-go bg-dc-go/10' : 'border-dc-line bg-dc-chrome'}`}
+              className={`${ITEM} ${actions.intelBrief ? 'border-dc-go bg-dc-go/10' : focus && 'intel' in focus ? 'border-dc-friendly bg-dc-friendly/10' : 'border-dc-line bg-dc-chrome'}`}
             >
               <span className="flex w-full items-start justify-between gap-2">
                 <span className="text-sm font-semibold">Intel brief</span>

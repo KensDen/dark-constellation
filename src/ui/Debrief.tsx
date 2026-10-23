@@ -270,6 +270,9 @@ function FinalLines({ block, difficulty, played }: { block: ReturnType<typeof gr
   )
 }
 
+// A YYYYMMDD date key's day, at noon.
+const runDay = (dateKey: string) => new Date(Number(dateKey.slice(0, 4)), Number(dateKey.slice(4, 6)) - 1, Number(dateKey.slice(6, 8)), 12)
+
 // A YYYYMMDD date key a day earlier.
 function dayBefore(dateKey: string): string {
   const y = Number(dateKey.slice(0, 4))
@@ -344,13 +347,18 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
   // After midnight, a Daily Op finished late belongs to the day it started
   // on, and the next one is already open rather than counting down. Only
   // forward: a clock set back shows the countdown, never a number at or
-  // below the run's own.
+  // below the run's own. A practice debrief says today's is open while
+  // today's official run is not in (R6 question 14), rather than counting
+  // down to tomorrow's past one the player has not played.
   const nowN = dailyNumber(now)
-  const openNow = daily && nowN > daily.n ? nowN : null
-  // Yesterday's grade on a Daily Op's debrief (brief 6.10, M32).
+  const ledger = new LocalDailyLedger()
+  const openNow = daily ? (nowN > daily.n ? nowN : null) : ledger.official(dailyKey(now)) ? null : nowN
+  // The previous Daily Op's grade on a Daily Op's debrief (brief 6.10,
+  // M32), by its number: "yesterday" is the run's day before, which after
+  // midnight is not the clock's (R6 question 14).
   const yesterday = (() => {
     if (!daily) return null
-    const r = new LocalDailyLedger().official(dayBefore(daily.dateKey))
+    const r = ledger.official(dayBefore(daily.dateKey))
     return r ? gradeFor({ status: r.outcome, lossReason: r.lossReason, finalMai: r.mai, bonus: r.bonus }) : null
   })()
 
@@ -358,7 +366,9 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
   // at a glance (fresh-eyes review).
   const mode = daily ? `DAILY OP #${daily.n}` : 'PRACTICE'
   const after = daily && !official ? ' · PRACTICE' : ''
-  const streak = daily && official ? dailyStreak(now) : 0
+  // The streak to the run's own date, so one finished after midnight keeps
+  // its line (R6 question 14).
+  const streak = daily && official ? dailyStreak(runDay(daily.dateKey)) : 0
   const difficulty = DIFFICULTIES[state.difficulty].label
   const share = async () => {
     const outcome = await shareOrCopy(shareText(state, daily ? { n: daily.n, official } : undefined))
@@ -702,7 +712,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
           )}
           {yesterday && (
             <p data-yesterday className={EYEBROW}>
-              YESTERDAY&apos;S DAILY OP · GRADE {yesterday}
+              DAILY OP #{daily!.n - 1} · GRADE {yesterday}
             </p>
           )}
           <p data-countdown className="flex flex-wrap items-baseline gap-2">

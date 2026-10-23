@@ -16,6 +16,7 @@ import { FIELD_LIBRARY } from '../content/fieldLibrary'
 import { pairNote, pairedEvents, type LibraryEntry } from '../content/librarySchema'
 import { DC_BTN } from './buttons'
 import { libraryProgress } from './libraryProgress'
+import { techniqueLabel } from './labels'
 import './library.css'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -133,6 +134,16 @@ export default function FieldLibrary({
         <div data-library-filter={threat.id} className="mt-4 border-l-4 border-dc-go bg-dc-go/10 px-3 py-2">
           <p className={LABEL}>LEARN MORE</p>
           <p className="mt-1 text-sm font-bold text-dc-ink">{threat.name.split(' (')[0]}</p>
+          {/* The move's own technique, linked, ahead of the readings (R6
+              question 14: LEARN MORE named a technique and linked only the
+              framework's home page). */}
+          {threat.techniqueRefs[0] && (
+            <a data-library-technique href={threat.techniqueRefs[0].url} target="_blank" rel="noopener noreferrer" className="mt-1 block text-xs text-dc-friendly underline">
+              {techniqueLabel(threat.techniqueRefs[0])}, {threat.techniqueRefs[0].name}
+              <span aria-hidden="true">{'\u00a0'}↗</span>
+              <span className="dc-offscreen"> (opens in a new tab)</span>
+            </a>
+          )}
           <button
             type="button"
             className={`${DC_BTN} mt-2`}

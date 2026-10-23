@@ -213,6 +213,27 @@ describe('GUARD R2 (d): EXECUTE is off while REMAINING is below zero', () => {
   })
 })
 
+describe('the hidden moves (R6 question 14)', () => {
+  it('opens PROCURE at the intel brief from "reveal ›", from a hidden move, and from SECOND ORDERS, and says what to do', () => {
+    // Turn 2, no free brief: SECOND ORDERS asks for the brief before any move.
+    const second = gameAt(2)
+    expect(briefFree(second), 'turn 2 has a free brief, so its moves are named').toBe(false)
+    render(second)
+    const order = q('[data-order="intel"]')
+    expect(order, 'SECOND ORDERS does not ask for the intel brief while the moves are hidden').not.toBeNull()
+    expect(order!.textContent).toContain(`Order an intel brief (${second.scenario.prices.intelBrief} CR) to name tonight's moves`)
+    click(order!)
+    const note = () => q('[data-sheet="procure"] [data-match-note]')?.textContent
+    expect(note()).toBe(`Order an intel brief (${second.scenario.prices.intelBrief} CR) to name tonight's moves, then tap one to see what stops it.`)
+    expect(q('[data-procure-intel]')!.hasAttribute('data-match'), 'the intel brief is not the highlighted order').toBe(true)
+    // A tap on a hidden move does the same.
+    render(gameAt(3))
+    click(q('[data-move-unknown]')!)
+    expect(q('[data-sheet="procure"]'), 'a hidden move did not open PROCURE').not.toBeNull()
+    expect(note()).toContain('Order an intel brief')
+  })
+})
+
 describe("GUARD R2 (e): PROCURE's badge counts queued orders", () => {
   it('shows nothing until an order is queued (QC G-025), one per order, and fewer when one is cancelled', () => {
     render(gameAt(3))

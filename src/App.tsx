@@ -111,6 +111,12 @@ function App() {
     return store.loadAutosave() ? 'game' : 'title'
   })
   const [difficulty, setDifficulty] = useState<Difficulty>(() => deviceDifficulty())
+  // The title re-reads the device's difficulty each time it shows (R6
+  // question 14): a first finished game moves the default from EASY to
+  // STANDARD (ruling R2), and the title offers it without a reload.
+  useEffect(() => {
+    if (screen === 'title') setDifficulty(deviceDifficulty())
+  }, [screen])
   // The briefing either leads into an operation (a first PLAY) or is a
   // replay from the title.
   const [briefingNext, setBriefingNext] = useState<RestoredGame | null>(null)
@@ -193,7 +199,12 @@ function App() {
               <TerminalChrome status={STATUS[screen] ?? 'REFERENCE'} />
             </Suspense>
           )}
-          <div ref={scroller} data-screen={screen} className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col">
+          {/* Only the game screen scrolls this box; every other screen
+              scrolls the page, so the reading screens' sticky back bars
+              hold to the viewport (R6 question 14: with overflow set here
+              and the page scrolling, sticky held to a box that never
+              moved, and the bar scrolled away). */}
+          <div ref={scroller} data-screen={screen} className={`flex-1 min-h-0 flex flex-col ${screen === 'game' ? 'overflow-y-auto overscroll-contain' : ''}`}>
             <Suspense fallback={<ScreenLoading />}>
               {screen === 'title' && (
                 <Title

@@ -66,7 +66,10 @@ function Art({ tile, hit }: { tile: TileModel; hit?: TileHit | null }) {
   return (
     <span aria-hidden="true" data-art className="relative block">
       <PixelSprite sprite={sprite} name={`${kind}.${tile.kind === 'asset' ? tile.state : 'transit'}`} className="block" />
-      {hit && <PixelSprite key={hit.id} sprite={LOCK_ON} name="lock-on" className={`${hit.rest ? '' : 'dc-lock-on'} absolute inset-0 m-auto`} />}
+      {/* Sized to the art's own box (the square sprite keeps its shape
+          inside it), so the brackets stay off the call sign below, at the
+          desktop strip's zoom too (R6 question 14). */}
+      {hit && <PixelSprite key={hit.id} sprite={LOCK_ON} name="lock-on" className={`${hit.rest ? '' : 'dc-lock-on'} absolute inset-0 m-auto h-full w-full`} />}
       {hit?.landed &&
         !hit.rest &&
         HIT_BURST.map((frame, i) => (

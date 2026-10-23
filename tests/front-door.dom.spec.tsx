@@ -165,6 +165,22 @@ describe('GUARD R1 (a): the first-visit flow', () => {
     expect(autosave()!.state.difficulty, 'PLAY started another mode than it showed').toBe('standard')
   })
 
+  it('offers STANDARD on the title the first time it shows after a first finished campaign, with no reload (R6 question 14)', async () => {
+    localStorage.setItem(INTRO_SEEN_KEY, '1')
+    loadPage()
+    expect(container.querySelector('[data-play-mode]')!.textContent).toBe('EASY')
+    // A campaign finishes while the page stays loaded; then the title shows again.
+    localStorage.setItem(
+      'dc-scores',
+      JSON.stringify([{ outcome: 'won', mai: 80, seed: 1, turnsSurvived: 6, totalTurns: 6, scenarioId: 'first-light', difficulty: 'easy', recordedAt: '2026-10-20T00:00:00Z' }]),
+    )
+    click(container.querySelector('[data-read="library"]')!)
+    await settle()
+    click(byText(/^BACK TO TITLE$/)!)
+    await settle()
+    expect(container.querySelector('[data-play-mode]')!.textContent).toBe('STANDARD')
+  })
+
   it('shows the mode PLAY starts, and changes it in SYSTEM only', async () => {
     loadPage()
     // No chip, and no difficulty control anywhere on the title outside

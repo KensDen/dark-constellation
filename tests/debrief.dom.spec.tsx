@@ -560,8 +560,9 @@ describe("the debrief's stylesheet", () => {
 })
 
 describe('the countdown to the next Daily Op, and yesterday\'s grade', () => {
-  it('counts to the next local midnight, a second at a time', () => {
+  it('counts to the next local midnight, a second at a time, once today\'s Daily Op is in', () => {
     setReducedMotion(true)
+    localStorage.setItem('dc-daily', JSON.stringify({ '20260927': { n: 1, seed: 1, outcome: 'won', mai: 75, turns: 6, recordedAt: '2026-09-27T15:00:00Z' } }))
     show(WON())
     const text = () => container.querySelector('[data-countdown]')!.textContent
     expect(text()).toBe('NEXT DAILY OP IN08:00:00')
@@ -569,11 +570,28 @@ describe('the countdown to the next Daily Op, and yesterday\'s grade', () => {
     expect(text()).toBe('NEXT DAILY OP IN07:59:59')
   })
 
+  it("says today's Daily Op is open on a practice debrief while today's official run is not in (R6 question 14)", () => {
+    setReducedMotion(true)
+    show(WON())
+    expect(container.querySelector('[data-countdown]')!.textContent).toBe('DAILY OP #1 IS OPEN NOW')
+  })
+
   it('says the next one is open when a Daily Op finishes after the midnight that ended its date', () => {
     setReducedMotion(true)
     vi.setSystemTime(new Date(2026, 8, 28, 0, 30))
     show(WON(), TODAY, 'official')
     expect(container.querySelector('[data-countdown]')!.textContent).toBe('DAILY OP #2 IS OPEN NOW')
+  })
+
+  it('keeps the streak and names the previous Daily Op by number when a run finishes after midnight (R6 question 14)', () => {
+    setReducedMotion(true)
+    vi.setSystemTime(new Date(2026, 8, 29, 0, 30))
+    const rec = (n: number, outcome: string) => ({ n, seed: n, outcome, lossReason: outcome === 'lost' ? 'belowThreshold' : undefined, mai: outcome === 'won' ? 74 : 61.2, turns: 6, recordedAt: '2026-09-28T20:00:00Z' })
+    localStorage.setItem('dc-daily', JSON.stringify({ '20260927': rec(1, 'lost'), '20260928': rec(2, 'won') }))
+    show(WON(), { dateKey: '20260928', n: 2 }, 'official')
+    expect(container.querySelector('[data-streak]')!.textContent).toBe('DAILY OP STREAK 2')
+    expect(container.querySelector('[data-yesterday]')!.textContent).toBe('DAILY OP #1 · GRADE D')
+    expect(container.querySelector('[data-countdown]')!.textContent).toBe('DAILY OP #3 IS OPEN NOW')
   })
 
   it('counts down rather than naming an earlier Daily Op when the clock is set back', () => {
@@ -588,7 +606,8 @@ describe('the countdown to the next Daily Op, and yesterday\'s grade', () => {
     expect(container.querySelector('[data-yesterday]')).toBeNull()
     localStorage.setItem('dc-daily', JSON.stringify({ '20260927': { n: 1, seed: 1, outcome: 'lost', lossReason: 'belowThreshold', mai: 61.2, turns: 6, recordedAt: '2026-09-27T20:00:00Z' } }))
     show(WON(), { dateKey: '20260928', n: 2 }, 'official')
-    expect(container.querySelector('[data-yesterday]')!.textContent).toBe("YESTERDAY'S DAILY OP · GRADE D")
+    // By number: after midnight "yesterday" would name the wrong day (R6 question 14).
+    expect(container.querySelector('[data-yesterday]')!.textContent).toBe('DAILY OP #1 · GRADE D')
     // Free play has no yesterday.
     show(WON())
     expect(container.querySelector('[data-yesterday]')).toBeNull()

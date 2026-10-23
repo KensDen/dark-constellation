@@ -152,9 +152,11 @@ export const INTEL_ROW = { none: 'Order an intel brief to name the moves.', orde
 export const UNIDENTIFIED = 'Unidentified'
 export const tapHint = (status: MoveStatus) => (status === 'blocked' ? 'details ›' : 'defend ›')
 export const REVEAL = 'reveal ›'
+// The board's cue when its moves run under the dock (R6 question 14).
+export const MORE_BELOW = '▼ more below'
 
 // FIRST ORDERS and SECOND ORDERS (brief 5.3 item 4).
-export type OrderId = 'defense' | 'drone' | 'worst'
+export type OrderId = 'defense' | 'drone' | 'worst' | 'intel'
 
 export interface OrderLine {
   id: OrderId
@@ -189,6 +191,10 @@ export function firstOrders(state: GameState, actions: TurnActions): OrderLine[]
 export const ordersDone = (done: number, of: number) => `${done} OF ${of} DONE`
 export const FIRST_ORDERS_SET = 'First orders set. EXECUTE to play out the night.'
 export const SECOND_ORDER = 'New vector tonight. Tap a move to see what stops it. Moves marked EXPOSED will hit at full strength.'
+// SECOND ORDERS while tonight's moves are hidden, and what a tap on a hidden
+// move or "reveal ›" opens PROCURE at (R6 question 14: a player was told to
+// tap a move and look for EXPOSED while every move was Unidentified).
+export const hiddenOrder = (price: number) => `Order an intel brief (${price} CR) to name tonight's moves, then tap one to see what stops it.`
 
 
 // THE HUD's words (brief 5.3 item 1).

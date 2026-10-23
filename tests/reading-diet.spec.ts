@@ -45,6 +45,8 @@ import {
   REVEAL,
   SCORE_LABEL,
   SECOND_ORDER,
+  hiddenOrder,
+  tonightSlots,
   STATUS,
   UNIDENTIFIED,
   WORST_CASE,
@@ -533,7 +535,10 @@ describe('reading diet: the intel brief', () => {
               const lines = firstOrders(before, actions)
               if (lines.every((l) => l.done)) has(FIRST_ORDERS_SET, 'first orders set')
               else for (const l of lines) has(l.text, `the ${l.id} order`)
-            } else if (before.turn === 2) has(SECOND_ORDER, 'the second order')
+            } else if (before.turn === 2)
+              // While tonight's moves are hidden it asks for the intel brief
+              // first (R6 question 14).
+              has(tonightSlots(before, actions).some((s) => s.hidden) ? hiddenOrder(before.scenario.prices.intelBrief) : SECOND_ORDER, 'the second order')
           }
         }
       }

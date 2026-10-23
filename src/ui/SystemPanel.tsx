@@ -6,7 +6,7 @@
 // The list of controls, with the names the tests find them by, is
 // SYSTEM_CONTROLS in ./systemControls.ts; this file renders it.
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SoundPrefs } from '../audio'
 import type { Difficulty } from '../engine/types'
 import { DIFFICULTIES } from '../engine/rules'
@@ -46,6 +46,12 @@ export default function SystemPanel(p: SystemPanelProps) {
   const motionOff = useMotionSettingOff()
   const [pending, setPending] = useState<Difficulty | null>(null)
   const [leaving, setLeaving] = useState(false)
+  // The confirm scrolls into view as it opens, rather than opening half
+  // under the board's dock (R6 question 14).
+  const confirmRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (leaving) confirmRef.current?.scrollIntoView?.({ block: 'center' })
+  }, [leaving])
   const [code, setCode] = useState('')
   const [seedText, setSeedText] = useState('')
   const seed = parseSeed(seedText)
@@ -154,7 +160,7 @@ export default function SystemPanel(p: SystemPanelProps) {
           )}
         </div>
         {leaving && p.onTitle && (
-          <div role="group" aria-label="Leave this operation" data-confirm-leave className="mt-2 border-2 border-dc-warn/60 p-2">
+          <div ref={confirmRef} role="group" aria-label="Leave this operation" data-confirm-leave className="mt-2 border-2 border-dc-warn/60 p-2">
             <p className="text-sm text-dc-warn">Leave this operation? It is saved; CONTINUE picks it up.</p>
             <div className="mt-2 flex gap-2">
               <button type="button" className={SHEET_PRIMARY} onClick={p.onTitle}>

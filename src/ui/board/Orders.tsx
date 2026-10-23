@@ -12,7 +12,7 @@
 import type { GameState, TurnActions } from '../../engine/types'
 import PixelSprite from '../sprites/PixelSprite'
 import { ICON_CHECK, tinted } from '../sprites/icons'
-import { FIRST_ORDERS_SET, SECOND_ORDER, firstOrders, ordersDone, type OrderId, type OrderLine } from './boardModel'
+import { FIRST_ORDERS_SET, SECOND_ORDER, firstOrders, hiddenOrder, ordersDone, tonightSlots, type OrderId, type OrderLine } from './boardModel'
 
 export type { OrderId }
 
@@ -63,7 +63,11 @@ export default function Orders({ state, actions, onOrder }: OrdersProps) {
     return (
       <section aria-label="Second orders" data-orders="second" className="flex-none border border-dc-go/60 bg-dc-panel px-3 pt-1">
         <p className="font-mono text-[10px] tracking-widest text-dc-go">SECOND ORDERS</p>
-        <Order line={{ id: 'defense', text: SECOND_ORDER, done: false }} onOrder={onOrder} />
+        {tonightSlots(state, actions).some((s) => s.hidden) ? (
+          <Order line={{ id: 'intel', text: hiddenOrder(state.scenario.prices.intelBrief), done: false }} onOrder={onOrder} />
+        ) : (
+          <Order line={{ id: 'defense', text: SECOND_ORDER, done: false }} onOrder={onOrder} />
+        )}
       </section>
     )
   return null

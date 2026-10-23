@@ -2,15 +2,18 @@
 // design: the full terms live in LICENSE and the README.
 
 import { GAME_TITLE } from '../config'
+import { DC_BTN } from './buttons'
 
 export default function Credits({ onBack }: { onBack: () => void }) {
   return (
     <main className="min-h-screen p-4 sm:p-8 max-w-3xl mx-auto">
+      {/* The same 44 px control as every other BACK TO TITLE, on the left as
+          on LIBRARY and the scoreboard (R6 question 14). */}
       <div className="flex items-center justify-between gap-2">
-        <h1 className="font-display text-lg sm:text-xl text-phosphor">CREDITS</h1>
-        <button className={btn} onClick={onBack}>
+        <button type="button" className={DC_BTN} onClick={onBack}>
           BACK TO TITLE
         </button>
+        <h1 className="font-display text-lg sm:text-xl text-phosphor">CREDITS</h1>
       </div>
 
       <section className="mt-5 space-y-2 text-sm">
@@ -94,7 +97,7 @@ export default function Credits({ onBack }: { onBack: () => void }) {
         </p>
       </section>
 
-      <button className={`${btn} mt-6`} onClick={onBack}>
+      <button type="button" className={`${DC_BTN} mt-6`} onClick={onBack}>
         BACK TO TITLE
       </button>
     </main>
@@ -103,5 +106,3 @@ export default function Credits({ onBack }: { onBack: () => void }) {
 
 const REPO = 'https://github.com/KensDen/dark-constellation'
 
-const btn =
-  'font-mono border border-phosphor/60 text-phosphor px-3 py-1 text-sm hover:bg-phosphor/10 disabled:opacity-40'

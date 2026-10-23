@@ -102,7 +102,7 @@ export default function Glossary({
               <p className="text-xs mt-1 font-mono">
                 {focused.refs.map((r, i) => (
                   <span key={r.url}>
-                    {i > 0 ? ' | ' : ''}
+                    {i > 0 ? '\u00a0| ' : ''}
                     <a className="text-dc-friendly underline underline-offset-2" href={r.url} target="_blank" rel="noreferrer">
                       {r.label}
                     </a>
@@ -130,7 +130,7 @@ export default function Glossary({
                     <dd className="text-xs mt-1 font-mono">
                       {e.refs.map((r, i) => (
                         <span key={r.url}>
-                          {i > 0 ? ' | ' : ''}
+                          {i > 0 ? '\u00a0| ' : ''}
                           <a className="text-dc-friendly underline underline-offset-2" href={r.url} target="_blank" rel="noreferrer">
                             {r.label}
                           </a>

@@ -8,8 +8,9 @@
 // ./tonight, which is the engine's own pick.
 //
 // Without an intel brief a drawn slot's moves are Unidentified: a noise
-// field, the vector and layer, and "reveal ›", which brings the intel row
-// into view and pulses it. With the brief ordered the names decode in.
+// field, the vector and layer, and "reveal ›", which opens PROCURE at the
+// intel brief (R6 question 14: it used to pulse the intel row and reveal
+// nothing). With the brief ordered the names decode in.
 //
 // The full brief stays one tap away at the foot (QC G-026: it reads "Hide
 // full brief" while open, and it is closed whenever the card is not on
@@ -58,7 +59,9 @@ const TONE_TEXT: Record<string, string> = { hostile: 'text-dc-hostile', warn: 't
 export function StatusTag({ status }: { status: MoveStatus }) {
   const s = STATUS[status]
   return (
-    <span data-status={status} className={`inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] tracking-wider ${TONE_TEXT[s.token]}`}>
+    // PARTLY BLOCKED may break between its words in a narrow move card
+    // rather than run past its border (R6 question 14).
+    <span data-status={status} className={`inline-flex items-center gap-1 font-mono text-[10px] tracking-wider ${TONE_TEXT[s.token]}`}>
       <PixelSprite sprite={tinted(s.icon, s.token)} scale={1} name={`status-${status}`} />
       {s.word}
     </span>
@@ -132,8 +135,11 @@ function MoveCard({ read, onMove, decoding = false }: { read: MoveRead; onMove: 
           <Noise tone="go" />
         </span>
       )}
+      {/* One line, and close enough to the corner that LIKELY TARGET stays
+          inside a three-move card at 375 in an iPhone's mono face (R6
+          question 14: nowrap alone hung it 0.88 px past the card). */}
       {flag && (
-        <span data-flag-tag className={`absolute -top-2 right-2 ${FLAG_TAG} ${flag === 'CONFIRMED' ? 'bg-dc-warn' : 'bg-dc-hostile'}`}>
+        <span data-flag-tag className={`absolute -top-2 right-1 whitespace-nowrap ${FLAG_TAG} ${flag === 'CONFIRMED' ? 'bg-dc-warn' : 'bg-dc-hostile'}`}>
           {flag}
         </span>
       )}
@@ -175,20 +181,18 @@ export interface TonightProps {
   onToggleBrief: () => void
   onIntel: () => void
   onTag: (tag: string) => void
-  // Nonces that, when they change, pulse the intel row or the moves.
-  pulseIntel: number
+  // A nonce that, when it changes, pulses the moves.
   pulseMoves: number
   onReveal: () => void
 }
 
-export default function Tonight({ state, slots, brief, briefPrice, onMove, onToggleBrief, onIntel, onTag, pulseIntel, pulseMoves, onReveal }: TonightProps) {
+export default function Tonight({ state, slots, brief, briefPrice, onMove, onToggleBrief, onIntel, onTag, pulseMoves, onReveal }: TonightProps) {
   const named = brief !== 'none'
   const intro = planFor(state.scenario, state.turn)?.intro ?? ''
   const reduced = useReducedMotion()
   const decode = useCueClass(named ? 'named' : null, 'dc-manifest-in', reduced)
   // The green noise over the names, for the decode's own length.
   const decoding = useCueClass(named ? 'named' : null, 'dc-decode', reduced, DECODE_MS) !== ''
-  const pulse = useCueClass(pulseIntel || null, 'dc-pulse-friendly', reduced)
   // Each turn's intro arrives as a transmission (the turn-start cue).
   const arriving = useCueClass(state.turn, 'dc-transmission-in', reduced)
   const flashMoves = useCueClass(pulseMoves || null, 'dc-pulse-hostile', reduced)
@@ -196,10 +200,6 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
   useEffect(() => {
     if (pulseMoves) card.current?.querySelector('[data-move]')?.scrollIntoView?.({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
   }, [pulseMoves, reduced])
-  const intelRow = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (pulseIntel) intelRow.current?.scrollIntoView?.({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
-  }, [pulseIntel, reduced])
   const [open, setOpen] = useState(false)
   useEffect(() => {
     void preloadFullBrief()
@@ -265,7 +265,7 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
         </div>
       ))}
       {brief !== 'free' && (
-        <div ref={intelRow} data-intel-row className={`mt-2 flex items-center justify-between gap-2 ${pulse}`}>
+        <div data-intel-row className="mt-2 flex items-center justify-between gap-2">
           <p className="text-xs text-dc-muted">{INTEL_ROW[brief === 'ordered' ? 'ordered' : 'none']}</p>
           <button
             type="button"
