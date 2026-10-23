@@ -48,7 +48,7 @@ export const BEATS: readonly Beat[] = [
     caption: ['OPS FLOOR', 'ON WATCH'],
     // The turn count and the win line from the scenario (R6 question 9:
     // README says every count on screen derives from the data).
-    text: `You are the mission assurance architect. ${DEFAULT_SCENARIO.totalTurns} turns. 2 jobs: keep mission assurance at ${DEFAULT_SCENARIO.winThreshold} or above, and build the dossier on COLDVEIL. Every move they make teaches you how they work. Your first intel brief is already on your desk.`,
+    text: `You are the mission assurance architect. ${DEFAULT_SCENARIO.totalTurns} turns. 2 jobs: keep mission assurance at ${DEFAULT_SCENARIO.winThreshold} or above, and build the Dossier on COLDVEIL. Every move they make teaches you how they work. Your first intel brief is already on your desk.`,
   },
 ]
 
