@@ -121,7 +121,9 @@ const WORST_HIT_CARD_HEADLINE_AND_LINE = 44
 // The deciding board's reading at its longest over the swept lines of play
 // (v1.3 R2), pinned so a change that moves it comes here and says so;
 // src/ui/brief.ts quotes it as the reason FIRST_INPUT_WORD_BUDGET is 150.
-const WORST_BOARD = 142
+// 150 since R6 (Decisions Q11): the rule line's true words take 4 more on
+// each of turn 5's two slots; at the bound, with no word to spare.
+const WORST_BOARD = 150
 
 const tokensOf = (text: string) => new Set(text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
 

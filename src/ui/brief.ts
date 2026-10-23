@@ -18,7 +18,9 @@ import {
   FULL_BRIEF_OPEN,
   INTEL_ROW,
   KEY_BLOCKED,
+  KEY_EITHER,
   KEY_EXPOSED,
+  KEY_LIKELY,
   REMAINING,
   REVEAL,
   SCORE_LABEL,
@@ -83,7 +85,10 @@ import {
 // orders card, which say more on purpose: each move by name with its
 // status, the key on turns 1 and 2, and the turn's orders. Measured over
 // every swept line of play the board reads at most 142 words (the
-// prepared line, turn 5; turn 1 reads 124), so the bound is 150. The
+// prepared line, turn 5; turn 1 reads 124), so the bound is 150. Since R6
+// (Decisions Q11) the rule line says what the engine does, "They go for the
+// move your defenses take the fewest points off.", four words longer on
+// each slot: the worst board reads 150, at the bound. The
 // chrome bound stays 40: the board's labels and controls measure 29 at
 // worst. The headline cap stays for the full brief's own lines.
 export const HEADLINE_WORD_MAX = 8
@@ -433,7 +438,8 @@ export function firstInputCopy(state: GameState, actions: TurnActions = NO_ORDER
     if (slot.fixed) out.push(`CONFIRMED · ${confirmedNote(slot.moves[0].ev)}`)
     else {
       out.push(WILL_HIT(slot.moves.length), slot.hidden ? TONIGHT_HIDDEN : TONIGHT_REASON)
-      if (!slot.hidden && state.turn <= 2) out.push(`${STATUS.exposed.word} ${KEY_EXPOSED}`, `${STATUS.blocked.word} ${KEY_BLOCKED}`)
+      if (!slot.hidden && state.turn <= 2)
+        out.push(`${STATUS.exposed.word} ${KEY_EXPOSED}`, `${STATUS.blocked.word} ${KEY_BLOCKED}`, `LIKELY TARGET ${KEY_LIKELY}`, `EITHER ${KEY_EITHER}`)
     }
     for (const { ev, status, flag } of slot.moves) {
       if (slot.hidden) out.push(UNIDENTIFIED, vectorTo(ev))

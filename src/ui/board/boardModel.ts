@@ -138,10 +138,15 @@ export const shortName = (ev: Pick<ThreatEvent, 'name'>) => ev.name.split(' (')[
 export const WILL_HIT_LEAD = 'COLDVEIL WILL HIT '
 export const willHitCount = (n: number) => `1 OF ${n}`
 export const WILL_HIT = (n: number) => `${WILL_HIT_LEAD}${willHitCount(n)}`
-export const TONIGHT_REASON = "They go for the one you've covered least."
+// The adversary's rule as the engine plays it (R6 question 11): the move
+// the defenses take the fewest points off, so a BLOCKED move can tie a
+// PARTLY BLOCKED one when both take the same off.
+export const TONIGHT_REASON = 'They go for the move your defenses take the fewest points off.'
 export const TONIGHT_HIDDEN = 'The names are hidden. An intel brief reveals them.'
 export const KEY_EXPOSED = 'will hit'
 export const KEY_BLOCKED = 'is safe'
+export const KEY_LIKELY = 'their pick'
+export const KEY_EITHER = 'a tie: one of these'
 export const confirmedNote = (ev: ThreatEvent) => (ev.effect.special === 'debrisStrike' ? 'your call when it arrives' : 'lands tonight')
 export const INTEL_ROW = { none: 'Order an intel brief to name the moves.', ordered: 'Brief ordered. Names shown above.' } as const
 export const UNIDENTIFIED = 'Unidentified'

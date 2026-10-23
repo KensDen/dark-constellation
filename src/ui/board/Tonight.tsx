@@ -27,7 +27,9 @@ import {
   INTEL_ROW,
   briefButton,
   KEY_BLOCKED,
+  KEY_EITHER,
   KEY_EXPOSED,
+  KEY_LIKELY,
   REVEAL,
   STATUS,
   TONIGHT_HIDDEN,
@@ -105,6 +107,9 @@ function Noise({ tone = 'muted' }: { tone?: keyof typeof NOISE_RGB }) {
   return <canvas ref={ref} aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full [image-rendering:pixelated]" />
 }
 
+// A move card's flag, and the same chip in the key.
+const FLAG_TAG = 'px-1 font-mono text-[10px] tracking-wider text-dc-ground'
+
 function MoveCard({ read, onMove, decoding = false }: { read: MoveRead; onMove: (ev: ThreatEvent) => void; decoding?: boolean }) {
   const { ev, status, flag } = read
   // The status changes the moment an order lands; a short highlight says so,
@@ -128,7 +133,7 @@ function MoveCard({ read, onMove, decoding = false }: { read: MoveRead; onMove: 
         </span>
       )}
       {flag && (
-        <span data-flag-tag className={`absolute -top-2 right-2 px-1 font-mono text-[10px] tracking-wider ${flag === 'CONFIRMED' ? 'bg-dc-warn' : 'bg-dc-hostile'} text-dc-ground`}>
+        <span data-flag-tag className={`absolute -top-2 right-2 ${FLAG_TAG} ${flag === 'CONFIRMED' ? 'bg-dc-warn' : 'bg-dc-hostile'}`}>
           {flag}
         </span>
       )}
@@ -239,6 +244,14 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
                   </span>
                   <span className="inline-flex items-center gap-1">
                     <StatusTag status="blocked" /> {KEY_BLOCKED}
+                  </span>
+                  {/* The flags too (R6 question 11): the rule names a pick and
+                      a tie, so the key says which is which. */}
+                  <span className="inline-flex items-center gap-1">
+                    <span className={`${FLAG_TAG} bg-dc-hostile`}>LIKELY TARGET</span> {KEY_LIKELY}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className={`${FLAG_TAG} bg-dc-hostile`}>EITHER</span> {KEY_EITHER}
                   </span>
                 </p>
               )}
