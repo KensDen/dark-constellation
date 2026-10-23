@@ -20,6 +20,7 @@ import { strikeIntensity, useSilenceSound, useSound } from '../../audio'
 import type { DebrisChoice, GameState } from '../../engine/types'
 import { dossier, fileCard, knownThreats } from '../../persistence'
 import { callSigns } from '../board/board'
+import { stoppedByLine } from '../board/boardModel'
 import { LOCK_SHARE, STRIKE_MS, strikeOf, type Strike } from '../board/strike'
 import { useReducedMotion } from '../cues/motion'
 import { maiScore } from '../../engine/scoring'
@@ -263,7 +264,7 @@ export default function Night(p: NightProps) {
         <IntelFile
           key={`intel-${stage.i}`}
           def={step.def}
-          stoppedBy={step.def.counters.map((c) => scenario.countermeasures.find((x) => x.id === c)?.name ?? c)}
+          stoppedBy={stoppedByLine(step.def, scenario)}
           filed={stage.filed}
           total={dossierCount().total}
           reduced={reduced}

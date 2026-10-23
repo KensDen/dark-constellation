@@ -46,7 +46,7 @@ trade off against each other.
   vanish. They persist for a set number of turns, shown on the board, press the meters every
   turn, and stack.
 - **The BLACKOUT CHAIN.** The signature move: deny GNSS so the drones fall back to LiDAR
-  odometry, then attack the only sensor they have left. Layered sensing breaks it. Single-sensor
+  odometry, then attack the only sensor they have left. Layered sensing blunts it. Single-sensor
   dependence is a vulnerability an adversary can manufacture on demand.
 - **The intel brief.** Free on the first night, then a cost each turn: without it the moves
   COLDVEIL is choosing between stay unnamed.

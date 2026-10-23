@@ -25,7 +25,7 @@
 import { CONDITION_PRESSURE_PER_SEVERITY, DEPLOY_TURNS, METER_DAMAGE_PER_SEVERITY, mitigationOf, scaled } from '../../engine/reducer'
 import { maiScore } from '../../engine/scoring'
 import type { AssetKind, Countermeasure, GameState, PendingAsset, ResolvedEvent, ThreatEvent, TurnRecord } from '../../engine/types'
-import { callIndex } from '../board/boardModel'
+import { callIndex, shortName, stopVerb } from '../board/boardModel'
 import type * as copy from './nightCopy'
 
 export type StepKind = 'threat' | 'debris' | 'opportunity'
@@ -199,6 +199,20 @@ export function defensesFor(def: ThreatEvent, owned: readonly string[], scenario
   const held = def.counters.find((c) => owned.includes(c))
   const missing = def.counters.find((c) => !owned.includes(c))
   return { held: held ? by(held) : undefined, missing: missing ? by(missing) : undefined }
+}
+
+// What a defense answers that the player can name: met or named threats
+// only (ruling R1), split into what it stops alone and what it only blunts
+// (the stops rule, R6 question 2), this move's group and this move first.
+export function stopsKnown(cm: Countermeasure, def: ThreatEvent, scenario: GameState['scenario'], known: ReadonlySet<string>) {
+  const all = [def, ...scenario.events.filter((e) => e.id !== def.id && e.counters.includes(cm.id) && known.has(e.id))]
+  const of = (verb: 'stops' | 'blunts') => all.filter((e) => (stopVerb(cm.id, e) === 'stops') === (verb === 'stops')).map(shortName)
+  const first = stopVerb(cm.id, def) === 'stops' ? 'stops' : 'blunts'
+  const second = first === 'stops' ? 'blunts' : 'stops'
+  return [
+    [first, of(first)],
+    [second, of(second)],
+  ] as const
 }
 
 // THE DEBRIS CALL (brief 5.5 item 5): where the call sits in the night is

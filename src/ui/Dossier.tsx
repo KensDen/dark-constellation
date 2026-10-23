@@ -19,10 +19,10 @@ import { Suspense, lazy, useRef, useState } from 'react'
 import { DEFAULT_SCENARIO } from '../content'
 import type { ThreatEvent } from '../engine/types'
 import { dossier } from '../persistence'
-import { shortName } from './board/boardModel'
+import { shortName, stoppedByLine } from './board/boardModel'
 import { DC_BTN } from './buttons'
 import { techniqueLabel } from './labels'
-import { HOOK, SOURCE, STOPPED_BY, TECHNIQUE, vectorWord } from './night/nightCopy'
+import { HOOK, SOURCE, TECHNIQUE, vectorWord } from './night/nightCopy'
 import { dossierCount } from './titleStatus'
 
 const LibraryUnavailable = ({ onBack }: { onBack?: () => void }) => (
@@ -41,7 +41,7 @@ const num = (i: number) => String(i + 1).padStart(2, '0')
 function FiledCard({ def, index, onLearnMore }: { def: ThreatEvent; index: number; onLearnMore: (id: string, from: HTMLElement) => void }) {
   const ref = def.techniqueRefs[0]
   const source = def.learnMoreCards[0]?.sources[0]
-  const stoppedBy = def.counters.map((c) => DEFAULT_SCENARIO.countermeasures.find((x) => x.id === c)?.name ?? c)
+  const stoppedBy = stoppedByLine(def, DEFAULT_SCENARIO)
   return (
     <details
       data-dossier-card={def.id}
@@ -74,8 +74,8 @@ function FiledCard({ def, index, onLearnMore }: { def: ThreatEvent; index: numbe
       <div className="border-t border-dc-line px-2.5 pb-2.5 pt-2 text-sm">
         <p className="leading-relaxed">{def.blurb}</p>
         <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-1 font-mono text-[11px] text-dc-muted">
-          <dt>{STOPPED_BY}</dt>
-          <dd className="text-dc-ink">{stoppedBy.join('; ')}</dd>
+          <dt>{stoppedBy.label}</dt>
+          <dd className="text-dc-ink">{stoppedBy.text}</dd>
           {ref && (
             <>
               <dt>{TECHNIQUE}</dt>

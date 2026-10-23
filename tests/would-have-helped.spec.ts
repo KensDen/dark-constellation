@@ -93,8 +93,14 @@ describe('what the blocks say', () => {
 
   it('says what would have helped with its price, what it stops, and that PROCURE has it next turn', () => {
     expect(say(copy.wouldHaveHelped(nameOf(id), costOf(id)))).toBe(`What would have helped: ${nameOf(id)}, ${costOf(id)} CR.`)
-    expect(copy.itStops(['GNSS spoofing'])).toBe('It stops GNSS spoofing.')
-    expect(copy.itStops(['GNSS spoofing', 'GNSS jamming'])).toBe('It stops GNSS spoofing and GNSS jamming.')
+    expect(copy.itStops([['stops', ['GNSS spoofing']]])).toBe('It stops GNSS spoofing.')
+    expect(copy.itStops([['stops', ['GNSS spoofing', 'GNSS jamming']]])).toBe('It stops GNSS spoofing and GNSS jamming.')
+    // A defense that only blunts a move says so, its move's group first
+    // (R6 question 2).
+    expect(copy.itStops([['blunts', ['BLACKOUT CHAIN']], ['stops', ['LiDAR blinding']]])).toBe('It blunts BLACKOUT CHAIN and stops LiDAR blinding.')
+    expect(copy.itStops([['blunts', ['BLACKOUT CHAIN']], ['stops', []]])).toBe('It blunts BLACKOUT CHAIN.')
+    // Past two names, this move and a count (the line stays a line).
+    expect(copy.itStops([['blunts', ['A']], ['stops', ['B', 'C']]])).toBe('It blunts A and answers 2 more threats you have met.')
     // Cut from the brief's "...next turn with that written on it." by Ken,
     // 22 October 2026 (R3 report, question 4).
     expect(copy.IN_PROCURE).toBe('It is in PROCURE next turn.')

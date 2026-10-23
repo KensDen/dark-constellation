@@ -196,7 +196,10 @@ describe('GUARD R4 (c): the Dossier counts its filed cards, and keeps them acros
     card.open = true
     const body = card.textContent ?? ''
     expect(body).toContain(def.blurb)
-    for (const label of ['STOPPED BY', 'TECHNIQUE', 'SOURCE']) expect(body).toContain(label)
+    // Ransomware is strength 3 against one defense that takes 2 off: it is
+    // blunted, never stopped alone (R6 question 2).
+    for (const label of ['BLUNTED BY', 'TECHNIQUE', 'SOURCE']) expect(body).toContain(label)
+    expect(body).not.toContain('STOPPED BY')
     for (const id of def.counters) expect(body).toContain(DEFAULT_SCENARIO.countermeasures.find((c) => c.id === id)!.name)
     await tap(card.querySelector('[data-learn-more]')!)
     await settle()

@@ -13,9 +13,9 @@
 import { GRADE_THRESHOLDS, bonusOf, gradeOf, gradedScore, hitsTaken, type Grade } from '../engine/grade'
 import { newGame } from '../engine/reducer'
 import { maiScore } from '../engine/scoring'
-import type { GameState, LearnedHow } from '../engine/types'
+import type { CountermeasureId, GameState, LearnedHow } from '../engine/types'
 import { callSigns } from './board/board'
-import { shortName } from './board/boardModel'
+import { shortName, stopVerb, type StopVerb } from './board/boardModel'
 import { kindLabels } from './labels'
 
 const one = (n: number) => Math.round(n * 10) / 10
@@ -156,11 +156,19 @@ export function filedThisGame(state: GameState, before: ReadonlySet<string> | nu
   return out
 }
 
-// WHAT YOU CAN NOW SAY (brief 5.6 and 6.9): the engine's learned list.
-export const SAY_VERB: Record<LearnedHow, string> = {
-  held: 'stopped',
-  reduced: 'blunted',
-  missed: 'would have stopped',
+// WHAT YOU CAN NOW SAY (brief 5.6 and 6.9): the engine's learned list,
+// each verb true by the game's own rule (R6 questions 2 and 7): a block
+// stopped it; a partial block partly blocked it; a defense not owned
+// would have stopped it only where it blocks the move alone, and would
+// have blunted it otherwise. The debris call is answered, never stopped.
+export function sayVerb(how: LearnedHow, verb: StopVerb): string {
+  if (how === 'held') return verb === 'answers' ? 'answered' : 'stopped'
+  if (how === 'reduced') return 'partly blocked'
+  return verb === 'stops' ? 'would have stopped' : verb === 'blunts' ? 'would have blunted' : 'would have answered'
+}
+const verbOf = (state: GameState, counter: CountermeasureId, threat: string): StopVerb => {
+  const ev = state.scenario.events.find((e) => e.id === threat)
+  return ev ? stopVerb(counter, ev) : 'stops'
 }
 
 // One line a defense and a verb, its threats together (v1.3 R5, Ken's
@@ -170,6 +178,7 @@ export interface Saying {
   defense: string
   threats: string[]
   how: LearnedHow
+  verb: string
 }
 
 // What held first, then what blunted, then what would have stopped: the
@@ -181,10 +190,11 @@ export function canSay(state: GameState): Saying[] {
   for (const l of state.learned) {
     const defense = defenseOf(state, l.counter)?.name ?? l.counter
     const threat = threatName(state, l.threat)
-    const line = out.find((s) => s.defense === defense && s.how === l.how)
+    const verb = sayVerb(l.how, verbOf(state, l.counter, l.threat))
+    const line = out.find((s) => s.defense === defense && s.verb === verb)
     if (line) {
       if (!line.threats.includes(threat)) line.threats.push(threat)
-    } else out.push({ defense, threats: [threat], how: l.how })
+    } else out.push({ defense, threats: [threat], how: l.how, verb })
   }
   return out.sort((a, b) => SAY_ORDER[a.how] - SAY_ORDER[b.how])
 }
@@ -198,6 +208,8 @@ export interface NextTime {
   turn: number
   // The turn the defense was procured, when it was, too late for the move.
   procured: number | null
+  // Whether it stops the move alone, blunts it, or answers the debris call.
+  verb: StopVerb
 }
 
 export function nextTime(state: GameState): NextTime | null {
@@ -212,6 +224,7 @@ export function nextTime(state: GameState): NextTime | null {
     threat: threatName(state, miss.threat),
     turn: rec?.turn ?? 1,
     procured: state.history.find((r) => r.purchases.some((p) => p.startsWith(`${name} (`)))?.turn ?? null,
+    verb: verbOf(state, miss.counter, miss.threat),
   }
 }
 

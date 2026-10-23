@@ -49,7 +49,6 @@ import { hms, useNow } from './dailyClock'
 import { useCountUp, useReducedMotion } from './cues/motion'
 import {
   FILED_SHOWN,
-  SAY_VERB,
   canSay,
   clock,
   debriefStats,
@@ -70,7 +69,7 @@ import { ICON_CHECK, ICON_CROSS, ICON_HALF, ICON_SPARK, tinted } from './sprites
 import { SHIELD_PLAIN } from './sprites/effects'
 import PixelSprite from './sprites/PixelSprite'
 import { dailyStreak, dossierCount } from './titleStatus'
-import { shortName } from './board/boardModel'
+import { shortName, type StopVerb } from './board/boardModel'
 import './debrief.css'
 
 // The Dossier, opened over the debrief so BACK returns here: the game is
@@ -117,6 +116,9 @@ const SHARE_NOTICE: Record<ShareOutcome, string> = {
 }
 
 // What a saying is, as an icon and a word (section 4 rule 8).
+// NEXT TIME's verb after "would have", by the stops rule.
+const NEXT_VERB: Record<StopVerb, string> = { stops: 'stopped', blunts: 'blunted', answers: 'answered' }
+
 const SAY_ICON: Record<LearnedHow, { icon: typeof ICON_CHECK; tone: 'go' | 'warn' | 'hostile' }> = {
   held: { icon: ICON_CHECK, tone: 'go' },
   reduced: { icon: ICON_HALF, tone: 'warn' },
@@ -510,10 +512,10 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
           {sayings.length > 0 ? (
             <ul className="mt-1.5 flex flex-col gap-1">
               {sayings.map((s) => (
-                <li key={`${s.defense}-${s.how}`} data-saying={s.how} className="flex items-start gap-2 bg-dc-chrome px-2 py-1.5 text-[13px] leading-snug">
+                <li key={`${s.defense}-${s.verb}`} data-saying={s.how} className="flex items-start gap-2 bg-dc-chrome px-2 py-1.5 text-[13px] leading-snug">
                   <PixelSprite sprite={tinted(SAY_ICON[s.how].icon, SAY_ICON[s.how].tone)} scale={1} className="mt-1 flex-none" name={`say-${s.how}`} />
                   <span>
-                    <b>{s.defense}</b> <span className={s.how === 'missed' ? 'text-dc-hostile' : ''}>{SAY_VERB[s.how]}</span>{' '}
+                    <b>{s.defense}</b> <span className={s.how === 'missed' ? 'text-dc-hostile' : ''}>{s.verb}</span>{' '}
                     {s.threats.map((t, i) => (
                       <span key={t}>
                         {i > 0 && (i === s.threats.length - 1 ? ' and ' : ', ')}
@@ -537,12 +539,12 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
             <p className="mt-1 text-[13px] leading-snug">
               {next.procured !== null ? (
                 <>
-                  You procured <b>{next.defense}</b> on turn {next.procured}. Procure it by turn {next.turn} and it stops <b>{next.threat}</b>, which got through
+                  You procured <b>{next.defense}</b> on turn {next.procured}. Procure it by turn {next.turn} and it {next.verb} <b>{next.threat}</b>, which got through
                   on turn {next.turn}.
                 </>
               ) : (
                 <>
-                  Procure <b>{next.defense}</b> ({next.price} CR) by turn {next.turn}. It would have stopped <b>{next.threat}</b>, which got through on turn{' '}
+                  Procure <b>{next.defense}</b> ({next.price} CR) by turn {next.turn}. It would have {NEXT_VERB[next.verb]} <b>{next.threat}</b>, which got through on turn{' '}
                   {next.turn}.
                 </>
               )}

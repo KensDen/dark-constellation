@@ -12,7 +12,7 @@
 import { adversaryPicks } from '../../engine/adversary'
 import { worstCase } from '../../engine/worstCase'
 import { COVERAGE_PER_KIND, coverage } from '../../engine/scoring'
-import { CHAIN_BONUS, briefActive, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, planFor } from '../../engine/rules'
+import { CHAIN_BONUS, PRIMARY_MITIGATION, SECONDARY_MITIGATION, briefActive, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, planFor } from '../../engine/rules'
 import { answerKey } from '../../engine/learning'
 import type { AssetKind, Countermeasure, CountermeasureId, GameState, ThreatEvent, TurnActions } from '../../engine/types'
 import type { WorstCase } from '../../engine/worstCase'
@@ -77,11 +77,57 @@ export function tonightSlots(state: GameState, actions: TurnActions): SlotView[]
   }))
 }
 
-// The defenses that stop a move, best first: the primary (the threat's
-// first counter) blocks the most (brief 5.4, "a note says which blocks the
-// most").
+// The defenses that answer a move, best first: the primary (the threat's
+// first counter) takes the most off (brief 5.4, "a note says which blocks
+// the most").
 export function stoppedBy(ev: ThreatEvent): CountermeasureId[] {
   return ev.effect.special === 'debrisStrike' ? [SSA] : [...ev.counters]
+}
+
+// THE STOPS RULE (R6 question 2): a defense stops a move on its own only
+// when its own points reach the move's strength (the primary takes
+// PRIMARY_MITIGATION, each other SECONDARY_MITIGATION); otherwise it blunts
+// it. The debris conjunction is never stopped: no attack, no mitigation,
+// so its defense answers the call instead. Every "stops" on PROCURE, the
+// hit card, the intel card, the Dossier, the debrief and FIRST ORDERS reads
+// this, so the game says "stops" only where its own rule blocks.
+export type StopVerb = 'stops' | 'blunts' | 'answers'
+export function stopVerb(cm: CountermeasureId, ev: ThreatEvent): StopVerb {
+  if (ev.effect.special === 'debrisStrike') return 'answers'
+  const i = ev.counters.indexOf(cm)
+  const points = i === 0 ? PRIMARY_MITIGATION : i > 0 ? SECONDARY_MITIGATION : 0
+  return points >= ev.baseSeverity ? 'stops' : 'blunts'
+}
+
+// What the debris call's defense does, said where others say "stops".
+export const STOPPED_BY = 'STOPPED BY'
+export const ANSWERED_BY = 'ANSWERED BY'
+export const BLUNTED_BY = 'BLUNTED BY'
+export const SSA_ANSWER = 'exact odds, free burn'
+export const ssaLine = () => `Makes the debris call: ${SSA_ANSWER}.`
+
+// A move's defenses in the intel card's and the Dossier's words: the ones
+// that block it alone under STOPPED BY, then "also blunts:" the rest; when
+// none blocks it alone, BLUNTED BY, and whether together they block it.
+export function stoppedByLine(ev: ThreatEvent, scenario: GameState['scenario']): { label: string; text: string } {
+  const name = (id: CountermeasureId) => scenario.countermeasures.find((c) => c.id === id)?.name ?? id
+  if (ev.effect.special === 'debrisStrike') return { label: ANSWERED_BY, text: `${name(SSA)} (${SSA_ANSWER})` }
+  const stops = ev.counters.filter((c) => stopVerb(c, ev) === 'stops').map(name)
+  const blunts = ev.counters.filter((c) => stopVerb(c, ev) === 'blunts').map(name)
+  if (stops.length) return { label: STOPPED_BY, text: `${stops.join('; ')}${blunts.length ? `; also blunts: ${blunts.join('; ')}` : ''}` }
+  const together = mitigationOf(ev, ev.counters) >= ev.baseSeverity
+  return { label: BLUNTED_BY, text: `${blunts.join('; ')}${together && blunts.length > 1 ? ' (together they block it)' : ''}` }
+}
+
+// PROCURE's note over the defenses a tapped move highlights.
+export function matchNote(ev: ThreatEvent): string {
+  const n = ev.counters.length
+  if (ev.effect.special === 'debrisStrike') return ` is answered by the highlighted defense: ${SSA_ANSWER}.`
+  const primaryStops = stopVerb(ev.counters[0], ev) === 'stops'
+  if (n === 1) return primaryStops ? ' is stopped by the highlighted defense.' : ' is blunted by the highlighted defense; nothing blocks it alone.'
+  if (primaryStops) return ' is answered by the highlighted defenses. The first listed blocks it alone; the others blunt it.'
+  const together = mitigationOf(ev, ev.counters) >= ev.baseSeverity
+  return ` is answered by the highlighted defenses. Each blunts it; ${together ? 'together they block it' : 'none blocks it alone'}.`
 }
 
 // A move's name without its gloss: "Uplink jamming" for "Uplink jamming
@@ -117,7 +163,9 @@ export function firstOrders(state: GameState, actions: TurnActions): OrderLine[]
   const { scenario } = state
   const counters = countersAfter(state, actions)
   const ids = (planFor(scenario, state.turn)?.slots ?? []).flatMap((s) => (s.fixed ? [s.fixed] : (s.drawFrom ?? [])))
-  const defended = ids.some((id) => mitigationOf(eventById(scenario, id), counters) > 0)
+  // Done only when a move reads BLOCKED (R6 question 2): a defense that
+  // only blunts it has not done what the line asks.
+  const defended = ids.some((id) => moveStatus(state, eventById(scenario, id), counters) === 'blocked')
   const drone = actions.buyAssets.some((b) => b.kind === 'drone')
   const worst = worstCase(state, actions).value >= 0 && (drone || defended)
   const { coverageMin, credits } = scenario.slaBonus
@@ -185,14 +233,20 @@ export const turns = (n: number) => `${n} turn${n === 1 ? '' : 's'}`
 export const retainerLine = (state: Pick<GameState, 'scenario'>) =>
   `Recovers ${state.scenario.recovery.withIrRetainer} points a turn on every meter instead of ${state.scenario.recovery.base}. Does not stop anything; shortens everything.`
 
-// The earned answer key as a line.
+// The earned answer key as a line: what it stops alone, then what it
+// blunts (the stops rule above), then how many it answers unmet.
 export function stopsLine(cm: Countermeasure, state: GameState, named: ReadonlySet<string>, met: ReadonlySet<string>): string {
   if (cm.counters.length === 0) return retainerLine(state)
+  if (cm.id === SSA) return ssaLine()
   const key = answerKey(cm, met, named)
   const vectors = vectorsOf(cm, state.scenario).map((v) => vectorLabels[v].toUpperCase())
-  if (key.known.length === 0) return `Stops: ${key.unmet} threat${key.unmet === 1 ? '' : 's'} you have not met yet · vector ${vectors.join(', ')}`
-  const names = key.known.map((k) => `${shortName(eventById(state.scenario, k.id))}${k.tonight ? ' (tonight)' : ''}`)
-  return `Stops: ${names.join(', ')}${key.unmet ? ` +${key.unmet} you have not met` : ''}`
+  if (key.known.length === 0) return `Answers: ${key.unmet} threat${key.unmet === 1 ? '' : 's'} you have not met yet · vector ${vectors.join(', ')}`
+  const said = (verb: StopVerb) =>
+    key.known
+      .filter((k) => stopVerb(cm.id, eventById(state.scenario, k.id)) === verb)
+      .map((k) => `${shortName(eventById(state.scenario, k.id))}${k.tonight ? ' (tonight)' : ''}`)
+  const parts = [['Stops', said('stops')], ['Blunts', said('blunts')]].filter(([, names]) => names.length).map(([verb, names]) => `${verb}: ${(names as string[]).join(', ')}`)
+  return `${parts.join(' · ')}${key.unmet ? ` +${key.unmet} you have not met` : ''}`
 }
 
 

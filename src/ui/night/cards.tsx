@@ -12,7 +12,7 @@
 
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { BLOCK_TONE, HEAD_TONE, LABEL, PRIMARY, TAG_TONE, useMore, useOnce, type Play } from './kit'
-import type { Countermeasure, GameState, ThreatEvent } from '../../engine/types'
+import type { ThreatEvent } from '../../engine/types'
 import { CONDITION_CUES, MOMENT_CUES } from '../../cues'
 import { shortName } from '../board/boardModel'
 import { techniqueLabel } from '../labels'
@@ -22,7 +22,7 @@ import { ICON_CHECK, ICON_CROSS, ICON_SPARK, tinted } from '../sprites/icons'
 import PixelSprite from '../sprites/PixelSprite'
 import DotField from './DotField'
 import * as copy from './nightCopy'
-import { defensesFor, resultOf, scoreDelta, type NightStep } from './nightModel'
+import { defensesFor, resultOf, scoreDelta, stopsKnown, type NightStep } from './nightModel'
 
 export function Tag({ tone, cue, children }: { tone: keyof typeof TAG_TONE; cue?: string; children: ReactNode }) {
   return <span className={`inline-flex items-center whitespace-nowrap px-1.5 py-0.5 font-mono text-[10px] leading-none tracking-wider ${TAG_TONE[tone]} ${cue ?? ''}`}>{children}</span>
@@ -227,13 +227,6 @@ function Target({ step, signs }: { step: NightStep; signs: Map<string, string> }
   )
 }
 
-// What a defense stops that the player can name: met or named threats
-// only (ruling R1), this one first.
-function stopsKnown(cm: Countermeasure, def: ThreatEvent, scenario: GameState['scenario'], known: ReadonlySet<string>): string[] {
-  const out = scenario.events.filter((e) => e.id !== def.id && e.counters.includes(cm.id) && known.has(e.id)).map(shortName)
-  return [shortName(def), ...out]
-}
-
 // THE OUTCOME BLOCK (brief 5.5 item 2; M13 and M3).
 function Outcome({ step, known, lastTurn }: { step: NightStep; known: ReadonlySet<string>; lastTurn: boolean }) {
   const { ev, def } = step
@@ -432,7 +425,7 @@ export function IntelFile({
 }: {
   def: ThreatEvent
   // The names of the defenses that stop it, primary first.
-  stoppedBy: string[]
+  stoppedBy: { label: string; text: string }
   // Cards filed before this one.
   filed: number
   total: number
@@ -485,8 +478,8 @@ export function IntelFile({
                 </dd>
               </>
             )}
-            <dt>{copy.STOPPED_BY}</dt>
-            <dd className="text-dc-ink">{stoppedBy.join('; ')}</dd>
+            <dt>{stoppedBy.label}</dt>
+            <dd className="text-dc-ink">{stoppedBy.text}</dd>
             {source && (
               <>
                 <dt>{copy.SOURCE}</dt>

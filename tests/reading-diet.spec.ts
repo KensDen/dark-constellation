@@ -61,6 +61,7 @@ import {
 import { callSigns } from '../src/ui/board/board'
 import { coverageFigure } from '../src/ui/labels'
 import { HitCard } from '../src/ui/night/cards'
+import { stopsKnown } from '../src/ui/night/nightModel'
 import { DebrisCall, DebrisResult, EndOfTurn, OpportunityCard } from '../src/ui/night/closeCards'
 import * as nightCopy from '../src/ui/night/nightCopy'
 import { defensesFor, nightOf, type NightStep } from '../src/ui/night/nightModel'
@@ -107,12 +108,15 @@ const WORST_CARD_HEADLINE = 12
 // met": listing them all ran the line to 42 words, and a bare "1 more"
 // read as cryptic to the fresh-eyes review), then "It is in PROCURE next
 // turn." before the last turn (Ken cut the brief's "...with that written
-// on it", 22 October 2026: 40 and 50 before). The worst line is the
-// ground segment ransomware's on the passive line, turn 5 on Easy, seed
-// 16; the worst card is the rogue ground station's on the same line, seed
-// 2, at 45 words with its headline.
-const WORST_HELPED_LINE = 35
-const WORST_HIT_CARD_HEADLINE_AND_LINE = 45
+// on it", 22 October 2026: 40 and 50 before). Since R6 (question 2) the
+// line says "stops" only of what the defense blocks alone and "blunts" of
+// the rest; past two names it keeps this move and counts the rest as
+// answered (the two verbs with every name ran it to 41). The worst line
+// and the worst card are both the rogue ground station's on the passive
+// line, turn 5 on Easy, seed 2: 33 words, 44 with its headline (35 and 45
+// before).
+const WORST_HELPED_LINE = 33
+const WORST_HIT_CARD_HEADLINE_AND_LINE = 44
 
 // The deciding board's reading at its longest over the swept lines of play
 // (v1.3 R2), pinned so a change that moves it comes here and says so;
@@ -264,8 +268,7 @@ function helpedLine(step: NightStep, known: ReadonlySet<string>, lastTurn: boole
   const { held, missing } = defensesFor(def, step.after.counters, scenario)
   if (!missing || (ev.outcome === 'held' && held)) return null
   if (ev.outcome === 'reduced' && held) return nightCopy.finishedIt(missing.name, missing.cost).join('')
-  const stops = [def, ...scenario.events.filter((e) => e.id !== def.id && e.counters.includes(missing.id) && known.has(e.id))].map(shortName)
-  return `${nightCopy.wouldHaveHelped(missing.name, missing.cost).join('')} ${nightCopy.itStops(stops)}${lastTurn ? '' : ` ${nightCopy.IN_PROCURE}`}`
+  return `${nightCopy.wouldHaveHelped(missing.name, missing.cost).join('')} ${nightCopy.itStops(stopsKnown(missing, def, scenario, known))}${lastTurn ? '' : ` ${nightCopy.IN_PROCURE}`}`
 }
 
 // A card as the night renders it, as markup (react-dom/server, since this
@@ -1128,8 +1131,8 @@ describe('reading diet: the intel brief', () => {
     const structural = Math.max(
       ...threats.flatMap((def) =>
         def.counters.map((c) => {
-          const stops = [def, ...threats.filter((e) => e.id !== def.id && e.counters.includes(c))].map(shortName)
-          return countWords(`${nightCopy.wouldHaveHelped(defense(c).name, defense(c).cost).join('')} ${nightCopy.itStops(stops)} ${nightCopy.IN_PROCURE}`)
+          const all = new Set(threats.map((e) => e.id))
+          return countWords(`${nightCopy.wouldHaveHelped(defense(c).name, defense(c).cost).join('')} ${nightCopy.itStops(stopsKnown(defense(c), def, DEFAULT_SCENARIO, all))} ${nightCopy.IN_PROCURE}`)
         }),
       ),
     )

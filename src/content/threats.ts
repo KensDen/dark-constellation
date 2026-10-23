@@ -109,7 +109,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'Counterfeit signals that look like truth. Jamming announces itself; spoofing lies quietly, and a drone that believes a false position flies a confident wrong course. Authentication turns the lie into a detectable fault.',
+      'Counterfeit signals that look like truth. Jamming announces itself; spoofing lies quietly, and a drone that believes a false position flies a confident wrong course. Authentication makes many of those lies detectable.',
     learnMoreCards: [
       {
         title: 'Authenticated navigation exists today',
@@ -741,7 +741,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'The signature move: deny GNSS so the squadron leans on LiDAR odometry, then inject into the only sensor it has left. Single-sensor dependence is a vulnerability an adversary can manufacture on demand. Layered sensing breaks the chain.',
+      'The signature move: deny GNSS so the squadron leans on LiDAR odometry, then inject into the only sensor it has left. Single-sensor dependence is a vulnerability an adversary can manufacture on demand. Layered sensing blunts it.',
     learnMoreCards: [
       {
         title: 'Layered attacks need layered defense',

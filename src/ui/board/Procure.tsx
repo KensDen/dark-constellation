@@ -21,7 +21,7 @@ import { knownThreats } from '../../persistence'
 import PixelSprite from '../sprites/PixelSprite'
 import { ICON_CROSS, tinted } from '../sprites/icons'
 import { KIND_LAYER } from './board'
-import { PROCURE_KINDS, PROCURE_LABEL, shortName, stopsLine, turns } from './boardModel'
+import { PROCURE_KINDS, PROCURE_LABEL, matchNote, shortName, stopsLine, turns } from './boardModel'
 
 export interface ProcureProps {
   state: GameState
@@ -77,8 +77,8 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
       <div ref={body} data-procure-body className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3">
         {focus && 'move' in focus ? (
           <p data-match-note className="mt-2 text-xs text-dc-ink">
-            <b>{shortName(focus.move)}</b> is stopped by the highlighted defense{focus.move.counters.length > 1 ? 's' : ''}.
-            {focus.move.counters.length > 1 ? ' The first listed blocks the most.' : ''}
+            <b>{shortName(focus.move)}</b>
+            {matchNote(focus.move)}
           </p>
         ) : (
           <p className="mt-2 text-xs text-dc-muted">Tap to add an order; tap again to cancel. Orders take effect when you EXECUTE.</p>

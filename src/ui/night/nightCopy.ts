@@ -148,7 +148,9 @@ export const UNTOUCHED = 'Untouched. The defense held.'
 export const HELD_WORD = 'BLOCKED'
 export const REDUCED_WORD = 'REDUCED'
 export const headName = (defense: string) => ` · ${defense.toUpperCase()}`
-export const canNowSay = (defense: string, threat: string) => ['You can now say it: ', defense, ' stops ', threat, '.'] as const
+// What the block showed, said as it happened (R6 question 2): a defense
+// that blocked a move tonight, not a claim that it always stops it.
+export const canNowSay = (defense: string, threat: string) => ['You can now say it: ', defense, ' blocked ', threat, ' tonight.'] as const
 export const reducedLine = (strength: number, through: number, defense: string) =>
   `Strength ${strength} came in; ${through} got through. ${defense} took the rest.`
 export const CHAIN_REDUCED = 'GNSS was still denied, so the chain added a point before your defenses saw it.'
@@ -157,14 +159,17 @@ export const UNDEFENDED = 'UNDEFENDED'
 export const NOTHING_ANSWERS = 'Nothing you own answers this.'
 export const CHAIN_OPEN = 'GNSS was still denied, so the squadron was flying on one sensor and the chain added a point.'
 export const wouldHaveHelped = (defense: string, price: number) => ['What would have helped: ', defense, `, ${price} CR.`] as const
-// This move first, then one more by name and the rest counted, so the line
-// stays a line on a defense that answers many threats the player has met.
-export const itStops = (threats: string[]) =>
-  `It stops ${
-    threats.length > 2
-      ? `${threats[0]}, ${threats[1]} and ${threats.length - 2} more threat${threats.length - 2 === 1 ? '' : 's'} you have met`
-      : threats.join(' and ')
-  }.`
+// What the missing defense stops alone and what it only blunts (the stops
+// rule, src/ui/board/boardModel.ts), this move's group first and this move
+// first in it. Past two names the line keeps this move and counts the rest
+// as answered, so it stays a line on a defense that answers many threats
+// the player has met.
+export const itStops = (groups: readonly (readonly [verb: 'stops' | 'blunts', threats: string[]])[]) => {
+  const said = groups.filter(([, threats]) => threats.length)
+  const total = said.reduce((n, [, threats]) => n + threats.length, 0)
+  if (total > 2) return `It ${said[0][0]} ${said[0][1][0]} and answers ${total - 1} more threats you have met.`
+  return `It ${said.map(([verb, threats]) => `${verb} ${threats.join(' and ')}`).join(' and ')}.`
+}
 export const IN_PROCURE = 'It is in PROCURE next turn.'
 export const repairQueued = (n: number) => `Repair bill queued for end of turn: -${n} CR`
 // A hit to the data, not the hardware, still costs the night's response;
@@ -180,7 +185,6 @@ export const CONTINUE = 'CONTINUE'
 export const NEW_INTEL = 'NEW INTEL'
 export const DOSSIER_COUNT = 'COLDVEIL DOSSIER'
 export const TECHNIQUE = 'TECHNIQUE'
-export const STOPPED_BY = 'STOPPED BY'
 export const SOURCE = 'SOURCE'
 export const FILE_IT = 'FILE IT'
 

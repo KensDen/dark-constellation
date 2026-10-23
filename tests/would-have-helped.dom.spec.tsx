@@ -27,7 +27,7 @@ import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState, ResolvedEvent, ThreatEvent, TurnActions } from '../src/engine/types'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
-import { shortName } from '../src/ui/board/boardModel'
+import { shortName, stopVerb } from '../src/ui/board/boardModel'
 import { damaged } from '../src/ui/night/closeModel'
 import * as copy from '../src/ui/night/nightCopy'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
@@ -167,9 +167,23 @@ function expectedLine(def: ThreatEvent, state: GameState, after: GameState): str
   const missing = def.counters.find((c) => !state.counters.includes(c))!
   const record = after.history.at(-1)!
   const known = new Set([...record.events.map((e) => e.eventId), ...record.named])
-  const stops = [shortName(def), ...DEFAULT_SCENARIO.events.filter((e) => e.id !== def.id && e.counters.includes(missing) && known.has(e.id)).map(shortName)]
+  const all = [def, ...DEFAULT_SCENARIO.events.filter((e) => e.id !== def.id && e.counters.includes(missing) && known.has(e.id))]
+  // What it stops alone and what it only blunts (R6 question 2), this
+  // move's group first.
+  const group = (stops: boolean) => all.filter((e) => (stopVerb(missing, e) === 'stops') === stops).map(shortName)
+  const mine = stopVerb(missing, def) === 'stops'
+  const said = [
+    [mine ? 'stops' : 'blunts', group(mine)],
+    [mine ? 'blunts' : 'stops', group(!mine)],
+  ]
+    .filter(([, names]) => names.length)
+  const total = all.length
+  const told =
+    total > 2
+      ? `${said[0][0]} ${shortName(def)} and answers ${total - 1} more threats you have met`
+      : said.map(([verb, names]) => `${verb} ${(names as string[]).join(' and ')}`).join(' and ')
   const last = record.turn >= DEFAULT_SCENARIO.totalTurns
-  return `What would have helped: ${nameOf(missing)}, ${costOf(missing)} CR. It stops ${stops.join(' and ')}.${last ? '' : ' It is in PROCURE next turn.'}`
+  return `What would have helped: ${nameOf(missing)}, ${costOf(missing)} CR. It ${told}.${last ? '' : ' It is in PROCURE next turn.'}`
 }
 
 describe('the hit card (critique row M3)', () => {
@@ -214,7 +228,7 @@ describe('the hit card (critique row M3)', () => {
     const held = threatWhere((ev, def, state) => ev.outcome === 'held' && def.counters.some((c) => !state.counters.includes(c)))
     let card = await toHitCard(held.state, held.def)
     expect(card.querySelector('[data-outcome="held"]'), 'the control: the HELD block did not render').not.toBeNull()
-    expect(card.querySelector('[data-can-say]')!.textContent).toBe(`You can now say it: ${nameOf(held.def.counters.find((c) => held.state.counters.includes(c))!)} stops ${shortName(held.def)}.`)
+    expect(card.querySelector('[data-can-say]')!.textContent).toBe(`You can now say it: ${nameOf(held.def.counters.find((c) => held.state.counters.includes(c))!)} blocked ${shortName(held.def)} tonight.`)
     expect(line(), 'a held move claims something would have helped').toBeNull()
     expect(card.textContent, 'a held move says what would have finished it').not.toMatch(/Would have finished it/)
 

@@ -142,7 +142,12 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
       expect(offeredText, `${cm.id} has no blurb`).toContain(cm.blurb)
       if (cm.counters.length === 0) continue
       const stops = defenseTile(cm.id)!.querySelector('[data-stops]')!.textContent ?? ''
-      expect(stops, `${cm.id} does not count what it stops`).toMatch(/^Stops: \d+ threats? you have not met yet/)
+      // The debris call's defense stops nothing: it answers the call.
+      if (cm.id === 'ssaManeuver') {
+        expect(stops).toBe('Makes the debris call: exact odds, free burn.')
+        continue
+      }
+      expect(stops, `${cm.id} does not count what it stops`).toMatch(/^Answers: \d+ threats? you have not met yet/)
       for (const v of vectorsOf(cm, DEFAULT_SCENARIO)) expect(stops, `${cm.id} does not say its vector ${v}`).toContain(vectorLabels[v].toUpperCase())
     }
     // And the guard itself.
