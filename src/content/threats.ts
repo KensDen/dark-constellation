@@ -702,7 +702,7 @@ export const THREATS: ThreatEvent[] = [
       {
         title: 'Kessler syndrome, the real one',
         body:
-          'The cascade scenario proposed by NASA scientist Donald Kessler in 1978 describes debris collisions breeding more debris until whole orbital regimes degrade. NASA\'s Orbital Debris Program Office leads measurement, modeling, and mitigation of the environment. Conjunction assessment and maneuver budgets are the operational face of that risk, and they compete for the same credits as security. SPARTA lists debris only as cover an adversary can hide in (DE-0009.01); this conjunction is the natural hazard.',
+          'The cascade scenario proposed by NASA scientist Donald Kessler in 1978 describes debris collisions breeding more debris until whole orbital regimes degrade. NASA\'s Orbital Debris Program Office leads measurement, modeling, and mitigation of the environment. Conjunction assessment and maneuver budgets are the operational face of that risk, and they compete for the same budget as security. SPARTA lists debris only as cover an adversary can hide in (DE-0009.01); this conjunction is the natural hazard.',
         sources: [
           {
             title: 'NASA Orbital Debris Program Office',
