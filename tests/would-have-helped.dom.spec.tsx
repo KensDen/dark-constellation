@@ -216,7 +216,7 @@ describe('the hit card (critique row M3)', () => {
     expect(block, 'the hit card has no REDUCED block').not.toBeNull()
     const missing = f.def.counters.find((c) => !f.state.counters.includes(c))!
     const held = f.def.counters.find((c) => f.state.counters.includes(c))!
-    expect(block!.textContent).toContain(`REDUCED · ${nameOf(held).toUpperCase()}`)
+    expect(block!.textContent).toContain(`PARTIAL · ${nameOf(held).toUpperCase()}`)
     expect(block!.textContent).toContain(`Would have finished it: ${nameOf(missing)}, ${costOf(missing)} CR.`)
     // The UNDEFENDED line is for a move nothing answered.
     expect(line()).toBeNull()

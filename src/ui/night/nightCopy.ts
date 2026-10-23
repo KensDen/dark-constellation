@@ -141,12 +141,12 @@ export const conditionTag = (name: string, turns: number) => `${name} · ${turns
 export const WATCH_OFFICER = 'WATCH OFFICER'
 export const integrityLine = (before: number, after: number) => `integrity ${before} → ${after}${after === 0 ? ' · LOST' : ''}`
 export const NOT_DAMAGED = 'Not damaged. The hit was to the data, not the hardware.'
-export const UNTOUCHED = 'Untouched. The defense held.'
+export const UNTOUCHED = 'Untouched. The defense blocked it.'
 // The outcome's word in the display face and the defense's name beside
 // it in the mono (brief 8.5: a long name wrapped the display face across
 // two heavy lines at 375).
 export const HELD_WORD = 'BLOCKED'
-export const REDUCED_WORD = 'REDUCED'
+export const REDUCED_WORD = 'PARTIAL'
 export const headName = (defense: string) => ` · ${defense.toUpperCase()}`
 // What the block showed, said as it happened (R6 question 2): a defense
 // that blocked a move tonight, not a claim that it always stops it.

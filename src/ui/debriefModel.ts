@@ -36,15 +36,18 @@ export interface DebriefStat {
   unit?: string
 }
 
-// HELD OUTRIGHT: moves the engine recorded as held, nothing through.
-export const heldOutright = (state: GameState): number =>
-  state.history.reduce((n, rec) => n + rec.events.filter((ev) => ev.outcome === 'held').length, 0)
+// MOVES BLOCKED: threats the engine recorded as held, nothing through.
+// COLDVEIL's moves only (R6 question 7): a debris conjunction that missed
+// is luck, not a block, and an opportunity is not a move.
+const isMove = (state: GameState, id: string) => isThreat(state, id) && state.scenario.events.find((e) => e.id === id)?.effect.special !== 'debrisStrike'
+export const movesBlocked = (state: GameState): number =>
+  state.history.reduce((n, rec) => n + rec.events.filter((ev) => ev.outcome === 'held' && isMove(state, ev.eventId)).length, 0)
 
 export function debriefStats(state: GameState): DebriefStat[] {
   const last = state.history[state.history.length - 1]
   return [
     { label: 'HITS TAKEN', value: hitsTaken(state), decimals: 0 },
-    { label: 'HELD OUTRIGHT', value: heldOutright(state), decimals: 0 },
+    { label: 'MOVES BLOCKED', value: movesBlocked(state), decimals: 0 },
     { label: 'BEST STREAK', value: state.bestStreak, decimals: 0 },
     { label: 'BUDGET LEFT', value: last?.creditsAfter ?? state.credits, decimals: 0, unit: 'CR' },
     // Owned at the end, the incident response retainer among them.

@@ -134,7 +134,7 @@ const TIER: Record<'S' | 'A' | 'B' | 'C', { line: string; burst: number; sparks:
   C: { line: 'HELD THE LINE', burst: 8, sparks: 0 },
 }
 // The stats a win's grid opens on.
-const WIN_STATS_FIRST = ['HELD OUTRIGHT', 'BEST STREAK', 'POINTS SAVED']
+const WIN_STATS_FIRST = ['MOVES BLOCKED', 'BEST STREAK', 'POINTS SAVED']
 // Where each spark sits round the shield, in the order they add.
 // Inside the hero's frame and clear of the lines beside the shield.
 const SPARK_AT = ['-right-1 -top-1', '-left-1 -top-1', '-left-1 bottom-4', '-right-1 bottom-4']

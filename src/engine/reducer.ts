@@ -303,8 +303,12 @@ function resolveDebris(state: GameState, ev: ThreatEvent, choice: DebrisChoice, 
   } else {
     notes.push(`Closest approach was a miss. ${kindLabel[sat.kind]} ${sat.id} held its orbit.`)
   }
-  if (ssa) learn(state, 'ssaManeuver', ev.id, 'held')
-  else if (lost) learn(state, 'ssaManeuver', ev.id, 'missed')
+  // Learned as held only when the satellite came through (R6 question 7):
+  // owning SSA and choosing HOLD can still lose it, and then SSA neither
+  // held nor was missing; the loss was the call.
+  if (ssa) {
+    if (!lost) learn(state, 'ssaManeuver', ev.id, 'held')
+  } else if (lost) learn(state, 'ssaManeuver', ev.id, 'missed')
   return {
     eventId: ev.id,
     name: ev.name,

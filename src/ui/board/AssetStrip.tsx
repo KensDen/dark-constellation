@@ -181,9 +181,12 @@ export default function AssetStrip({ tiles, chips, selectedKey, onSelect, onCanc
         {LAYERS.map((layer) => {
           const list = tiles[layer]
           const layerChips = chips(layer)
-          // HELD on the header only for a block with no tile to shield: a
-          // block on a tile says so on the tile, and the header keeps its
-          // width, so nothing on the strip moves mid-strike.
+          // The shield on the header only for a block with no tile to
+          // shield: a block on a tile says so on the tile, and the header
+          // keeps its width, so nothing on the strip moves mid-strike. The
+          // stamp alone (R6 question 7): BLOCKED beside GROUND fills its
+          // 108 px header at 375 with no pixel to spare, so the word is for
+          // screen readers; the night card says it in full.
           const heldHere = held && held.landed && !held.rest && !held.assetId && held.layers.includes(layer) ? held.id : null
           return (
             <div key={layer} data-layer={layer} className="min-w-0 border border-dc-line bg-dc-panel px-1 pt-0.5" style={{ flex: `${Math.max(1, list.length)} ${list.length === most ? 1 : 0} auto` }}>
@@ -192,7 +195,7 @@ export default function AssetStrip({ tiles, chips, selectedKey, onSelect, onCanc
                 {heldHere && (
                   <span key={heldHere} data-held className="dc-shield-flash inline-flex items-center gap-1 font-mono text-[10px] text-dc-go">
                     <PixelSprite sprite={SHIELD_STAMP} scale={1} name="shield-stamp" />
-                    HELD
+                    <span className="sr-only">BLOCKED</span>
                   </span>
                 )}
               </div>

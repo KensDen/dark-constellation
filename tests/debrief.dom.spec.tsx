@@ -177,7 +177,7 @@ const waiting = (el: Element) => el.classList.contains('dc-score-wait')
 const notice = () => container.querySelector('[data-share-notice]')?.textContent ?? null
 // The six values in the order the screen shows them: a win opens on what
 // held (v1.3 R5).
-const WIN_FIRST = ['HELD OUTRIGHT', 'BEST STREAK', 'POINTS SAVED']
+const WIN_FIRST = ['MOVES BLOCKED', 'BEST STREAK', 'POINTS SAVED']
 const finals = (state: GameState) => {
   const all = debriefStats(state)
   const order = state.status === 'won' ? [...WIN_FIRST.map((l) => all.find((s) => s.label === l)!), ...all.filter((s) => !WIN_FIRST.includes(s.label))] : all
@@ -203,7 +203,7 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
       const last = state.history[state.history.length - 1]
       expect(statsByLabel()).toEqual({
         'HITS TAKEN': events.filter((e) => e.effectiveSeverity > 0).length,
-        'HELD OUTRIGHT': events.filter((e) => e.outcome === 'held').length,
+        'MOVES BLOCKED': events.filter((e) => e.outcome === 'held' && e.eventId !== 'debris-conjunction' && DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)?.kind !== 'opportunity').length,
         'BEST STREAK': last.bestStreak,
         'BUDGET LEFT': last.creditsAfter,
         'DEFENSES KEPT': state.counters.length,
@@ -212,8 +212,8 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
       // A loss in the brief's order; a win opens on what held (v1.3 R5).
       expect(tiles().map((t) => t.getAttribute('data-stat'))).toEqual(
         state.status === 'won'
-          ? ['HELD OUTRIGHT', 'BEST STREAK', 'POINTS SAVED', 'HITS TAKEN', 'BUDGET LEFT', 'DEFENSES KEPT']
-          : ['HITS TAKEN', 'HELD OUTRIGHT', 'BEST STREAK', 'BUDGET LEFT', 'DEFENSES KEPT', 'POINTS SAVED'],
+          ? ['MOVES BLOCKED', 'BEST STREAK', 'POINTS SAVED', 'HITS TAKEN', 'BUDGET LEFT', 'DEFENSES KEPT']
+          : ['HITS TAKEN', 'MOVES BLOCKED', 'BEST STREAK', 'BUDGET LEFT', 'DEFENSES KEPT', 'POINTS SAVED'],
       )
       expect(container.querySelector('[data-final]')!.textContent).toContain(`Final mission assurance ${last.maiScore.toFixed(1)}, needed ${DEFAULT_SCENARIO.winThreshold}`)
     }

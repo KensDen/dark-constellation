@@ -24,7 +24,7 @@ import {
   decisions,
   filedThisGame,
   gradeBlock,
-  heldOutright,
+  movesBlocked,
   lossLead,
   nextTime,
   toNextGrade,
@@ -79,7 +79,8 @@ describe('GUARD R4 (b): the grade, the stats and the filed list agree with the e
       const got = Object.fromEntries(debriefStats(g).map((s) => [s.label, s.value]))
       expect(got).toEqual({
         'HITS TAKEN': events.filter((e) => e.effectiveSeverity > 0).length,
-        'HELD OUTRIGHT': events.filter((e) => e.outcome === 'held').length,
+        // COLDVEIL's moves only: a debris miss is luck, not a block (R6 Q7).
+        'MOVES BLOCKED': events.filter((e) => e.outcome === 'held' && e.eventId !== 'debris-conjunction' && DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)?.kind !== 'opportunity').length,
         'BEST STREAK': last.bestStreak,
         'BUDGET LEFT': last.creditsAfter,
         'DEFENSES KEPT': g.counters.length,
@@ -88,7 +89,7 @@ describe('GUARD R4 (b): the grade, the stats and the filed list agree with the e
     }
     // The positive controls: these games held moves, saved points and kept
     // defenses, so equal numbers are not zeros agreeing.
-    expect(GAMES.some((g) => heldOutright(g) > 0)).toBe(true)
+    expect(GAMES.some((g) => movesBlocked(g) > 0)).toBe(true)
     expect(GAMES.some((g) => g.saved > 0)).toBe(true)
     expect(GAMES.some((g) => g.counters.length > 0)).toBe(true)
   })
