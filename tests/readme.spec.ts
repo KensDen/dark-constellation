@@ -21,6 +21,11 @@ import { SHELVES_AS_DRAFTED } from '../src/content/fieldLibraryData'
 
 const README = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'README.md'), 'utf8')
 
+const refsWhere = (keep: (framework: string) => boolean) =>
+  new Set(DEFAULT_SCENARIO.events.flatMap((e) => e.techniqueRefs.filter((r) => keep(r.framework)).map((r) => `${r.framework}:${r.id}`))).size
+const FRAMEWORK_TECHNIQUES = refsWhere((f) => f !== 'NSA')
+const ADVISORIES = refsWhere((f) => f === 'NSA')
+
 const spartaCmCount = new Set(
   DEFAULT_SCENARIO.countermeasures.flatMap((c) => c.spartaCms.map((r) => r.id)),
 ).size
@@ -28,7 +33,10 @@ const spartaCmCount = new Set(
 describe('README counts match the content data', () => {
   const claims: [string, string][] = [
     ['threat events', `**${THREAT_EVENT_COUNT} threat events**`],
-    ['framework techniques', `**${TECHNIQUE_REF_COUNT}\ndistinct framework techniques**`],
+    // Since v1.3 R7 (R6b fresh eyes, item 15) the NSA advisory is counted
+    // apart from the framework techniques it used to be summed into.
+    ['framework techniques', `**${FRAMEWORK_TECHNIQUES}\ndistinct framework techniques**`],
+    ['advisories', `**${ADVISORIES} NSA\nadvisory**`],
     ['cited sources', `**${SOURCE_COUNT} cited sources**`],
     ['unverified references', `**${UNVERIFIED_REF_COUNT} unverified references**`],
     ['countermeasures', `**${COUNTERMEASURE_COUNT} countermeasures**`],
@@ -45,6 +53,11 @@ describe('README counts match the content data', () => {
       expect(flat, `README must state the derived ${label}`).toContain(claim.replace(/\s+/g, ' '))
     })
   }
+
+  it('splits every technique reference between the frameworks and the advisories, none lost', () => {
+    expect(FRAMEWORK_TECHNIQUES + ADVISORIES).toBe(TECHNIQUE_REF_COUNT)
+    expect(ADVISORIES).toBeGreaterThan(0)
+  })
 
   it('states the scenario turn count', () => {
     expect(README.replace(/\s+/g, ' ')).toContain(`across ${DEFAULT_SCENARIO.totalTurns} turns`)

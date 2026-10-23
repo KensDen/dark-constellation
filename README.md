@@ -10,10 +10,8 @@ architecture, defenses included, under budget while an adversary campaign escala
 
 Play it: https://kensden.github.io/dark-constellation/
 
-Status: v1.3 in progress. Round 0, the six-turn engine on interim screens, has been live since
-9 October 2026, on top of the v1.2 board rounds. The last numbered release was v1.1.0. The sound
-and feel pass shipped in v1.1.0; the cold open's music build came with v1.2 and tap-through
-playback with v1.3 Round 0.
+Status: v1.3.0, released 23 October 2026: the loop pass, six turns against a reacting adversary,
+with the title and briefing, the board and PROCURE, the night, the debrief, the Dossier and LIBRARY.
 
 ## How to play
 
@@ -21,41 +19,40 @@ Each turn you read what COLDVEIL could hit tonight, order fleet and defenses, th
 see what your posture absorbed. The adversary reacts: it takes the move you have covered least.
 Finish turn 6 with the mission assurance score at 70 or higher to win; let it collapse, or run the budget
 below zero at a turn close, and the operation ends early. There is no dominant strategy: every
-defense costs upkeep, repairs come due at the turn close, and coverage, trust, and redundancy
+defense carries upkeep, repairs come due at the turn close, and coverage, trust, and redundancy
 trade off against each other.
 
-## Daily Op and the score screen
+## Daily Op and the debrief
 
-- **DAILY OP #n.** One mission a day from the main menu, the same for every player whose
+- **DAILY OP #n.** One mission a day from the title screen, the same for every player whose
   calendar shows that date: FIRST LIGHT on Standard, seeded from the local date. The first Daily
   Op you finish on a date is recorded on your device as the official run. Replays that day are
   practice, and so is any Daily Op loaded from a save code, since a code is text anyone can edit.
   A run belongs to the date it started on.
-- **The score screen.** A grade from S to F, the final index, hits taken and credits left, and a
-  strip with one square per turn: green when the index held, amber for a small drop, magenta for
-  a large one or a lost asset. Share it as a few lines of text through your device's share sheet,
-  or the clipboard where there is none.
-- **Debrief.** Every threat you faced, with its framework technique and its sources, as a study
-  guide from your own run.
+- **The debrief.** A grade from S to F, the final mission assurance score, hits taken and budget
+  left, and a strip with one square per turn: green when the score held or rose, amber for a drop
+  under 3, red for a drop of 3 or more or a lost asset. Share it as a few lines of text through
+  your device's share sheet, or the clipboard where there is none.
+- **The Dossier.** Every threat you have met, with its framework technique and its sources, as a
+  study guide built from your own runs.
 
 ## The mechanics in brief
 
 - **Mission assurance score.** A weighted blend of Coverage, Link availability, Data integrity,
   and Sensor integrity. It is the score and the loss condition at once.
 - **Active conditions.** GNSS denial, jamming, spoofing, eavesdropping, data leaks, and ransomware do not resolve and
-  vanish. They persist for a set number of turns, shown on the board, press the meters every
+  vanish. They persist for a set number of turns, shown on the board, press the score every
   turn, and stack.
 - **The BLACKOUT CHAIN.** The signature move: deny GNSS so the drones fall back to LiDAR
   odometry, then attack the only sensor they have left. Layered sensing blunts it. Single-sensor
   dependence is a vulnerability an adversary can manufacture on demand.
-- **The intel brief.** Free on the first night, then a cost each turn: without it the moves
+- **The intel brief.** Free on the first night, then ordered each turn: without it the moves
   COLDVEIL is choosing between stay unnamed.
 - **Deployment lead time.** Satellites take two turns to reach orbit. Procure ahead of the threat,
   not into it.
-- **Upkeep and the worst case.** Every defense costs credits a turn to keep, and repairs come out of
-  the budget at the turn close before funding arrives. The worst case readout, which says before you
-  commit whether a bad night could end the operation, returns with v1.3 Round 1; the interim screens
-  leave it out.
+- **Upkeep and WORST CASE.** Every defense needs upkeep in CR each turn, and repairs come out of
+  the budget at the turn close before funding arrives. The WORST CASE line on the board's dock
+  says, before you EXECUTE, whether a bad night could end the operation; tap it for the sum.
 - **Defense streak.** Moves blocked in a row and the points your defenses saved add a small bonus
   to the grade.
 - **Difficulty.** Easy scales damage and repair costs by 0.75. Standard is the tuned campaign.
@@ -64,9 +61,9 @@ trade off against each other.
 
 Every adversary threat in the deck maps to a published framework technique, and every reference
 was checked by hand against its live source page rather than recalled, and the battery re-checks
-every link before each deploy: **18 threat events**, **19
-distinct framework techniques** across SPARTA, MITRE ATT&CK®, MITRE ATLAS, and an NSA advisory,
-**16 cited sources**, and **0 unverified references**. Each of the **11 countermeasures** maps to
+every link before each deploy: **18 threat events**, **18
+distinct framework techniques** across SPARTA, MITRE ATT&CK® and MITRE ATLAS, plus **1 NSA
+advisory**, **16 cited sources**, and **0 unverified references**. Each of the **11 countermeasures** maps to
 its SPARTA countermeasure controls with their published defense-in-depth tiers (**19 distinct
 SPARTA CMs**). The in-game GLOSSARY derives all **51 entries** directly from that content data,
 with no hand-maintained text.
@@ -78,7 +75,7 @@ no endorsement is implied. The SPARTA and MITRE ATT&CK copyright designations an
 ship with the site at `/legal/THIRD-PARTY-NOTICES.txt`
 ([public/legal/THIRD-PARTY-NOTICES.txt](public/legal/THIRD-PARTY-NOTICES.txt)).
 
-The **FIELD LIBRARY**, in the menu's INTEL ARCHIVE beside the GLOSSARY,
+The **FIELD LIBRARY**, under LIBRARY on the title screen beside the GLOSSARY,
 shelves **36 readings** behind the threats: papers, advisories, standards and hands-on
 material, each checked against the live page. Every threat's event card links to its own
 readings. An entry is stamped FILED once you have met a threat it covers, and general reading
@@ -92,18 +89,18 @@ operator's own incident report. Only public sources are used.
 ## Sound and feel
 
 Every state change in a turn is played back beat by beat rather than reported as a block of
-results: a threat card lands, a condition attaches to its layer, the meters ease to their new
-values, and each beat carries its own visual cue and its own sound.
+results: a threat card lands, a condition attaches to its layer, the score eases to its new
+value, and each beat carries its own visual cue and its own sound.
 
 - **Synthesized, not recorded.** Every effect is generated in the browser with Web Audio.
   No audio files ship with the game.
 - **A procedural music bed** with layers that follow the campaign: a base pad, a tension layer
-  when the index falls below the win line or a condition is active, and a threat layer while a
+  when the score falls below the win line or a condition is active, and a threat layer while a
   BLACKOUT CHAIN is armed or a lost campaign is resolving. It loops by construction, so there is
-  no seam. The briefing builds the same bed slide by slide and hands it back to the menu.
-- **Two toggles, Sound and Music**, both remembered between visits. Nothing plays until your
-  first tap or click.
-- **Tapped through.** Every beat waits for a tap, and SKIP ends the playback. Reduced motion is
+  no seam. The briefing builds the same bed slide by slide and hands it on to the title or to turn 1.
+- **Three toggles, Sound, Music and Motion**, all remembered between visits. Nothing plays until
+  your first tap or click.
+- **Tapped through.** Every card of the night waits for a tap; there is no SKIP. Reduced motion is
   honored as a motion preference: the sequence still plays, every cue takes its static form,
   and the sound is unchanged.
 - **Haptics** on Chrome-family Android browsers that support vibration. Nothing fires on iPhone,
@@ -145,8 +142,8 @@ scenes were drawn in code for this project.
 
 ## Releases
 
-- v1.3 Round 0, 9 October 2026: the six-turn engine against a reacting adversary, on interim
-  screens (live, not tagged).
+- v1.3.0, 23 October 2026: the loop pass. Rounds 0 to 5 went live between 9 and 22 October 2026,
+  before the tag.
 - v1.2 board rounds, 26 September to 5 October 2026: the cold open, the Daily Op and score
   screen, the Field Library and the wide board (live, not tagged).
 - v1.1.0, 23 September 2026: the sound and feel pass.
