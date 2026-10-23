@@ -81,7 +81,7 @@ describe('GUARD R4 (b): the grade, the stats and the filed list agree with the e
         'HITS TAKEN': events.filter((e) => e.effectiveSeverity > 0).length,
         // COLDVEIL's moves only: a debris miss is luck, not a block (R6 Q7).
         'MOVES BLOCKED': events.filter((e) => e.outcome === 'held' && e.eventId !== 'debris-conjunction' && DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)?.kind !== 'opportunity').length,
-        'BEST DEFENSE STREAK': last.bestStreak,
+        'BEST STREAK': last.bestStreak,
         'BUDGET LEFT': last.creditsAfter,
         'DEFENSES KEPT': g.counters.length,
         'POINTS SAVED': Math.round(last.saved * 10) / 10,

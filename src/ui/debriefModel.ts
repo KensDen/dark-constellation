@@ -48,7 +48,10 @@ export function debriefStats(state: GameState): DebriefStat[] {
   return [
     { label: 'HITS TAKEN', value: hitsTaken(state), decimals: 0 },
     { label: 'MOVES BLOCKED', value: movesBlocked(state), decimals: 0 },
-    { label: 'BEST DEFENSE STREAK', value: state.bestStreak, decimals: 0 },
+    // BEST STREAK, not BEST DEFENSE STREAK (R6 question 13 asked for it if
+    // it fit): the longer label wraps its tile and pushes the first screen
+    // past 375x667.
+    { label: 'BEST STREAK', value: state.bestStreak, decimals: 0 },
     { label: 'BUDGET LEFT', value: last?.creditsAfter ?? state.credits, decimals: 0, unit: 'CR' },
     // Owned at the end, the incident response retainer among them.
     { label: 'DEFENSES KEPT', value: state.counters.length, decimals: 0 },

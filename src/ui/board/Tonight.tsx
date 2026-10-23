@@ -236,7 +236,24 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
                 {WILL_HIT_LEAD}
                 <b className="text-dc-hostile">{willHitCount(slot.moves.length)}</b>
               </p>
-              <p className="text-xs text-dc-muted">{slot.hidden ? TONIGHT_HIDDEN : TONIGHT_REASON}</p>
+              <p className="text-xs text-dc-muted">
+                {slot.hidden ? TONIGHT_HIDDEN : TONIGHT_REASON}
+                {/* The flags' key (R6 question 11), set after the rule that
+                    names a pick and a tie, on the room its second line leaves:
+                    on a key line of their own they pushed the turn-1 board
+                    past 375x667. */}
+                {!slot.hidden && state.turn <= 2 && (
+                  <span data-flag-key className="text-[10px]">
+                    {' '}
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                      <span className={`${FLAG_TAG} bg-dc-hostile`}>LIKELY TARGET</span> {KEY_LIKELY}
+                    </span>{' '}
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                      <span className={`${FLAG_TAG} bg-dc-hostile`}>EITHER</span> {KEY_EITHER}
+                    </span>
+                  </span>
+                )}
+              </p>
               {!slot.hidden && state.turn <= 2 && (
                 <p data-key className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[10px] text-dc-muted">
                   <span className="inline-flex items-center gap-1">
@@ -244,14 +261,6 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
                   </span>
                   <span className="inline-flex items-center gap-1">
                     <StatusTag status="blocked" /> {KEY_BLOCKED}
-                  </span>
-                  {/* The flags too (R6 question 11): the rule names a pick and
-                      a tie, so the key says which is which. */}
-                  <span className="inline-flex items-center gap-1">
-                    <span className={`${FLAG_TAG} bg-dc-hostile`}>LIKELY TARGET</span> {KEY_LIKELY}
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <span className={`${FLAG_TAG} bg-dc-hostile`}>EITHER</span> {KEY_EITHER}
                   </span>
                 </p>
               )}

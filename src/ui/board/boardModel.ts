@@ -146,7 +146,7 @@ export const TONIGHT_HIDDEN = 'The names are hidden. An intel brief reveals them
 export const KEY_EXPOSED = 'will hit'
 export const KEY_BLOCKED = 'is safe'
 export const KEY_LIKELY = 'their pick'
-export const KEY_EITHER = 'a tie: one of these'
+export const KEY_EITHER = 'a tie'
 export const confirmedNote = (ev: ThreatEvent) => (ev.effect.special === 'debrisStrike' ? 'your call when it arrives' : 'lands tonight')
 export const INTEL_ROW = { none: 'Order an intel brief to name the moves.', ordered: 'Brief ordered. Names shown above.' } as const
 export const UNIDENTIFIED = 'Unidentified'
