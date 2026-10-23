@@ -138,11 +138,11 @@ const dailyLabel = () => dailyEntry()?.querySelector('span')?.textContent ?? ''
 const titleSystem = () => click(buttons().find((b) => b.getAttribute('aria-haspopup') === 'dialog' && (b.textContent ?? '').trim() === 'SYSTEM')!)
 const ledger = () => JSON.parse(localStorage.getItem('dc-daily') ?? '{}') as Record<string, { n: number; turns: number }>
 // The run's standing as the debrief's eyebrow says it (v1.3 R4, brief
-// 5.6): "DAILY #1" for the official run, "DAILY #1 · PRACTICE" otherwise.
+// 5.6): "DAILY OP #1" for the official run, "DAILY OP #1 · PRACTICE" otherwise.
 const standing = () => {
   const eyebrow = container.querySelector('[data-debrief-eyebrow]')?.textContent
   if (!eyebrow) return null
-  return / · PRACTICE$/.test(eyebrow) ? 'PRACTICE' : /DAILY #\d+$/.test(eyebrow) ? 'OFFICIAL' : eyebrow
+  return / · PRACTICE$/.test(eyebrow) ? 'PRACTICE' : /DAILY OP #\d+$/.test(eyebrow) ? 'OFFICIAL' : eyebrow
 }
 // The deciding board, which the debrief is not.
 const onBoard = () => container.querySelector('main[data-board]') !== null
@@ -381,7 +381,7 @@ describe('GUARD R5 (b): the first finish of a date is official, and a second is 
     expect((await sharedText()).split('\n')[0]).toBe('DARK CONSTELLATION · Daily Op #1')
 
     // Back to the title, and the same date's Daily Op again.
-    click(byText(/^TITLE SCREEN$/)!)
+    click(byText(/^BACK TO TITLE$/)!)
     click(dailyEntry()!)
     expect(onBoard()).toBe(true)
     await playToEnd()

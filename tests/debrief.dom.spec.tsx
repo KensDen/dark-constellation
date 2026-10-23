@@ -177,7 +177,7 @@ const waiting = (el: Element) => el.classList.contains('dc-score-wait')
 const notice = () => container.querySelector('[data-share-notice]')?.textContent ?? null
 // The six values in the order the screen shows them: a win opens on what
 // held (v1.3 R5).
-const WIN_FIRST = ['MOVES BLOCKED', 'BEST STREAK', 'POINTS SAVED']
+const WIN_FIRST = ['MOVES BLOCKED', 'BEST DEFENSE STREAK', 'POINTS SAVED']
 const finals = (state: GameState) => {
   const all = debriefStats(state)
   const order = state.status === 'won' ? [...WIN_FIRST.map((l) => all.find((s) => s.label === l)!), ...all.filter((s) => !WIN_FIRST.includes(s.label))] : all
@@ -204,7 +204,7 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
       expect(statsByLabel()).toEqual({
         'HITS TAKEN': events.filter((e) => e.effectiveSeverity > 0).length,
         'MOVES BLOCKED': events.filter((e) => e.outcome === 'held' && e.eventId !== 'debris-conjunction' && DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)?.kind !== 'opportunity').length,
-        'BEST STREAK': last.bestStreak,
+        'BEST DEFENSE STREAK': last.bestStreak,
         'BUDGET LEFT': last.creditsAfter,
         'DEFENSES KEPT': state.counters.length,
         'POINTS SAVED': Math.round(state.saved * 10) / 10,
@@ -212,8 +212,8 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
       // A loss in the brief's order; a win opens on what held (v1.3 R5).
       expect(tiles().map((t) => t.getAttribute('data-stat'))).toEqual(
         state.status === 'won'
-          ? ['MOVES BLOCKED', 'BEST STREAK', 'POINTS SAVED', 'HITS TAKEN', 'BUDGET LEFT', 'DEFENSES KEPT']
-          : ['HITS TAKEN', 'MOVES BLOCKED', 'BEST STREAK', 'BUDGET LEFT', 'DEFENSES KEPT', 'POINTS SAVED'],
+          ? ['MOVES BLOCKED', 'BEST DEFENSE STREAK', 'POINTS SAVED', 'HITS TAKEN', 'BUDGET LEFT', 'DEFENSES KEPT']
+          : ['HITS TAKEN', 'MOVES BLOCKED', 'BEST DEFENSE STREAK', 'BUDGET LEFT', 'DEFENSES KEPT', 'POINTS SAVED'],
       )
       expect(container.querySelector('[data-final]')!.textContent).toContain(`Final mission assurance ${last.maiScore.toFixed(1)}, needed ${DEFAULT_SCENARIO.winThreshold}`)
     }
@@ -278,12 +278,12 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
     setReducedMotion(true)
     const eyebrow = () => container.querySelector('[data-debrief-eyebrow]')!.textContent
     show(WON(), TODAY, 'official')
-    expect(eyebrow()).toBe('DEBRIEF · OP FIRST LIGHT · DAILY #1')
+    expect(eyebrow()).toBe('DEBRIEF · OP FIRST LIGHT · DAILY OP #1')
     show(WON(), TODAY, 'practice')
-    expect(eyebrow()).toBe('DEBRIEF · OP FIRST LIGHT · DAILY #1 · PRACTICE')
+    expect(eyebrow()).toBe('DEBRIEF · OP FIRST LIGHT · DAILY OP #1 · PRACTICE')
     // A Daily Op that arrived finished claimed nothing here.
     show(WON(), TODAY, null)
-    expect(eyebrow()).toBe('DEBRIEF · OP FIRST LIGHT · DAILY #1 · PRACTICE')
+    expect(eyebrow()).toBe('DEBRIEF · OP FIRST LIGHT · DAILY OP #1 · PRACTICE')
     show(WON())
     expect(eyebrow()).toBe('DEBRIEF · OP FIRST LIGHT · PRACTICE')
   })
@@ -641,7 +641,7 @@ describe('the ways on', () => {
     expect(notice()).toBe('')
   })
 
-  it('offers SHARE and PLAY AGAIN on the bar pinned under the thumb, then DOSSIER n / 18 and TITLE SCREEN, in that order', async () => {
+  it('offers SHARE and PLAY AGAIN on the bar pinned under the thumb, then DOSSIER n / 18 and BACK TO TITLE, in that order', async () => {
     setReducedMotion(true)
     const state = WON()
     firstGameOnDevice(state)
@@ -650,13 +650,13 @@ describe('the ways on', () => {
     show(state, undefined, null, () => (again += 1), () => (title += 1))
     const order = [...container.querySelectorAll('button')].map((b) => b.textContent)
     const n = metIn(state).length
-    expect(order.slice(-4)).toEqual(['COPY RESULT', 'PLAY AGAIN', `DOSSIER ${n} / 18`, 'TITLE SCREEN'])
+    expect(order.slice(-4)).toEqual(['COPY RESULT', 'PLAY AGAIN', `DOSSIER ${n} / 18`, 'BACK TO TITLE'])
     const bar = container.querySelector('[data-debrief-bar]')!
     expect([...bar.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['COPY RESULT', 'PLAY AGAIN'])
     expect(bar.className).toMatch(/\bsticky\b/)
     expect(bar.className).toMatch(/\bbottom-0\b/)
     await click(byText(/^PLAY AGAIN$/)!)
-    await click(byText(/^TITLE SCREEN$/)!)
+    await click(byText(/^BACK TO TITLE$/)!)
     expect([again, title]).toEqual([1, 1])
   })
 

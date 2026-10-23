@@ -31,8 +31,7 @@ import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import IntelCard from '../src/ui/board/IntelCard'
-import { callIndex } from '../src/ui/board/boardModel'
-import { techniqueLabel } from '../src/ui/labels'
+import { callIndex, shortName } from '../src/ui/board/boardModel'
 import { LearnMore } from '../src/ui/learnMore'
 import Night, { type BoardView } from '../src/ui/night/Night'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
@@ -182,8 +181,8 @@ describe("LEARN MORE on the night's intel card (critique row M7)", () => {
     const def = DEFAULT_SCENARIO.events.find((e) => e.id === id)!
     expect(button.getAttribute('data-learn-more')).toBe(def.id)
     expect(button.getAttribute('aria-haspopup')).toBe('dialog')
-    expect(button.textContent).toBe(`LEARN MORE in the Field Library: ${techniqueLabel(def.techniqueRefs[0])}`)
-    expect(button.querySelector('.sr-only')?.textContent).toBe(` in the Field Library: ${techniqueLabel(def.techniqueRefs[0])}`)
+    expect(button.textContent).toBe(`LEARN MORE in the Field Library: ${shortName(def)}`)
+    expect(button.querySelector('.sr-only')?.textContent).toBe(` in the Field Library: ${shortName(def)}`)
     // In the display face, as FILE IT beside it is (v1.3 R3 fresh-eyes
     // review: a thin mono LEARN MORE over a pixel FILE IT).
     for (const cls of ['w-full', 'min-h-11', 'font-display', 'text-[11px]', 'border-dc-go', 'bg-dc-go/10']) expect(button.className.split(' ')).toContain(cls)
@@ -289,7 +288,7 @@ describe("LEARN MORE in the tile's intel card (critique row M7)", () => {
       const button = li.querySelector<HTMLButtonElement>('button[data-learn-more]')
       expect(button, `${id} has no LEARN MORE on the tile card`).not.toBeNull()
       expect(button!.getAttribute('data-learn-more')).toBe(id)
-      expect(button!.textContent).toBe(`LEARN MORE in the Field Library: ${techniqueLabel(def.techniqueRefs[0])}`)
+      expect(button!.textContent).toBe(`LEARN MORE in the Field Library: ${shortName(def)}`)
       for (const cls of ['w-full', 'min-h-11', 'font-mono', 'text-xs', 'border-dc-go', 'bg-dc-go/10']) expect(button!.className.split(' ')).toContain(cls)
       act(() => button!.click())
     }

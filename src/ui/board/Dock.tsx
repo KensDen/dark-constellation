@@ -47,10 +47,10 @@ export default function Dock(p: DockProps) {
       <div className="px-3 pt-0.5 pb-1.5">
         <div data-dockline className={`flex items-center justify-between font-mono text-[11px] tracking-wider text-dc-muted ${pulse}`}>
           <span data-remaining>
-            {REMAINING} <b className={over ? 'text-dc-hostile' : 'text-dc-ink'}>{worst.remaining}</b>
+            {REMAINING} <b className={over ? 'text-dc-hostile' : 'text-dc-ink'}>{worst.remaining}</b> CR
           </span>
           <button type="button" data-worst aria-expanded={p.showWorst || below} onClick={p.onWorst} className="-my-2 min-h-11 tracking-wider">
-            {WORST_CASE} <b className={below ? 'text-dc-hostile' : 'text-dc-ink'}>{worst.value}</b>
+            {WORST_CASE} <b className={below ? 'text-dc-hostile' : 'text-dc-ink'}>{worst.value}</b> CR
           </button>
         </div>
         {(p.showWorst || below) && (

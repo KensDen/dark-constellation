@@ -34,7 +34,7 @@ export const OPPORTUNITIES: ThreatEvent[] = [
     benefit: { briefTurns: 2 },
     techniqueRefs: [],
     blurb:
-      `A partner nation opens its space tracking feed to ${PLAYER_ORG} for the surge period. Someone else's sensors, your warning time.`,
+      `A partner nation opens its space tracking feed to ${PLAYER_ORG} for the flood response. Someone else's sensors, your warning time.`,
     learnMoreCards: [],
   },
   {
@@ -49,7 +49,7 @@ export const OPPORTUNITIES: ThreatEvent[] = [
     benefit: { expediteTurns: 1 },
     techniqueRefs: [],
     blurb:
-      'A launch broker calls: a rideshare manifest slot opened up on short notice. One deployment in transit gets to skip the queue.',
+      'A launch broker calls: a seat on a rideshare manifest opened up on short notice. One deployment in transit gets to skip the queue.',
     learnMoreCards: [],
   },
 ]

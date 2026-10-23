@@ -371,7 +371,7 @@ export function HitCard({ step, turn, lastTurn, signs, known, first, reduced, pl
   return (
     <Card
       kind="hit"
-      label={`${def.name}: ${r.verdict}`}
+      label={`${shortName(def)}: ${r.verdict}`}
       head={copy.hitHeader(turn)}
       reduced={reduced}
       foot={<Onward first={first} reduced={reduced} onContinue={onContinue} />}
@@ -499,7 +499,7 @@ export function IntelFile({
               onClick={(e) => learnMore(def.id, e.currentTarget)}
               className="min-h-11 w-full border-2 border-dc-go bg-dc-go/10 font-display text-[11px] text-dc-go shadow-press"
             >
-              LEARN MORE<span className="sr-only"> in the Field Library: {techniqueLabel(techRef)}</span>
+              LEARN MORE<span className="sr-only"> in the Field Library: {shortName(def)}</span>
             </button>
           )}
           <button ref={ref} type="button" data-file-it onClick={onFile} className={PRIMARY}>

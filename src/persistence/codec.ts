@@ -156,10 +156,10 @@ export function restoreGame(p: unknown): RestoredRecord {
   if (typeof rec.version !== 'number') throw new SaveError('This save is missing its version.')
   if (rec.version < SAVE_VERSION) throw new StaleSaveError()
   if (rec.version > SAVE_VERSION) {
-    throw new SaveError(`This save is version ${rec.version}, but this build reads version ${SAVE_VERSION}. It cannot be loaded.`)
+    throw new SaveError('This save comes from a newer version of the game and cannot be loaded here.')
   }
   const scenario = SCENARIOS.find((s) => s.id === rec.scenarioId)
-  if (!scenario) throw new SaveError(`This save references an unknown scenario (${String(rec.scenarioId)}).`)
+  if (!scenario) throw new SaveError('This save is for an operation this version does not have.')
   const raw = rec.state as Record<string, unknown> | undefined
   if (!isPlainState(raw)) throw new SaveError('This save is corrupt or incomplete.')
   const phase: SavePhase = rec.phase === 'procure' || rec.phase === 'aftermath' ? rec.phase : 'brief'

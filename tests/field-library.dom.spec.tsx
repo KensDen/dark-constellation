@@ -467,7 +467,7 @@ describe("the event cards' learn more", () => {
     render(briefedWithLead())
     click(container.querySelector('button[data-full-brief]')!)
     await settle()
-    const banner = container.querySelector<HTMLButtonElement>('button[aria-label="Threat intel"]')!
+    const banner = container.querySelector<HTMLButtonElement>('button[aria-label="COLDVEIL intel"]')!
     expect(banner, 'the full brief has no intel button').not.toBeNull()
     banner.focus()
     click(banner)

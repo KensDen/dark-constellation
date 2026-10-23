@@ -32,7 +32,7 @@ const LibraryUnavailable = ({ onBack }: { onBack?: () => void }) => (
 )
 const FieldLibrary = lazy(() => import('./FieldLibrary').catch(() => ({ default: LibraryUnavailable })))
 
-const DOSSIER_PURPOSE = 'Every move COLDVEIL makes against you is a card: how it travels and what it hits, what stops it, and who documented it.'
+const DOSSIER_PURPOSE = 'Every move COLDVEIL makes against you is a card: how it travels and what it hits, what stops it, and who documented it. So is the one hazard nobody planned.'
 
 const MONO = 'font-mono text-[10px] tracking-wider'
 // The card's place in the deck, 01 to 18.

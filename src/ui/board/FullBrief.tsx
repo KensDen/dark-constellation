@@ -49,7 +49,7 @@ export default function FullBrief({ state, named, onIntel, onTag }: FullBriefPro
             <li key={i}>{line}</li>
           ))}
         </ul>
-        <button type="button" aria-label="Threat intel" aria-haspopup="dialog" onClick={onIntel} className="min-h-11 font-mono text-[10px] tracking-wider text-dc-hostile">
+        <button type="button" aria-label="COLDVEIL intel" aria-haspopup="dialog" onClick={onIntel} className="min-h-11 font-mono text-[10px] tracking-wider text-dc-hostile">
           COLDVEIL <span className="text-dc-friendly">intel ›</span>
         </button>
         {copy.tag && (

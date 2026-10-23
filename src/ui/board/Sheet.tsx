@@ -52,8 +52,8 @@ export default function Sheet({ id, title, step, steps, onClose, onBack, childre
           )}
           <h2 className="font-display text-[10px] text-dc-ink leading-tight">{title}</h2>
         </div>
-        <button type="button" className={`${SHEET_BUTTON} px-2`} onClick={onClose} aria-label={`Close ${title}`}>
-          X
+        <button type="button" className={`${SHEET_BUTTON} px-2`} onClick={onClose}>
+          DONE
         </button>
       </div>
       <div className="px-3 py-3">{children}</div>

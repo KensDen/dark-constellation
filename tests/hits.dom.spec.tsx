@@ -207,7 +207,7 @@ async function openFullBrief() {
   expect(toggle, 'the TONIGHT card is not on screen').not.toBeNull()
   if (toggle!.getAttribute('aria-expanded') !== 'true') click(toggle!)
   await settle()
-  expect(q('button[aria-label="Threat intel"]'), 'the full brief has no intel button').not.toBeNull()
+  expect(q('button[aria-label="COLDVEIL intel"]'), 'the full brief has no intel button').not.toBeNull()
 }
 const tiles = () => [...container.querySelectorAll('button[data-asset-id]')]
 const inTiles = (selector: string) => tiles().filter((t) => t.querySelector(selector)).map((t) => t.getAttribute('data-asset-id'))
@@ -436,7 +436,7 @@ describe('the intel cards (v1.2 R3)', () => {
     const named = DEFAULT_SCENARIO.events.find((e) => e.id === fixed)!
     render(state)
     await openFullBrief()
-    const opener = container.querySelector('button[aria-label="Threat intel"]') as HTMLButtonElement
+    const opener = container.querySelector('button[aria-label="COLDVEIL intel"]') as HTMLButtonElement
     expect(opener).not.toBeNull()
     act(() => opener.focus())
     click(opener)
@@ -461,7 +461,7 @@ describe('the intel cards (v1.2 R3)', () => {
     expect(briefFree(state), 'the fixture has no brief, so the dark card would pass for the wrong reason').toBe(true)
     render(state)
     await openFullBrief()
-    click(container.querySelector('button[aria-label="Threat intel"]')!)
+    click(container.querySelector('button[aria-label="COLDVEIL intel"]')!)
     await settle()
     const card = container.querySelector('section[data-intel-card="banner"]')
     expect(card).not.toBeNull()
@@ -559,7 +559,7 @@ describe('the intel cards (v1.2 R3)', () => {
   // pins).
   async function readCard() {
     await openFullBrief()
-    click(container.querySelector('button[aria-label="Threat intel"]')!)
+    click(container.querySelector('button[aria-label="COLDVEIL intel"]')!)
     await settle()
     const card = container.querySelector('section[data-intel-card="banner"]')
     expect(card, 'no banner card').not.toBeNull()

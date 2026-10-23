@@ -16,6 +16,8 @@ export interface RealWorldLine {
   // The event the line is for, when the caller had its id: the card's
   // "learn more" opens the Field Library at it (v1.2 R5b).
   eventId?: string
+  // The threat's short name, which LEARN MORE says it opens at.
+  threat?: string
   technique: string
   ref: TechniqueRef
   source: string
@@ -28,11 +30,11 @@ export const shortSourceName = (title: string) => title.split(/[:,]/)[0].trim()
 // Null for an event with nothing behind it (the opportunities carry no
 // technique and no learn-more card).
 export function realWorldFor(
-  def: (Pick<ThreatEvent, 'techniqueRefs' | 'learnMoreCards'> & { id?: string }) | undefined,
+  def: (Pick<ThreatEvent, 'techniqueRefs' | 'learnMoreCards'> & { id?: string; name?: string }) | undefined,
 ): RealWorldLine | null {
   const ref = def?.techniqueRefs[0]
   const card = def?.learnMoreCards[0]
   const first = card?.sources[0]
   if (!ref || !card || !first) return null
-  return { eventId: def.id, technique: techniqueLabel(ref), ref, source: shortSourceName(first.title), card, first }
+  return { eventId: def.id, threat: def.name?.split(' (')[0], technique: techniqueLabel(ref), ref, source: shortSourceName(first.title), card, first }
 }

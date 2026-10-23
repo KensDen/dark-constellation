@@ -205,7 +205,7 @@ describe('GUARD R2 (d): EXECUTE is off while REMAINING is below zero', () => {
     expect(execute().disabled, 'EXECUTE is off before anything is ordered').toBe(false)
     expect(q('[data-over-budget]')).toBeNull()
     click(q('[data-brief-toggle]')!)
-    expect(q('[data-remaining]')!.textContent).toBe('REMAINING -3')
+    expect(q('[data-remaining]')!.textContent).toBe('REMAINING -3 CR')
     expect(execute().disabled, 'EXECUTE is on below zero').toBe(true)
     expect(q('[data-over-budget]')!.textContent).toBe('Over budget. Cancel an order in PROCURE.')
     click(q('[data-brief-toggle]')!)

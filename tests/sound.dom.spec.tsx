@@ -764,7 +764,7 @@ describe('the night sounds the moment it is showing', () => {
             }
             await wait(STRIKE_MS * (1 - LOCK_SHARE) + 1)
             expect(stage(), where).toBe('hit')
-            expect(q('[data-night-card]')!.getAttribute('aria-label'), `${where}: the card is not this step's`).toContain(step.def.name)
+            expect(q('[data-night-card]')!.getAttribute('aria-label'), `${where}: the card is not this step's`).toContain(step.def.name.split(' (')[0])
             expect(cues(since()), `${where}: the hit card arrived with a sound of its own`).toEqual([])
             // One tick per tile as it lands: up for a blocked point, down
             // for one that got through.

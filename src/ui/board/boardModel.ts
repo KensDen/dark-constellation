@@ -215,7 +215,7 @@ export const strengthLine = (ev: ThreatEvent) => `STRENGTH ${'●'.repeat(ev.bas
 // The full brief's toggle (QC G-026: it says what a tap does either way).
 export const FULL_BRIEF_OPEN = 'Expand full brief'
 export const FULL_BRIEF_CLOSE = 'Hide full brief'
-export const briefButton = (price: number, ordered: boolean) => (ordered ? `ORDERED · ${price} CR` : `BRIEF · ${price} CR`)
+export const briefButton = (price: number, ordered: boolean) => (ordered ? `${price} CR · ORDERED` : `BRIEF · ${price} CR`)
 
 // The dock's words (brief 5.3 item 5).
 export const REMAINING = 'REMAINING'
@@ -236,7 +236,7 @@ export const turns = (n: number) => `${n} turn${n === 1 ? '' : 's'}`
 
 // The IR retainer's line, read off the scenario (brief 5.4).
 export const retainerLine = (state: Pick<GameState, 'scenario'>) =>
-  `Recovers ${state.scenario.recovery.withIrRetainer} points a turn on every meter instead of ${state.scenario.recovery.base}. Does not stop anything; shortens everything.`
+  `Recovers ${state.scenario.recovery.withIrRetainer} points a turn instead of ${state.scenario.recovery.base}. Does not stop anything; speeds every recovery.`
 
 // The earned answer key as a line: what it stops alone, then what it
 // blunts (the stops rule above), then how many it answers unmet.

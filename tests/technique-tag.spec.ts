@@ -27,6 +27,7 @@ import type { GameState } from '../src/engine/types'
 import { briefCopy } from '../src/ui/brief'
 import { callSigns } from '../src/ui/board/board'
 import { frameworkLabels, techniqueLabel } from '../src/ui/labels'
+import { shortName } from '../src/ui/board/boardModel'
 import { LearnMore } from '../src/ui/learnMore'
 import { HitCard, IntelFile } from '../src/ui/night/cards'
 import { nightOf } from '../src/ui/night/nightModel'
@@ -225,7 +226,8 @@ describe('the frameworks are spelled as their owners spell them', () => {
         expect(head, `${step.def.id}: the dossier row names no framework`).toBe(frameworkLabels[ref.framework].split(' ')[0])
         expect(head).not.toMatch(RAW)
         const sr = /in the Field Library: ([^<]*)</.exec(intel)?.[1].replaceAll('&amp;', '&') ?? ''
-        expect(sr, `${step.def.id}: LEARN MORE`).toBe(techniqueLabel(ref))
+        // LEARN MORE names the threat it opens at (R6 question 13).
+        expect(sr, `${step.def.id}: LEARN MORE`).toBe(shortName(step.def))
         expect(sr).not.toMatch(RAW)
         cards += 1
       }

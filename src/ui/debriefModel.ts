@@ -48,7 +48,7 @@ export function debriefStats(state: GameState): DebriefStat[] {
   return [
     { label: 'HITS TAKEN', value: hitsTaken(state), decimals: 0 },
     { label: 'MOVES BLOCKED', value: movesBlocked(state), decimals: 0 },
-    { label: 'BEST STREAK', value: state.bestStreak, decimals: 0 },
+    { label: 'BEST DEFENSE STREAK', value: state.bestStreak, decimals: 0 },
     { label: 'BUDGET LEFT', value: last?.creditsAfter ?? state.credits, decimals: 0, unit: 'CR' },
     // Owned at the end, the incident response retainer among them.
     { label: 'DEFENSES KEPT', value: state.counters.length, decimals: 0 },
@@ -81,7 +81,7 @@ export function gradeBlock(state: GameState): GradeBlock {
       ? `The budget ran out on turn ${n}.`
       : state.lossReason === 'maiCollapse'
         ? `Mission assurance collapsed below ${state.scenario.collapseThreshold} on turn ${n}.`
-        : `Turn ${n} ended under the win line.`
+        : `Turn ${n} ended below the win line.`
   return {
     grade: gradeOf(state),
     won,
@@ -266,8 +266,8 @@ export const ladder = (state: GameState): Rung[] => {
     { grade: 'A', takes: `${GRADE_THRESHOLDS.A}+` },
     { grade: 'B', takes: `${GRADE_THRESHOLDS.B}+` },
     { grade: 'C', takes: `a win, ${state.scenario.winThreshold}+` },
-    { grade: 'D', takes: `all ${t} turns, under ${state.scenario.winThreshold}` },
-    { grade: 'F', takes: `out before turn ${t}` },
+    { grade: 'D', takes: `all ${t} turns, below ${state.scenario.winThreshold}` },
+    { grade: 'F', takes: `out early: budget below zero or score under ${state.scenario.collapseThreshold}` },
   ]
 }
 
@@ -279,11 +279,11 @@ export function toNextGrade(state: GameState): string {
     case 'S':
       return 'The top grade.'
     case 'A':
-      return `${more(GRADE_THRESHOLDS.S)} more graded points for S.`
+      return `${more(GRADE_THRESHOLDS.S)} more on the grade score for S.`
     case 'B':
-      return `${more(GRADE_THRESHOLDS.A)} more graded points for A.`
+      return `${more(GRADE_THRESHOLDS.A)} more on the grade score for A.`
     case 'C':
-      return `${more(GRADE_THRESHOLDS.B)} more graded points for B.`
+      return `${more(GRADE_THRESHOLDS.B)} more on the grade score for B.`
     case 'D':
       return `${one(block.needed - block.final).toFixed(1)} more mission assurance at the end for C.`
     case 'F':

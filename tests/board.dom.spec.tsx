@@ -186,7 +186,7 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
     const tile = defenseTile('irRetainer')
     expect(tile, 'the retainer is not in DEFENSES').not.toBeNull()
     expect(tile!.querySelector('[data-stops]')!.textContent).toBe(
-      `Recovers ${withIrRetainer} points a turn on every meter instead of ${base}. Does not stop anything; shortens everything.`,
+      `Recovers ${withIrRetainer} points a turn instead of ${base}. Does not stop anything; speeds every recovery.`,
     )
     click(tile!)
     expect(defenseTile('irRetainer')!.getAttribute('aria-pressed'), 'the retainer did not queue').toBe('true')
@@ -225,7 +225,7 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
         />,
       )
     })
-    expect(defenseTile('irRetainer')!.textContent).toContain('Recovers 9 points a turn on every meter instead of 3.')
+    expect(defenseTile('irRetainer')!.textContent).toContain('Recovers 9 points a turn instead of 3.')
   })
 
   it('renders one tile per asset in its column of the strip, with the call sign and the exact integrity in its name', async () => {

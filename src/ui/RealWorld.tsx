@@ -18,7 +18,7 @@ import type { RealWorldLine } from './realWorldLine'
 
 // The button itself, also listed per threat on the aftermath card. None
 // where the game provides no way to the library.
-export function LearnMoreButton({ eventId, technique }: { eventId: string; technique: string }) {
+export function LearnMoreButton({ eventId, threat }: { eventId: string; threat: string }) {
   const learnMore = useContext(LearnMore)
   if (!learnMore) return null
   return (
@@ -29,7 +29,7 @@ export function LearnMoreButton({ eventId, technique }: { eventId: string; techn
       onClick={(e) => learnMore(eventId, e.currentTarget)}
       className="mt-1 w-full min-h-11 border-2 border-dc-go bg-dc-go/10 font-mono text-xs text-dc-go"
     >
-      LEARN MORE<span className="sr-only"> in the Field Library: {technique}</span>
+      LEARN MORE<span className="sr-only"> in the Field Library: {threat}</span>
     </button>
   )
 }
@@ -69,7 +69,7 @@ export default function RealWorld({ line }: { line: RealWorldLine }) {
   return (
     <div className="mt-2">
       {details}
-      <LearnMoreButton eventId={line.eventId} technique={line.technique} />
+      <LearnMoreButton eventId={line.eventId} threat={line.threat ?? line.technique} />
     </div>
   )
 }

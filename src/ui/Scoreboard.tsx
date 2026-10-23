@@ -106,7 +106,7 @@ export default function Scoreboard({ onBack }: { onBack: () => void }) {
         <section data-board="practice" aria-labelledby="practice-head">
           <div className="flex items-baseline justify-between gap-2">
             <h2 id="practice-head" className={`${HEAD} text-dc-friendly`}>
-              PRACTICE · BEST 10
+              PRACTICE · TOP 10
             </h2>
           </div>
           {practice.length === 0 ? (

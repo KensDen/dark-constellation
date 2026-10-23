@@ -79,7 +79,7 @@ const STATUS: Partial<Record<Screen, string>> = {
 function ScreenLoading() {
   return (
     <main className="max-w-3xl mx-auto px-4 py-10 font-mono text-sm">
-      <p className="text-phosphor">&gt; LOADING MODULE_</p>
+      <p className="text-phosphor">&gt; LOADING_</p>
       <p className="mt-2 text-ink-dim">Standby.</p>
     </main>
   )

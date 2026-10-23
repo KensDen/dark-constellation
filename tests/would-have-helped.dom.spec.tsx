@@ -190,7 +190,7 @@ describe('the hit card (critique row M3)', () => {
   it('names the missing defense on the UNDEFENDED block, with its price, what it stops and where to find it', async () => {
     const f = threatWhere((ev, def, state) => ev.outcome === 'open' && ev.effectiveSeverity > 0 && def.counters.length > 0 && state.turn < DEFAULT_SCENARIO.totalTurns)
     const card = await toHitCard(f.state, f.def)
-    expect(card.getAttribute('aria-label')).toBe(`${f.def.name}: HIT`)
+    expect(card.getAttribute('aria-label')).toBe(`${shortName(f.def)}: HIT`)
     const block = card.querySelector('[data-outcome="open"]')
     expect(block, 'the hit card has no UNDEFENDED block').not.toBeNull()
     expect(block!.textContent).toMatch(/^UNDEFENDED/)

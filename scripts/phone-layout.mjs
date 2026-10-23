@@ -615,9 +615,10 @@ const SMALL_INPUTS = `(() => [...document.querySelectorAll('input:not([type=chec
 
 // (e) The retired words (section 4), read from every text node apart and
 // every accessible name. The deck's own names are fiction and content
-// (the rideshare is a "Commercial rideshare slot"), the launch trade's
-// "manifest slot" is not the forecast's, and "Credits and license" and
-// the credits screen's CREDITS heading are the credits, not money.
+// (the rideshare is a "Commercial rideshare slot"), and "Credits and
+// license" and the credits screen's CREDITS heading are the credits, not
+// money. Since R6 (Decisions Q13) the rideshare's blurb says "a seat on a
+// rideshare manifest", so "manifest slot" is no longer exempt.
 const RETIRED = [
   ['buy', '\\b(buy|buys|bought)\\b', 'i'],
   ['purchase', '\\bpurchas\\w*', 'i'],
@@ -659,7 +660,7 @@ const RETIRED_WORDS = `((names) => {
   }
   for (const e of document.querySelectorAll('[aria-label]')) parts.push(e.getAttribute('aria-label'))
   let text = parts.join(' ')
-  for (const n of [...names, 'rideshare manifest slot']) text = text.split(n).join(' ')
+  for (const n of names) text = text.split(n).join(' ')
   text = text.replace(/credits and licen[cs]e/gi, ' ').replace(/funding bill/gi, ' ')
   const found = []
   for (const [word, re, flags] of ${JSON.stringify(RETIRED)}) {

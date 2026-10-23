@@ -19,7 +19,7 @@
 // plain grade row. With motion off the win still reads from its shape:
 // the shield, the stamp and the rays are there, only nothing moves. Below the fold: WHAT YOU CAN NOW SAY, NEXT
 // TIME, DECISIONS, the grade ladder, the turn strip, SHARE, PLAY AGAIN,
-// DOSSIER n / 18, TITLE SCREEN and the countdown to the next Daily Op.
+// DOSSIER n / 18, BACK TO TITLE and the countdown to the next Daily Op.
 // scripts/phone-layout.mjs holds the first screen to 375x667 unscrolled.
 //
 // Every number is the engine's, read through ./debriefModel.ts and
@@ -134,7 +134,7 @@ const TIER: Record<'S' | 'A' | 'B' | 'C', { line: string; burst: number; sparks:
   C: { line: 'HELD THE LINE', burst: 8, sparks: 0 },
 }
 // The stats a win's grid opens on.
-const WIN_STATS_FIRST = ['MOVES BLOCKED', 'BEST STREAK', 'POINTS SAVED']
+const WIN_STATS_FIRST = ['MOVES BLOCKED', 'BEST DEFENSE STREAK', 'POINTS SAVED']
 // Where each spark sits round the shield, in the order they add.
 // Inside the hero's frame and clear of the lines beside the shield.
 const SPARK_AT = ['-right-1 -top-1', '-left-1 -top-1', '-left-1 bottom-4', '-right-1 bottom-4']
@@ -356,7 +356,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
 
   // The Daily Op's number in its own colour, so a Daily's debrief says so
   // at a glance (fresh-eyes review).
-  const mode = daily ? `DAILY #${daily.n}` : 'PRACTICE'
+  const mode = daily ? `DAILY OP #${daily.n}` : 'PRACTICE'
   const after = daily && !official ? ' · PRACTICE' : ''
   const streak = daily && official ? dailyStreak(now) : 0
   const difficulty = DIFFICULTIES[state.difficulty].label
@@ -551,7 +551,11 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
             </p>
           ) : (
             <p className="mt-1 text-[13px] leading-snug">
-              {stats[0].value > 0 ? 'Every move that got through met a defense you already had.' : 'Nothing got through.'}
+              {state.lossReason === 'insolvency'
+                ? `Keep WORST CASE at 0 or above. Orders, upkeep and repairs took the budget below zero on turn ${state.history.length}.`
+                : stats[0].value > 0
+                  ? 'Every move that got through met a defense you already had.'
+                  : 'Nothing got through.'}
             </p>
           )}
         </section>
@@ -578,7 +582,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
           <h3 id="ladder-head" className={`${HEAD} text-dc-muted`}>
             GRADE LADDER
           </h3>
-          <p className="mt-1 text-[12px] text-dc-muted">Graded on the final mission assurance score plus the defense bonus.</p>
+          <p className="mt-1 text-[12px] text-dc-muted">Grade score: the final mission assurance score plus the defense bonus.</p>
           <ol className="mt-1.5 flex flex-col">
             {rungs.map((r) => {
               const mine = r.grade === block.grade
@@ -684,7 +688,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
             </button>
             {onTitle && (
               <button type="button" data-title-screen className={DC_BTN} onClick={onTitle}>
-                TITLE SCREEN
+                BACK TO TITLE
               </button>
             )}
           </div>

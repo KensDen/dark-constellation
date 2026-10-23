@@ -164,7 +164,7 @@ const DebriefUnavailable = ({ onPlayAgain, onTitle }: DebriefProps) => (
     </button>
     {onTitle && (
       <button type="button" className={DC_BTN} onClick={onTitle}>
-        TITLE SCREEN
+        BACK TO TITLE
       </button>
     )}
   </div>
@@ -604,7 +604,7 @@ export default function Game({
           // brief screen it is not: nothing renders it there, and telling
           // a player to select what is not on screen was the Round 6d
           // defect. The outcome screen renders its own code and says so.
-          'Copy failed. Your code is also shown on the outcome screen when the campaign ends.',
+          'Copy failed. Your code is also shown on the debrief when the operation ends.',
     )
   }
 
@@ -696,8 +696,8 @@ export default function Game({
       setArrived(null)
       setPhase('night')
       if (!burn) commit(hold)
-    } catch (e) {
-      flash(e instanceof Error ? `Turn could not resolve: ${e.message}` : 'Turn could not resolve.')
+    } catch {
+      flash('This turn could not be played.')
     }
   }
 
@@ -822,7 +822,7 @@ export default function Game({
               value={outcomeCode}
               onFocus={(e) => e.currentTarget.select()}
               className="mt-2 h-20 w-full break-all border-2 border-dc-line bg-dc-ground px-2 py-1 font-mono text-[16px] text-dc-ink"
-              aria-label="save code for this campaign"
+              aria-label="save code for this operation"
             />
             <button type="button" className={`${DC_BTN} mt-2`} onClick={copyOutcomeCode}>
               COPY SAVE CODE
@@ -940,7 +940,7 @@ export default function Game({
         {/* THE SHEETS, over the dimmed board and under the dock, which
             stays live so EXECUTE is one tap away from inside PROCURE. The
             backdrop closes the sheet. */}
-        {sheetOpen && <button type="button" aria-label="Close sheet" className="absolute inset-0 z-20 bg-dc-ground/80" onClick={() => openSheet(null)} />}
+        {sheetOpen && <button type="button" aria-label="Back to board" className="absolute inset-0 z-20 bg-dc-ground/80" onClick={() => openSheet(null)} />}
         {sheet === 'procure' && (
           <Procure
             state={state}
@@ -1035,7 +1035,7 @@ export default function Game({
             <Glossary
               embedded
               focus={glossaryFocus}
-              backLabel="Back to the brief"
+              backLabel="Back to brief"
               onBack={() => setGlossaryFocus(null)}
             />
           </Suspense>
@@ -1052,7 +1052,7 @@ export default function Game({
           data-library-overlay
         >
           <Suspense fallback={<OverlayLoading />}>
-            <FieldLibrary embedded focus={library} backLabel="Back to the game" onBack={() => setLibrary(null)} />
+            <FieldLibrary embedded focus={library} backLabel="Back to board" onBack={() => setLibrary(null)} />
           </Suspense>
         </div>
       )}

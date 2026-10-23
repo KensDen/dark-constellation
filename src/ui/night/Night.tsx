@@ -20,7 +20,7 @@ import { strikeIntensity, useSilenceSound, useSound } from '../../audio'
 import type { DebrisChoice, GameState } from '../../engine/types'
 import { dossier, fileCard, knownThreats } from '../../persistence'
 import { callSigns } from '../board/board'
-import { stoppedByLine } from '../board/boardModel'
+import { shortName, stoppedByLine } from '../board/boardModel'
 import { LOCK_SHARE, STRIKE_MS, strikeOf, type Strike } from '../board/strike'
 import { useReducedMotion } from '../cues/motion'
 import { maiScore } from '../../engine/scoring'
@@ -199,7 +199,7 @@ export default function Night(p: NightProps) {
   const turn = record.turn
   if (stage.at === 'moving') return <Moving />
   const step = night && stage.at !== 'end' ? night.steps[stage.i] : null
-  if (stage.at === 'strike' && step) return <StrikeBanner key={`banner-${stage.i}`} held={step.ev.effectiveSeverity === 0} name={step.def.name} />
+  if (stage.at === 'strike' && step) return <StrikeBanner key={`banner-${stage.i}`} held={step.ev.effectiveSeverity === 0} name={shortName(step.def)} />
   if (!cards || !close) {
     if (!failed) return null
     return (

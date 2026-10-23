@@ -81,7 +81,7 @@ describe('GUARD R4 (b): the grade, the stats and the filed list agree with the e
         'HITS TAKEN': events.filter((e) => e.effectiveSeverity > 0).length,
         // COLDVEIL's moves only: a debris miss is luck, not a block (R6 Q7).
         'MOVES BLOCKED': events.filter((e) => e.outcome === 'held' && e.eventId !== 'debris-conjunction' && DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)?.kind !== 'opportunity').length,
-        'BEST STREAK': last.bestStreak,
+        'BEST DEFENSE STREAK': last.bestStreak,
         'BUDGET LEFT': last.creditsAfter,
         'DEFENSES KEPT': g.counters.length,
         'POINTS SAVED': Math.round(last.saved * 10) / 10,
@@ -183,7 +183,7 @@ describe('the rest of the debrief reads the record too', () => {
       const graded = Math.round((block.final + (block.bonus?.bonus ?? 0)) * 10) / 10
       const up: Record<string, [number, string] | undefined> = { A: [GRADE_THRESHOLDS.S, 'S'], B: [GRADE_THRESHOLDS.A, 'A'], C: [GRADE_THRESHOLDS.B, 'B'] }
       const next = up[block.grade]
-      if (next) expect(line).toBe(`${(Math.round((next[0] - graded) * 10) / 10).toFixed(1)} more graded points for ${next[1]}.`)
+      if (next) expect(line).toBe(`${(Math.round((next[0] - graded) * 10) / 10).toFixed(1)} more on the grade score for ${next[1]}.`)
       if (block.grade === 'D') expect(line).toBe(`${(Math.round((70 - block.final) * 10) / 10).toFixed(1)} more mission assurance at the end for C.`)
       if (block.grade === 'F') expect(line).toBe('Reach the end of turn 6 for D.')
     }

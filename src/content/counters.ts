@@ -134,6 +134,6 @@ export const COUNTERMEASURES: Countermeasure[] = [
       { id: 'CM0088', name: 'Organizational Policy', url: 'https://sparta.aerospace.org/countermeasures/CM0088', tier: 'Tier III' },
       { id: 'CM0005', name: 'Ground-based Countermeasures', url: 'https://sparta.aerospace.org/countermeasures/CM0005', tier: 'Tier II' },
     ],
-    blurb: 'Faster recovery on every meter, every turn. Procured before the incident, like it has to be.',
+    blurb: 'Faster recovery, every turn. Procured before the incident, like it has to be.',
   },
 ]
