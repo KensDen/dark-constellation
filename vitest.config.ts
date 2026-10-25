@@ -11,5 +11,10 @@ export default defineConfig({
     include: ['tests/**/*.spec.{ts,tsx}'],
     // A quiet null for jsdom's missing canvas (v1.5 R2; the file says why).
     setupFiles: ['tests/setup-canvas.ts'],
+    // 15 seconds a test, not the default 5 (v1.5.0's deploy). The heaviest
+    // DOM specs run about 1.1 seconds here, but CI's runner is about five
+    // times slower under the full suite, and two of them crossed 5 seconds
+    // there on 25 October 2026. A test that hangs still fails.
+    testTimeout: 15_000,
   },
 })
