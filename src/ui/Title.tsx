@@ -25,6 +25,7 @@ import { STALE_SAVE_MESSAGE } from '../persistence'
 import type { SoundPrefs } from '../audio'
 import SystemPanel from './SystemPanel'
 import { DECK_LINE, SYSTEM_TITLE } from './systemControls'
+import { MOVED_TO_STANDARD, movedToStandard, toldMovedToStandard } from './session'
 import { DAILY_OPEN_LINE, TITLE_TAGLINE, dailyLineNow, dossierCount, goalOne } from './titleStatus'
 import PixelSprite from './sprites/PixelSprite'
 import { ICON_CHECK, tinted } from './sprites/icons'
@@ -67,6 +68,11 @@ const READ_BTN = 'flex min-h-11 flex-col justify-start border-2 border-dashed bo
 
 export default function Title(p: TitleProps) {
   const [system, setSystem] = useState(false)
+  // PLAY's move to STANDARD on a first win, said once (v1.5 R1).
+  const [moved] = useState(() => movedToStandard())
+  useEffect(() => {
+    if (moved) toldMovedToStandard()
+  }, [moved])
   // The tagline on one line whatever the font (Ken, 21 October). Its size
   // follows the width, and the width a line takes follows the font: SF on
   // an iPhone, Roboto on Android, DejaVu on a CI runner. So once laid out
@@ -138,7 +144,12 @@ export default function Title(p: TitleProps) {
         <div className={TILE} data-goal="1">
           <p className="font-mono text-[10px] tracking-widest text-dc-muted">GOAL 1</p>
           <p className="mt-1 text-sm font-bold">Hold the mission</p>
-          <p className="mt-1 font-mono text-xs text-dc-go">Keep the score at{'\u00a0'}{DEFAULT_SCENARIO.winThreshold}+</p>
+          {/* The score at the end of the last turn is what counts (v1.5 R1;
+              R6b's fresh eyes, item 9: "keep" read as every turn). "Finish",
+              as the full brief's job says it: "End turn" is retired. */}
+          <p className="mt-1 font-mono text-xs text-dc-go">
+            Finish turn {DEFAULT_SCENARIO.totalTurns} at{'\u00a0'}{DEFAULT_SCENARIO.winThreshold}+
+          </p>
           {/* Whether it is done yet, as GOAL 2 shows its count (v1.3 R5):
               an icon and a word, never colour alone (rule 8). */}
           <p data-goal-status className="mt-2 flex items-center gap-1.5 font-mono text-[10px] tracking-wider">
@@ -195,6 +206,11 @@ export default function Title(p: TitleProps) {
             {DIFFICULTIES[p.difficulty].label.toUpperCase()}
           </span>
         </button>
+        {moved && (
+          <p data-moved-to-standard className="text-center font-mono text-[11px] leading-snug text-dc-go">
+            {MOVED_TO_STANDARD}
+          </p>
+        )}
         {n >= 1 && (
           <button
             type="button"

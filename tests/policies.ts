@@ -199,17 +199,13 @@ export const randomLegal: Policy = (state) => {
   return debrisTonight(state) ? { ...actions, debris: r.chance(0.5) ? 'burn' : 'hold' } : actions
 }
 
-// Buy everything is played and reported with no target since v1.4 (Ken,
-// 24 October 2026): under its new definition it wins 99.6 percent on
-// STANDARD, above Prepared, and as one fixed order (sensor fusion, firmware
-// attestation, ground zero trust, the IR retainer, anti-jam, PNT
-// authentication) that wins the same on v1.3.0, so the cap does not
-// create it; the v1.4 backlog carries it for a balance pass. `reported`
-// keeps it out of the grade calibration's population (tests/grade.spec.ts)
-// and marks it in the sweep's table, and every suite that walks these
-// lines still plays it.
+// Buy everything was reported with no target in v1.4.0 (it won 99.6
+// percent on STANDARD as one fixed order); since v1.5 R1, with the IR
+// retainer's recovery at 4, it is gated again (tests/sweep.spec.ts) and
+// back in the grade calibration's population (Ken, 24 October 2026).
+// `reported` marks a line the sweep plays outside the gate.
 export const POLICIES: readonly { name: PolicyName; label: string; policy: Policy; reported?: true }[] = [
-  { name: 'buyEverything', label: 'Buy everything', policy: buyEverything, reported: true },
+  { name: 'buyEverything', label: 'Buy everything', policy: buyEverything },
   { name: 'prepared', label: 'Prepared', policy: prepared },
   { name: 'novice', label: 'Novice', policy: novice },
   { name: 'randomLegal', label: 'Random legal', policy: randomLegal },

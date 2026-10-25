@@ -19,7 +19,12 @@ export const COUNTERMEASURES: Countermeasure[] = [
       { id: 'CM0083', name: 'Antenna Nulling and Adaptive Filtering', url: 'https://sparta.aerospace.org/countermeasures/CM0083', tier: 'Tier II' },
       { id: 'CM0029', name: 'TRANSEC', url: 'https://sparta.aerospace.org/countermeasures/CM0029', tier: 'Tier I' },
     ],
-    blurb: "Takes the edge off jamming: enough to ride out tonight's strength. Physics still gets a vote.",
+    // v1.5 R1: it stops both jamming moves alone, which "takes the edge off"
+    // undersold (R6b's fresh eyes, item 5). No threat by name: PROCURE
+    // names only what the player has met (the earned answer key, R1).
+    // "Physics still gets a vote" left too (the R1 re-review: it read as a
+    // block that can fail, beside BLOCKED "is safe").
+    blurb: 'Nulls the jammer and filters what gets through: enough to stop a jam outright.',
   },
   {
     id: 'linkAuth',

@@ -114,17 +114,21 @@ describe('the stops rule (R6 question 2)', () => {
   // GUARD R7 (a), the model half: SSA answers the debris call; it never
   // blocks it (mitigation is 0 and HOLD can still lose the satellite), and
   // ANSWERED is a status of its own, its own word and icon.
-  it('reads the debris call ANSWERED with SSA and EXPOSED without, and nothing else ever ANSWERED', () => {
+  it('reads the debris call ANSWERED with SSA and YOUR CALL without, and nothing else ever ANSWERED or YOUR CALL', () => {
     const state = newGame(scenario, 1, 'standard')
     const debris = threats.find((e) => e.effect.special === 'debrisStrike')!
     expect(moveStatus(state, debris, ['ssaManeuver'])).toBe('answered')
-    expect(moveStatus(state, debris, [])).toBe('exposed')
+    // YOUR CALL since v1.5 R1 (EXPOSED before): a hazard to decide.
+    expect(moveStatus(state, debris, [])).toBe('call')
+    for (const ev of threats) if (ev !== debris) expect(moveStatus(state, ev, []), ev.id).not.toBe('call')
     const everything = scenario.countermeasures.map((c) => c.id)
     for (const ev of threats) if (ev !== debris) expect(moveStatus(state, ev, everything), ev.id).not.toBe('answered')
     expect(moveStatus(state, debris, everything)).toBe('answered')
     const others = (['exposed', 'partial', 'blocked'] as const).map((k) => STATUS[k])
     expect(others.map((s) => s.word)).not.toContain(STATUS.answered.word)
     expect(others.map((s) => s.icon)).not.toContain(STATUS.answered.icon)
+    expect([...others, STATUS.answered].map((s) => s.word)).not.toContain(STATUS.call.word)
+    expect([...others, STATUS.answered].map((s) => s.icon)).not.toContain(STATUS.call.icon)
   })
 
   it('ticks FIRST ORDERS only when a move reads BLOCKED, not when an order only blunts it', () => {

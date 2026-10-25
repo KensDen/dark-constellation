@@ -24,8 +24,15 @@ export type Grade = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
 // the prepared line's wins cluster at 76.8 to 77.0: 77 would give A 16.0
 // percent, 76.9 gives 18.7. B keeps 75, as R5a kept it, since nothing
 // measured sets it; B then holds 41.4 percent and C 35.4.
+//
+// RECALIBRATED IN v1.5 R1 (Ken, 24 October 2026), by the same method, when
+// the IR retainer's recovery went from 6 to 4 and Buy everything rejoined
+// the gated policies: 899 wins on STANDARD, graded score at the 95th
+// percentile 77.8 and at the 75th 76.5. S at 77.9 gives 5.0 percent of
+// wins and A at 76.5 21.9; B keeps 75 and holds 21.0. The old 81 and 76.9
+// gave S 1.4 and A 11.7 on the new numbers.
 // tests/grade.spec.ts re-runs the sweep and holds S and A to their shares.
-export const GRADE_THRESHOLDS = { S: 81, A: 76.9, B: 75 } as const
+export const GRADE_THRESHOLDS = { S: 77.9, A: 76.5, B: 75 } as const
 
 // What a grade reads: how the campaign ended, its final mission assurance,
 // and the defense bonus it earned.
@@ -64,7 +71,10 @@ export function gradeOf(state: GameState): Grade {
 
 // THE TURN STRIP, one square a turn: green when the score did not drop,
 // amber for a drop under `magentaDrop`, magenta for a drop of
-// `magentaDrop` or more, or whenever an asset was knocked out that turn.
+// `magentaDrop` or more, or whenever an asset was knocked out that turn,
+// and since v1.5 R1 on the turn whose close went insolvent: that turn
+// ended the run whatever the score did (R6 ledger G6-105, an F shared a
+// score above the win line on a green square).
 export const TURN_STRIP = { magentaDrop: 3 } as const
 
 export type StripColour = 'green' | 'amber' | 'magenta'
@@ -74,9 +84,12 @@ export interface StripTurn {
   maiAfter: number
   // Whether any asset was knocked out during the turn.
   knockedOut: boolean
+  // Whether the turn closed with the budget below zero, ending the run.
+  insolvent?: boolean
 }
 
-export function stripColour({ maiBefore, maiAfter, knockedOut }: StripTurn): StripColour {
+export function stripColour({ maiBefore, maiAfter, knockedOut, insolvent = false }: StripTurn): StripColour {
+  if (insolvent) return 'magenta'
   // The score is kept to one decimal place (src/engine/scoring.ts), so the
   // drop is too. In raw doubles a drop of exactly 3.0 can come out a hair
   // under it (65.6 - 62.6 is 2.999999999999993) and read amber.
@@ -111,7 +124,7 @@ export function turnStrip(state: GameState): StripColour[] {
   const knockouts = knockoutsByTurn(state)
   let maiBefore = maiScore(newGame(state.scenario, state.seed, state.difficulty))
   return state.history.map((rec, i) => {
-    const colour = stripColour({ maiBefore, maiAfter: rec.maiScore, knockedOut: knockouts[i] > 0 })
+    const colour = stripColour({ maiBefore, maiAfter: rec.maiScore, insolvent: rec.ledger.insolvent, knockedOut: knockouts[i] > 0 })
     maiBefore = rec.maiScore
     return colour
   })

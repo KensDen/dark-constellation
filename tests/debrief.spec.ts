@@ -26,6 +26,11 @@ import {
   gradeBlock,
   movesBlocked,
   lossLead,
+  canSay,
+  missedLead,
+  ordersOf,
+  replay,
+  sayVerb,
   nextTime,
   toNextGrade,
   turnDrops,
@@ -146,39 +151,81 @@ describe('the rest of the debrief reads the record too', () => {
     expect(leads, 'no loss had a drop to lead with').toBeGreaterThan(0)
   })
 
-  it('names the first defense the game missed and the turn its threat got through (NEXT TIME, M14)', () => {
-    let named = 0
-    let aheadOfNone = 0
-    let aheadOfOne = 0
+  it('rebuilds every turn\'s orders from the record, so the same game plays again exactly (v1.5 R1)', () => {
+    // The instrument NEXT TIME measures with: a game played again from its
+    // seed with the orders the record holds ends on the record's scores.
     for (const g of GAMES) {
-      const miss = g.learned.find((l) => l.how === 'missed')
+      const again = replay(g, ordersOf(g))!
+      expect(again, `seed ${g.seed} ${g.difficulty}: the record's own orders were refused`).not.toBeNull()
+      expect(again.history.map((r) => r.maiScore), `seed ${g.seed} ${g.difficulty}`).toEqual(g.history.map((r) => r.maiScore))
+      expect(again.status).toBe(g.status)
+    }
+  })
+
+  it('names a missed defense ordered earlier, and the score the same game ends on with that one change (NEXT TIME, M14)', () => {
+    // v1.5 R1 (R6b's fresh eyes, item 2, and the round's re-review): a
+    // block is not a pure gain, since COLDVEIL takes the move left open,
+    // so NEXT TIME plays the game again with the change and says the
+    // score. Each figure is held to a replay built here, apart from it.
+    let earlier = 0
+    let none = 0
+    let moved = 0
+    for (const g of GAMES) {
+      const missed = g.learned.some((l) => l.how === 'missed')
       const next = nextTime(g)
-      if (!miss) {
+      if (!missed) {
         expect(next).toBeNull()
         continue
       }
-      named += 1
-      const cm = DEFAULT_SCENARIO.countermeasures.find((c) => c.id === miss.counter)!
-      expect(next!.defense).toBe(cm.name)
+      expect(next).not.toBeNull()
+      if (next!.kind === 'none') {
+        none += 1
+        continue
+      }
+      earlier += 1
+      const cm = DEFAULT_SCENARIO.countermeasures.find((c) => c.name === next!.defense)!
+      expect(g.learned.some((l) => l.how === 'missed' && l.counter === cm.id), 'NEXT TIME names a defense the game did not miss').toBe(true)
       expect(next!.price).toBe(cm.cost)
-      expect(next!.turn).toBe(g.history.find((r) => r.events.some((e) => e.eventId === miss.threat && e.effectiveSeverity > 0))!.turn)
-      // An order of purchases under one new defense a night (v1.4): the
-      // night to order it on is no later than the turn it was needed by,
-      // and is either a night that ordered no new defense, or the one whose
-      // defense the line puts after it, exactly as the record has them.
-      const night = g.history.find((r) => r.turn === next!.orderOn)!
-      expect(next!.orderOn).toBeGreaterThanOrEqual(1)
-      expect(next!.orderOn).toBeLessThanOrEqual(next!.turn)
-      const orderedThen = DEFAULT_SCENARIO.countermeasures.filter((c) => night.purchases.some((p) => p.startsWith(`${c.name} (`)))
-      expect(orderedThen.length, 'a night of real play ordered two defenses').toBeLessThanOrEqual(1)
-      expect(next!.ahead).toBe(orderedThen[0]?.name ?? null)
-      if (next!.ahead === null) aheadOfNone += 1
-      else aheadOfOne += 1
+      expect(next!.was).toBe(g.history.at(-1)!.maiScore)
+      expect(next!.final, 'NEXT TIME names a change that ends no higher').toBeGreaterThan(next!.was)
+      // The change, built here: the defense moves to its turn, the one it
+      // displaces to the turn named.
+      const orders = ordersOf(g).map((o) => ({ ...o, buyCounters: o.buyCounters.filter((c) => c !== cm.id) }))
+      const ahead = next!.ahead ? DEFAULT_SCENARIO.countermeasures.find((c) => c.name === next!.ahead)!.id : null
+      expect(ordersOf(g)[next!.orderOn - 1].buyCounters.filter((c) => c !== cm.id)).toEqual(ahead ? [ahead] : [])
+      orders[next!.orderOn - 1] = { ...orders[next!.orderOn - 1], buyCounters: [cm.id] }
+      if (ahead && next!.aheadTo !== null) {
+        moved += 1
+        expect(orders[next!.aheadTo - 1].buyCounters, 'the displaced defense moved onto a turn that had one').toEqual([])
+        orders[next!.aheadTo - 1] = { ...orders[next!.aheadTo - 1], buyCounters: [ahead] }
+      }
+      const again = replay(g, orders)!
+      expect(again.history.at(-1)!.maiScore).toBe(next!.final)
+      expect(again.status === 'won').toBe(next!.won)
     }
-    expect(named).toBeGreaterThan(0)
-    // Both branches are reached.
-    expect(aheadOfNone, 'no NEXT TIME found a night with no new defense').toBeGreaterThan(0)
-    expect(aheadOfOne, 'no NEXT TIME put the defense ahead of another').toBeGreaterThan(0)
+    // Every branch is reached.
+    expect(earlier, 'NEXT TIME never named a better order').toBeGreaterThan(0)
+    expect(moved, 'NEXT TIME never moved a displaced defense').toBeGreaterThan(0)
+    expect(none + earlier).toBeGreaterThan(0)
+  })
+
+  it('says a defense not owned once, whatever its verbs, and says a blunt "blunted" (v1.5 R1)', () => {
+    // v1.4's fresh eyes, finding 13: the same defense on two lines read as
+    // two orders; R6b's, item 7: "partly blocked" beside "would have
+    // blunted".
+    expect(sayVerb('reduced', 'blunts')).toBe('blunted')
+    let merged = 0
+    for (const g of GAMES) {
+      const missed = canSay(g).filter((s) => s.how === 'missed')
+      expect(new Set(missed.map((s) => s.defense)).size, 'a defense not owned is said twice').toBe(missed.length)
+      for (const s of missed) {
+        if (s.more?.length) merged += 1
+        for (const m of s.more ?? []) expect(m.verb, 'a further verb kept its "would have"').not.toMatch(/would have/)
+      }
+      for (const s of canSay(g)) expect(s.verb).not.toBe('partly blocked')
+    }
+    expect(merged, 'no defense not owned had two verbs, so the merge went untested').toBeGreaterThan(0)
+    expect(missedLead(GAMES[0])).toContain(`${GAMES[0].scenario.totalTurns} is the most a run can order`)
   })
 
   it('writes one decision a turn, with what was ordered and spent', () => {

@@ -217,10 +217,14 @@ describe('GUARD R7 (a): the debris tile with SSA owned reads ANSWERED, never BLO
     expect(tile()?.textContent).not.toMatch(/BLOCKED|is safe/)
     expect(q('[data-slot="fixed"]')?.textContent).toContain('burn fuel is free')
   })
-  it('reads EXPOSED, your call, without SSA', () => {
+  it('reads YOUR CALL without SSA, never EXPOSED or "defend ›", and shows no strength (v1.5 R1)', () => {
     const state = debrisTurn()
     render({ ...state, counters: state.counters.filter((c) => c !== 'ssaManeuver') })
-    expect(tile()?.querySelector('[data-status]')?.getAttribute('data-status')).toBe('exposed')
+    const status = tile()?.querySelector('[data-status]')
+    expect(status?.getAttribute('data-status')).toBe('call')
+    expect(status?.textContent?.trim()).toBe(STATUS.call.word)
+    expect(tile()?.textContent, 'the debris tile offers a defense').not.toContain('defend ›')
+    expect(tile()?.textContent, 'the debris tile shows a strength').not.toContain('STRENGTH')
     expect(q('[data-slot="fixed"]')?.textContent).toContain('your call when it arrives')
   })
 })

@@ -27,7 +27,9 @@ export const a = (partial: Partial<TurnActions>): TurnActions => ({ ...NO_OP, ..
 // conjunction, the sensor stack before the LiDAR moves and the chain, and
 // ground zero trust last. Before the cap it ordered both turn-1 primaries
 // at once and two defenses on three later nights. It wins every one of
-// seeds 1 to 500 on Standard, 67 of them at S.
+// seeds 1 to 500 on Standard: 67 of them at S on v1.4.0's thresholds, 247
+// on v1.5 R1's (S 77.9). It orders no IR retainer, so R1's recovery change
+// does not reach it.
 export const WIN_SCRIPT: Record<number, TurnActions> = {
   1: a({ buyAssets: [{ kind: 'drone' }], buyCounters: ['antiJam'] }),
   2: a({ buyCounters: ['encryptedBackhaul'] }),

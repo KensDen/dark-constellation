@@ -96,7 +96,10 @@ export {
 const layerFor = (kind: Asset['kind']): Asset['layer'] =>
   kind === 'drone' ? 'AIR' : kind === 'groundStation' ? 'GROUND' : 'ORBIT'
 
-const kindLabel: Record<Asset['kind'], string> = {
+// How the record names an asset order and an asset; exported so a reader
+// of the record (the debrief's replay, v1.5 R1) can take an order back to
+// its kind without restating the words.
+export const kindLabel: Record<Asset['kind'], string> = {
   sat: 'imaging sat',
   rpoSat: 'RPO servicing sat',
   drone: 'drone',

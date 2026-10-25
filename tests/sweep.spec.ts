@@ -24,12 +24,12 @@ const pct = (n: number, of: number) => (100 * n) / of
 // inclusive, and whether insolvency must be zero. Only the rows the brief
 // sets are gated; the rest are reported.
 //
-// Buy everything has no band since v1.4 (Ken, 24 October 2026): under one
-// new defense a night it can no longer order every defense and die of the
-// upkeep, so its row became the priciest defense it can afford each night,
-// with the target of winning no more often than Prepared; it won 99.6
-// percent on STANDARD against 79.6, so it is reported, not gated
-// (tests/policies.ts).
+// Buy everything has no band of its own since v1.4 (Ken, 24 October 2026):
+// under one new defense a night it can no longer order every defense and
+// die of the upkeep, so its row is the priciest defense it can afford each
+// night, and its target is to win no more often than Prepared on the same
+// difficulty (the test after these). v1.4.0 reported it with no target, at
+// 99.6 percent; v1.5 R1's retainer recovery of 4 gates it again.
 const TARGETS: { name: PolicyName; difficulty: Difficulty; label: string; min: number; max: number }[] = [
   { name: 'prepared', difficulty: 'standard', label: 'Prepared', min: 65, max: 85 },
   { name: 'prepared', difficulty: 'easy', label: 'Prepared on EASY', min: 90, max: 100 },
@@ -88,6 +88,14 @@ describe('the sweep gate (v1.3 brief 7)', () => {
       expect(rate, `${t.label} won ${rate.toFixed(1)} percent`).toBeLessThanOrEqual(t.max)
     })
   }
+
+  it('holds Buy everything to no more wins than Prepared, on each difficulty (v1.5 R1)', () => {
+    for (const difficulty of ['standard', 'easy'] as const) {
+      const spend = runs.get(key('buyEverything', difficulty))!.wins
+      const prepared = runs.get(key('prepared', difficulty))!.wins
+      expect(spend, `${difficulty}: Buy everything won ${pct(spend, SEEDS).toFixed(1)} percent, Prepared ${pct(prepared, SEEDS).toFixed(1)}`).toBeLessThanOrEqual(prepared)
+    }
+  })
 
   it('never lets the prepared player go insolvent, on either difficulty', () => {
     for (const difficulty of ['standard', 'easy'] as const) expect(runs.get(key('prepared', difficulty))!.insolvencies, difficulty).toBe(0)

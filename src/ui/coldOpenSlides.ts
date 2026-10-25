@@ -41,7 +41,9 @@ export const BEATS: readonly Beat[] = [
     time: '21:09Z',
     caption: ['GROUND · GS-1', '⚠ UNKNOWN ACTOR'],
     hostile: true,
-    text: 'A threat group called COLDVEIL has taken an interest. They do not hit you where you are strong. They probe where you are thin, and they learn.',
+    // "and they learn" until v1.5 R1: COLDVEIL keeps no memory and reads
+    // the defenses held each turn (R6b's fresh eyes, item 9).
+    text: 'A threat group called COLDVEIL has taken an interest. They do not hit you where you are strong. Each turn they read your defenses and probe where you are thin.',
   },
   {
     scene: 'watch',
@@ -50,9 +52,11 @@ export const BEATS: readonly Beat[] = [
     // The turn count and the win line from the scenario (R6 question 9:
     // README says every count on screen derives from the data), and since
     // v1.4 the order cap from the engine: the beat that sends the player
-    // to the board says how many defenses a night can bring online, and
-    // why, before PROCURE says it again.
-    text: `You are the mission assurance architect. ${DEFAULT_SCENARIO.totalTurns} turns. 2 jobs: keep mission assurance at ${DEFAULT_SCENARIO.winThreshold} or above, and build the Dossier on COLDVEIL. Every move they make teaches you how they work. The integration team brings ${NEW_DEFENSES_PER_NIGHT} new defense online a night, so choose what comes first. Your first intel brief is already on your desk.`,
+    // to the board says how many defenses a turn can bring online, and
+    // why, before PROCURE says it again. Since v1.5 R1 it says the last
+    // turn's score is the one that counts (R6b's fresh eyes, item 9), and
+    // counts in turns, the game's one unit (v1.4's fresh eyes, finding 11).
+    text: `You are the mission assurance architect. ${DEFAULT_SCENARIO.totalTurns} turns. 2 jobs: finish turn ${DEFAULT_SCENARIO.totalTurns} with mission assurance at ${DEFAULT_SCENARIO.winThreshold} or above, and build the Dossier on COLDVEIL. Every move they make teaches you how they work. The integration team brings ${NEW_DEFENSES_PER_NIGHT} new defense online a turn, so choose what comes first. Your first intel brief is already on your desk.`,
   },
 ]
 

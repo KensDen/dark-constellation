@@ -30,6 +30,7 @@ import {
   hiddenOrder,
   turns,
   TONIGHT_HIDDEN,
+  showsStrength,
   tonightReason,
   UNIDENTIFIED,
   WILL_HIT,
@@ -94,7 +95,8 @@ import {
 // round the rule is said once a night, on the first drawn slot, and the
 // worst board reads 139 (prepared, turn 5, with a STREAK chip); 138 since
 // v1.4's one new defense a night, which ends that streak (lazy, turn 5),
-// and 144 once FIRST ORDERS says the cap on turn 1 (v1.4 fresh eyes). The
+// 144 once FIRST ORDERS says the cap on turn 1 (v1.4 fresh eyes), and 145
+// once it says the other door, in turns and in 2 lines (v1.5 R1). The
 // chrome bound stays 40: the board's labels and controls measure 29 at
 // worst. The headline cap stays for the full brief's own lines.
 export const HEADLINE_WORD_MAX = 8
@@ -452,7 +454,7 @@ export function firstInputCopy(state: GameState, actions: TurnActions = NO_ORDER
     }
     for (const { ev, status, flag } of slot.moves) {
       if (slot.hidden) out.push(UNIDENTIFIED, vectorTo(ev))
-      else out.push(...(flag ? [flag] : []), shortName(ev), vectorTo(ev), strengthLine(ev), STATUS[status].word)
+      else out.push(...(flag ? [flag] : []), shortName(ev), vectorTo(ev), ...(showsStrength(ev) ? [strengthLine(ev)] : []), STATUS[status].word)
     }
   }
   if (!free) out.push(INTEL_ROW[actions.intelBrief ? 'ordered' : 'none'])

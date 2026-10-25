@@ -12,13 +12,14 @@
 // format, "10 CR", with "+2 CR a turn" beside each defense (QC G-101), and
 // the planned spend in words (QC G-102).
 //
-// One new defense a night (v1.4): a line pinned under the header says the
-// rule and its reason before tonight's defense is ordered, and once it is,
-// the reason the others are not available; each of them reads NOT
-// TONIGHT where its price was, so it never reads as unaffordable.
+// One new defense a turn (v1.4): a line pinned under the header says the
+// rule and its reason before the turn's defense is ordered, and once it is,
+// which one it is, why the others are not available and how to swap; each
+// of them reads the rule, 1 A TURN, where its price was, so it never reads
+// as unaffordable.
 
 import { useEffect, useRef } from 'react'
-import { NEW_DEFENSES_PER_NIGHT, briefActive, briefFree, candidatesTonight, defenseOpen } from '../../engine/rules'
+import { NEW_DEFENSES_PER_NIGHT, briefActive, briefFree, candidatesTonight, defenseOpen, newDefenses } from '../../engine/rules'
 import { COVERAGE_PER_KIND, assetPrice } from '../../engine/scoring'
 import { DEPLOY_TURNS } from '../../engine/rules'
 import type { AssetKind, CountermeasureId, GameState, ThreatEvent, TurnActions } from '../../engine/types'
@@ -26,7 +27,7 @@ import { knownThreats } from '../../persistence'
 import PixelSprite from '../sprites/PixelSprite'
 import { ICON_CROSS, tinted } from '../sprites/icons'
 import { KIND_LAYER } from './board'
-import { NOT_TONIGHT, PROCURE_KINDS, PROCURE_LABEL, defenseOrderIn, defenseRule, defensesPerNight, hiddenOrder, matchNote, shortName, stopsLine, turns } from './boardModel'
+import { NOT_THIS_TURN, PROCURE_KINDS, PROCURE_LABEL, capLabel, confirmNote, defenseCount, defenseOrderIn, defenseRule, defensesPerTurn, hiddenOrder, matchNote, shortName, stopsLine, turns } from './boardModel'
 
 export interface ProcureProps {
   state: GameState
@@ -72,6 +73,8 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
   // Tonight's room for a new defense, and whether any is left to order.
   const open = defenseOpen(state, actions)
   const left = scenario.countermeasures.some((cm) => !state.counters.includes(cm.id))
+  // The defense ordered this turn, which the line names once it is in.
+  const tonights = scenario.countermeasures.find((cm) => newDefenses(state, actions).includes(cm.id))
   return (
     <section role="dialog" aria-label="PROCURE" data-sheet="procure" className="dc-sheet-in absolute inset-x-0 bottom-0 z-30 flex max-h-[85%] flex-col border-t-2 border-dc-line bg-dc-panel px-safe text-dc-ink">
       <div className="flex flex-none items-center justify-between gap-2 border-b border-dc-line px-3 py-1">
@@ -84,7 +87,7 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
       </div>
       {left && (
         <p id="procure-defense-rule" data-defense-rule={open ? 'open' : 'in'} className={`flex-none border-b border-dc-line px-3 py-1.5 text-xs ${open ? 'text-dc-go' : 'text-dc-ink'}`}>
-          {open ? defenseRule(NEW_DEFENSES_PER_NIGHT) : defenseOrderIn(NEW_DEFENSES_PER_NIGHT)}
+          {open ? defenseRule(NEW_DEFENSES_PER_NIGHT) : defenseOrderIn(tonights?.name ?? '', state.turn >= scenario.totalTurns)}
         </p>
       )}
       {/* What the sheet was opened for stays above the list, which opens
@@ -96,6 +99,9 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
             <>
               <b>{shortName(focus.move)}</b>
               {matchNote(focus.move)}
+              {/* Its defenses wait for the turn's one: said, so the note
+                  does not promise tonight (the R1 re-review). */}
+              {!open && !focus.move.counters.some((id) => newDefenses(state, actions).includes(id) || state.counters.includes(id)) && ` ${NOT_THIS_TURN}`}
             </>
           ) : (
             hiddenOrder(scenario.prices.intelBrief)
@@ -107,6 +113,7 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
           <p className="mt-2 text-xs text-dc-muted">Tap to add an order; tap again to cancel. Orders take effect when you EXECUTE.</p>
         )}
         <p data-planned className="mt-1 font-mono text-[10px] text-dc-muted">
+          {left && <>{defenseCount(newDefenses(state, actions).length, NEW_DEFENSES_PER_NIGHT)} </>}
           Ordered: {cost} of {state.credits} CR. Funding arrives at the turn close, after repairs.
         </p>
 
@@ -150,7 +157,7 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
         <p className={SECTION}>
           <span>DEFENSES</span>
           <span>
-            {defensesPerNight(NEW_DEFENSES_PER_NIGHT)} · {upkeep} CR a turn to keep
+            {defensesPerTurn(NEW_DEFENSES_PER_NIGHT)} · {upkeep} CR a turn to keep
           </span>
         </p>
         <ul className="mt-2 grid gap-2" data-procure-defenses>
@@ -180,7 +187,7 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
                       <span className="whitespace-nowrap font-mono text-[11px] tracking-wider text-dc-go">OWNED · {upkeep} CR a turn</span>
                     ) : capped ? (
                       <span className="flex flex-none flex-col items-end gap-0.5">
-                        <span className="whitespace-nowrap font-mono text-[11px] tracking-wider text-dc-muted">{NOT_TONIGHT}</span>
+                        <span className="whitespace-nowrap font-mono text-[11px] tracking-wider text-dc-muted">{capLabel(NEW_DEFENSES_PER_NIGHT)}</span>
                         <span className="whitespace-nowrap font-mono text-[10px] text-dc-muted">{cm.cost} CR</span>
                       </span>
                     ) : (
@@ -231,7 +238,7 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
             <button type="button" data-confirm onClick={onClose} className="dc-tile flex min-h-12 w-full items-center justify-center border-2 border-dc-go bg-dc-go font-display text-xs text-dc-ground shadow-hard">
               CONFIRM {orders} ORDER{orders === 1 ? '' : 'S'}
             </button>
-            <p className="mt-1 text-center font-mono text-[10px] text-dc-muted">{cost} CR committed. You can change orders until you EXECUTE.</p>
+            <p className="mt-1 text-center font-mono text-[10px] text-dc-muted">{confirmNote(cost)}</p>
           </>
         ) : (
           <button type="button" data-confirm onClick={onClose} className="dc-tile flex min-h-12 w-full items-center justify-center border-2 border-dc-line bg-dc-panel font-display text-xs text-dc-ink shadow-press">

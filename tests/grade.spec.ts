@@ -125,11 +125,11 @@ describe('the grade is calibrated (brief 7.2)', () => {
   // roughly the top 5 percent of wins and A roughly the next 20. Measured
   // when the thresholds were set: 664 wins (Prepared 394, Novice 270; the
   // other three policies win none on Standard), S 4.5 percent, A 18.7.
-  // Since v1.4 the reported Buy everything line is left out (Ken, 24
-  // October 2026): it has no target, and its 498 wins on Standard, every
-  // one the same six orders, would set the shares by one fixed order, as
-  // the scripts below would. Measured then: 679 wins (Prepared 398, Novice
-  // 253, Random legal 28), S 4.9 percent, A 19.1.
+  // v1.4.0 left the reported Buy everything line out (its 498 wins were one
+  // fixed order). v1.5 R1 puts it back (Ken, 24 October 2026), with the IR
+  // retainer's recovery at 4 and the thresholds recalibrated on all five:
+  // 899 wins (Buy everything 266, Prepared 398, Novice 210, Random legal
+  // 25), S 5.0 percent, A 21.9.
   //
   // Why the policies, and not the lines v1.2 calibrated on. Brief 6.8 asks
   // for the thresholds to be recalibrated "the way R5a did (S about the top
@@ -153,7 +153,7 @@ describe('the grade is calibrated (brief 7.2)', () => {
     'gives S to about the top 5 percent of wins and A to about the next 20',
     () => {
       const grades: Grade[] = []
-      for (const { policy } of POLICIES.filter((p) => !p.reported)) {
+      for (const { policy } of POLICIES) {
         for (let seed = 1; seed <= 500; seed += 1) {
           const end = play(seed, policy)
           if (end.status === 'won') grades.push(gradeOf(end))
@@ -292,6 +292,7 @@ describe("a run's knockouts, hits and strip, derived from its history (v1.2 Roun
         maiBefore: maiScore(before),
         maiAfter: after.history[after.history.length - 1].maiScore,
         knockedOut: engineKnockouts(before, after) > 0,
+        insolvent: after.lossReason === 'insolvency',
       })
       expect(strip[strip.length - 1], label).toBe(expected)
       if (expected === 'magenta') magenta += 1

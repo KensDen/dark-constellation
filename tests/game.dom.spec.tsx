@@ -69,7 +69,7 @@ import { glossaryEntries } from '../src/ui/reference'
 import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
 import { newOperation } from '../src/ui/session'
 import { DISCLOSURE_WORD_BUDGETS, JOB_FRAMING_HEADING, briefCopy, countWords, disclosureBlocks, jobFramingBlocks } from '../src/ui/brief'
-import { FULL_BRIEF_OPEN, NOT_TONIGHT, chainLine } from '../src/ui/board/boardModel'
+import { FULL_BRIEF_OPEN, chainLine } from '../src/ui/board/boardModel'
 import type { AssetKind, GameState, TurnActions, TurnRecord } from '../src/engine/types'
 import { CONDITION_CUES, MOMENT_CUES, SECTION_6_ROWS, VISUAL_CLASS, outcomeSound, strikeSound, type Moment, type SoundCue } from '../src/cues'
 import { nightOf, resultOf } from '../src/ui/night/nightModel'
@@ -763,7 +763,7 @@ describe('the procurement sounds, asserted by execution', () => {
     expect(counter, 'PROCURE offered no defense').toBeDefined()
     voiced('a countermeasure order', () => click(counter!))
     // One new defense a night (v1.4): with that one ordered the retainer
-    // reads NOT TONIGHT, so the order is taken back before the retainer's.
+    // reads 1 A TURN, so the order is taken back before the retainer's.
     expect(defenseButtons().find(isRetainer)!.hasAttribute('data-capped'), 'the retainer is open beside a defense ordered tonight').toBe(true)
     click(counter!)
     expect(pressed(counter!), 'the second tap did not cancel the defense').toBe(false)
@@ -804,12 +804,12 @@ function affordGate(label: string): string[] {
       expect(b.disabled, `${label}: ${id} arrives too late and is still offered`).toBe(true)
       continue
     }
-    // One new defense a night (v1.4): with tonight's ordered, the others
+    // One new defense a turn (v1.4): with the turn's ordered, the others
     // are off for the cap, whatever their price, and say so instead of a
     // price (tests/procure-cap.dom.spec.tsx).
     if (b.hasAttribute('data-capped')) {
       expect(b.disabled, `${label}: ${id} is capped and still offered`).toBe(true)
-      expect(b.textContent, `${label}: ${id} is capped and does not say so`).toContain(NOT_TONIGHT)
+      expect(/\d A TURN/.test(b.textContent ?? ''), `${label}: ${id} is capped and does not say so`).toBe(true)
       continue
     }
     const price = Number(/\+ ADD · (\d+) CR/.exec(b.textContent ?? '')?.[1] ?? NaN)

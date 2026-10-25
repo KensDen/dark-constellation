@@ -7,7 +7,7 @@ import { useMemo, useState } from 'react'
 import { DC_BTN } from './buttons'
 import { glossaryEntries, glossaryMatches, type GlossaryEntry } from './reference'
 
-const CATEGORIES: GlossaryEntry['category'][] = ['Technique', 'Countermeasure', 'Threat event', 'Opportunity']
+const CATEGORIES: GlossaryEntry['category'][] = ['Technique', 'Advisory', 'Countermeasure', 'Threat event', 'Opportunity']
 
 // `focus` is a GlossaryEntry key, not a search string. The intel brief's
 // technique tag hands over exactly the key techniqueLabel produced, so the
@@ -66,8 +66,8 @@ export default function Glossary({
       )}
       <div className="px-4">
       <p className="mt-3 text-[13px] leading-snug text-dc-muted">
-        {all.length} entries: framework techniques, countermeasures with their SPARTA controls and tiers, and each threat
-        and opportunity event.
+        {all.length} entries: framework techniques, an NSA advisory, countermeasures with their SPARTA controls and tiers,
+        and each threat and opportunity event.
       </p>
       {/* The short words the briefing and the board use before anything
           explains them (R6 question 10; R4 question 11 sent it here). */}

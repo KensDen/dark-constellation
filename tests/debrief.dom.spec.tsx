@@ -270,7 +270,12 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
     const lost = LOST()
     show(lost)
     const lead = lossLead(lost)!
-    expect(container.querySelector('[data-loss-lead]')!.textContent).toBe(`BIGGEST DROP · TURN ${lead.turn} · -${lead.drop.toFixed(1)}${lead.line}`)
+    expect(container.querySelector('[data-loss-lead]')!.textContent).toBe(`BIGGEST DROP · TURN ${lead.turn} · -${lead.drop.toFixed(1)} NET${lead.line}`)
+    // The move's own drop rides in its line, from its own scores (v1.5 R1;
+    // R6b's fresh eyes, item 7).
+    const rec = lost.history.find((r) => r.turn === lead.turn)!
+    const worst = rec.events.filter((e) => e.effectiveSeverity > 0).sort((a, b) => b.effectiveSeverity - a.effectiveSeverity)[0]
+    if (worst) expect(lead.line).toContain(`: -${(Math.round((worst.scoreBefore - worst.scoreAfter) * 10) / 10).toFixed(1)} of it.`)
     show(WON())
     expect(container.querySelector('[data-loss-lead]')).toBeNull()
   })
@@ -338,32 +343,54 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
   })
 })
 
-describe('NEXT TIME names an order of purchases, one new defense a night (v1.4)', () => {
-  it('says the night to order it on, a night with none or ahead of the one ordered then, and never "by turn"', () => {
-    let ahead = 0
-    let free = 0
+describe('NEXT TIME names an order of purchases and what it does to the game (v1.4; v1.5 R1)', () => {
+  it('says the turn to order it on and the score the same game ends on, never "by turn" or "would have"', () => {
+    let earlier = 0
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
       for (const state of [play(seed, WIN_SCRIPT), play(seed, LOSS_SCRIPT)]) {
         const next = nextTime(state)
-        if (!next) continue
+        if (!next || state.lossReason === 'insolvency') continue
         show(state)
         const text = container.querySelector('[data-next-time] p')!.textContent!
-        expect(text, `seed ${seed}: "${text}"`).not.toMatch(/by turn/)
-        expect(text, `seed ${seed}: "${text}"`).toContain(`on turn ${next.orderOn}`)
-        if (next.ahead) {
-          ahead += 1
-          expect(text, `seed ${seed}: "${text}"`).toContain(`ahead of ${next.ahead}`)
-        } else {
-          free += 1
-          expect(text, `seed ${seed}: "${text}"`).toContain('a night you ordered no defense')
+        expect(text, `seed ${seed}: "${text}"`).not.toMatch(/by turn|would have/)
+        if (next.kind === 'earlier') {
+          earlier += 1
+          expect(text, `seed ${seed}: "${text}"`).toContain(`on turn ${next.orderOn}`)
+          expect(text, `seed ${seed}: "${text}"`).toContain(`Played again with every other order the same, this game ends at ${next.final.toFixed(1)}, not ${next.was.toFixed(1)}`)
+          if (next.ahead) expect(text).toContain(next.aheadTo !== null ? `move ${next.ahead} to turn ${next.aheadTo}` : `in place of ${next.ahead}`)
+          else expect(text).toContain('a turn you ordered no defense')
+          if (!next.won) expect(text).toContain('still under the win line of 70')
         }
         // The retired words a line about ordering could slip into (GUARD
         // R4 (e) below holds the whole debrief to the full list).
         expect(text, `seed ${seed}: "${text}"`).not.toMatch(/\b(buy|buys|bought|purchas\w*|credits?)\b/i)
       }
     }
-    expect(ahead, 'no NEXT TIME put the defense ahead of another').toBeGreaterThan(0)
-    expect(free, 'no NEXT TIME found a night with no new defense').toBeGreaterThan(0)
+    expect(earlier, 'no NEXT TIME named a better order').toBeGreaterThan(0)
+  })
+
+  it('leads an insolvent run with the budget, not a defense (v1.5 R1)', () => {
+    for (let seed = 1; seed <= 40; seed += 1) {
+      let s = newGame(DEFAULT_SCENARIO, seed, 'standard')
+      // Each asset PROCURE offers and the first defense that fits, each
+      // turn, until the budget breaks.
+      while (s.status === 'playing') {
+        const buyAssets: { kind: 'drone' | 'sat' | 'groundStation' }[] = []
+        let left = s.credits
+        for (const kind of ['drone', 'sat', 'groundStation'] as const) {
+          if (DEFAULT_SCENARIO.prices[kind] > left) continue
+          buyAssets.push({ kind })
+          left -= DEFAULT_SCENARIO.prices[kind]
+        }
+        const d = DEFAULT_SCENARIO.countermeasures.find((c) => !s.counters.includes(c.id) && c.cost <= left)
+        s = resolveTurn(s, { buyAssets, buyCounters: d ? [d.id] : [], intelBrief: false, debris: 'hold' }, turnRng(s.seed, s.turn))
+      }
+      if (s.lossReason !== 'insolvency') continue
+      show(s)
+      expect(container.querySelector('[data-next-time] p')!.textContent).toBe(`Keep WORST CASE at 0 or above. Orders, upkeep and repairs took the budget below zero on turn ${s.history.length}.`)
+      return
+    }
+    throw new Error('no insolvent run in 40 seeds')
   })
 })
 

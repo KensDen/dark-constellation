@@ -26,6 +26,7 @@ vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 import App from '../src/App'
 import { BEATS } from '../src/ui/coldOpenSlides'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
+import { MOVED_TO_STANDARD } from '../src/ui/session'
 import { glossaryEntries } from '../src/ui/reference'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
@@ -165,7 +166,26 @@ describe('GUARD R1 (a): the first-visit flow', () => {
     expect(autosave()!.state.difficulty, 'PLAY started another mode than it showed').toBe('standard')
   })
 
-  it('offers STANDARD on the title the first time it shows after a first finished campaign, with no reload (R6 question 14)', async () => {
+  it('keeps EASY after a first campaign that was lost, and moves to STANDARD on a first win, saying so once (v1.5 R1)', () => {
+    const entry = (outcome: 'won' | 'lost') => ({ outcome, mai: outcome === 'won' ? 80 : 60, seed: 1, turnsSurvived: 6, totalTurns: 6, scenarioId: 'first-light', difficulty: 'easy', recordedAt: '2026-10-20T00:00:00Z' })
+    localStorage.setItem(INTRO_SEEN_KEY, '1')
+    // A lost first Daily, and a lost free game: still EASY, and nothing said.
+    localStorage.setItem('dc-daily', JSON.stringify({ '20261020': { n: 1, outcome: 'lost', lossReason: 'belowThreshold', mai: 64.3, turns: 6, recordedAt: '2026-10-20T00:00:00Z' } }))
+    localStorage.setItem('dc-scores', JSON.stringify([entry('lost')]))
+    loadPage()
+    expect(container.querySelector('[data-play-mode]')!.textContent).toBe('EASY')
+    expect(container.querySelector('[data-moved-to-standard]')).toBeNull()
+    // A first win: STANDARD, and the title says why, once.
+    localStorage.setItem('dc-scores', JSON.stringify([entry('won'), entry('lost')]))
+    loadPage()
+    expect(container.querySelector('[data-play-mode]')!.textContent).toBe('STANDARD')
+    expect(container.querySelector('[data-moved-to-standard]')?.textContent).toBe(MOVED_TO_STANDARD)
+    loadPage()
+    expect(container.querySelector('[data-play-mode]')!.textContent).toBe('STANDARD')
+    expect(container.querySelector('[data-moved-to-standard]'), 'the move to STANDARD was said twice').toBeNull()
+  })
+
+  it('offers STANDARD on the title the first time it shows after a first won campaign, with no reload (R6 question 14)', async () => {
     localStorage.setItem(INTRO_SEEN_KEY, '1')
     loadPage()
     expect(container.querySelector('[data-play-mode]')!.textContent).toBe('EASY')
@@ -179,6 +199,16 @@ describe('GUARD R1 (a): the first-visit flow', () => {
     click(byText(/^BACK TO TITLE$/)!)
     await settle()
     expect(container.querySelector('[data-play-mode]')!.textContent).toBe('STANDARD')
+  })
+
+  it("says GOAL 1 is the last turn's score, not every turn's (v1.5 R1)", () => {
+    // R6b's fresh eyes, item 9: "Keep the score at 70+" read as every turn,
+    // where only the score at the end of the last turn counts.
+    loadPage()
+    const goal = container.querySelector('[data-goal="1"]')!.textContent!.replace(/\u00a0/g, ' ')
+    // "Finish", as the full brief's job says it: "End turn" is retired.
+    expect(goal).toContain('Finish turn 6 at 70+')
+    expect(goal).not.toMatch(/keep/i)
   })
 
   it('shows the mode PLAY starts, and changes it in SYSTEM only', async () => {
@@ -319,7 +349,7 @@ describe('the R1 fixes (Ken, iPhone, 21 October 2026)', () => {
     const n = glossaryEntries().length
     expect(n).toBe(51)
     expect(container.textContent).toContain(
-      `${n} entries: framework techniques, countermeasures with their SPARTA controls and tiers, and each threat and opportunity event.`,
+      `${n} entries: framework techniques, an NSA advisory, countermeasures with their SPARTA controls and tiers, and each threat and opportunity event.`,
     )
   })
 })

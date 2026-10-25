@@ -41,6 +41,7 @@ import {
   vectorTo,
   confirmedNote,
   shortName,
+  showsStrength,
   tapHint,
   type MoveRead,
   type MoveStatus,
@@ -146,9 +147,11 @@ function MoveCard({ read, onMove, decoding = false, open }: { read: MoveRead; on
       <span className="text-[13px] font-semibold leading-tight text-dc-ink">{shortName(ev)}</span>
       <span className="flex flex-wrap gap-x-2 font-mono text-[10px] text-dc-muted">
         <span>{vectorTo(ev)}</span>
-        <span>
-          STRENGTH <span className="text-dc-hostile">{'●'.repeat(ev.baseSeverity)}</span>
-        </span>
+        {showsStrength(ev) && (
+          <span>
+            STRENGTH <span className="text-dc-hostile">{'●'.repeat(ev.baseSeverity)}</span>
+          </span>
+        )}
       </span>
       <span className="mt-auto flex flex-wrap items-center justify-between gap-1">
         <span className={changed}>

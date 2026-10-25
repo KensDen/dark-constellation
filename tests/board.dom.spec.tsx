@@ -18,13 +18,13 @@ vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 import Game from '../src/ui/Game'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
-import { briefFree } from '../src/engine/rules'
+import { ASSET_HEAL_PER_TURN, briefFree } from '../src/engine/rules'
 import { turnRng } from '../src/engine/rng'
 import { LAYERS, type GameState } from '../src/engine/types'
 import { callSigns, cartCallSigns, turnBudget, vectorsOf } from '../src/ui/board/board'
 import { assetPrice } from '../src/engine/scoring'
 import { resolveLabel } from '../src/ui/board/actions'
-import { PROCURE_KINDS } from '../src/ui/board/boardModel'
+import { PROCURE_KINDS, chipTurns } from '../src/ui/board/boardModel'
 import Procure from '../src/ui/board/Procure'
 import { vectorLabels } from '../src/ui/labels'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
@@ -185,8 +185,10 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
     const { base, withIrRetainer } = DEFAULT_SCENARIO.recovery
     const tile = defenseTile('irRetainer')
     expect(tile, 'the retainer is not in DEFENSES').not.toBeNull()
+    // Since v1.5 R1 it names the meters it speeds and says the assets' own
+    // healing is the same either way (R6b's fresh eyes, item 3).
     expect(tile!.querySelector('[data-stops]')!.textContent).toBe(
-      `Recovers ${withIrRetainer} points a turn instead of ${base}. Does not stop anything; speeds every recovery.`,
+      `Link, data and sensor health recover ${withIrRetainer} a turn instead of ${base}; damaged assets heal ${ASSET_HEAL_PER_TURN} a turn with or without it. Stops no move, and counts as the turn's new defense.`,
     )
     click(tile!)
     expect(defenseTile('irRetainer')!.getAttribute('aria-pressed'), 'the retainer did not queue').toBe('true')
@@ -225,7 +227,7 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
         />,
       )
     })
-    expect(defenseTile('irRetainer')!.textContent).toContain('Recovers 9 points a turn instead of 3.')
+    expect(defenseTile('irRetainer')!.textContent).toContain('Link, data and sensor health recover 9 a turn instead of 3;')
   })
 
   it('renders one tile per asset in its column of the strip, with the call sign and the exact integrity in its name', async () => {
@@ -262,6 +264,15 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
     expect(container.querySelector('section[data-intel-card="tile"]')?.textContent).toMatch(/INTEGRITY\d+%/)
   })
 
+  it('reads a condition\'s last turn LAST, never 0T or a stored 1T (v1.5 R1)', () => {
+    // Stored 1: the night it last presses, on the board before it and in
+    // play; stored 2 reads its turns left in the view's own count.
+    expect(chipTurns(1, 0)).toBe('LAST')
+    expect(chipTurns(1, 1)).toBe('LAST')
+    expect(chipTurns(2, 1)).toBe('1T')
+    expect(chipTurns(2, 2)).toBe('2T')
+  })
+
   it('shows condition chips on the column head with the exact turns left', () => {
     // Find a turn with a live condition on this seed.
     let state = gameAt(1)
@@ -278,7 +289,11 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
         // "elapsed time only" on purpose: the player plans around the
         // clock), in R2's short form, JAMMED · 2T. Every condition has a
         // fixed clock, so the count is exact.
-        expect(chips, `${c.name} on ${layer} is not chipped with its turns left`).toContain(`${c.name} · ${c.remainingTurns}T`)
+        expect(chips, `${c.name} on ${layer} is not chipped with its turns left`).toContain(`${c.name} · ${chipTurns(c.remainingTurns, c.remainingTurns)}`)
+        // The count held to the name by no-break spaces (v1.5 R1: in the
+        // narrow GROUND column "· 0T" wrapped onto a line of its own).
+        const raw = [...container.querySelectorAll(`[data-strip] [data-layer="${layer}"] [data-condition-chip]`)].map((el) => el.textContent)
+        expect(raw).toContain(`${c.name}\u00a0·\u00a0${chipTurns(c.remainingTurns, c.remainingTurns)}`)
       }
     }
     // Never an estimate: v1.2 marked the remaining span "~n left" when it

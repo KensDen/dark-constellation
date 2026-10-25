@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import {
+  ADVISORY_COUNT,
+  FRAMEWORK_TECHNIQUE_COUNT,
   COUNTERMEASURE_COUNT,
   DEFAULT_SCENARIO,
   OPPORTUNITY_EVENT_COUNT,
@@ -17,6 +19,7 @@ import {
   UNVERIFIED_REF_COUNT,
 } from '../src/content'
 import { glossaryEntries } from '../src/ui/reference'
+import { DECK_LINE } from '../src/ui/systemControls'
 import { SHELVES_AS_DRAFTED } from '../src/content/fieldLibraryData'
 
 const README = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'README.md'), 'utf8')
@@ -57,6 +60,18 @@ describe('README counts match the content data', () => {
   it('splits every technique reference between the frameworks and the advisories, none lost', () => {
     expect(FRAMEWORK_TECHNIQUES + ADVISORIES).toBe(TECHNIQUE_REF_COUNT)
     expect(ADVISORIES).toBeGreaterThan(0)
+  })
+
+  it("counts them the same way in SYSTEM's deck line and the Glossary's headings (v1.5 R1)", () => {
+    // R6b's fresh eyes, item 15: the deck line said 19 techniques and the
+    // Glossary's TECHNIQUE heading counted the advisory among them.
+    expect(FRAMEWORK_TECHNIQUE_COUNT).toBe(FRAMEWORK_TECHNIQUES)
+    expect(ADVISORY_COUNT).toBe(ADVISORIES)
+    expect(DECK_LINE).toContain(`${FRAMEWORK_TECHNIQUES} framework techniques, ${ADVISORIES} NSA advisory`)
+    expect(DECK_LINE).not.toMatch(new RegExp(`\\b${TECHNIQUE_REF_COUNT} techniques`))
+    const entries = glossaryEntries()
+    expect(entries.filter((e) => e.category === 'Technique')).toHaveLength(FRAMEWORK_TECHNIQUES)
+    expect(entries.filter((e) => e.category === 'Advisory')).toHaveLength(ADVISORIES)
   })
 
   it('states the scenario turn count', () => {

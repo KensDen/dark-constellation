@@ -282,10 +282,11 @@ export const budgetFor = (turn: number, last: boolean) => (last ? 'Final budget'
 // scenario and the rules (R6b fresh eyes: "3 times faster" was said of
 // all repair, while the retainer raises only the link, data and sensor
 // recovery and assets heal the same either way, src/engine/reducer.ts).
+// In turns, the game's one unit since v1.5 R1 (v1.4's fresh eyes, finding 11).
 export const recoverySlow = (heal: number, base: number, retained: number) =>
-  `Damaged assets recover ${heal} integrity a night either way. Link, data and sensor health recover ${base} a night; an incident response retainer makes it ${retained}.`
+  `Damaged assets recover ${heal} integrity a turn either way. Link, data and sensor health recover ${base} a turn; an incident response retainer makes it ${retained}.`
 export const recoveryFast = (heal: number, base: number, retained: number) =>
-  `Damaged assets recover ${heal} integrity a night. Your incident response retainer recovers link, data and sensor health ${retained} a night instead of ${base}.`
+  `Damaged assets recover ${heal} integrity a turn. Your incident response retainer recovers link, data and sensor health ${retained} a turn instead of ${base}.`
 // The score's own lines (fresh-eyes review, section 4 rule 5: every total
 // is checkable): what the live conditions took as the night opened, what
 // tonight's moves took and what the defenses saved, and the overnight

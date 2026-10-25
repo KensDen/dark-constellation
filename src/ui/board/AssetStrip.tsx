@@ -20,7 +20,7 @@ import { HIT_BURST, LOCK_ON, SHIELD_STAMP } from '../sprites/effects'
 import PixelSprite from '../sprites/PixelSprite'
 import { STATE_WORD, pipsFor, type SpriteState, type TileModel } from './board'
 import type { Strike } from './strike'
-import { NO_ARRIVAL, OPERATION_OVER } from './boardModel'
+import { NO_ARRIVAL, OPERATION_OVER, chipTurns } from './boardModel'
 
 export interface ChipModel {
   condition: ActiveCondition
@@ -211,9 +211,13 @@ export default function AssetStrip({ tiles, chips, selectedKey, onSelect, onCanc
               {layerChips.length > 0 && (
                 <div className="flex flex-col items-start" style={{ width: 'min-content', minWidth: '100%' }}>
                   {layerChips.map((chip) => (
+                    // The name holds its count too (v1.5 R1: in the narrow
+                    // GROUND column "· 0T" wrapped onto a line of its own),
+                    // and the last turn reads LAST (R6b's fresh eyes, item 4).
                     <span key={chip.condition.instanceId} data-condition-chip className="font-mono text-[10px] leading-tight text-dc-hostile">
-                      {chip.condition.name} ·{'\u00a0'}
-                      {chip.remaining ?? chip.condition.remainingTurns}T
+                      {chip.condition.name}
+                      {'\u00a0·\u00a0'}
+                      {chipTurns(chip.condition.remainingTurns, chip.remaining ?? chip.condition.remainingTurns)}
                     </span>
                   ))}
                 </div>

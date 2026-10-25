@@ -2,9 +2,13 @@
 //
 // PLAY starts FIRST LIGHT on a fresh random seed (M30); the seed field
 // moved behind SYSTEM as "Replay a seed". The difficulty is the device's:
-// EASY until this device has finished a campaign (ruling R2), STANDARD
-// after, unless the player picked one in SYSTEM, which is then kept. The
-// Daily Op is always STANDARD and does not come through here.
+// EASY until this device has won a campaign, STANDARD after, unless the
+// player picked one in SYSTEM, which is then kept. The Daily Op is always
+// STANDARD and does not come through here.
+//
+// A first WIN since v1.5 R1 (R7's fresh eyes, item 9; ruling R2 said a
+// first finished campaign, which moved a player to STANDARD after a lost
+// first Daily), and the title says it once when it happens.
 
 import { DEFAULT_SCENARIO } from '../content'
 import { newGame } from '../engine/reducer'
@@ -13,13 +17,32 @@ import { LocalDailyLedger, LocalScoreSink, type RestoredGame } from '../persiste
 
 export const DIFFICULTY_PREF_KEY = 'dc-difficulty'
 
-// Whether this device has finished a campaign: a score was posted, or a
-// Daily Op was recorded.
-export function finishedACampaign(): boolean {
+// Whether this device has won a campaign: a won score (the board keeps
+// wins above losses), or a won official Daily Op.
+export function wonACampaign(): boolean {
   try {
-    return new LocalScoreSink().top(1).length > 0 || new LocalDailyLedger().any()
+    return new LocalScoreSink().top(10).some((e) => e.outcome === 'won') || new LocalDailyLedger().all().some((d) => d.result.outcome === 'won')
   } catch {
     return false
+  }
+}
+
+// The title's one word when PLAY has moved to STANDARD on a first win, and
+// the key that keeps it to once.
+export const MOVED_TO_STANDARD = 'First win on EASY: PLAY now starts on STANDARD. Change it in SYSTEM, at the foot of this screen.'
+const MOVED_TOLD_KEY = 'dc-standard-told'
+export function movedToStandard(): boolean {
+  try {
+    return chosenDifficulty() === null && wonACampaign() && localStorage.getItem(MOVED_TOLD_KEY) === null
+  } catch {
+    return false
+  }
+}
+export function toldMovedToStandard(): void {
+  try {
+    localStorage.setItem(MOVED_TOLD_KEY, '1')
+  } catch {
+    // Said again next time, which is the safe side.
   }
 }
 
@@ -33,7 +56,7 @@ export function chosenDifficulty(): Difficulty | null {
 }
 
 export function deviceDifficulty(): Difficulty {
-  return chosenDifficulty() ?? (finishedACampaign() ? 'standard' : 'easy')
+  return chosenDifficulty() ?? (wonACampaign() ? 'standard' : 'easy')
 }
 
 export function chooseDifficulty(d: Difficulty): void {

@@ -34,7 +34,19 @@ export const FIRST_LIGHT: Scenario = {
     intelBrief: 8,
   },
   upkeepPerDefense: 2,
-  recovery: { base: 2, withIrRetainer: 6 },
+  // THE RETAINER'S RECOVERY IS 4, TUNED IN v1.5 R1 (Ken, 24 October 2026)
+  // from the prototype's 6, the one number the round moved. With one new
+  // defense a night, ordering the priciest defense each night was one fixed
+  // order (sensor fusion, firmware attestation, ground zero trust, the
+  // retainer on night 4, anti-jam, PNT authentication) that won 99.6
+  // percent on STANDARD against Prepared's 79.6: it trailed Prepared on
+  // turns 1 to 5 and passed it at the close, on the retainer's 6 a turn on
+  // every meter. Measured over 500 seeds a policy (tests/sweep.spec.ts) at
+  // 4: Buy everything 53.2 (EASY 100), Prepared 79.6 (100), Novice 42.0
+  // (85.2), Random legal 5.0 (10.2), Nothing 0.0 (3.0), the flag-follower
+  // 79.6 with no S. At 5 Buy everything still won 81.8; at 3, 25.2, with
+  // Novice down to 37.0.
+  recovery: { base: 2, withIrRetainer: 4 },
   starterAssets: [{ kind: 'sat' }, { kind: 'sat' }, { kind: 'rpoSat' }, { kind: 'drone' }, { kind: 'drone' }, { kind: 'groundStation' }],
   // Brief 6.2. Turn 1's two moves are both strength 2, on different layers
   // with different defenses, so a hit lands on turn 1 unless the player

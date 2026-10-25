@@ -11,9 +11,10 @@
 // written with the hyphen the dash gate allows.
 
 import { GRADE_THRESHOLDS, bonusOf, gradeOf, gradedScore, hitsTaken, type Grade } from '../engine/grade'
-import { newGame } from '../engine/reducer'
+import { NEW_DEFENSES_PER_NIGHT, kindLabel, newGame, resolveTurn } from '../engine/reducer'
+import { turnRng } from '../engine/rng'
 import { maiScore } from '../engine/scoring'
-import type { CountermeasureId, GameState, LearnedHow } from '../engine/types'
+import type { CountermeasureId, GameState, LearnedHow, TurnActions } from '../engine/types'
 import { callSigns } from './board/board'
 import { shortName, stopVerb, type StopVerb } from './board/boardModel'
 import { kindLabels } from './labels'
@@ -135,7 +136,13 @@ export function lossLead(state: GameState): LossLead | null {
     const asset = worst.targetAssetId && worst.integrityAfter !== undefined ? [...state.assets, ...state.pipeline].find((a) => a.id === worst.targetAssetId) : undefined
     const sign = asset ? callSigns(state).get(asset.id) : undefined
     const kind = asset ? kindLabels[asset.kind].replace(/^([A-Z])([a-z])/, (_, a: string, b: string) => a.toLowerCase() + b) : ''
-    line = sign ? `${threatName(state, worst.eventId)} hit the ${kind} ${sign}.` : `${threatName(state, worst.eventId)} got through.`
+    // Its own drop beside the turn's net (R6b's fresh eyes, item 7: the
+    // header's -7.5 sat under a move whose card said -7.7).
+    const own = worst.scoreBefore !== undefined && worst.scoreAfter !== undefined ? one(worst.scoreBefore - worst.scoreAfter) : null
+    // Said as its share of the net (the R1 re-review: "(-7.7)" under
+    // "-9.8 NET" did not say how the two relate).
+    const cost = own !== null && own > 0 ? `: -${own.toFixed(1)} of it` : ''
+    line = sign ? `${threatName(state, worst.eventId)} hit the ${kind} ${sign}${cost}.` : `${threatName(state, worst.eventId)} got through${cost}.`
   } else {
     line = rec.conditionsActive.length ? `Ongoing conditions: ${rec.conditionsActive.join(', ')}.` : 'Damage from earlier turns kept pulling the score down.'
   }
@@ -171,7 +178,9 @@ export function filedThisGame(state: GameState, before: ReadonlySet<string> | nu
 // call is answered, never stopped.
 export function sayVerb(how: LearnedHow, verb: StopVerb): string {
   if (how === 'held') return verb === 'answers' ? 'answered' : verb === 'stops' ? 'stopped' : 'helped block'
-  if (how === 'reduced') return 'partly blocked'
+  // "blunted" since v1.5 R1, the word "would have blunted" uses (R6b's
+  // fresh eyes, item 7); the board's pill stays PARTLY BLOCKED (section 4).
+  if (how === 'reduced') return 'blunted'
   return verb === 'stops' ? 'would have stopped' : verb === 'blunts' ? 'would have blunted' : 'would have answered'
 }
 const verbOf = (state: GameState, counter: CountermeasureId, threat: string): StopVerb => {
@@ -182,11 +191,20 @@ const verbOf = (state: GameState, counter: CountermeasureId, threat: string): St
 // One line a defense and a verb, its threats together (v1.3 R5, Ken's
 // ruling on R4's question 6): "Sensor fusion cross-checks would have
 // stopped LiDAR blinding and BLACKOUT CHAIN", not the defense three times.
+// Since v1.5 R1 a defense not owned is one line whatever its verbs, the
+// second verb after the first ("would have stopped X and blunted Y"; v1.4's
+// fresh eyes, finding 13: the same defense twice read as two orders).
 export interface Saying {
   defense: string
   threats: string[]
   how: LearnedHow
   verb: string
+  // A missed defense's further verbs, each with its threats, said after
+  // the first without its "would have".
+  more?: { verb: string; threats: string[] }[]
+  // The turn a missed defense was ordered, too late for these (the R1
+  // re-review: an X beside a defense the player did order read as never).
+  orderedOn?: number
 }
 
 // What held first, then what blunted, then what would have stopped: the
@@ -200,63 +218,138 @@ export function canSay(state: GameState): Saying[] {
     const threat = threatName(state, l.threat)
     const verb = sayVerb(l.how, verbOf(state, l.counter, l.threat))
     const line = out.find((s) => s.defense === defense && s.verb === verb)
+    const missedLine = l.how === 'missed' ? out.find((s) => s.defense === defense && s.how === 'missed') : undefined
     if (line) {
       if (!line.threats.includes(threat)) line.threats.push(threat)
-    } else out.push({ defense, threats: [threat], how: l.how, verb })
+    } else if (missedLine) {
+      const more = (missedLine.more ??= [])
+      const part = more.find((m) => m.verb === verb.replace(/^would have /, ''))
+      if (part) {
+        if (!part.threats.includes(threat)) part.threats.push(threat)
+      } else more.push({ verb: verb.replace(/^would have /, ''), threats: [threat] })
+    } else {
+      const orderedOn = l.how === 'missed' ? state.history.find((r) => r.purchases.some((p) => p.startsWith(`${defense} (`)))?.turn : undefined
+      out.push({ defense, threats: [threat], how: l.how, verb, ...(orderedOn !== undefined ? { orderedOn } : {}) })
+    }
   }
   return out.sort((a, b) => SAY_ORDER[a.how] - SAY_ORDER[b.how])
 }
 
-// NEXT TIME (M14): the first defense this game missed, the turn its threat
-// first got through, and, since one new defense a night (v1.4), the night
-// to order it on, as an order of purchases rather than one more defense on
-// a night that had one: the latest night up to that turn that ordered no
-// new defense and could pay for it, or else the latest whose budget could
-// take it in place of the defense ordered then, which the line puts after
-// it. With neither, the turn itself, ahead of what it ordered.
-export interface NextTime {
-  defense: string
-  price: number
-  threat: string
-  turn: number
-  // The turn the defense was procured, when it was, too late for the move.
-  procured: number | null
-  // Whether it stops the move alone, blunts it, or answers the debris call.
-  verb: StopVerb
-  // The night to order it on, and the defense ordered that night, which
-  // comes after it (null on a night with no new defense).
-  orderOn: number
-  ahead: string | null
+// Said above the defenses not owned (v1.4's fresh eyes, finding 13: the
+// list read as everything there was to order).
+export const missedLead = (state: GameState) =>
+  `What got through, and what would have answered it. At ${NEW_DEFENSES_PER_NIGHT} new defense a turn, ${state.scenario.totalTurns} is the most a run can order.`
+
+// NEXT TIME (M14): one defense this game missed, ordered earlier, and what
+// that does to this game, measured rather than claimed. Since v1.4 an
+// order of purchases (one new defense a turn): it goes on a turn up to the
+// first it was needed on, and the defense ordered then moves to the next
+// turn with none (or drops out).
+//
+// v1.5 R1 (R6b's fresh eyes, item 2, and the round's re-review): a block
+// is not a pure gain, since COLDVEIL takes the move left open, so the game
+// is played again from its seed with that one change and every other
+// order as the record has them, and the line says the score it ends on.
+// Of the defenses missed, the one whose move ends the game highest; none
+// that ends it higher is said too.
+export type NextTime =
+  | {
+      kind: 'earlier'
+      defense: string
+      price: number
+      // The turn it was ordered on, too late, when it was.
+      procured: number | null
+      orderOn: number
+      // The defense ordered on that turn, and where it moves (null: out).
+      ahead: string | null
+      aheadTo: number | null
+      // The record's final score, and the replay's.
+      was: number
+      final: number
+      won: boolean
+    }
+  | { kind: 'none' }
+
+// Each turn's orders as the record has them, as the engine takes them.
+export function ordersOf(state: GameState): TurnActions[] {
+  const kinds = Object.keys(kindLabel) as (keyof typeof kindLabel)[]
+  return state.history.map((r) => {
+    const buyCounters = state.scenario.countermeasures.filter((c) => r.purchases.some((p) => p.startsWith(`${c.name} (`))).map((c) => c.id)
+    const buyAssets = r.purchases.flatMap((p) => {
+      const kind = kinds.find((k) => p.startsWith(`${kindLabel[k]} (`))
+      return kind ? [{ kind }] : []
+    })
+    const debris = r.events.find((e) => e.debris)?.debris?.choice
+    return { buyAssets, buyCounters, intelBrief: r.purchases.some((p) => p.startsWith('Intel brief (')), ...(debris ? { debris } : {}) }
+  })
+}
+
+// The same game played again from its seed with these orders, or null
+// where the engine refuses one (a budget the change no longer covers).
+export function replay(state: GameState, orders: TurnActions[]): GameState | null {
+  let s = newGame(state.scenario, state.seed, state.difficulty)
+  try {
+    for (let t = 0; s.status === 'playing'; t += 1) s = resolveTurn(s, orders[t] ?? { buyAssets: [], buyCounters: [], intelBrief: false }, turnRng(s.seed, s.turn))
+  } catch {
+    return null
+  }
+  return s
 }
 
 export function nextTime(state: GameState): NextTime | null {
-  const miss = state.learned.find((l) => l.how === 'missed')
-  if (!miss) return null
-  const rec = state.history.find((r) => r.events.some((ev) => ev.eventId === miss.threat && ev.effectiveSeverity > 0))
-  const cm = defenseOf(state, miss.counter)
-  const name = cm?.name ?? miss.counter
-  const price = cm?.cost ?? 0
-  const turn = rec?.turn ?? 1
-  // Each night up to the turn, latest first: the defense it ordered, and
-  // whether its budget could have taken this one instead.
-  const nights = state.history
-    .filter((r) => r.turn <= turn)
-    .reverse()
-    .map((r) => {
-      const ordered = state.scenario.countermeasures.find((c) => r.purchases.some((p) => p.startsWith(`${c.name} (`)))
-      return { turn: r.turn, ordered: ordered ?? null, fits: r.ledger.start - r.ledger.ordered + (ordered?.cost ?? 0) - price >= 0 }
-    })
-  const night = nights.find((n) => !n.ordered && n.fits) ?? nights.find((n) => n.fits) ?? nights[0]
-  return {
-    defense: name,
-    price,
-    threat: threatName(state, miss.threat),
-    turn,
-    procured: state.history.find((r) => r.purchases.some((p) => p.startsWith(`${name} (`)))?.turn ?? null,
-    verb: verbOf(state, miss.counter, miss.threat),
-    orderOn: night?.turn ?? turn,
-    ahead: night?.ordered?.name ?? null,
+  const missed = [...new Set(state.learned.filter((l) => l.how === 'missed').map((l) => l.counter))]
+  if (missed.length === 0 || state.history.length === 0) return null
+  const orders = ordersOf(state)
+  const was = state.history[state.history.length - 1].maiScore
+  // The record replays to itself, or nothing here can be measured.
+  if (replay(state, orders)?.history.at(-1)?.maiScore !== was) return null
+  const nameOf = (id: CountermeasureId) => defenseOf(state, id)?.name ?? id
+  const boughtOn = (id: CountermeasureId) => orders.findIndex((o) => o.buyCounters.includes(id)) + 1 || null
+  let best: Extract<NextTime, { kind: 'earlier' }> | null = null
+  for (const id of missed) {
+    const cm = defenseOf(state, id)
+    const price = cm?.cost ?? 0
+    const procured = boughtOn(id)
+    // The first turn a move it answers got through before it was owned.
+    const needed = state.history.find((r) =>
+      r.events.some((ev) => ev.effectiveSeverity > 0 && (procured === null || procured > r.turn) && state.scenario.events.find((e) => e.id === ev.eventId)?.counters.includes(id)),
+    )?.turn
+    if (needed === undefined) continue
+    // Every turn up to the first it was needed on, each played again: the
+    // defense on that turn, the one ordered then moved to the next turn
+    // with none (or out); the turn whose game ends highest is the one said
+    // (the R1 re-review: the latest free turn read as arbitrary).
+    for (let turn = 1; turn <= needed; turn += 1) {
+      const displaced = orders[turn - 1].buyCounters.find((c) => c !== id) ?? null
+      const changed = orders.map((o) => ({ ...o, buyCounters: o.buyCounters.filter((c) => c !== id) }))
+      changed[turn - 1] = { ...changed[turn - 1], buyCounters: [id] }
+      let aheadTo: number | null = null
+      if (displaced) {
+        const free = changed.findIndex((o, i) => i >= turn && o.buyCounters.length === 0)
+        if (free >= 0) {
+          changed[free] = { ...changed[free], buyCounters: [displaced] }
+          aheadTo = free + 1
+        }
+      }
+      const played = replay(state, changed)
+      if (!played) continue
+      const final = played.history[played.history.length - 1].maiScore
+      if (final <= was || (best && final <= best.final)) continue
+      best = {
+        kind: 'earlier',
+        defense: nameOf(id),
+        price,
+        procured,
+        orderOn: turn,
+        ahead: displaced ? nameOf(displaced) : null,
+        aheadTo,
+        was,
+        final,
+        won: played.status === 'won',
+      }
+    }
   }
+  return best ?? { kind: 'none' }
 }
 
 // DECISIONS: one line a turn, what was ordered (each order's price and

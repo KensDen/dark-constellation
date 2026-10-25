@@ -38,6 +38,12 @@
 // line 70", since "/ 70" read as "out of 70" beside the HUD's "/ 100"; the
 // pins below moved by that and nothing else.
 //
+// v1.5 R1 (R6 ledger G6-105): an insolvent run's grade line says "budget
+// below zero", and the turn that went insolvent is a red square, so an F
+// never shares a score above the win line on a green square without why.
+// The early ending's score is 76.8 (78.2 before): the random line can
+// order the IR retainer, whose recovery is 4 since this round.
+//
 // v1.4 (one new defense a night): the share text's form did not change;
 // the games did. WIN_SCRIPT orders one defense a night, and wins this
 // Daily seed at C (an S before) and 20260712 in free play at B (an S);
@@ -116,8 +122,8 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: 1, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade F · lost T5 · score 78.2, win line 70',
-        '\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E9}',
+        'Grade F · lost T5 · budget below zero · score 76.8, win line 70',
+        '\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )
@@ -140,6 +146,25 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
       if (end.history.length < end.scenario.totalTurns) endedEarly += 1
     }
     expect(endedEarly, 'no line ended before the last turn').toBeGreaterThan(0)
+  })
+})
+
+describe('an insolvent F says why (v1.5 R1, R6 ledger G6-105)', () => {
+  it('ends on a red square and says the budget went below zero, on every insolvent run of a sweep', () => {
+    let insolvent = 0
+    let aboveTheLine = 0
+    for (let seed = 1; seed <= 60; seed += 1) {
+      const end = play(newGame(DEFAULT_SCENARIO, seed, 'standard'), randomPolicy(seed))
+      if (end.lossReason !== 'insolvency') continue
+      insolvent += 1
+      const lines = shareText(end).split('\n')
+      if (end.history.at(-1)!.maiScore >= end.scenario.winThreshold) aboveTheLine += 1
+      expect(lines[1], `seed ${seed}`).toContain('budget below zero')
+      expect([...lines[2]].at(-1), `seed ${seed}: the run's last square`).toBe(SHARE_SQUARE.magenta)
+    }
+    // Not vacuous: insolvent runs whose score sat above the win line.
+    expect(insolvent).toBeGreaterThan(0)
+    expect(aboveTheLine, 'no insolvent run ended above the win line, so the green square went untested').toBeGreaterThan(0)
   })
 })
 
@@ -184,7 +209,8 @@ describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
           const lines = text.split('\n')
           expect(lines, `${difficulty} seed ${seed}: not four lines`).toHaveLength(4)
           expect(lines[0]).toBe(`DARK CONSTELLATION · Practice · ${difficulty === 'easy' ? 'Easy' : 'Standard'}`)
-          expect(lines[1]).toBe(`Grade ${gradeOf(end)} · ${end.status === 'won' ? 'won' : 'lost'} T${end.history.length} · score ${end.history[end.history.length - 1].maiScore.toFixed(1)}, win line 70`)
+          const why = end.lossReason === 'insolvency' ? ' · budget below zero' : ''
+          expect(lines[1]).toBe(`Grade ${gradeOf(end)} · ${end.status === 'won' ? 'won' : 'lost'} T${end.history.length}${why} · score ${end.history[end.history.length - 1].maiScore.toFixed(1)}, win line 70`)
           expect(lines[2]).toBe(turnStrip(end).map((c) => SHARE_SQUARE[c]).join(''))
           expect(lines[3]).toBe(SHARE_URL)
           expect(text, `${difficulty} seed ${seed}: says survived`).not.toMatch(/surviv/i)

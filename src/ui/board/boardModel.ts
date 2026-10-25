@@ -12,12 +12,12 @@
 import { adversaryPicks } from '../../engine/adversary'
 import { worstCase } from '../../engine/worstCase'
 import { COVERAGE_PER_KIND, coverage } from '../../engine/scoring'
-import { CHAIN_BONUS, NEW_DEFENSES_PER_NIGHT, PRIMARY_MITIGATION, SECONDARY_MITIGATION, briefActive, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, planFor } from '../../engine/rules'
+import { ASSET_HEAL_PER_TURN, CHAIN_BONUS, NEW_DEFENSES_PER_NIGHT, PRIMARY_MITIGATION, SECONDARY_MITIGATION, briefActive, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, planFor } from '../../engine/rules'
 import { answerKey } from '../../engine/learning'
 import type { ActiveCondition, AssetKind, Countermeasure, CountermeasureId, GameState, ThreatEvent, TurnActions } from '../../engine/types'
 import type { WorstCase } from '../../engine/worstCase'
 import { vectorsOf } from './board'
-import { ICON_BURN, ICON_CHECK, ICON_HALF, ICON_WARN } from '../sprites/icons'
+import { ICON_BURN, ICON_CALL, ICON_CHECK, ICON_HALF, ICON_WARN } from '../sprites/icons'
 import type { Sprite, Token } from '../sprites/sprite'
 import { vectorLabels } from '../labels'
 import { SQUADRON } from '../../config'
@@ -26,12 +26,16 @@ import { SQUADRON } from '../../config'
 // is the debris call's alone, with SSA owned (v1.3 R7, Ken's ruling on
 // R6b's fresh eyes): burn fuel is free, but nothing is blocked, since HOLD
 // can still lose the satellite.
-export type MoveStatus = 'exposed' | 'partial' | 'blocked' | 'answered'
+// YOUR CALL is the debris call's without SSA (v1.5 R1): a hazard the
+// player decides, so neither EXPOSED, which is an attack's word, nor
+// "defend ›" (R6b's fresh eyes, item 11).
+export type MoveStatus = 'exposed' | 'partial' | 'blocked' | 'answered' | 'call'
 export const STATUS: Record<MoveStatus, { word: string; icon: Sprite; token: Token }> = {
   exposed: { word: 'EXPOSED', icon: ICON_WARN, token: 'hostile' },
   partial: { word: 'PARTLY BLOCKED', icon: ICON_HALF, token: 'warn' },
   blocked: { word: 'BLOCKED', icon: ICON_CHECK, token: 'go' },
   answered: { word: 'ANSWERED', icon: ICON_BURN, token: 'friendly' },
+  call: { word: 'YOUR CALL', icon: ICON_CALL, token: 'warn' },
 }
 
 // The defense that answers the debris conjunction: not an attack, so it
@@ -42,7 +46,7 @@ const SSA: CountermeasureId = 'ssaManeuver'
 // or at full strength. The chain exploit's extra severity counts while
 // GNSS denial is live, as it does in the engine.
 export function moveStatus(state: Pick<GameState, 'conditions' | 'scenario'>, ev: ThreatEvent, counters: readonly CountermeasureId[]): MoveStatus {
-  if (ev.effect.special === 'debrisStrike') return counters.includes(SSA) ? 'answered' : 'exposed'
+  if (ev.effect.special === 'debrisStrike') return counters.includes(SSA) ? 'answered' : 'call'
   const mitigation = mitigationOf(ev, counters)
   const effective = Math.max(0, ev.baseSeverity + chainBonusOf(ev, gnssDenied(state.conditions, state.scenario)) - mitigation)
   if (effective === 0) return 'blocked'
@@ -150,7 +154,7 @@ export const TONIGHT_REASON = 'They go for the move your defenses take the fewes
 // eyes: an exposed move's "details ›" changed with nothing to say why).
 // Not on turn 1, where FIRST ORDERS says the rule and ticks the order, and
 // where the longer line would push the board past 375x667.
-export const DEFENSE_IN = "Tonight's new defense is in."
+export const DEFENSE_IN = "This turn's new defense is ordered."
 export const tonightReason = (turn: number, open: boolean) => (open || turn === 1 ? TONIGHT_REASON : `${TONIGHT_REASON} ${DEFENSE_IN}`)
 export const TONIGHT_HIDDEN = 'The names are hidden. An intel brief reveals them.'
 // EXPOSED says what an exposed move does if it is the one COLDVEIL takes,
@@ -166,8 +170,13 @@ export const INTEL_ROW = { none: 'Order an intel brief to name the moves.', orde
 export const UNIDENTIFIED = 'Unidentified'
 // "defend ›" only while tonight can still take a new defense (v1.4: one a
 // night); once it is ordered, a tap opens the same PROCURE, where the rest
-// read NOT TONIGHT, so it says "details ›".
-export const tapHint = (status: MoveStatus, open = true) => (status === 'blocked' || status === 'answered' || !open ? 'details ›' : 'defend ›')
+// read 1 A TURN, so it says "details ›".
+export const tapHint = (status: MoveStatus, open = true) =>
+  status === 'blocked' || status === 'answered' || status === 'call' || !open ? 'details ›' : 'defend ›'
+// A move's strength, shown on an attack only: the debris conjunction is a
+// hazard nothing mitigates, so its tile shows none (v1.5 R1; R6b's fresh
+// eyes, item 11).
+export const showsStrength = (ev: ThreatEvent) => ev.effect.special !== 'debrisStrike'
 export const REVEAL = 'reveal ›'
 // A condition's turns left, one meaning everywhere (v1.3 R6, G-103; brief
 // 6.5): the nights it will still press after the one being played. The
@@ -203,10 +212,12 @@ export function firstOrders(state: GameState, actions: TurnActions): OrderLine[]
   const lifts = coverage(state.assets) < coverageMin && coverage(state.assets) + COVERAGE_PER_KIND.drone >= coverageMin
   return [
     // The rule where turn 1 asks for the order (v1.4 fresh eyes).
-    { id: 'defense', text: `Tap a red move above and order a defense that blocks it. You get ${NEW_DEFENSES_PER_NIGHT} new defense a night.`, done: defended },
+    // v1.5 R1: and that COLDVEIL then takes the other door (R6b's fresh
+    // eyes, item 2: the tick read as the turn held).
+    { id: 'defense', text: `Tap a red move above to block it. ${NEW_DEFENSES_PER_NIGHT} new defense a turn, so they hit the other one.`, done: defended },
     {
       id: 'drone',
-      text: `Order an ISR (surveillance) drone, ${scenario.prices.drone} CR. It arrives tomorrow${lifts ? `, and the coverage bonus pays +${credits} CR a turn` : ''}.`,
+      text: `Order an ISR (surveillance) drone, ${scenario.prices.drone} CR. It arrives next turn${lifts ? `, and the coverage bonus pays +${credits} CR a turn` : ''}.`,
       done: drone,
     },
     // "Then": it ticks once an order is in and WORST CASE holds, so on an
@@ -265,31 +276,57 @@ export type { WorstCase }
 // PROCURE (brief 5.4).
 // What PROCURE offers in ASSETS (brief 5.4): the ISR drone, the smallsat
 // and the ground station. The RPO sat stays on the starter manifest only.
-// One new defense a night (v1.4), as PROCURE says it: the rule before
-// tonight's order, with its reason, and the reason the rest are not
-// available once it is in. Numerals, by section 4 rule 6.
+// One new defense a turn (v1.4), as PROCURE says it: the rule before the
+// turn's order, with its reason, and the reason the rest are not available
+// once it is in. Numerals, by section 4 rule 6.
 // The v1.4 fresh-eyes review: the reason read as a lead time ("a night to
 // bring online"), the line read as covering the assets, and once the order
 // was in nothing said why or how to change it. Its re-run: "fleet" named
 // nothing on the sheet, whose section is ASSETS, and did not say why the
-// team's limit spares them.
+// team's limit spares them. v1.5 R1: the game counts in turns, one word
+// everywhere (v1.4 finding 11), and the line names the defense ordered, so
+// a sheet opened from another move says what to cancel.
 const newDefense = (n: number) => `${n} new defense${n === 1 ? '' : 's'}`
+// Its re-review: "arrive ready" read as instant beside "arrives in 1
+// turn", and the last turn has no next one to be booked until.
 export const defenseRule = (n: number) =>
-  `${newDefense(n)} tonight: the integration team can bring only ${n} online a night. Assets arrive ready and do not count.`
-export const defenseOrderIn = (n: number) =>
-  `Tonight's order is in. ${newDefense(n)} a night: the integration team is booked until tomorrow. To swap, cancel it first.`
-export const NOT_TONIGHT = 'NOT TONIGHT'
+  `${newDefense(n)} a turn: the integration team can bring only ${n} online. Assets skip integration, so the limit does not apply to them.`
+export const defenseOrderIn = (name: string, last = false) =>
+  last
+    ? `${name} is the operation's last new defense. To swap, cancel it first.`
+    : `${name} is this turn's new defense, and the integration team is booked until next turn. To swap, cancel it first.`
+// What a defense reads where its price was, once the turn's defense is in
+// (v1.4 finding 7: NOT TONIGHT read as "this move is not on tonight"): the
+// rule, one label on every turn (the R1 re-review: NEXT TURN and 1 A TURN
+// for the same state).
+export const capLabel = (n: number) => `${n} A TURN`
+// Beside the note on a move whose defenses wait for the turn's one (the R1
+// re-review: "stopped by the highlighted defense" read as tonight).
+export const NOT_THIS_TURN = 'Not this turn unless you swap.'
 // The DEFENSES heading's note, beside the upkeep.
-export const defensesPerNight = (n: number) => `${n} a night`
+export const defensesPerTurn = (n: number) => `${n} a turn`
+// PROCURE's planned line leads with the turn's one defense (v1.4 finding
+// 3: "Ordered: 0 of 100 CR" read as a budget to fill).
+export const defenseCount = (ordered: number, n: number) => `New defense this turn: ${ordered} of ${n}.`
+// Under CONFIRM N ORDERS (v1.4 finding 6: CONFIRM read as locking them in).
+export const confirmNote = (cost: number) => `${cost} CR committed. Tap an order again to cancel it; nothing is final until you EXECUTE.`
 
 export const PROCURE_KINDS: AssetKind[] = ['drone', 'sat', 'groundStation']
 export const PROCURE_LABEL: Record<AssetKind, string> = { drone: 'ISR DRONE', sat: 'SMALLSAT', groundStation: 'GROUND STATION', rpoSat: 'RPO SAT' }
 
 export const turns = (n: number) => `${n} turn${n === 1 ? '' : 's'}`
 
-// The IR retainer's line, read off the scenario (brief 5.4).
+// The IR retainer's line, read off the scenario (brief 5.4). Since v1.5 R1
+// it names the three meters and the assets' own healing (R6b's fresh eyes,
+// item 3: "points" read as score points, and "every recovery" as asset
+// repair, which the retainer does not speed).
 export const retainerLine = (state: Pick<GameState, 'scenario'>) =>
-  `Recovers ${state.scenario.recovery.withIrRetainer} points a turn instead of ${state.scenario.recovery.base}. Does not stop anything; speeds every recovery.`
+  `Link, data and sensor health recover ${state.scenario.recovery.withIrRetainer} a turn instead of ${state.scenario.recovery.base}; damaged assets heal ${ASSET_HEAL_PER_TURN} a turn with or without it. Stops no move, and counts as the turn's new defense.`
+// A condition chip's turns left (brief 6.5), and on its last turn LAST
+// rather than 0T (R6b's fresh eyes, item 4): the night it last presses, and
+// the board before that night, where the stored 1 read "1T" on turn 6 of 6
+// as if it ran past the end (the R1 re-review).
+export const chipTurns = (stored: number, left: number) => (stored <= 1 ? 'LAST' : `${left}T`)
 
 // The earned answer key as a line: what it stops alone, then what it
 // blunts (the stops rule above), then how many it answers unmet.

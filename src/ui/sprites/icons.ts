@@ -75,6 +75,13 @@ export const ICON_BURN = mono(`
   ..iiiiii .....iii ....ii.i ...ii..i
   ..ii...i .ii....i ii...... i.......
 `)
+// ⑂ YOUR CALL: the debris conjunction without SSA (v1.5 R1), a path that
+// forks two ways, BURN or HOLD. A hazard to decide, not an attack, so not
+// ⚠ EXPOSED (R6b's fresh eyes, item 11).
+export const ICON_CALL = mono(`
+  i......i .i....i. ..i..i.. ...ii...
+  ...ii... ...ii... ...ii... ...ii...
+`)
 // ✕ closes and cancels.
 export const ICON_CROSS = mono(`
   i......i .i....i. ..i..i.. ...ii...

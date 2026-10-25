@@ -57,6 +57,7 @@ import {
   gradeBlock,
   ladder,
   lossLead,
+  missedLead,
   nextTime,
   toNextGrade,
   type DebriefStat,
@@ -69,7 +70,7 @@ import { ICON_CHECK, ICON_CROSS, ICON_HALF, ICON_SPARK, tinted } from './sprites
 import { SHIELD_PLAIN } from './sprites/effects'
 import PixelSprite from './sprites/PixelSprite'
 import { dailyStreak, dossierCount } from './titleStatus'
-import { shortName, type StopVerb } from './board/boardModel'
+import { shortName } from './board/boardModel'
 import './debrief.css'
 
 // The Dossier, opened over the debrief so BACK returns here: the game is
@@ -116,12 +117,28 @@ const SHARE_NOTICE: Record<ShareOutcome, string> = {
 }
 
 // What a saying is, as an icon and a word (section 4 rule 8).
-// NEXT TIME's verb after "would have", by the stops rule.
-const NEXT_VERB: Record<StopVerb, string> = { stops: 'stopped', blunts: 'blunted', answers: 'answered' }
-// NEXT TIME's night with room for it (v1.4).
-// "a night with no new defense" read as a night none was allowed (v1.4
-// fresh eyes).
-const NO_NEW_DEFENSE = 'a night you ordered no defense'
+// NEXT TIME's turn with room for it (v1.4). "a night with no new defense"
+// read as a night none was allowed (v1.4 fresh eyes); in turns since v1.5
+// R1, the game's one unit.
+const NO_NEW_DEFENSE = 'a turn you ordered no defense'
+// NEXT TIME when no one defense ordered earlier ends the game higher (v1.5
+// R1): the move COLDVEIL took instead cost as much.
+const NO_BETTER = 'No one defense ordered earlier ends this game higher: COLDVEIL takes whatever move you leave open.'
+
+// Names in bold, joined "A, B and C".
+function Names({ list }: { list: string[] }) {
+  return (
+    <>
+      {list.map((t, i) => (
+        <span key={t}>
+          {i > 0 && (i === list.length - 1 ? ' and ' : ', ')}
+          <b>{t}</b>
+        </span>
+      ))}
+    </>
+  )
+}
+
 
 const SAY_ICON: Record<LearnedHow, { icon: typeof ICON_CHECK; tone: 'go' | 'warn' | 'hostile' }> = {
   held: { icon: ICON_CHECK, tone: 'go' },
@@ -455,7 +472,9 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
               {lead && (
                 <div data-loss-lead className="border-l-4 border-dc-hostile bg-dc-hostile/10 px-3 py-2">
                   <p className={`${HEAD} text-dc-hostile`}>
-                    BIGGEST DROP · TURN {lead.turn} · -{lead.drop.toFixed(1)}
+                    {/* The turn's net, beside the move's own drop in the line
+                        below (R6b's fresh eyes, item 7). */}
+                    BIGGEST DROP · TURN {lead.turn} · -{lead.drop.toFixed(1)} NET
                   </p>
                   <p className="mt-0.5 text-[13px] leading-snug">{lead.line}</p>
                 </div>
@@ -529,19 +548,29 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
           </h3>
           {sayings.length > 0 ? (
             <ul className="mt-1.5 flex flex-col gap-1">
-              {sayings.map((s) => (
-                <li key={`${s.defense}-${s.verb}`} data-saying={s.how} className="flex items-start gap-2 bg-dc-chrome px-2 py-1.5 text-[13px] leading-snug">
-                  <PixelSprite sprite={tinted(SAY_ICON[s.how].icon, SAY_ICON[s.how].tone)} scale={1} className="mt-1 flex-none" name={`say-${s.how}`} />
-                  <span>
-                    <b>{s.defense}</b> <span className={s.how === 'missed' ? 'text-dc-hostile' : ''}>{s.verb}</span>{' '}
-                    {s.threats.map((t, i) => (
-                      <span key={t}>
-                        {i > 0 && (i === s.threats.length - 1 ? ' and ' : ', ')}
-                        <b>{t}</b>
-                      </span>
-                    ))}
-                  </span>
-                </li>
+              {sayings.map((s, n) => (
+                <Fragment key={`${s.defense}-${s.verb}`}>
+                  {/* Above the first defense not owned, what the list is
+                      (v1.4's fresh eyes, finding 13). */}
+                  {s.how === 'missed' && sayings[n - 1]?.how !== 'missed' && (
+                    <li data-saying-lead className="px-2 pt-1 text-[12px] leading-snug text-dc-muted">
+                      {missedLead(state)}
+                    </li>
+                  )}
+                  <li data-saying={s.how} className="flex items-start gap-2 bg-dc-chrome px-2 py-1.5 text-[13px] leading-snug">
+                    <PixelSprite sprite={tinted(SAY_ICON[s.how].icon, SAY_ICON[s.how].tone)} scale={1} className="mt-1 flex-none" name={`say-${s.how}`} />
+                    <span>
+                      <b>{s.defense}</b> <span className={s.how === 'missed' ? 'text-dc-hostile' : ''}>{s.verb}</span> <Names list={s.threats} />
+                      {s.more?.map((m) => (
+                        <span key={m.verb}>
+                          {' '}
+                          and <span className="text-dc-hostile">{m.verb}</span> <Names list={m.threats} />
+                        </span>
+                      ))}
+                      {s.orderedOn !== undefined && <span className="text-dc-muted"> (ordered on turn {s.orderedOn}, too late)</span>}
+                    </span>
+                  </li>
+                </Fragment>
               ))}
             </ul>
           ) : (
@@ -553,44 +582,48 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
           <h3 id="next-time-head" className={`${HEAD} text-dc-warn`}>
             NEXT TIME
           </h3>
-          {next ? (
+          {/* A run that went insolvent learns the budget first (the R1
+              re-review: its tip was a defense, never why it ended). */}
+          {state.lossReason === 'insolvency' ? (
             <p className="mt-1 text-[13px] leading-snug">
-              {/* An order of purchases, one new defense a night (v1.4): the
-                  night to order it on, a night with none or ahead of the one
-                  ordered then. */}
+              {`Keep WORST CASE at 0 or above. Orders, upkeep and repairs took the budget below zero on turn ${state.history.length}.`}
+            </p>
+          ) : next?.kind === 'earlier' ? (
+            <p className="mt-1 text-[13px] leading-snug">
+              {/* An order of purchases, one new defense a turn (v1.4), and
+                  since v1.5 R1 the same game played again with that one
+                  change, so the line says what it does, redirects and all
+                  (R6b's fresh eyes, item 2). */}
               {next.procured !== null ? (
                 <>
-                  You procured <b>{next.defense}</b> on turn {next.procured}. Order it on turn {next.orderOn}
-                  {next.ahead ? (
-                    <>
-                      , ahead of <b>{next.ahead}</b>,
-                    </>
-                  ) : (
-                    `, ${NO_NEW_DEFENSE},`
-                  )}{' '}
-                  and it {next.verb} <b>{next.threat}</b>, which got through on turn {next.turn}.
+                  You ordered <b>{next.defense}</b> on turn {next.procured}. Order it on turn {next.orderOn}
                 </>
               ) : (
                 <>
                   Order <b>{next.defense}</b> ({next.price} CR) on turn {next.orderOn}
-                  {next.ahead ? (
-                    <>
-                      , ahead of <b>{next.ahead}</b>
-                    </>
-                  ) : (
-                    `, ${NO_NEW_DEFENSE}`
-                  )}
-                  . It would have {NEXT_VERB[next.verb]} <b>{next.threat}</b>, which got through on turn {next.turn}.
                 </>
               )}
+              {next.ahead === null ? (
+                `, ${NO_NEW_DEFENSE}`
+              ) : next.aheadTo !== null ? (
+                <>
+                  {' '}
+                  and move <b>{next.ahead}</b> to turn {next.aheadTo}
+                </>
+              ) : (
+                <>
+                  {' '}
+                  in place of <b>{next.ahead}</b>
+                </>
+              )}
+              . Played again with every other order the same, this game ends at <b>{next.final.toFixed(1)}</b>, not {next.was.toFixed(1)}
+              {/* Whether it wins, said (the R1 re-review: 54.6 against 48.7
+                  read as a fix while still a loss). */}
+              {next.won ? (state.status !== 'won' ? ', and is won' : '') : `, still under the win line of ${state.scenario.winThreshold}`}.
             </p>
           ) : (
             <p className="mt-1 text-[13px] leading-snug">
-              {state.lossReason === 'insolvency'
-                ? `Keep WORST CASE at 0 or above. Orders, upkeep and repairs took the budget below zero on turn ${state.history.length}.`
-                : stats[0].value > 0
-                  ? 'Every move that got through met a defense you already had.'
-                  : 'Nothing got through.'}
+              {next?.kind === 'none' ? NO_BETTER : stats[0].value > 0 ? 'Every move that got through met a defense you already had.' : 'Nothing got through.'}
             </p>
           )}
         </section>

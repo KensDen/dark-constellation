@@ -15,7 +15,7 @@ export interface GlossaryEntry {
   // than by a substring match on the display term.
   key: string
   term: string
-  category: 'Technique' | 'Countermeasure' | 'Threat event' | 'Opportunity'
+  category: 'Technique' | 'Advisory' | 'Countermeasure' | 'Threat event' | 'Opportunity'
   body: string
   refs: { label: string; url: string }[]
 }
@@ -38,7 +38,9 @@ const scenario = DEFAULT_SCENARIO
 
 
 // Techniques: one entry per distinct framework ref across the deck, with
-// the events that cite it.
+// the events that cite it. The NSA advisory is cited as a technique is but
+// is not one, so it heads a category of its own (v1.5 R1: 18 framework
+// techniques and 1 NSA advisory, as the README counts them).
 function techniqueEntries(): GlossaryEntry[] {
   const byKey = new Map<string, { ref: TechniqueRef; events: Set<string> }>()
   for (const ev of scenario.events) {
@@ -52,7 +54,7 @@ function techniqueEntries(): GlossaryEntry[] {
     .map(({ ref, events }) => ({
       key: techniqueLabel(ref),
       term: `${techniqueLabel(ref)}: ${ref.name}`,
-      category: 'Technique' as const,
+      category: ref.framework === 'NSA' ? ('Advisory' as const) : ('Technique' as const),
       body: `${ref.framework === 'NSA' ? 'NSA cybersecurity advisory' : `${frameworkLabels[ref.framework]} framework technique`}. Appears in: ${[...events].join(', ')}.`,
       refs: [{ label: ref.framework === 'NSA' ? 'Advisory page' : 'Framework page', url: ref.url }],
     }))

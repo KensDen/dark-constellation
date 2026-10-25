@@ -25,6 +25,12 @@ export const COUNTERMEASURE_COUNT = DEFAULT_SCENARIO.countermeasures.length
 export const TECHNIQUE_REF_COUNT = new Set(
   DEFAULT_SCENARIO.events.flatMap((e) => e.techniqueRefs.map((r) => `${r.framework}:${r.id}`)),
 ).size
+// The same refs split as the README counts them (v1.5 R1): framework
+// techniques, and the NSA advisory the deck cites beside them.
+const refCount = (keep: (framework: string) => boolean) =>
+  new Set(DEFAULT_SCENARIO.events.flatMap((e) => e.techniqueRefs.filter((r) => keep(r.framework)).map((r) => `${r.framework}:${r.id}`))).size
+export const FRAMEWORK_TECHNIQUE_COUNT = refCount((f) => f !== 'NSA')
+export const ADVISORY_COUNT = refCount((f) => f === 'NSA')
 export const SOURCE_COUNT = new Set(
   DEFAULT_SCENARIO.events.flatMap((e) => e.learnMoreCards.flatMap((c) => c.sources.map((s) => s.url))),
 ).size

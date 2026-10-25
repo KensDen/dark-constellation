@@ -55,6 +55,7 @@ import {
   marginChip,
   moveStatus,
   shortName,
+  showsStrength,
   strengthLine,
   tapHint,
   vectorTo,
@@ -135,7 +136,14 @@ const WORST_HIT_CARD_HEADLINE_AND_LINE = 40
 // 144 after the v1.4 fresh-eyes review: FIRST ORDERS says the rule where
 // turn 1 asks for the order ("You get 1 new defense a night.", 6 words),
 // so turn 1 is the worst board again (prepared, Easy, seed 1, no orders).
-const WORST_BOARD = 144
+// 148 since v1.5 R1: the line says the other door instead ("1 new defense
+// a turn, so COLDVEIL takes the other door.", 10 words; R6b's fresh eyes,
+// item 2), and 149 once the drone "arrives next turn", not "tomorrow"
+// (the game counts in turns; v1.4's fresh eyes, finding 11). 145 after
+// the round's phone check: that line ran the turn-1 board 3px past
+// 375x667, so it is shorter ("Tap a red move above to block it. 1 new
+// defense a turn, so they hit the other one.").
+const WORST_BOARD = 145
 
 const tokensOf = (text: string) => new Set(text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
 
@@ -526,7 +534,8 @@ describe('reading diet: the intel brief', () => {
                 has(vectorTo(ev), `${id}'s vector`)
                 if (slot.fixed || named) {
                   has(shortName(ev), `${id}'s name`)
-                  has(strengthLine(ev), `${id}'s strength`)
+                  // An attack's strength; the debris call shows none (v1.5 R1).
+                  if (showsStrength(ev)) has(strengthLine(ev), `${id}'s strength`)
                   const word = STATUS[moveStatus(before, ev, counters)].word
                   statusWords.set(word, (statusWords.get(word) ?? 0) + 1)
                 } else unnamed += 1

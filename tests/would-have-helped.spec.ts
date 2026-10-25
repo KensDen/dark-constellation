@@ -140,13 +140,15 @@ describe('what the blocks say', () => {
 // asset's overnight heal), where it had said all repair ran 3 times faster.
 describe('the retainer at the close', () => {
   it('says what the retainer speeds, from the scenario and the rules, and that asset repair is the same either way', () => {
-    expect(scenario.recovery).toEqual({ base: 2, withIrRetainer: 6 })
+    // The retainer's 4 since v1.5 R1 (6 before), and in turns, the game's
+    // one unit (v1.4's fresh eyes, finding 11).
+    expect(scenario.recovery).toEqual({ base: 2, withIrRetainer: 4 })
     expect(ASSET_HEAL_PER_TURN).toBe(10)
-    expect(copy.recoverySlow(ASSET_HEAL_PER_TURN, 2, 6)).toBe(
-      'Damaged assets recover 10 integrity a night either way. Link, data and sensor health recover 2 a night; an incident response retainer makes it 6.',
+    expect(copy.recoverySlow(ASSET_HEAL_PER_TURN, 2, 4)).toBe(
+      'Damaged assets recover 10 integrity a turn either way. Link, data and sensor health recover 2 a turn; an incident response retainer makes it 4.',
     )
-    expect(copy.recoveryFast(ASSET_HEAL_PER_TURN, 2, 6)).toBe(
-      'Damaged assets recover 10 integrity a night. Your incident response retainer recovers link, data and sensor health 6 a night instead of 2.',
+    expect(copy.recoveryFast(ASSET_HEAL_PER_TURN, 2, 4)).toBe(
+      'Damaged assets recover 10 integrity a turn. Your incident response retainer recovers link, data and sensor health 4 a turn instead of 2.',
     )
   })
 })
