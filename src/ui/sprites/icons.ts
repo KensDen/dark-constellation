@@ -82,6 +82,12 @@ export const ICON_CALL = mono(`
   i......i .i....i. ..i..i.. ...ii...
   ...ii... ...ii... ...ii... ...ii...
 `)
+// LOCKED: the intel brief once it has named the moves (v1.5 R2), a
+// padlock: no cancel, no refund.
+export const ICON_LOCK = mono(`
+  ..iiii.. .i....i. .i....i. iiiiiiii
+  iiiiiiii iii..iii iiiiiiii iiiiiiii
+`)
 // ✕ closes and cancels.
 export const ICON_CROSS = mono(`
   i......i .i....i. ..i..i.. ...ii...

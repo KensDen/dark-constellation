@@ -345,6 +345,10 @@ export interface GameState {
   // The intel brief is free through this turn: turn 1 (D2 a), and the
   // turns an allied data share covers.
   briefFreeThrough: number
+  // The turn a paid brief named the moves on (v1.5 R2): on that turn it is
+  // ordered and cannot be cancelled (rules.ts, briefLocked). Absent until a
+  // brief is revealed, and cleared by resolveTurn.
+  briefRevealed?: number
   // The defense streak, its best, and the points saved so far (brief 6.8).
   streak: number
   bestStreak: number

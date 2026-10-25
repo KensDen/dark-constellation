@@ -18,16 +18,16 @@
 // of them reads the rule, 1 A TURN, where its price was, so it never reads
 // as unaffordable.
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { NEW_DEFENSES_PER_NIGHT, briefActive, briefFree, candidatesTonight, defenseOpen, newDefenses } from '../../engine/rules'
 import { COVERAGE_PER_KIND, assetPrice } from '../../engine/scoring'
 import { DEPLOY_TURNS } from '../../engine/rules'
 import type { AssetKind, CountermeasureId, GameState, ThreatEvent, TurnActions } from '../../engine/types'
 import { knownThreats } from '../../persistence'
 import PixelSprite from '../sprites/PixelSprite'
-import { ICON_CROSS, tinted } from '../sprites/icons'
+import { ICON_CROSS, ICON_LOCK, tinted } from '../sprites/icons'
 import { KIND_LAYER } from './board'
-import { NOT_THIS_TURN, PROCURE_KINDS, PROCURE_LABEL, capLabel, confirmNote, defenseCount, defenseOrderIn, defenseRule, defensesPerTurn, hiddenOrder, matchNote, shortName, stopsLine, turns } from './boardModel'
+import { BRIEF_LOCKED_LINE, BRIEF_RULE, MORE_BELOW, NOT_THIS_TURN, PROCURE_KINDS, briefLockedTag, PROCURE_LABEL, capLabel, confirmNote, defenseCount, defenseOrderIn, defenseRule, defensesPerTurn, hiddenOrder, matchNote, shortName, stopsLine, turns } from './boardModel'
 
 export interface ProcureProps {
   state: GameState
@@ -36,7 +36,8 @@ export interface ProcureProps {
   focus: { move: ThreatEvent } | { kind: AssetKind } | { intel: true } | null
   onToggleAsset: (kind: AssetKind) => void
   onToggleCounter: (id: CountermeasureId) => void
-  onToggleBrief: () => void
+  // Orders the brief, which names the moves and locks (v1.5 R2).
+  onOrderBrief: () => void
   onClose: () => void
   remaining: number
   cost: number
@@ -55,7 +56,7 @@ function Price({ ordered, price, extra }: { ordered: boolean; price: number; ext
   )
 }
 
-export default function Procure({ state, actions, focus, onToggleAsset, onToggleCounter, onToggleBrief, onClose, remaining, cost, orders }: ProcureProps) {
+export default function Procure({ state, actions, focus, onToggleAsset, onToggleCounter, onOrderBrief, onClose, remaining, cost, orders }: ProcureProps) {
   const { scenario } = state
   const named = new Set(briefActive(state, actions) ? candidatesTonight(state) : [])
   const met = knownThreats()
@@ -69,6 +70,18 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
     // Only on opening: a tap inside the sheet must not move it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  // The cue while the list runs on under the footer (v1.5 R2's review: on
+  // the desktop's side panel a card was cut at the foot with no sign of
+  // more), checked on scroll and after every render.
+  const [more, setMore] = useState(false)
+  useLayoutEffect(() => {
+    const el = body.current
+    if (!el) return
+    const check = () => setMore(el.scrollHeight - el.scrollTop - el.clientHeight > 4)
+    check()
+    el.addEventListener('scroll', check)
+    return () => el.removeEventListener('scroll', check)
+  })
   const afford = (price: number) => remaining - price >= 0
   // Tonight's room for a new defense, and whether any is left to order.
   const open = defenseOpen(state, actions)
@@ -81,7 +94,7 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
         <h2 className="font-mono text-xs tracking-widest">
           PROCURE · <b className={remaining < 0 ? 'text-dc-hostile' : 'text-dc-go'}>{remaining}</b> CR LEFT
         </h2>
-        <button type="button" aria-label="Close PROCURE" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center">
+        <button type="button" data-sheet-close aria-label="Close PROCURE" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center">
           <PixelSprite sprite={tinted(ICON_CROSS, 'ink')} scale={2} name="close" />
         </button>
       </div>
@@ -93,7 +106,9 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
       {/* What the sheet was opened for stays above the list, which opens
           scrolled to the highlighted item (R6b fresh eyes: the note had
           scrolled off with the top of the list). */}
-      {focus && ('move' in focus || 'intel' in focus) && (
+      {/* Opened at the brief, the note goes once it is ordered: its row says
+          LOCKED (v1.5 R2's re-review: the sheet was crowded at 375). */}
+      {focus && ('move' in focus || ('intel' in focus && !actions.intelBrief)) && (
         <p data-match-note className="flex-none border-b border-dc-line px-3 py-1.5 text-xs text-dc-ink">
           {'move' in focus ? (
             <>
@@ -213,32 +228,51 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
             <p data-procure-intel className="border border-dc-line bg-dc-chrome p-2 text-xs text-dc-muted">
               <span className="text-sm font-semibold text-dc-ink">Intel brief</span> · FREE TONIGHT. COLDVEIL&apos;s moves are named on the TONIGHT card.
             </p>
+          ) : actions.intelBrief ? (
+            // Ordered, it has named the moves, and the order is locked for
+            // the turn (v1.5 R2, the engine's briefLocked): a status with
+            // its icon, not a control.
+            <div data-procure-intel data-locked className="border border-dc-go bg-dc-go/10 p-2">
+              <span className="flex w-full items-start justify-between gap-2">
+                <span className="text-sm font-semibold">Intel brief</span>
+                <span className="flex flex-none items-center gap-1 whitespace-nowrap font-mono text-[11px] tracking-wider text-dc-go">
+                  <PixelSprite sprite={tinted(ICON_LOCK, 'go')} scale={1} name="procure-brief-lock" />
+                  {briefLockedTag(scenario.prices.intelBrief)}
+                </span>
+              </span>
+              <span className="mt-0.5 block text-xs text-dc-muted">{BRIEF_LOCKED_LINE}</span>
+            </div>
           ) : (
             <button
               type="button"
               data-procure-intel
               data-match={(focus && 'intel' in focus) || undefined}
-              aria-pressed={actions.intelBrief}
-              disabled={!actions.intelBrief && !afford(scenario.prices.intelBrief)}
-              onClick={onToggleBrief}
-              className={`${ITEM} ${actions.intelBrief ? 'border-dc-go bg-dc-go/10' : focus && 'intel' in focus ? 'border-dc-friendly bg-dc-friendly/10' : 'border-dc-line bg-dc-chrome'}`}
+              aria-pressed={false}
+              disabled={!afford(scenario.prices.intelBrief)}
+              onClick={onOrderBrief}
+              className={`${ITEM} ${focus && 'intel' in focus ? 'border-dc-friendly bg-dc-friendly/10' : 'border-dc-line bg-dc-chrome'}`}
             >
               <span className="flex w-full items-start justify-between gap-2">
                 <span className="text-sm font-semibold">Intel brief</span>
-                <Price ordered={actions.intelBrief} price={scenario.prices.intelBrief} />
+                <Price ordered={false} price={scenario.prices.intelBrief} />
               </span>
-              <span className="text-xs text-dc-muted">Names COLDVEIL&apos;s moves tonight. The defenses then say which moves they stop or blunt.</span>
+              <span data-brief-rule className="text-xs text-dc-muted">{BRIEF_RULE}</span>
             </button>
           )}
         </div>
       </div>
+      {more && (
+        <p data-scroll-cue aria-hidden="true" className="pointer-events-none relative z-10 -mt-7 flex-none bg-linear-to-t from-dc-panel from-40% to-transparent pt-3 text-center font-mono text-[10px] text-dc-muted">
+          {MORE_BELOW}
+        </p>
+      )}
       <div className="flex-none border-t border-dc-line px-3 pt-2 pb-2">
         {orders > 0 ? (
           <>
             <button type="button" data-confirm onClick={onClose} className="dc-tile flex min-h-12 w-full items-center justify-center border-2 border-dc-go bg-dc-go font-display text-xs text-dc-ground shadow-hard">
               CONFIRM {orders} ORDER{orders === 1 ? '' : 'S'}
             </button>
-            <p className="mt-1 text-center font-mono text-[10px] text-dc-muted">{confirmNote(cost)}</p>
+            <p className="mt-1 text-center font-mono text-[10px] text-dc-muted">{confirmNote(cost, actions.intelBrief && !briefFree(state))}</p>
           </>
         ) : (
           <button type="button" data-confirm onClick={onClose} className="dc-tile flex min-h-12 w-full items-center justify-center border-2 border-dc-line bg-dc-panel font-display text-xs text-dc-ink shadow-press">

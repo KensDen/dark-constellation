@@ -12,6 +12,7 @@
 // Once the operation is over, a tile still in transit says so rather than
 // counting down to a turn that will not come (QC G-067).
 
+import { useRef, useSyncExternalStore } from 'react'
 import type { ActiveCondition, Layer } from '../../engine/types'
 import { LAYERS } from '../../engine/types'
 import { kindLabels } from '../labels'
@@ -19,8 +20,30 @@ import { assetSprite } from '../sprites/assets'
 import { HIT_BURST, LOCK_ON, SHIELD_STAMP } from '../sprites/effects'
 import PixelSprite from '../sprites/PixelSprite'
 import { STATE_WORD, pipsFor, type SpriteState, type TileModel } from './board'
-import type { Strike } from './strike'
+import type { Strike, Trace } from './strike'
 import { NO_ARRIVAL, OPERATION_OVER, chipTurns } from './boardModel'
+
+// THE PLAYFIELD (v1.5 R2): the strip's layers drawn as places, and the
+// night's moves on their tiles, in a chunk of its own, fetched as this
+// module loads, with the board. Rendered from the loaded module rather than
+// through React.lazy, whose first showing suspends (and in the test DOM
+// resolved after a test had ended), as the night's chunks are. The strip
+// is whole without it: a chunk that never arrives leaves the panels' plain
+// fill.
+let playfield: typeof import('./Playfield') | null = null
+const arrived = new Set<() => void>()
+import('./Playfield').then(
+  (m) => {
+    playfield = m
+    arrived.forEach((f) => f())
+  },
+  () => undefined,
+)
+const onArrival = (f: () => void) => {
+  arrived.add(f)
+  return () => void arrived.delete(f)
+}
+const loadedPlayfield = () => playfield
 
 export interface ChipModel {
   condition: ActiveCondition
@@ -65,7 +88,11 @@ function Art({ tile, hit }: { tile: TileModel; hit?: TileHit | null }) {
   const sprite = tile.kind === 'asset' ? assetSprite(kind, tile.asset.integrity) : assetSprite(kind, 100, 'transit')
   return (
     <span aria-hidden="true" data-art className="relative block">
-      <PixelSprite sprite={sprite} name={`${kind}.${tile.kind === 'asset' ? tile.state : 'transit'}`} className="block" />
+      {/* The landing's strobe, on the sprite alone so the call sign and
+          the pips stay readable through it (v1.5 R2's review: over the
+          whole tile it read as a debug box). */}
+      {hit?.landed && !hit.rest && <span key={`${hit.id}-strobe`} data-strobe className="dc-hit-strobe pointer-events-none absolute inset-0 bg-dc-hostile/45" />}
+      <PixelSprite sprite={sprite} name={`${kind}.${tile.kind === 'asset' ? tile.state : 'transit'}`} className="relative block" />
       {/* Sized to the art's own box (the square sprite keeps its shape
           inside it), so the brackets stay off the call sign below, at the
           desktop strip's zoom too (R6 question 14). */}
@@ -114,8 +141,9 @@ function Tile({
         data-shield={shield ? (shield.rest ? 'rest' : shield.landed ? 'held' : 'lock') : undefined}
         className={`${TILE} ${selected ? 'border-dc-go' : ''} ${shield?.landed && !shield.rest ? 'dc-shield-tile' : ''}`}
       >
-        {hit?.landed && !hit.rest && <span key={hit.id} aria-hidden="true" data-strobe className="dc-hit-strobe pointer-events-none absolute inset-0 bg-dc-hostile/45" />}
-        {shield && <i key={shield.id} aria-hidden="true" className={`${shield.rest ? '' : 'dc-reticle'} pointer-events-none absolute -inset-[3px] border-2 border-dc-go`} />}
+        {/* The square reticle, where no playfield draws the shield's dome
+            (src/index.css steps it aside once one does). */}
+        {shield && <i key={shield.id} aria-hidden="true" data-shield-reticle className={`${shield.rest ? '' : 'dc-reticle'} pointer-events-none absolute -inset-[3px] border-2 border-dc-go`} />}
         {/* The stamp a block leaves on its tile (v1.3 R5), there from the
             landing until the move's card is gone: a block's own shape. */}
         {shield && (shield.landed || shield.rest) && (
@@ -169,18 +197,31 @@ export interface AssetStripProps {
   held?: Extract<Strike, { kind: 'held' }> | null
   // The operation is over: nothing in transit will arrive.
   over?: boolean
+  // Tonight's earlier moves, for the playfield, and whether the night is on.
+  traces?: readonly Trace[]
+  night?: boolean
+  // While deciding, tonight's moves for the playfield's lane marks.
+  threats?: readonly { layers: readonly Layer[]; status: string }[]
+  // In the night, the moves landed so far, named at their tiles.
+  labels?: readonly Trace[]
 }
 
-export default function AssetStrip({ tiles, chips, selectedKey, onSelect, onCancelQueued, hit, held, over }: AssetStripProps) {
+const NO_TRACES: readonly Trace[] = []
+
+export default function AssetStrip({ tiles, chips, selectedKey, onSelect, onCancelQueued, hit, held, over, traces = NO_TRACES, night = false, threats, labels }: AssetStripProps) {
+  const strip = useRef<HTMLElement | null>(null)
+  const Playfield = useSyncExternalStore(onArrival, loadedPlayfield, loadedPlayfield)?.default
   const struck = hit ? hit.before.assets.find((a) => a.id === hit.assetId) : undefined
   const tileHit: TileHit | null = hit && struck ? { id: hit.id, landed: hit.landed, fromPips: pipsFor(struck.integrity), rest: hit.rest } : null
   // Each column starts as wide as its tiles. When the fleet outgrows the
   // row, the fullest column gives way and its tiles wrap; the others keep
   // one row.
   const most = Math.max(...LAYERS.map((layer) => tiles[layer].length))
+  const live = Object.fromEntries(LAYERS.map((layer) => [layer, chips(layer).map((c) => c.condition.name)]))
   return (
     <>
-      <section aria-label="Assets" data-strip className="flex flex-none gap-1.5">
+      <section ref={strip} aria-label="Assets" data-strip className="relative flex flex-none gap-1.5">
+        {Playfield && <Playfield strip={strip} conditions={live} strike={hit ?? held ?? null} traces={traces} night={night} threats={threats} labels={labels} />}
         {LAYERS.map((layer) => {
           const list = tiles[layer]
           const layerChips = chips(layer)
@@ -192,7 +233,7 @@ export default function AssetStrip({ tiles, chips, selectedKey, onSelect, onCanc
           // screen readers; the night card says it in full.
           const heldHere = held && held.landed && !held.rest && !held.assetId && held.layers.includes(layer) ? held.id : null
           return (
-            <div key={layer} data-layer={layer} className="min-w-0 border border-dc-line bg-dc-panel px-1 pt-0.5" style={{ flex: `${Math.max(1, list.length)} ${list.length === most ? 1 : 0} auto` }}>
+            <div key={layer} data-layer={layer} className="relative z-10 min-w-0 border border-dc-line bg-dc-panel px-1 pt-0.5" style={{ flex: `${Math.max(1, list.length)} ${list.length === most ? 1 : 0} auto` }}>
               <div className="flex flex-wrap items-center gap-1">
                 <h2 className="font-mono text-[10px] tracking-widest text-dc-muted">{layer}</h2>
                 {heldHere && (
@@ -222,7 +263,7 @@ export default function AssetStrip({ tiles, chips, selectedKey, onSelect, onCanc
                   ))}
                 </div>
               )}
-              <div className="mt-0.5 flex flex-wrap gap-0.5">
+              <div data-tiles className="mt-0.5 flex flex-wrap gap-1">
                 {list.map((tile) => (
                   <Tile
                     key={tile.key}

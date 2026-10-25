@@ -21,7 +21,8 @@ import type { DebrisChoice, GameState } from '../../engine/types'
 import { dossier, fileCard, knownThreats } from '../../persistence'
 import { callSigns } from '../board/board'
 import { shortName, stoppedByLine } from '../board/boardModel'
-import { LOCK_SHARE, STRIKE_MS, strikeOf, type Strike } from '../board/strike'
+import { LOCK_SHARE, STRIKE_MS, strikeOf, tracesOf, type Strike, type Trace } from '../board/strike'
+import { CloseUp, type CloseUpProps } from '../board/Playfield'
 import { useReducedMotion } from '../cues/motion'
 import { maiScore } from '../../engine/scoring'
 import { dossierCount } from '../titleStatus'
@@ -60,6 +61,13 @@ export interface BoardView {
   // A block's card under reduced motion, where no strike floats NO LOSS:
   // the HUD's score still goes green, without the glow (v1.3 R7).
   held?: boolean
+  // Tonight's moves before the one on screen, all of them at END OF TURN,
+  // which the playfield keeps on the board (v1.5 R2).
+  traces?: Trace[]
+  // The desktop's night log (v1.5 R2): the moves landed so far, the one
+  // whose card is up among them, and the move on its way while it strikes.
+  log?: Trace[]
+  moving?: string | null
 }
 
 export interface NightProps {
@@ -166,17 +174,19 @@ export default function Night(p: NightProps) {
     if (reduced && step.kind === 'threat') play(strikeSound(step.ev.eventId, step.ev.effectiveSeverity > 0), { intensity: strikeIntensity(step.ev.effectiveSeverity) })
   }, [stage, night, reduced, play])
 
-  // What the board shows under each stage.
+  // What the board shows under each stage, with the night's moves so far
+  // on the playfield.
   const onBoard = p.onBoard
   useLayoutEffect(() => {
-    if (!night || stage.at === 'end') return onBoard({ shown: after, strike: null, drop: null })
+    const traces = (n?: number) => tracesOf(record.turn, record.events, scenario, n)
+    if (!night || stage.at === 'end') return onBoard({ shown: after, strike: null, drop: null, traces: traces(), log: traces() })
     if (stage.at === 'moving') {
       const fell = Math.round((maiScore(night.before) - maiScore(night.opening)) * 10) / 10
       const label = night.pressed.length === 1 ? night.pressed[0] : copy.CONDITIONS_WORD
       return onBoard({ shown: night.opening, strike: null, drop: fell > 0 ? { id: `t${night.turn}-press`, delta: fell, label } : null, preClose: true })
     }
     const step = night.steps[stage.i]
-    if (stage.at === 'call') return onBoard({ shown: step.before, strike: null, drop: null, preClose: true })
+    if (stage.at === 'call') return onBoard({ shown: step.before, strike: null, drop: null, preClose: true, traces: traces(stage.i), log: traces(stage.i) })
     if (stage.at === 'strike') {
       const strike = strikeOf(`t${night.turn}-${stage.i}`, step.ev, step.def.layers, step.before, stage.landed)
       const fell = Math.round((step.scoreBefore - step.scoreAfter) * 10) / 10
@@ -185,6 +195,9 @@ export default function Night(p: NightProps) {
         strike,
         drop: stage.landed && (fell > 0 || step.ev.effectiveSeverity === 0) ? { id: `t${night.turn}-${stage.i}`, delta: Math.max(0, fell) } : null,
         preClose: true,
+        traces: traces(stage.i),
+        log: traces(stage.i),
+        moving: step.ev.eventId,
       })
     }
     // While a move's card is up, its tile keeps a still reticle, so the
@@ -192,8 +205,9 @@ export default function Night(p: NightProps) {
     // (fresh-eyes review: under reduced motion nothing marked it).
     const rest = step.kind === 'threat' ? strikeOf(`t${night.turn}-${stage.i}`, step.ev, step.def.layers, step.before, true) : null
     const held = reduced && step.kind === 'threat' && step.ev.effectiveSeverity === 0
-    onBoard({ shown: step.after, strike: rest ? { ...rest, rest: true } : null, drop: null, preClose: true, held })
-  }, [stage, night, after, onBoard, reduced])
+    // The debris has no strike; its card keeps its trace on the board.
+    onBoard({ shown: step.after, strike: rest ? { ...rest, rest: true } : null, drop: null, preClose: true, held, traces: traces(step.kind === 'debris' ? stage.i + 1 : stage.i), log: traces(stage.i + 1) })
+  }, [stage, night, after, onBoard, reduced, record, scenario])
 
   const onContinue = (i: number) => (collect: boolean) => {
     if (collect) {
@@ -207,7 +221,21 @@ export default function Night(p: NightProps) {
   const turn = record.turn
   if (stage.at === 'moving') return <Moving />
   const step = night && stage.at !== 'end' ? night.steps[stage.i] : null
-  if (stage.at === 'strike' && step) return <StrikeBanner key={`banner-${stage.i}`} held={step.ev.effectiveSeverity === 0} name={shortName(step.def)} />
+  if (stage.at === 'strike' && step) {
+    // The close-up's target: the tile the move was aimed at, either side
+    // of it (v1.5 R2).
+    const from = step.before.assets.find((a) => a.id === step.ev.targetAssetId)
+    const to = step.after.assets.find((a) => a.id === step.ev.targetAssetId)
+    const view: CloseUpProps = {
+      eventId: step.ev.eventId,
+      layer: from?.layer ?? step.def.layers[0],
+      kind: from?.kind,
+      integrity: from ? [from.integrity, to?.integrity ?? 0] : undefined,
+      hit: step.ev.effectiveSeverity > 0,
+      landed: stage.landed,
+    }
+    return <StrikeBanner key={`banner-${stage.i}`} held={step.ev.effectiveSeverity === 0} name={shortName(step.def)} view={view} />
+  }
   if (!cards || !close) {
     if (!failed) return null
     return (
@@ -314,9 +342,11 @@ function Moving() {
 
 // The strike's banner (brief 5.5 item 1): COLDVEIL MOVES or BLOCKED, with the
 // move's name.
-function StrikeBanner({ held, name }: { held: boolean; name: string }) {
+function StrikeBanner({ held, name, view }: { held: boolean; name: string; view: CloseUpProps }) {
   return (
-    <div data-strike-banner={held ? 'held' : 'hit'} aria-hidden="true" className="dc-banner-in pointer-events-none fixed inset-x-0 top-[34%] z-40 flex flex-col items-center gap-2 px-4">
+    <div data-strike-banner={held ? 'held' : 'hit'} aria-hidden="true" className="dc-banner-in pointer-events-none fixed inset-x-0 top-[30%] z-40 flex flex-col items-center gap-2 px-4">
+      {/* The move on its target, close up (v1.5 R2). */}
+      <CloseUp {...view} />
       <span className={`flex items-center gap-2.5 font-display ${held ? 'text-[28px] text-dc-go' : 'text-[20px] text-dc-hostile'}`}>
         {held && <PixelSprite sprite={SHIELD_STAMP} scale={3} name="banner-shield" className="dc-stamp-pop" />}
         {held ? copy.STRIKE_HELD : copy.STRIKE_HIT}

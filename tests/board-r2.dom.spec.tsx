@@ -9,8 +9,11 @@
 //   from a move, the end of a turn and a Daily Op.
 //   GUARD R2 (c), EVERY STATUS IS AN ICON AND A WORD (section 4 rule 8),
 //   and none of them is a control (rule 2).
-//   GUARD R2 (d), EXECUTE IS OFF BELOW ZERO, with the line that says why,
-//   and on again when the order that crossed zero is cancelled.
+//   GUARD R2 (d), EXECUTE IS OFF BELOW ZERO, with the line that says why.
+//   Since v1.5 R2 no tap reaches it (PROCURE refuses what the budget
+//   cannot meet, and the brief, which TONIGHT's row once ordered without
+//   refusing, is ordered there and locks), so it holds on a locked brief
+//   over the balance, as a tampered save would carry.
 //   GUARD R2 (e), PROCURE'S BADGE COUNTS QUEUED ORDERS: none before an
 //   order (QC G-025), one per order, and fewer when one is cancelled.
 // GUARD R2 (a), that the board fits 375x667 with no page scroll, needs a
@@ -230,19 +233,19 @@ describe('GUARD R7 (a): the debris tile with SSA owned reads ANSWERED, never BLO
 })
 
 describe('GUARD R2 (d): EXECUTE is off while REMAINING is below zero', () => {
-  it('turns EXECUTE off with the reason when an order crosses zero, and on again when it is cancelled', () => {
-    // Turn 3 with 5 CR left: the 8 CR brief crosses zero.
-    const state = { ...gameAt(3), credits: 5 }
-    render(state)
+  it('turns EXECUTE off with the reason when the orders cross zero, and leaves it on when they do not', () => {
+    // Turn 3 with 5 CR left and the 8 CR brief locked on it: below zero.
+    const price = DEFAULT_SCENARIO.prices.intelBrief
+    render({ ...gameAt(3), credits: price - 3, briefRevealed: 3 })
     const execute = () => q('[data-execute]') as HTMLButtonElement
-    expect(execute().disabled, 'EXECUTE is off before anything is ordered').toBe(false)
-    expect(q('[data-over-budget]')).toBeNull()
-    click(q('[data-brief-toggle]')!)
     expect(q('[data-remaining]')!.textContent).toBe('REMAINING -3 CR')
     expect(execute().disabled, 'EXECUTE is on below zero').toBe(true)
     expect(q('[data-over-budget]')!.textContent).toBe('Over budget. Cancel an order in PROCURE.')
-    click(q('[data-brief-toggle]')!)
-    expect(execute().disabled, 'EXECUTE stayed off after the order was cancelled').toBe(false)
+    // The same brief with the budget to meet it.
+    render({ ...gameAt(3), credits: price, briefRevealed: 3 })
+    expect(q('[data-remaining]')!.textContent).toBe('REMAINING 0 CR')
+    expect(execute().disabled, 'EXECUTE is off at zero').toBe(false)
+    expect(q('[data-over-budget]')).toBeNull()
   })
 })
 
@@ -259,6 +262,11 @@ describe('the hidden moves (R6 question 14)', () => {
     const note = () => q('[data-sheet="procure"] [data-match-note]')?.textContent
     expect(note()).toBe(`Order an intel brief (${second.scenario.prices.intelBrief} CR) to name tonight's moves, then tap one to see what answers it.`)
     expect(q('[data-procure-intel]')!.hasAttribute('data-match'), 'the intel brief is not the highlighted order').toBe(true)
+    // Ordered, the brief locks (v1.5 R2), and the note and the footer stop
+    // asking for it or promising its cancel (the R2 review, finding 29).
+    click(q('[data-sheet="procure"] button[data-procure-intel]')!)
+    expect(q('[data-sheet="procure"] [data-match-note]'), 'the note still asks for the brief it locked').toBeNull()
+    expect(q('[data-confirm] + p')!.textContent).toBe(`${second.scenario.prices.intelBrief} CR committed. The intel brief stays ordered; tap any other order again to cancel it until you EXECUTE.`)
     // A tap on a hidden move does the same.
     render(gameAt(3))
     click(q('[data-move-unknown]')!)

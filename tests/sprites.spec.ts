@@ -21,6 +21,8 @@ import { CLOUD, SILHOUETTE } from '../src/ui/sprites/scenery'
 import { HIT_BURST, LOCK_ON, PART_SPARKLE, SHIELD_PLAIN, SHIELD_STAMP } from '../src/ui/sprites/effects'
 import { BOLT, COIN, COLDVEIL_EMBLEM, EYE } from '../src/ui/sprites/icons'
 import { DISASTER, FLOOD, WATCH_OFFICER } from '../src/ui/sprites/coldOpen'
+import { EMBLEMS, SEALED } from '../src/ui/sprites/emblems'
+import { DEFAULT_SCENARIO } from '../src/content'
 import { TRANSPARENT, type Sprite } from '../src/ui/sprites/sprite'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -122,6 +124,9 @@ describe('the sprite set (v1.2 R2, v1.3 R2)', () => {
       // size, 26x26.
       ...WATCH_OFFICER.map((s, i): [string, Sprite, number] => [`watch-officer.${i}`, s, 26]),
       ...DISASTER.map((s, i): [string, Sprite, number] => [`disaster.${i}`, s, 16]),
+      // The Dossier's emblems and its sealed card (v1.5 R2).
+      ...Object.entries(EMBLEMS).map(([id, s]): [string, Sprite, number] => [`emblem.${id}`, s, 16]),
+      ['emblem.sealed', SEALED, 16],
     ]
     const faults: string[] = []
     for (const [name, sprite, size] of named) {
@@ -158,6 +163,23 @@ describe('the sprite set (v1.2 R2, v1.3 R2)', () => {
     expect(HIT_BURST.length, 'the hit burst is three frames').toBe(3)
     expect(WATCH_OFFICER.length, 'the watch officer loops on 2 to 4 frames (brief 6)').toBeGreaterThanOrEqual(2)
     expect(WATCH_OFFICER.length).toBeLessThanOrEqual(4)
+  })
+
+  it('gives every threat in the deck an emblem of its own, and nothing else one (v1.5 R2)', () => {
+    // Ken's ruling of 24 October 2026: a small emblem for each of the 18
+    // Dossier cards. A threat the deck grows fails here until it is drawn.
+    const threats = DEFAULT_SCENARIO.events.filter((e) => (e.kind ?? 'threat') === 'threat').map((e) => e.id)
+    expect(threats).toHaveLength(18)
+    expect(Object.keys(EMBLEMS).sort()).toEqual([...threats].sort())
+    const drawn = new Set(Object.values(EMBLEMS).map((e) => e.rows.join('/')))
+    expect(drawn.size, 'two threats share an emblem').toBe(threats.length)
+    expect(drawn.has(SEALED.rows.join('/')), 'an emblem is the sealed card').toBe(false)
+    // The move in hostile red, except the debris, which is not COLDVEIL's.
+    for (const [id, e] of Object.entries(EMBLEMS)) {
+      const inks = new Set(e.rows.join('').replace(/\./g, ''))
+      const red = [...inks].some((c) => e.palette[c].token === 'hostile')
+      expect(red, `${id}: ${id === 'debris-conjunction' ? 'the debris is drawn in hostile red' : 'the move is not in hostile red'}`).toBe(id !== 'debris-conjunction')
+    }
   })
 
   it('GUARD: any wound changes the sprite, and the scorch is deterministic and grows with damage', () => {

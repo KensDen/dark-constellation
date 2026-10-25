@@ -20,6 +20,7 @@ import { LearnMore } from '../learnMore'
 import { assetSprite } from '../sprites/assets'
 import { ICON_CHECK, ICON_CROSS, ICON_SPARK, tinted } from '../sprites/icons'
 import PixelSprite from '../sprites/PixelSprite'
+import { EMBLEMS } from '../sprites/emblems'
 import DotField from './DotField'
 import * as copy from './nightCopy'
 import { defensesFor, resultOf, scoreDelta, stopsKnown, type NightStep } from './nightModel'
@@ -464,9 +465,14 @@ export function IntelFile({
           <div className="h-1.5 overflow-hidden bg-dc-chrome">
             <i className="dc-bar-fill block h-full bg-dc-go" style={{ width: `${(n / total) * 100}%` }} />
           </div>
-          <h2 id="intel-file-title" className="text-xl font-bold leading-tight">
-            {shortName(def)}
-          </h2>
+          {/* The card's emblem beside its name, as the Dossier will show it
+              (v1.5 R2). */}
+          <div className="flex items-center gap-3">
+            {EMBLEMS[def.id] && <PixelSprite sprite={EMBLEMS[def.id]} scale={3} name={`emblem.${def.id}`} className="flex-none bg-dc-ground/60" />}
+            <h2 id="intel-file-title" className="text-xl font-bold leading-tight">
+              {shortName(def)}
+            </h2>
+          </div>
           <p className="text-[15px] font-semibold text-dc-go">{copy.HOOK[def.id]}</p>
           <p className="text-[15px] leading-relaxed">{def.blurb}</p>
           <dl className="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-1 border-t border-dc-line pt-2.5 font-mono text-[11px] text-dc-muted">

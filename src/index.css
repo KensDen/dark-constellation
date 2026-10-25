@@ -29,6 +29,9 @@
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-display: 'DC Display', 'JetBrains Mono', ui-monospace, monospace;
+  /* The desktop screens (v1.5 R2): the title's, the Dossier's and the
+     debrief's wide layouts; the board's own is WIDE_BOARD. */
+  --breakpoint-desk: 1100px;
 }
 
 /* v1.2 board pass, section 3: "8-bit bones, Playbook finish". The tokens
@@ -611,13 +614,251 @@ body {
   animation-play-state: paused !important;
 }
 
-/* THE DESKTOP STRIP (brief section 11, R5; the prototype at 560px and
-   up): the board stays the phone column, centered, and its tiles widen.
-   zoom scales the art and its strike marks together, crisp, since the
-   sprites draw with crispEdges. */
+/* THE DESKTOP DEBRIEF (v1.5 R2, Ken's ruling of 24 October 2026: a
+   full-width desktop layout in place of the phone column): the grade, the
+   lead, the stats and FILED THIS GAME stand on the left and stay in view,
+   and the sections that explain the game run down the right, each a
+   readable line; the way on spans both. In the stylesheet rather than the
+   debrief's chunk, which sits near its 10,000-byte cap. */
+@media (min-width: 1100px) {
+  [data-debrief-screen] {
+    max-width: 1200px;
+  }
+  [data-debrief] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 28px;
+    row-gap: 12px;
+    align-items: start;
+  }
+  /* Balanced (v1.5 R2's review: the left column ended half way down):
+     the result, the ladder and the turns on the left; what you can say,
+     NEXT TIME and the decisions on the right. */
+  [data-debrief] > * {
+    grid-column: 2;
+  }
+  [data-debrief] > [data-debrief-first] {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+  [data-debrief] > [data-can-say] {
+    grid-row: 1;
+  }
+  [data-debrief] > [data-next-time] {
+    grid-row: 2;
+  }
+  /* The turn strip right under the result (v1.5 R2's re-review: it was
+     below the fold), then the ladder. */
+  [data-debrief] > [data-turns] {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  [data-debrief] > [data-decisions] {
+    grid-row: 3 / span 2;
+  }
+  [data-debrief] > [data-ladder] {
+    grid-column: 1;
+    grid-row: 4;
+  }
+  [data-debrief] > [data-debrief-bar],
+  [data-debrief] > [data-debrief-bar] ~ div {
+    grid-column: 1 / -1;
+  }
+}
+
+/* The desktop board's playfield, wider on a wide screen, draws its tiles
+   bigger (v1.5 R2's re-review: small sprites in large starfields). */
+@media (min-width: 1300px) and (min-height: 600px) {
+  [data-board] [data-strip] [data-art] {
+    zoom: 3;
+  }
+}
+
+/* THE PLAYFIELD (v1.5 R2): once its chunk is here it paints each layer's
+   panel as a place (src/ui/board/Playfield.tsx), so the panels give up
+   their plain fill. */
+[data-field='on'] > [data-layer] {
+  background-color: transparent;
+}
+/* Its shield's dome stands in for the block's square reticle, and its
+   burst for the hit's filled strobe (v1.5 R2's reviews). */
+[data-field='on'] [data-shield-reticle],
+[data-field='on'] [data-strobe] {
+  display: none;
+}
+/* The tiles' words stay readable over the scene. */
+[data-field='on'] [data-layer] :is(h2, span) {
+  text-shadow: 0 1px 0 var(--dc-shadow), 0 0 3px var(--dc-ground);
+}
+/* On a phone with height to spare (390x844, not 375x667), the layers get
+   up to 64px of sky, none where the board has none, placed by altitude:
+   the satellites high over the Earth, the drones mid-sky, the station on
+   the ground. The sprites grow a quarter there too. */
+[data-strip] {
+  --dc-sky: clamp(0px, calc((100dvh - 700px) * 0.45), 64px);
+}
+[data-strip] [data-tiles] {
+  padding-top: var(--dc-sky);
+}
+[data-strip] [data-layer='ORBIT'] [data-tiles] {
+  padding-top: 0;
+  padding-bottom: var(--dc-sky);
+}
+[data-strip] [data-layer='AIR'] [data-tiles] {
+  padding-top: calc(var(--dc-sky) / 2);
+  padding-bottom: calc(var(--dc-sky) / 2);
+}
+@media (max-width: 559px) and (min-height: 800px) {
+  [data-strip] [data-art] {
+    zoom: 1.25;
+  }
+}
+
+/* THE WIDER STRIP (brief section 11, R5; the prototype at 560px and up):
+   its tiles widen. zoom scales the art and its strike marks together,
+   crisp, since the sprites draw with crispEdges. */
 @media (min-width: 560px) {
   [data-strip] [data-art] {
     zoom: 1.5;
+  }
+}
+
+/* THE DESKTOP BOARD (v1.5 R2, Ken's ruling of 24 October 2026: a
+   full-width desktop layout in place of the centered phone column). From
+   WIDE_BOARD up (src/ui/board/boardModel.ts, the same query) the board is
+   three columns: the playfield, its layers stacked as bands; the phone's
+   column, with the HUD, TONIGHT or the night, and the dock, no wider than
+   a readable line; and the side panel, where PROCURE stands open while the
+   player decides and the other sheets open over it. During the night the
+   side panel goes and the middle column widens. The same components as
+   the phone's: the board's two wrappers step aside (display: contents) so
+   their children are the grid's. */
+@media (min-width: 1100px) and (min-height: 600px) {
+  [data-board] {
+    display: grid;
+    max-width: 1480px;
+    grid-template-columns: minmax(320px, 1fr) minmax(380px, 500px) minmax(300px, 380px);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'field hud side'
+      'field play side'
+      'field dock side';
+  }
+  [data-board][data-side='none'] {
+    grid-template-columns: minmax(360px, 1fr) minmax(400px, 540px);
+    grid-template-areas:
+      'field hud'
+      'field play'
+      'field dock';
+  }
+  [data-board] [data-hud] {
+    grid-area: hud;
+  }
+  [data-board] [data-dock] {
+    grid-area: dock;
+  }
+  [data-board] [data-board-frame],
+  [data-board] [data-board-body] {
+    display: contents;
+  }
+  [data-board] [data-board-play] {
+    grid-area: play;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 6px 12px;
+  }
+  /* The playfield: the layers as bands, orbit over air over ground. */
+  [data-board] [data-strip] {
+    grid-area: field;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    padding: 12px;
+    border-right: 2px solid var(--dc-line);
+    background: var(--dc-shadow);
+  }
+  [data-board] [data-strip] > [data-layer] {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0 !important;
+    padding: 6px 10px;
+  }
+  [data-board] [data-strip] > [data-layer='ORBIT'] {
+    flex-grow: 1.3 !important;
+  }
+  [data-board] [data-strip] > [data-layer='GROUND'] {
+    flex-grow: 0.8 !important;
+  }
+  [data-board] [data-strip] [data-layer] h2,
+  [data-board] [data-strip] [data-condition-chip] {
+    font-size: 12px;
+  }
+  [data-board] [data-strip] [data-tiles],
+  [data-board] [data-strip] [data-layer='ORBIT'] [data-tiles],
+  [data-board] [data-strip] [data-layer='AIR'] [data-tiles] {
+    margin: auto 0;
+    padding: 0;
+    justify-content: space-evenly;
+    gap: 12px;
+  }
+  [data-board] [data-strip] [data-layer='GROUND'] [data-tiles] {
+    margin: auto 0 0;
+  }
+  [data-board] [data-strip] [data-art] {
+    zoom: 2.5;
+  }
+  [data-board] [data-strip] .dc-tile span {
+    font-size: 12px;
+  }
+  [data-board] [data-strip-over] {
+    grid-area: field;
+    align-self: end;
+    padding: 4px 12px 14px;
+  }
+  /* The full brief, open with TONIGHT here, has the room to show more. */
+  [data-board] [data-brief-scroll] {
+    max-height: 40dvh;
+  }
+  /* The HUD's first line, SYSTEM's, stands clear of the labels under it. */
+  [data-board] [data-hud] > div:first-child {
+    padding-bottom: 6px;
+  }
+  /* The strike's banner stands in the night's column, empty while the
+     move plays out on the playfield beside it. */
+  [data-board] [data-board-play] [data-strike-banner] {
+    position: absolute;
+  }
+  /* The side panel: the sheets, in place, the board beside them live. */
+  [data-board] [data-sheet] {
+    grid-area: side;
+    position: static;
+    max-height: none;
+    min-height: 0;
+    height: 100%;
+    border-top: 0;
+    border-left: 2px solid var(--dc-line);
+  }
+  [data-board] [data-sheet-backdrop],
+  [data-board] [data-board-more],
+  [data-board] [data-sheet='procure'] [data-sheet-close],
+  [data-board] [data-sheet='procure'] [data-confirm],
+  [data-board] [data-dock] [data-action='procure'] {
+    display: none;
+  }
+  /* The tile's intel card, the Glossary and the Field Library open as a
+     drawer over the side panel, with the board dimmed beside it. */
+  [data-intel-overlay],
+  [data-glossary-overlay],
+  [data-library-overlay] {
+    left: auto;
+    width: min(520px, 40vw);
+    border-left: 2px solid var(--dc-line);
+    box-shadow: 0 0 0 100vmax rgba(5, 8, 12, 0.7);
   }
 }
 

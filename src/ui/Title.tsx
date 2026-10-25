@@ -1,16 +1,20 @@
 // THE TITLE (v1.3 R1, brief 5.1): the front door that replaced the
-// nine-entry menu (M1). The ripple band; DARK CONSTELLATION / OP FIRST
-// LIGHT and the tagline; GOAL 1 and GOAL 2; CONTINUE TURN n when a game is
-// resumable; PLAY; DAILY OP #n, which after today's official run reads
-// DONE, the grade and the streak, and counts down to the next (v1.3 R4,
-// M32); the READ row (BRIEFING, DOSSIER, LIBRARY);
-// and SYSTEM as the menu's last row. Below it, the key art and the
-// constellation frame the retired start screen used to carry (Ken, 21
-// October 2026: keep them on the title).
+// nine-entry menu (M1). The key art, with DARK CONSTELLATION / OP FIRST
+// LIGHT and the tagline over it; GOAL 1 and GOAL 2; CONTINUE TURN n when a
+// game is resumable; PLAY; DAILY OP #n, which after today's official run
+// reads DONE, the grade and the streak, and counts down to the next (v1.3
+// R4, M32); the READ row (BRIEFING, DOSSIER, LIBRARY); and SYSTEM as the
+// menu's last row. Below it, the constellation frame the retired start
+// screen used to carry (Ken, 21 October 2026: keep it on the title).
+//
+// The key art is behind the title since v1.5 R2 (Ken's ruling of 24
+// October 2026: above the fold), drawn in code (./TitleArt), in place of
+// the ripple band, whose dot field is its sky. On the desktop it spans the
+// screen and the menu stands in three columns under it.
 //
 // No top bar since v1.3 R3 (Ken's R2 notes, 22 October 2026): the
 // difficulty chip left it in R2, and SYSTEM moved to the foot of the menu,
-// like Settings in a game menu, so the ripple band starts at the top. The
+// like Settings in a game menu, so the key art starts at the top. The
 // board keeps its own SYSTEM button in the HUD.
 //
 // The Field Manual, How to Play and the menu's function keys are gone:
@@ -33,11 +37,11 @@ import Countdown from './Countdown'
 import PixelHash from './PixelHash'
 import Wordmark from './Wordmark'
 
-// The title's decoration, the ripple band and the key art with the frame,
-// loads after the title as its own chunk (v1.3 R1 fixes: INITIAL sat 26
-// bytes under its 155,000 ceiling, and a CI runner's gzip counted 65 more).
-// Each fallback is an empty box of the same size, so nothing moves when it
-// lands.
+// The title's decoration, the key art and the frame, loads after the
+// title as its own chunk (v1.3 R1 fixes: INITIAL sat 26 bytes under its
+// 155,000 ceiling, and a CI runner's gzip counted 65 more). The key art's
+// box is the title's own, so the words are there before the art lands and
+// nothing moves when it does.
 const TitleArt = lazy(() => import('./TitleArt'))
 
 export interface TitleProps {
@@ -120,26 +124,30 @@ export default function Title(p: TitleProps) {
   const daily = () => (p.resumeTurn !== null && !confirmDaily ? setConfirmDaily(true) : p.onDaily())
 
   return (
-    <main data-title className="mx-auto flex min-h-dvh w-full max-w-[520px] flex-col gap-4 px-4 pt-safe pb-10 text-dc-ink">
-      <div className="mt-3 h-28 overflow-hidden border-2 border-dc-line bg-dc-chrome">
+    <main data-title className="mx-auto flex min-h-dvh w-full max-w-[520px] flex-col gap-4 px-4 pt-safe pb-10 text-dc-ink desk:max-w-none desk:gap-8 desk:px-0 desk:pt-0">
+      <header data-key-art className="relative mt-3 flex h-[212px] flex-col justify-end overflow-hidden border-2 border-dc-line bg-dc-shadow desk:mt-0 desk:h-[46vh] desk:min-h-[320px] desk:border-x-0 desk:border-t-0">
         <Suspense fallback={null}>
-          <TitleArt part="ripple" />
+          <TitleArt part="key" />
         </Suspense>
-      </div>
+        <div className="relative px-2 pb-2.5 desk:mx-auto desk:w-full desk:max-w-[1200px] desk:px-8 desk:pb-9">
+          <h1 className="m-0">
+            <Wordmark size="clamp(0.9rem, 4.8vw, 1.7rem)" />
+          </h1>
+          <p className="mt-3 font-mono text-xs tracking-widest text-dc-friendly">OP {DEFAULT_SCENARIO.name}</p>
+          {/* One line on a phone (Ken, 21 October): the size follows the
+              width, and the effect above fits it to the font, never under
+              10px. */}
+          <p ref={tagline} data-tagline className="mt-2 whitespace-nowrap text-[clamp(10px,3.2vw,14px)] text-dc-muted">
+            {TITLE_TAGLINE}
+          </p>
+        </div>
+      </header>
 
-      <div>
-        <h1 className="m-0">
-          <Wordmark size="clamp(0.9rem, 5vw, 1.7rem)" />
-        </h1>
-        <p className="mt-3 font-mono text-xs tracking-widest text-dc-friendly">OP {DEFAULT_SCENARIO.name}</p>
-        {/* One line on a phone (Ken, 21 October): the size follows the
-            width, and the effect above fits it to the font, never under
-            10px. */}
-        <p ref={tagline} data-tagline className="mt-2 whitespace-nowrap text-[clamp(10px,3.2vw,14px)] text-dc-muted">
-          {TITLE_TAGLINE}
-        </p>
-      </div>
-
+      {/* The menu: one column on a phone (these wrappers step aside), three
+          on the desktop: the goals, the ways to play, and READ with
+          SYSTEM. */}
+      <div data-title-menu className="contents desk:mx-auto desk:grid desk:w-full desk:max-w-[1200px] desk:grid-cols-3 desk:items-start desk:gap-6 desk:px-8">
+      <div className="contents desk:flex desk:flex-col desk:gap-4">
       <div className="grid grid-cols-2 gap-2">
         <div className={TILE} data-goal="1">
           <p className="font-mono text-[10px] tracking-widest text-dc-muted">GOAL 1</p>
@@ -179,6 +187,7 @@ export default function Title(p: TitleProps) {
           </button>
         </div>
       )}
+      </div>
 
       <div className="flex flex-col gap-2">
         {p.resumeTurn !== null && (
@@ -195,11 +204,12 @@ export default function Title(p: TitleProps) {
           type="button"
           data-play
           onClick={p.onPlay}
-          className="flex min-h-14 flex-col items-center justify-center gap-1 border-2 border-dc-go bg-dc-go py-2 text-dc-ground shadow-press active:translate-y-[3px] active:shadow-none"
+          className="flex min-h-14 flex-col items-center justify-center gap-1 border-2 border-dc-go bg-dc-go py-2 text-dc-ground shadow-press active:translate-y-[3px] active:shadow-none desk:min-h-28"
         >
           {/* Filled, as PLAY AGAIN is on the debrief (v1.3 R5): the main
-              way on looks the same wherever it is. */}
-          <span className="font-display text-sm">PLAY</span>
+              way on looks the same wherever it is; the largest thing on
+              the desktop's menu (v1.5 R2's review). */}
+          <span className="font-display text-sm desk:text-2xl">PLAY</span>
           {/* The mode PLAY will start (Ken's R1 phone pass, item 12): the
               difficulty is changed in SYSTEM only. */}
           <span data-play-mode className="font-mono text-[10px] tracking-wider text-dc-ground/75">
@@ -252,6 +262,7 @@ export default function Title(p: TitleProps) {
         )}
       </div>
 
+      <div className="contents desk:flex desk:flex-col desk:gap-4">
       <section aria-label="Read" className="grid gap-2">
         <p className="font-mono text-[10px] tracking-widest text-dc-muted">READ</p>
         <div className="grid grid-cols-2 gap-2">
@@ -281,10 +292,12 @@ export default function Title(p: TitleProps) {
       >
         {SYSTEM_TITLE}
       </button>
+      </div>
+      </div>
 
-      <section aria-label="Key art" className="mt-4">
-        <Suspense fallback={<div className="w-full border-2 border-dc-line" style={{ aspectRatio: '1 / 1' }} />}>
-          <TitleArt part="art" />
+      <section aria-label="Constellation frame" className="mt-4">
+        <Suspense fallback={<div className="mx-auto h-64 w-64" />}>
+          <TitleArt part="frame" />
         </Suspense>
       </section>
 

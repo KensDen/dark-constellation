@@ -262,7 +262,16 @@ export const strengthLine = (ev: ThreatEvent) => `STRENGTH ${'●'.repeat(ev.bas
 // The full brief's toggle (QC G-026: it says what a tap does either way).
 export const FULL_BRIEF_OPEN = 'Expand full brief'
 export const FULL_BRIEF_CLOSE = 'Hide full brief'
-export const briefButton = (price: number, ordered: boolean) => (ordered ? `${price} CR · ORDERED` : `BRIEF · ${price} CR`)
+// The intel brief's row on TONIGHT opens PROCURE at the brief (v1.5 R2),
+// where its lock is said before the order; once ordered it is a status.
+export const briefButton = (price: number) => `BRIEF · ${price} CR ›`
+// THE BRIEF'S LOCK (v1.5 R2, Ken's ruling of 24 October 2026; the engine's
+// briefLocked): the brief names the moves the moment it is ordered, so the
+// order stands for the turn.
+export const BRIEF_RULE = "Names COLDVEIL's moves the moment you order it, and the defenses then say which moves they stop or blunt. Once named, the order is locked for this turn: no cancel, no refund."
+export const BRIEF_LOCKED_LINE = "It has named tonight's moves, so it stays ordered: no cancel, no refund."
+export const BRIEF_LOCKED = 'LOCKED'
+export const briefLockedTag = (price: number) => `${price} CR · ${BRIEF_LOCKED}`
 
 // The dock's words (brief 5.3 item 5).
 export const REMAINING = 'REMAINING'
@@ -309,7 +318,10 @@ export const defensesPerTurn = (n: number) => `${n} a turn`
 // 3: "Ordered: 0 of 100 CR" read as a budget to fill).
 export const defenseCount = (ordered: number, n: number) => `New defense this turn: ${ordered} of ${n}.`
 // Under CONFIRM N ORDERS (v1.4 finding 6: CONFIRM read as locking them in).
-export const confirmNote = (cost: number) => `${cost} CR committed. Tap an order again to cancel it; nothing is final until you EXECUTE.`
+export const confirmNote = (cost: number, briefLocked = false) =>
+  briefLocked
+    ? `${cost} CR committed. The intel brief stays ordered; tap any other order again to cancel it until you EXECUTE.`
+    : `${cost} CR committed. Tap an order again to cancel it; nothing is final until you EXECUTE.`
 
 export const PROCURE_KINDS: AssetKind[] = ['drone', 'sat', 'groundStation']
 export const PROCURE_LABEL: Record<AssetKind, string> = { drone: 'ISR DRONE', sat: 'SMALLSAT', groundStation: 'GROUND STATION', rpoSat: 'RPO SAT' }
@@ -365,3 +377,10 @@ export function callIndex(hold: Pick<GameState, 'history'>): number {
   const events = hold.history[hold.history.length - 1]?.events ?? []
   return events.findIndex((e) => e.debris !== undefined && e.debris.assetId !== undefined)
 }
+
+// THE DESKTOP BOARD (v1.5 R2, Ken's ruling of 24 October 2026: a
+// full-width desktop layout in place of the centered phone column): at
+// this size and up the board is three columns (src/index.css), the
+// playfield, the phone's column and the side panel, where PROCURE stands
+// open while the player decides. The stylesheet's query is the same.
+export const WIDE_BOARD = '(min-width: 1100px) and (min-height: 600px)'

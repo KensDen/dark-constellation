@@ -9,5 +9,7 @@ export default defineConfig({
     // reading the source can assert (brief v1.0 principle 13).
     environment: 'node',
     include: ['tests/**/*.spec.{ts,tsx}'],
+    // A quiet null for jsdom's missing canvas (v1.5 R2; the file says why).
+    setupFiles: ['tests/setup-canvas.ts'],
   },
 })

@@ -14,6 +14,11 @@
 // A chunk of its own. Status never looks like a control (section 4 rule
 // 2): an unfiled card is a flat panel with no border; a filed card opens,
 // so it carries the border, the press shadow and "details ›".
+//
+// Since v1.5 R2 each filed card carries its move's emblem (Ken's ruling of
+// 24 October 2026; ./sprites/emblems.ts), and an unfiled one the sealed
+// file. On the desktop the cards stand three to a row and an opened card
+// keeps its column, so its words keep a readable line.
 
 import { Suspense, lazy, useRef, useState } from 'react'
 import { DEFAULT_SCENARIO } from '../content'
@@ -24,6 +29,8 @@ import { DC_BTN } from './buttons'
 import { techniqueLabel } from './labels'
 import { HOOK, SOURCE, TECHNIQUE, vectorWord } from './night/nightCopy'
 import { dossierCount } from './titleStatus'
+import PixelSprite from './sprites/PixelSprite'
+import { EMBLEMS, SEALED } from './sprites/emblems'
 
 const LibraryUnavailable = ({ onBack }: { onBack?: () => void }) => (
   <button type="button" onClick={onBack} className={`${DC_BTN} m-4`}>
@@ -52,12 +59,19 @@ function FiledCard({ def, index, onLearnMore }: { def: ThreatEvent; index: numbe
         const el = e.currentTarget
         if (el.open) el.scrollIntoView?.({ block: 'nearest' })
       }}
-      className="group min-w-0 scroll-mt-16 scroll-mb-4 border-2 border-dc-friendly/70 bg-dc-friendly/10 shadow-press open:col-span-2"
+      className="group min-w-0 scroll-mt-16 scroll-mb-4 border-2 border-dc-friendly/70 bg-dc-friendly/10 shadow-press open:col-span-2 desk:open:col-span-1"
     >
       <summary className="flex h-full min-h-11 cursor-pointer list-none flex-col gap-1 p-2.5 group-open:h-auto [&::-webkit-details-marker]:hidden">
-        <span className={`${MONO} text-dc-friendly`}>
-          {vectorWord(def.vector)}
-          {'\u00a0'}→ {def.layers.join('\u00a0·\u00a0')}
+        {/* The emblem beside the vector and layer, the name under both at
+            the card's full width (v1.5 R2's review: beside the emblem the
+            name ran to three lines and the arrow stood alone). */}
+        <span className="flex items-center gap-2">
+          {EMBLEMS[def.id] && <PixelSprite sprite={EMBLEMS[def.id]} scale={2} name={`emblem.${def.id}`} className="flex-none bg-dc-ground/60" />}
+          <span className={`${MONO} min-w-0 text-dc-friendly`}>
+            {/* It may break once, after the arrow. */}
+            {vectorWord(def.vector).replaceAll(' ', '\u00a0')}
+            {'\u00a0'}→ {def.layers.join('\u00a0·\u00a0')}
+          </span>
         </span>
         <b className="text-[13.5px] leading-tight">{shortName(def)}</b>
         <span className="text-[12px] leading-snug text-dc-muted">{HOOK[def.id]}</span>
@@ -71,8 +85,12 @@ function FiledCard({ def, index, onLearnMore }: { def: ThreatEvent; index: numbe
           </span>
         </span>
       </summary>
+      {/* On the desktop an opened card stays in its slot (v1.5 R2's
+          re-review: spanning its row reordered the grid), its own column a
+          readable line. */}
       <div className="border-t border-dc-line px-2.5 pb-2.5 pt-2 text-sm">
         <p className="leading-relaxed">{def.blurb}</p>
+        <div>
         <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-1 font-mono text-[11px] text-dc-muted">
           <dt>{stoppedBy.label}</dt>
           <dd className="text-dc-ink">{stoppedBy.text}</dd>
@@ -100,6 +118,7 @@ function FiledCard({ def, index, onLearnMore }: { def: ThreatEvent; index: numbe
         >
           LEARN MORE<span className="sr-only"> in the Field Library: {shortName(def)}</span>
         </button>
+        </div>
       </div>
     </details>
   )
@@ -108,7 +127,10 @@ function FiledCard({ def, index, onLearnMore }: { def: ThreatEvent; index: numbe
 function UnfiledCard({ id, index }: { id: string; index: number }) {
   return (
     <div data-dossier-card={id} data-unfiled className="flex min-w-0 flex-col gap-1 bg-dc-chrome p-2.5">
-      <b className="text-[13.5px] leading-tight text-dc-muted">Unfiled</b>
+      <span className="flex items-center gap-2">
+        <PixelSprite sprite={SEALED} scale={2} name="emblem.sealed" className="flex-none" />
+        <b className="text-[13.5px] leading-tight text-dc-muted">Unfiled</b>
+      </span>
       <span className="text-[12px] leading-snug text-dc-muted">Face this move in play to file it.</span>
       <span aria-hidden="true" className="pt-1 font-mono text-[11px] text-dc-muted">
         {num(index)}
@@ -145,7 +167,7 @@ export default function Dossier({
 
   return (
     <>
-      <Root data-dossier className="mx-auto w-full max-w-[520px] pb-10 text-dc-ink" {...(library ? { inert: true, 'aria-hidden': true } : {})}>
+      <Root data-dossier className="mx-auto w-full max-w-[520px] pb-10 text-dc-ink desk:max-w-[1200px]" {...(library ? { inert: true, 'aria-hidden': true } : {})}>
         <div className="sticky top-0 z-10 border-b-2 border-dc-line bg-dc-panel px-4 pt-safe">
           <div className="py-2">
             <button type="button" data-back onClick={onBack} className={DC_BTN}>
@@ -163,8 +185,8 @@ export default function Dossier({
           <div className="mt-2 h-1.5 overflow-hidden bg-dc-line" aria-hidden="true">
             <i className="block h-full bg-dc-go" style={{ width: `${(count.filed / Math.max(1, count.total)) * 100}%` }} />
           </div>
-          <p className="mt-2.5 text-[13px] leading-snug text-dc-muted">{DOSSIER_PURPOSE}</p>
-          <div data-dossier-grid className="mt-3 grid grid-cols-2 gap-2">
+          <p className="mt-2.5 max-w-[640px] text-[13px] leading-snug text-dc-muted">{DOSSIER_PURPOSE}</p>
+          <div data-dossier-grid className="mt-3 grid grid-cols-2 gap-2 desk:grid-cols-3 desk:items-start desk:gap-3">
             {threats.map((def, i) =>
               filed.has(def.id) ? (
                 <FiledCard

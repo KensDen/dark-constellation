@@ -10,18 +10,23 @@ architecture, defenses included, under budget while an adversary campaign escala
 
 Play it: https://kensden.github.io/dark-constellation/
 
-Status: v1.4.0, released 24 October 2026: one new defense a night, so the order of your
-defenses is the decision. It builds on v1.3.0's loop pass: six turns against a reacting adversary,
-with the title and briefing, the board and PROCURE, the night, the debrief, the Dossier and LIBRARY.
+Status: v1.5.0, released 24 October 2026: balance, the leftovers and the art. Ordering the priciest
+defense every night no longer wins more often than prepared play, a paid intel brief stays ordered
+once it has named the moves, and the game is drawn: the night plays out on a playfield on the board,
+key art stands behind the title, every Dossier card carries an emblem, and the desktop uses the
+full width. It builds on v1.4.0's one new defense a night and v1.3.0's loop pass: six turns against
+a reacting adversary, with the title and briefing, the board and PROCURE, the night, the debrief,
+the Dossier and LIBRARY.
 
 ## How to play
 
 Each turn you read what COLDVEIL could hit tonight, order fleet and one new defense, then EXECUTE
 and see what your posture absorbed. The adversary reacts: it takes the move you have covered least.
 Finish turn 6 with the mission assurance score at 70 or higher to win; let it collapse, or run the budget
-below zero at a turn close, and the operation ends early. There is no dominant strategy: every
-defense carries upkeep, repairs come due at the turn close, and coverage, trust, and redundancy
-trade off against each other.
+below zero at a turn close, and the operation ends early. Every defense carries upkeep, repairs
+come due at the turn close, and coverage, trust, and redundancy trade off against each other. The
+adversary punishes a fixed plan only partly so far: one hand-written order of six defenses won
+all 500 seeds it was measured on, and the next version works on it.
 
 ## Daily Op and the debrief
 
@@ -139,13 +144,15 @@ Deliberately out of scope, recorded here as future work:
 
 I did the design, code, writing, and direction.
 
-**Artwork: AI-generated, human-commanded.** The key art was generated with AI tools under my
-direction and selection. The constellation frame was authored as original vector work for this
-project, the wordmark is set in the DC Display face, and the pixel sprites, icons and briefing
+**Artwork: AI-generated, human-commanded.** The key art in this README's banner and the link preview
+image was generated with AI tools under my direction and selection. The constellation frame was
+authored as original vector work for this project, the wordmark is set in the DC Display face, and
+the title's key art, the playfield, the Dossier's emblems, the pixel sprites, icons and briefing
 scenes were drawn in code for this project.
 
 ## Releases
 
+- v1.5.0, 24 October 2026: balance, the leftovers and the art.
 - v1.4.0, 24 October 2026: one new defense a night.
 - v1.3.0, 23 October 2026: the loop pass. Rounds 0 to 5 went live between 9 and 22 October 2026,
   before the tag.

@@ -740,16 +740,17 @@ describe('the procurement sounds, asserted by execution', () => {
 
     // Call site three: the intel brief, a different control entirely, in
     // PROCURE's INTEL section since v1.3 Round 0 (its own sheet on the
-    // v1.2 board), and on the TONIGHT card's intel row since v1.3 R2.
+    // v1.2 board). Since v1.5 R2 it is ordered there alone (the TONIGHT
+    // card's row opens PROCURE at it) and locks once ordered, a status
+    // with no control to cancel it.
     openSheet('PROCURE')
     const intel = intelButton()
     expect(intel, 'the intel brief is free tonight, so its order goes unheard').not.toBeNull()
     voiced('the intel brief in PROCURE', () => click(intel!))
-    expect(pressed(intel!), 'the tap did not order the brief').toBe(true)
-    const row = container.querySelector('button[data-brief-toggle]')
-    expect(row, 'the TONIGHT card has no intel row').not.toBeNull()
-    voiced('the intel row on the TONIGHT card', () => click(row!))
-    expect(pressed(intelButton()!), 'the intel row did not cancel the brief').toBe(false)
+    expect(intelButton(), 'the ordered brief is still a control').toBeNull()
+    expect(container.querySelector('[data-procure-intel][data-locked]')?.textContent, 'the ordered brief does not say it is locked').toContain('LOCKED')
+    expect(container.querySelector('button[data-brief-order]'), 'the TONIGHT card still offers the ordered brief').toBeNull()
+    expect(container.querySelector('[data-brief-locked]')?.textContent).toBe(`${DEFAULT_SCENARIO.prices.intelBrief} CR · LOCKED`)
 
     // Call sites four and five lived in the HARDENING phase, which the
     // first render never reached. Two of the five were therefore still
@@ -773,7 +774,7 @@ describe('the procurement sounds, asserted by execution', () => {
     expect(retainer!.disabled, 'the fixture already owns the retainer, so its voice goes unheard').toBe(false)
     voiced('the retainer', () => click(retainer!))
 
-    expect(done.length, `only pressed ${done.join(', ')}`).toBe(7)
+    expect(done.length, `only pressed ${done.join(', ')}`).toBe(6)
   })
 })
 
@@ -943,7 +944,9 @@ describe('the chrome the reading budget counts, asserted by execution', () => {
     // the orders card say (a brief ordered names the moves).
     const state = gameAt(3)
     render(state, 'brief')
-    click(container.querySelector('button[data-brief-toggle]')!)
+    click(container.querySelector('button[data-brief-order]')!)
+    click(container.querySelector('[data-sheet="procure"] button[data-procure-intel]')!)
+    click(container.querySelector('[data-sheet="procure"] button[data-confirm]')!)
     const text = container.textContent ?? ''
     const ordered = { buyAssets: [], buyCounters: [], intelBrief: true }
     expect(

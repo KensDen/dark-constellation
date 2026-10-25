@@ -129,6 +129,7 @@ function isPlainState(s: unknown): s is Omit<GameState, 'scenario'> {
     num(st.turn) &&
     num(st.credits) &&
     num(st.briefFreeThrough) &&
+    (st.briefRevealed === undefined || num(st.briefRevealed)) &&
     num(st.streak) &&
     num(st.bestStreak) &&
     num(st.saved) &&

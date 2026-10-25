@@ -221,8 +221,11 @@ describe('TONIGHT under one new defense a turn (v1.4)', () => {
     let s = newGame(DEFAULT_SCENARIO, 3, 'standard')
     s = resolveTurn(s, { buyAssets: [], buyCounters: ['antiJam'], intelBrief: false }, turnRng(s.seed, s.turn))
     render(s)
-    // The brief names the moves, so the rule line shows.
-    click(q('button[data-brief-toggle]')!)
+    // The brief names the moves, so the rule line shows; ordered in
+    // PROCURE, where the TONIGHT card's row opens (v1.5 R2).
+    click(q('button[data-brief-order]')!)
+    click(q('[data-sheet="procure"] button[data-procure-intel]')!)
+    click(q('[data-sheet="procure"] button[data-confirm]')!)
     expect(container.querySelector('[data-tonight]')!.textContent).toContain('They go for the move')
     expect(container.querySelector('[data-tonight]')!.textContent).not.toContain(DEFENSE_IN)
     openProcure()

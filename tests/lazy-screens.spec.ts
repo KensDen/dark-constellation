@@ -372,3 +372,23 @@ describe("the cold open's own art stays in its chunk (v1.2 R4)", () => {
     expect(offenders.join('\n'), "the cold open's stylesheet is in the initial CSS").toBe('')
   })
 })
+
+describe('the v1.5 R2 art stays out of the first download', () => {
+  // Ken's ruling of 24 October 2026: the art can be lazy chunks. The
+  // playfield is the strip's, declared lazily there; the key art rides in
+  // ./TitleArt (above); the emblems ride with the Dossier and the night's
+  // cards. None is reached by a static import from the entry point.
+  const STRIP = join(SRC, 'ui', 'board', 'AssetStrip.tsx')
+
+  it('loads the playfield by dynamic import, and nothing reaches it, the key art or the emblems statically from the entry point', () => {
+    // Fetched as the strip's module loads, and rendered from the loaded
+    // module, as the night's chunks are (src/ui/board/AssetStrip.tsx).
+    expect(readFileSync(STRIP, 'utf8'), 'the strip no longer imports the playfield dynamically').toMatch(/\bimport\(\s*'\.\/Playfield'\s*\)/)
+    const graph = staticGraphFrom(ENTRY)
+    for (const f of ['ui/board/Playfield.tsx', 'ui/TitleArt.tsx', 'ui/sprites/emblems.ts']) {
+      expect(graph.has(join(SRC, f)), `${f} is in the first download`).toBe(false)
+    }
+    // Not vacuous: the strip itself is in it.
+    expect(graph.has(STRIP), 'the walk never reached the strip').toBe(true)
+  })
+})

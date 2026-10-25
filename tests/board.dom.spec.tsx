@@ -219,7 +219,7 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
           focus={null}
           onToggleAsset={() => {}}
           onToggleCounter={() => {}}
-          onToggleBrief={() => {}}
+          onOrderBrief={() => {}}
           onClose={() => {}}
           remaining={state.credits}
           cost={0}

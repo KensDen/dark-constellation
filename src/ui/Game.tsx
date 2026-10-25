@@ -43,7 +43,7 @@ import { LearnMore } from './learnMore'
 import { DC_BTN } from './buttons'
 import { useMusicState, useSound, useSoundPrefs } from '../audio'
 import { useBadgePhases } from './cues/ConditionBadge'
-import { useCueClass, usePageVisible, useReducedMotion } from './cues/motion'
+import { useCueClass, useMediaQuery, usePageVisible, useReducedMotion } from './cues/motion'
 import BoardHud from './board/BoardHud'
 import AssetStrip, { type ChipModel } from './board/AssetStrip'
 import Tonight from './board/Tonight'
@@ -52,12 +52,13 @@ import Dock from './board/Dock'
 import Procure from './board/Procure'
 import type { SheetId } from './board/actions'
 import { ACTIONS, resolveLabel } from './board/actions'
-import { MORE_BELOW, callIndex, tonightSlots, turnsLeft } from './board/boardModel'
+import { MORE_BELOW, WIDE_BOARD, callIndex, tonightSlots, turnsLeft } from './board/boardModel'
 import SystemSheet from './board/SystemSheet'
-import { conditionsOn, tilesByLayer, turnBudget } from './board/board'
+import NightLog from './board/NightLog'
+import { callSigns, conditionsOn, tilesByLayer, turnBudget } from './board/board'
 import { COUNT_SHARE, STRIKE_MS } from './board/strike'
 import { DEFAULT_SCENARIO } from '../content'
-import { briefActive, briefFree, defenseOpen, orderCost, resolveTurn } from '../engine/reducer'
+import { briefActive, briefFree, briefLocked, defenseOpen, orderCost, resolveTurn, revealBrief } from '../engine/reducer'
 import { worstCase } from '../engine/worstCase'
 import { defenseBonus } from '../engine/learning'
 import { turnRng } from '../engine/rng'
@@ -189,6 +190,11 @@ const EMPTY_ACTIONS: TurnActions = {
   buyCounters: [],
   intelBrief: false,
 }
+// A turn's orders as a board opens on it: none, but a brief revealed on
+// this turn stays ordered (v1.5 R2, the engine's briefLocked), so a reload
+// keeps it.
+const openingActions = (state: GameState | null | undefined): TurnActions =>
+  state && briefLocked(state) ? { ...EMPTY_ACTIONS, intelBrief: true } : EMPTY_ACTIONS
 
 // A stable empty list, so the badge hook's dependency does not change
 // identity on every render of the start screen.
@@ -266,7 +272,7 @@ export default function Game({
   const [pulseWorst, setPulseWorst] = useState(0)
   const [pulseMoves, setPulseMoves] = useState(0)
   const executeRef = useRef<HTMLButtonElement | null>(null)
-  const [actions, setActions] = useState<TurnActions>(EMPTY_ACTIONS)
+  const [actions, setActions] = useState<TurnActions>(() => openingActions(initial?.state))
   const [notice, setNotice] = useState('')
   // The GLOSSARY entry a technique tag opened, as an OVERLAY rather than a
   // route. Routing to the glossary screen would unmount Game, and the
@@ -320,10 +326,15 @@ export default function Game({
   // screen returns early below, and hook order cannot depend on whether a
   // campaign is in progress.
   const reducedMotion = useReducedMotion()
-  // THE DESKTOP LAYOUT (v1.3 brief section 11, R5) is the phone column,
-  // centered, with the strip's tiles widened (src/index.css). The v1.2 R6
-  // three-column board, its ops log, its inspector and its F keys went in
-  // R5 (M34: one key scheme, the digits).
+  // THE DESKTOP LAYOUT (v1.5 R2, Ken's ruling of 24 October 2026): from
+  // WIDE_BOARD up, the board is three columns (src/index.css): the
+  // playfield, the phone's column (the HUD, TONIGHT or the night, the
+  // dock), and the side panel, where the sheets open and PROCURE stands
+  // open while the player decides. The same components as the phone's,
+  // placed by the stylesheet. (v1.3 R5 had made it the phone column,
+  // centered; the v1.2 three-column board, its ops log and its F keys
+  // stay gone, M34.)
+  const wide = useMediaQuery(WIDE_BOARD)
   // The board's idle life, and every other animation on it, pauses while
   // the tab is hidden (v1.2 R2, brief 5.3): one class on the board root,
   // which src/index.css turns into a pause for everything under it.
@@ -580,7 +591,7 @@ export default function Game({
     setState(next)
     setDaily(nextDaily)
     setStanding(null)
-    setActions(EMPTY_ACTIONS)
+    setActions(openingActions(next))
     setNight(null)
     setView(null)
     setChosenSpend(0)
@@ -760,12 +771,16 @@ export default function Game({
     setArrived(null)
     setActions({ ...actions, buyAssets: actions.buyAssets.filter((_, i) => i !== index) })
   }
-  // The intel brief, from the TONIGHT card's row or from PROCURE. The row
-  // does not refuse: an order there that leaves REMAINING below zero is
-  // what turns EXECUTE off (brief 5.3 item 5).
-  const toggleBrief = () => {
+  // The intel brief, ordered in PROCURE (the TONIGHT card's row opens it
+  // there since v1.5 R2). It names the moves at once, so the order is
+  // locked for the turn (revealBrief, on the state, so a reload keeps it):
+  // nothing cancels it, and PROCURE refuses one the budget cannot meet.
+  const orderBrief = () => {
+    if (actions.intelBrief || briefLocked(state)) return play('denied-buzz')
+    if (!afford(scenario.prices.intelBrief)) return
     play('buy-click')
-    setActions({ ...actions, intelBrief: !actions.intelBrief })
+    setState(revealBrief(state))
+    setActions({ ...actions, intelBrief: true })
   }
   // The IR retainer sits in PROCURE with the defenses (critique row M8),
   // and since v1.3 Round 0 it is ordered like one. One new defense a night
@@ -859,6 +874,12 @@ export default function Game({
   // brief is an order only on a night it is not free.
   const free = briefFree(state)
   const orders = actions.buyAssets.length + actions.buyCounters.length + (actions.intelBrief && !free ? 1 : 0)
+  // The sheet on screen: the one opened, or on the desktop board PROCURE,
+  // standing open in the side panel while the player decides.
+  const shownSheet: Sheet | null = sheet ?? (wide && deciding && state.status === 'playing' ? 'procure' : null)
+  // In the night the desktop's side panel keeps its place with the night's
+  // log (v1.5 R2's review: the board jumped wider and the panel emptied).
+  const nightLog = wide && !shownSheet && (phase === 'night' || phase === 'aftermath')
   const sheetOpen = sheet !== null
   // How far the score fell on the move that just landed, floated off it.
   const maiDrop = phase === 'night' ? (view?.drop ?? null) : null
@@ -892,6 +913,7 @@ export default function Game({
           sheets all sit inside this landmark for the same reason. */}
       <main
         data-board
+        data-side={shownSheet || nightLog ? 'open' : 'none'}
         className={`relative flex flex-1 min-h-0 w-full max-w-[520px] mx-auto flex-col overflow-hidden bg-dc-ground text-dc-ink ${
           pageVisible ? '' : 'dc-board-hidden'
         }`}
@@ -917,7 +939,7 @@ export default function Game({
           chosenDelta: chosenSpend,
         }}
       />
-      <div ref={bodyRef} className="relative flex min-h-0 flex-1 flex-col">
+      <div ref={bodyRef} data-board-frame className="relative flex min-h-0 flex-1 flex-col">
         <div ref={boardBody} data-board-body className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-1 flex flex-col gap-1.5">
           <AssetStrip
             tiles={tiles}
@@ -930,7 +952,17 @@ export default function Game({
             // After turn 6, once END OF TURN shows the close (QC G-067),
             // not while the last night still plays.
             over={!deciding && state.status !== 'playing' && shown === state}
+            // The night's moves so far, on the playfield (v1.5 R2), and
+            // while deciding tonight's moves on their lanes, an unnamed one
+            // as exposed.
+            traces={deciding ? undefined : view?.traces}
+            night={phase === 'night'}
+            labels={deciding ? undefined : view?.log}
+            threats={deciding ? slots.flatMap((slot) => slot.moves.map((m) => ({ layers: m.ev.layers, status: slot.hidden ? 'exposed' : m.status }))) : undefined}
           />
+          {/* The phone's column: on the phone it is the board's own flow
+              (display: contents), on the desktop board the middle column. */}
+          <div data-board-play className="contents">
           {/* THE NIGHT (brief 5.5), in the board's flow under the strip: its
               card fills the screen from there to the foot. */}
           {nightProps &&
@@ -947,12 +979,13 @@ export default function Game({
                   brief={free ? 'free' : actions.intelBrief ? 'ordered' : 'none'}
                   briefPrice={scenario.prices.intelBrief}
                   onMove={(ev) => openSheet('procure', { move: ev })}
-                  onToggleBrief={toggleBrief}
+                  onOrderBrief={() => openSheet('procure', { intel: true })}
                   onIntel={() => setIntel({ kind: 'banner' })}
                   onTag={(tag) => setGlossaryFocus(tag)}
                   pulseMoves={pulseMoves}
                   onReveal={() => openSheet('procure', { intel: true })}
                   defenseOpen={defenseOpen(state, actions)}
+                  openBrief={wide}
                 />
                 <Orders state={state} actions={actions} onOrder={onOrder} />
               </>
@@ -960,6 +993,7 @@ export default function Game({
           {/* The flash notice, when the SYSTEM sheet that carries it is not
               open. */}
           {notice && sheet !== 'system' && <p className="font-mono text-xs text-dc-warn">{notice}</p>}
+          </div>
         </div>
         {moreBelow && (
           <p data-board-more aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 border-t border-dc-line/60 bg-dc-ground/90 py-0.5 text-center font-mono text-[10px] tracking-widest text-dc-ink">
@@ -969,22 +1003,25 @@ export default function Game({
         {/* THE SHEETS, over the dimmed board and under the dock, which
             stays live so EXECUTE is one tap away from inside PROCURE. The
             backdrop closes the sheet. */}
-        {sheetOpen && <button type="button" aria-label="Back to board" className="absolute inset-0 z-20 bg-dc-ground/80" onClick={() => openSheet(null)} />}
-        {sheet === 'procure' && (
+        {sheetOpen && <button type="button" data-sheet-backdrop aria-label="Back to board" className="absolute inset-0 z-20 bg-dc-ground/80" onClick={() => openSheet(null)} />}
+        {shownSheet === 'procure' && (
           <Procure
             state={state}
             actions={actions}
             focus={focus}
             onToggleAsset={toggleAsset}
             onToggleCounter={toggleCounter}
-            onToggleBrief={toggleBrief}
+            onOrderBrief={orderBrief}
             onClose={() => openSheet(null)}
             remaining={worst.remaining}
             cost={cost}
             orders={orders}
           />
         )}
-        {sheet === 'system' && (
+        {nightLog && (
+          <NightLog turn={displayTurn} scenario={scenario} log={view?.log ?? []} moving={view?.moving} signs={callSigns(shown)} />
+        )}
+        {shownSheet === 'system' && (
           <SystemSheet
             playing={state.status === 'playing'}
             difficulty={state.difficulty}

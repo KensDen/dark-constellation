@@ -21,12 +21,13 @@ import { gnssDenied, planFor } from '../../engine/rules'
 import type { GameState, ThreatEvent } from '../../engine/types'
 import { useCueClass, usePageVisible, useReducedMotion } from '../cues/motion'
 import PixelSprite from '../sprites/PixelSprite'
-import { ICON_WARN, tinted } from '../sprites/icons'
+import { ICON_LOCK, ICON_WARN, tinted } from '../sprites/icons'
 import {
   FULL_BRIEF_CLOSE,
   FULL_BRIEF_OPEN,
   INTEL_ROW,
   briefButton,
+  briefLockedTag,
   KEY_BLOCKED,
   KEY_EITHER,
   KEY_EXPOSED,
@@ -181,7 +182,11 @@ export interface TonightProps {
   brief: 'free' | 'ordered' | 'none'
   briefPrice: number
   onMove: (ev: ThreatEvent) => void
-  onToggleBrief: () => void
+  // Opens PROCURE at the intel brief, where its lock is said (v1.5 R2).
+  onOrderBrief: () => void
+  // The full brief opens with the card: on the desktop board, which has
+  // the room (v1.5 R2's review: its middle column stood half empty).
+  openBrief?: boolean
   onIntel: () => void
   onTag: (tag: string) => void
   // A nonce that, when it changes, pulses the moves.
@@ -191,7 +196,7 @@ export interface TonightProps {
   defenseOpen: boolean
 }
 
-export default function Tonight({ state, slots, brief, briefPrice, onMove, onToggleBrief, onIntel, onTag, pulseMoves, onReveal, defenseOpen }: TonightProps) {
+export default function Tonight({ state, slots, brief, briefPrice, onMove, onOrderBrief, onIntel, onTag, pulseMoves, onReveal, defenseOpen, openBrief = false }: TonightProps) {
   const named = brief !== 'none'
   const intro = planFor(state.scenario, state.turn)?.intro ?? ''
   const reduced = useReducedMotion()
@@ -205,7 +210,7 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
   useEffect(() => {
     if (pulseMoves) card.current?.querySelector('[data-move]')?.scrollIntoView?.({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
   }, [pulseMoves, reduced])
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(openBrief)
   useEffect(() => {
     void preloadFullBrief()
   }, [])
@@ -286,15 +291,24 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
       {brief !== 'free' && (
         <div data-intel-row className="mt-2 flex items-center justify-between gap-2">
           <p className="text-xs text-dc-muted">{INTEL_ROW[brief === 'ordered' ? 'ordered' : 'none']}</p>
-          <button
-            type="button"
-            data-brief-toggle
-            aria-pressed={brief === 'ordered'}
-            onClick={onToggleBrief}
-            className={`dc-tile min-h-11 flex-none border px-2 font-mono text-[10px] tracking-wider ${brief === 'ordered' ? 'border-dc-friendly text-dc-friendly' : 'border-dc-line text-dc-ink'}`}
-          >
-            {briefButton(briefPrice, brief === 'ordered')}
-          </button>
+          {/* Once ordered the brief has named the moves and is locked
+              (v1.5 R2): a status with its icon, not a control. Before, the
+              row opens PROCURE at the brief, which says so first. */}
+          {brief === 'ordered' ? (
+            <span data-brief-locked className="flex flex-none items-center gap-1 font-mono text-[10px] tracking-wider text-dc-go">
+              <PixelSprite sprite={tinted(ICON_LOCK, 'go')} scale={1} name="brief-lock" />
+              {briefLockedTag(briefPrice)}
+            </span>
+          ) : (
+            <button
+              type="button"
+              data-brief-order
+              onClick={onOrderBrief}
+              className="dc-tile min-h-11 flex-none border border-dc-line px-2 font-mono text-[10px] tracking-wider text-dc-ink"
+            >
+              {briefButton(briefPrice)}
+            </button>
+          )}
         </div>
       )}
       <div>

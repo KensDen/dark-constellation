@@ -61,10 +61,16 @@
 //   (d) no text input, text area or select is under 16px;
 //   (e) no retired word (section 4) in the text or the accessible names.
 //
-// GUARD R5 (c), THE DESKTOP BOARD (brief section 11: the phone column
-// centered with the strip widened, no three-column board): at 1440x900
-// the board is one column of the phone's width, centered, everything on
-// it inside the column, and the strip's tiles drawn wider than a phone's.
+// GUARD R5 (c), THE DESKTOP BOARD, rewritten in v1.5 R2 (Ken's ruling of
+// 24 October 2026: a full-width desktop layout in place of the centered
+// phone column, the board, the night and the inspector side by side): at
+// 1440x900 the board spans the screen with the playfield, the phone's
+// column and PROCURE side by side, none overlapping, the playfield's
+// layers stacked as bands with the tiles drawn bigger than a phone's, no
+// paragraph wider than a readable line (640px), nothing outside the
+// screen and no page scroll; and in the night the same three columns, the
+// night's log in the side panel, with the playfield no wider or narrower
+// than it was (the fresh-eyes review: it jumped wider as the night began).
 //
 // Exit codes: 0 pass, 1 fail, 2 skipped (no Chrome on this machine). The
 // battery runs it after the build. GitHub's ubuntu-24.04 runner has
@@ -760,31 +766,69 @@ async function checkEveryScreen(b, url) {
 }
 
 // (c) The desktop board.
+const DESKTOP = `(() => {
+  const vw = innerWidth
+  const vh = innerHeight
+  const box = (sel) => { const e = document.querySelector(sel); if (!e) return null; const r = e.getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom), w: Math.round(r.width) } }
+  const out = []
+  for (const e of document.querySelectorAll('[data-board] *')) {
+    const r = e.getBoundingClientRect()
+    if (r.width < 1 || r.height < 1 || e.closest('canvas')) continue
+    if (r.left < -1 || r.right > vw + 1) out.push(e.tagName.toLowerCase() + ' ' + Math.round(r.left) + '..' + Math.round(r.right))
+  }
+  const wide = []
+  for (const p of document.querySelectorAll('[data-board] p, [data-board] li')) {
+    const r = p.getBoundingClientRect()
+    if (r.width > 640 && (p.innerText || '').trim().length > 60) wide.push(Math.round(r.width) + 'px: ' + p.innerText.trim().slice(0, 40))
+  }
+  const art = document.querySelector('[data-strip] [data-art] svg')?.getBoundingClientRect().width ?? 0
+  return {
+    vw, vh, board: box('[data-board]'), field: box('[data-strip]'), play: box('[data-board-play]'), side: box('[data-sheet]'), log: !!document.querySelector('[data-sheet="log"]'),
+    orbit: box('[data-layer="ORBIT"]'), air: box('[data-layer="AIR"]'), ground: box('[data-layer="GROUND"]'),
+    out: out.slice(0, 4), wide: wide.slice(0, 4), art: Math.round(art),
+    scrollW: document.documentElement.scrollWidth, scrollH: document.documentElement.scrollHeight,
+  }
+})()`
+
+function sideBySide(where, cols, failures) {
+  for (let i = 0; i < cols.length; i += 1) {
+    const [name, c] = cols[i]
+    if (!c) {
+      failures.push(`${where}: no ${name}`)
+      return
+    }
+    if (i > 0 && c.l < cols[i - 1][1].r - 1) failures.push(`${where}: the ${name} (${c.l}..${c.r}) overlaps the ${cols[i - 1][0]} (${cols[i - 1][1].l}..${cols[i - 1][1].r})`)
+  }
+}
+
 async function checkDesktop(b, url) {
   const [w, h] = [1440, 900]
+  const where = `${w}x${h}`
   await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false })
   await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
-  if (!(await cleanLoad(b, url, { 'dc-intro-seen': '1' }))) return [`${w}x${h}: the title never showed PLAY`]
+  if (!(await cleanLoad(b, url, { 'dc-intro-seen': '1' }))) return [`${where}: the title never showed PLAY`]
   await b.evaluate(click('[data-play]'))
-  if (!(await waitFor(b, '!!document.querySelector("[data-dock]") && !!document.querySelector("[data-tonight]")'))) return [`${w}x${h}: PLAY did not reach the board`]
-  await sleep(300)
-  const m = await b.evaluate(`(() => {
-    const board = document.querySelector('[data-board]').getBoundingClientRect()
-    const out = []
-    for (const e of document.querySelectorAll('[data-board] *')) {
-      const r = e.getBoundingClientRect()
-      if (r.width < 1 || r.height < 1) continue
-      if (r.left < board.left - 1 || r.right > board.right + 1) out.push(e.tagName.toLowerCase() + ' ' + Math.round(r.left) + '..' + Math.round(r.right))
-    }
-    const art = document.querySelector('[data-strip] [data-art] svg').getBoundingClientRect()
-    return { left: board.left, right: board.right, width: board.width, vw: innerWidth, out: out.slice(0, 4), art: art.width, columns: document.querySelectorAll('[data-wide], [data-ops-log], [data-inspector]').length }
-  })()`)
+  if (!(await waitFor(b, '!!document.querySelector("[data-dock]") && !!document.querySelector("[data-tonight]")'))) return [`${where}: PLAY did not reach the board`]
+  await sleep(400)
   const failures = []
-  if (m.width > 600) failures.push(`${w}x${h}: the board is ${Math.round(m.width)}px wide, not the phone column`)
-  if (Math.abs(m.left - (m.vw - m.right)) > 2) failures.push(`${w}x${h}: the board is not centered (${Math.round(m.left)}px left, ${Math.round(m.vw - m.right)}px right)`)
-  for (const x of m.out) failures.push(`${w}x${h}: ${x} leaves the board's column`)
-  if (m.columns) failures.push(`${w}x${h}: a side column is back on the board`)
-  if (m.art < 40) failures.push(`${w}x${h}: the strip's tiles are drawn ${Math.round(m.art)}px wide, no wider than a phone's`)
+  const m = await b.evaluate(DESKTOP)
+  if (!m.board || m.board.w < 1100) failures.push(`${where}: the board is ${m.board?.w}px wide, still a phone column`)
+  sideBySide(`${where}, deciding`, [['playfield', m.field], ["phone's column", m.play], ['PROCURE panel', m.side]], failures)
+  if (m.orbit && m.air && m.ground && !(m.orbit.b <= m.air.t + 1 && m.air.b <= m.ground.t + 1)) failures.push(`${where}: the playfield's layers are not bands, orbit over air over ground`)
+  if (m.art < 64) failures.push(`${where}: the strip's tiles are drawn ${m.art}px wide, no bigger than a phone's`)
+  for (const x of m.out) failures.push(`${where}: ${x} leaves the screen`)
+  for (const x of m.wide) failures.push(`${where}: a line ${x} is wider than a readable line`)
+  if (m.scrollW > m.vw + 1 || m.scrollH > m.vh + 1) failures.push(`${where}: the page scrolls (${m.scrollW}x${m.scrollH})`)
+  // The night: the playfield and the card side by side, the panel gone.
+  await b.evaluate(click('[data-execute]'))
+  if (!(await waitFor(b, `${NIGHT_STAGE} !== 'busy' && !!document.querySelector('[data-night-card]')`, 9000))) return [...failures, `${where}: the night's first card never showed`]
+  await sleep(300)
+  const n = await b.evaluate(DESKTOP)
+  if (!n.log) failures.push(`${where}: the night's log is not in the side panel`)
+  sideBySide(`${where}, the night`, [['playfield', n.field], ["night's column", n.play], ["night's log", n.side]], failures)
+  if (n.field && m.field && Math.abs(n.field.w - m.field.w) > 2) failures.push(`${where}: the playfield is ${n.field.w}px wide in the night, ${m.field.w}px while deciding`)
+  for (const x of n.wide) failures.push(`${where}, the night: a line ${x} is wider than a readable line`)
+  for (const x of n.out) failures.push(`${where}, the night: ${x} leaves the screen`)
   return failures
 }
 
@@ -826,7 +870,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
         console.log(failures.join('\n'))
         process.exit(1)
       }
-      console.log(`briefing fits, board fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}; the night's cards fit 375, the debrief's first screen fits 375x667, and the R4 screens' labels fit 375, as served and in wide fonts; the desktop board is one centered column; every screen is still under reduced motion, with no small input and no retired word`)
+      console.log(`briefing fits, board fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}; the night's cards fit 375, the debrief's first screen fits 375x667, and the R4 screens' labels fit 375, as served and in wide fonts; the desktop board is three columns, the night too, with its log; every screen is still under reduced motion, with no small input and no retired word`)
       process.exit(0)
     })
     .catch((e) => {

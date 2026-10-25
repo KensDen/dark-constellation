@@ -127,8 +127,22 @@ export const hasRetainer = (state: Pick<GameState, 'counters'>): boolean => stat
 // The intel brief (D2 a): free on turn 1 and on the turns an allied data
 // share covers, otherwise ordered for one turn.
 export const briefFree = (state: Pick<GameState, 'turn' | 'briefFreeThrough'>): boolean => state.turn <= state.briefFreeThrough
-export const briefActive = (state: Pick<GameState, 'turn' | 'briefFreeThrough'>, actions: Pick<TurnActions, 'intelBrief'>): boolean =>
-  briefFree(state) || actions.intelBrief
+
+// THE BRIEF LOCKS ONCE IT HAS NAMED THE MOVES (v1.5 R2, Ken's ruling of 24
+// October 2026). A paid brief names tonight's moves the moment it is
+// ordered, so ordering it, reading it and cancelling it read it free (v1.5
+// R1's re-review). Revealing it records the turn on the state
+// (revealBrief, src/engine/reducer.ts), and on that turn the brief is
+// ordered whatever the orders say: it cannot be cancelled, and EXECUTE
+// charges it. On the state, so a reload keeps the lock; resolveTurn clears
+// it.
+export const briefLocked = (state: Pick<GameState, 'turn' | 'briefRevealed'>): boolean => state.briefRevealed === state.turn
+export const briefOrdered = (state: Pick<GameState, 'turn' | 'briefRevealed'>, actions: Pick<TurnActions, 'intelBrief'>): boolean =>
+  actions.intelBrief || briefLocked(state)
+export const briefActive = (
+  state: Pick<GameState, 'turn' | 'briefFreeThrough' | 'briefRevealed'>,
+  actions: Pick<TurnActions, 'intelBrief'>,
+): boolean => briefFree(state) || briefOrdered(state, actions)
 
 // The defenses owned once tonight's orders land: what the adversary reads
 // at EXECUTE (brief 6.3), and what the board reads with the orders queued.
@@ -158,10 +172,11 @@ export const defenseOpen = (state: Pick<GameState, 'counters'>, actions: Pick<Tu
 
 // What tonight's orders cost, at the prices the scenario sets. A defense
 // already owned, or ordered twice, costs nothing more; the brief costs
-// nothing on a night it is free.
-export function orderCost(state: Pick<GameState, 'scenario' | 'counters' | 'turn' | 'briefFreeThrough'>, actions: TurnActions): number {
+// nothing on a night it is free, and a revealed brief costs its price
+// whatever the orders say.
+export function orderCost(state: Pick<GameState, 'scenario' | 'counters' | 'turn' | 'briefFreeThrough' | 'briefRevealed'>, actions: TurnActions): number {
   const { scenario } = state
-  let total = actions.intelBrief && !briefFree(state) ? scenario.prices.intelBrief : 0
+  let total = briefOrdered(state, actions) && !briefFree(state) ? scenario.prices.intelBrief : 0
   const counted: CountermeasureId[] = []
   for (const id of actions.buyCounters) {
     if (state.counters.includes(id) || counted.includes(id)) continue

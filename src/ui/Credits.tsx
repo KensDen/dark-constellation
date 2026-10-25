@@ -23,9 +23,10 @@ export default function Credits({ onBack }: { onBack: () => void }) {
         </p>
         <p className="font-mono text-phosphor">Artwork: AI-generated, human-commanded.</p>
         <p className="text-ink-dim">
-          The key art was generated with AI tools under my direction and selection. The constellation frame was authored
-          as original vector work for this project, the wordmark is set in the DC Display face, and the pixel sprites,
-          icons and briefing scenes were drawn in code for this project.
+          The README banner and the link preview image were generated with AI tools under my direction and selection.
+          The constellation frame was authored as original vector work for this project, the wordmark is set in the DC
+          Display face, and the title&apos;s key art, the playfield, the Dossier&apos;s emblems, the pixel sprites, icons and
+          briefing scenes were drawn in code for this project.
         </p>
       </section>
 

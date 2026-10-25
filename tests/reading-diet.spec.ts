@@ -51,6 +51,7 @@ import {
   UNIDENTIFIED,
   WORST_CASE,
   briefButton,
+  briefLockedTag,
   firstOrders,
   marginChip,
   moveStatus,
@@ -597,10 +598,11 @@ describe('reading diet: the intel brief', () => {
             const hints = chrome.filter((c) => c === tapHint('exposed') || c === tapHint('blocked')).length
             expect(hints, `${where}: tap hints miscounted`).toBe(cards - hidden)
             expect(chrome.filter((c) => c === REVEAL).length, `${where}: reveal hints miscounted`).toBe(hidden)
+            // The brief's row: its order button, or LOCKED once ordered
+            // (v1.5 R2).
             if (!briefFree(before)) {
-              expect(chrome, `${where}: chrome does not count the brief's price button`).toContain(
-                briefButton(before.scenario.prices.intelBrief, actions.intelBrief),
-              )
+              const price = before.scenario.prices.intelBrief
+              expect(chrome, `${where}: chrome does not count the brief's row`).toContain(actions.intelBrief ? briefLockedTag(price) : briefButton(price))
             }
           }
         }

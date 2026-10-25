@@ -31,6 +31,8 @@ import {
   RIDESHARE_RESELL_CREDITS,
   briefActive,
   briefFree,
+  briefLocked,
+  briefOrdered,
   burnFuel,
   candidatesTonight,
   chainBonusOf,
@@ -80,6 +82,8 @@ export {
   SECONDARY_MITIGATION,
   briefActive,
   briefFree,
+  briefLocked,
+  briefOrdered,
   candidatesTonight,
   countersAfter,
   debrisTarget,
@@ -148,7 +152,8 @@ function learn(state: GameState, counter: CountermeasureId, threat: string, how:
 
 // EXECUTE: pay for tonight's orders and land them. A defense is owned at
 // once (the adversary reads it tonight), an asset joins the pipeline, and
-// the brief costs its price unless it is free tonight. Throws when the
+// the brief costs its price unless it is free tonight; a revealed brief
+// is paid for whatever the orders say (revealBrief). Throws when the
 // orders exceed the budget, which the UI never sends (EXECUTE is disabled
 // while REMAINING is below zero), and when they add more than one new
 // defense (NEW_DEFENSES_PER_NIGHT), which PROCURE never queues.
@@ -156,7 +161,7 @@ function applyOrders(state: GameState, actions: TurnActions, purchases: string[]
   const { scenario } = state
   if (newDefenses(state, actions).length > NEW_DEFENSES_PER_NIGHT) throw new Error('invalid actions: one new defense a night')
   let spent = 0
-  if (actions.intelBrief && !briefFree(state)) {
+  if (briefOrdered(state, actions) && !briefFree(state)) {
     spent += scenario.prices.intelBrief
     purchases.push(`Intel brief (-${scenario.prices.intelBrief})`)
   }
@@ -176,6 +181,20 @@ function applyOrders(state: GameState, actions: TurnActions, purchases: string[]
   state.credits -= spent
   if (state.credits < 0) throw new Error('invalid actions: orders exceed the budget')
   return spent
+}
+
+// THE INTEL BRIEF, REVEALED (v1.5 R2): ordering a paid brief names
+// tonight's moves at once, so the order locks for the turn (rules.ts,
+// briefLocked): from here the brief is ordered and charged at EXECUTE
+// whatever the orders say. Nothing to lock on a turn it is free. Throws
+// when the game is over, and when the brief's price is more than the
+// balance, since a locked order the budget can never meet would leave the
+// turn with no way to EXECUTE.
+export function revealBrief(state: GameState): GameState {
+  if (state.status !== 'playing') throw new Error('game is over; cannot order a brief')
+  if (briefFree(state) || briefLocked(state)) return state
+  if (state.scenario.prices.intelBrief > state.credits) throw new Error('invalid actions: orders exceed the budget')
+  return { ...state, briefRevealed: state.turn }
 }
 
 // The mission assurance an event would leave at the given strength on the
@@ -402,6 +421,8 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
   const briefed = briefActive(next, actions)
   const ordered = applyOrders(next, actions, purchases)
   const named = briefed ? candidatesTonight(next) : []
+  // The lock is the turn's own (briefLocked): paid for above, it goes.
+  delete next.briefRevealed
 
   // 2. Live conditions press. Mitigation is recomputed, so a defense bought
   // tonight blunts the rest of a condition's life.

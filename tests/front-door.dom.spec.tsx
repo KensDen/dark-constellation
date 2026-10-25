@@ -284,19 +284,21 @@ describe('GUARD R1 (b): no retired word on an R1 screen', () => {
 })
 
 describe("the title's menu (Ken's R2 notes, 22 October 2026)", () => {
-  it('has no top bar: the ripple band leads, and SYSTEM is the last row of the menu, under READ', () => {
+  it('has no top bar: the key art leads, and SYSTEM is the last row of the menu, under READ', () => {
     loadPage()
     const title = container.querySelector('[data-title]')!
-    // The ripple band is the title's first element; nothing sits above it.
-    expect(title.firstElementChild!.className, 'something sits above the ripple band').toMatch(/\bh-28\b/)
+    // The key art, with the title over it, is the title's first element
+    // (v1.5 R2, where the ripple band was); nothing sits above it.
+    expect(title.firstElementChild!.hasAttribute('data-key-art'), 'something sits above the key art').toBe(true)
+    expect(title.firstElementChild!.querySelector('h1'), 'the title is not over the key art').not.toBeNull()
     const system = buttons().filter((b) => (b.textContent ?? '').trim() === 'SYSTEM')
     expect(system, 'the title shows SYSTEM more than once, or not at all').toHaveLength(1)
     expect(system[0].hasAttribute('data-title-system')).toBe(true)
     expect(system[0].getAttribute('aria-haspopup')).toBe('dialog')
-    // Under READ, and the last control before the key art.
+    // Under READ, and the last control before the constellation frame.
     const read = container.querySelector('section[aria-label="Read"]')!
     expect(read.compareDocumentPosition(system[0]) & Node.DOCUMENT_POSITION_FOLLOWING, 'SYSTEM is not under READ').toBeTruthy()
-    const controls = [...title.querySelectorAll('button')].filter((b) => !b.closest('section[aria-label="Key art"]'))
+    const controls = [...title.querySelectorAll('button')].filter((b) => !b.closest('section[aria-label="Constellation frame"]'))
     expect(controls.at(-1), 'SYSTEM is not the last row of the menu').toBe(system[0])
   })
 

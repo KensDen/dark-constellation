@@ -562,15 +562,17 @@ describe('the intel cards (v1.2 R3)', () => {
     expect(step, 'PROCURE is not on the dock').not.toBeNull()
     click(step!)
   }
-  // Orders the brief in PROCURE's INTEL section (or takes it back out), by
-  // its button as a player does, and closes the sheet again.
-  function setBrief(on: boolean) {
+  // Orders the brief in PROCURE's INTEL section, by its button as a player
+  // does, and closes the sheet again. Since v1.5 R2 the order locks: the
+  // row is a LOCKED status after it, with nothing to take it back out.
+  function orderBrief() {
     toggleProcure()
     const order = intelOrder()
     expect(order, 'PROCURE has no INTEL order: the brief is free tonight, so ordering it proves nothing').not.toBeNull()
     expect(order!.textContent, 'the INTEL order does not price the brief').toContain(`${DEFAULT_SCENARIO.prices.intelBrief} CR`)
-    if ((order!.getAttribute('aria-pressed') === 'true') !== on) click(order!)
-    expect(intelOrder()!.getAttribute('aria-pressed'), `the brief could not be ${on ? 'ordered' : 'taken out of the cart'}`).toBe(String(on))
+    click(order!)
+    expect(intelOrder(), 'the ordered brief is still a control').toBeNull()
+    expect(container.querySelector('[data-sheet="procure"] [data-procure-intel][data-locked]'), 'the ordered brief does not say it is locked').not.toBeNull()
     toggleProcure()
     expect(container.querySelector('[data-sheet="procure"]'), 'PROCURE did not close').toBeNull()
   }
@@ -612,27 +614,25 @@ describe('the intel cards (v1.2 R3)', () => {
     expect(card.heading, `turn ${state.turn}: the card claims a brief nobody ordered`).toBe('THREAT INTEL · NO BRIEF')
     expect(card.headline).toBe(FORECAST_DARK.headline)
     expect(card.line, 'the card with no brief carries an event line').toBeNull()
-    // Ordered in the cart, before EXECUTE: the TONIGHT card names the
-    // move, and the intel card names exactly what it names.
-    setBrief(true)
+    // Ordered, before EXECUTE: the TONIGHT card names the move, and the
+    // intel card names exactly what it names.
+    orderBrief()
     expect(tonightLines(), 'the TONIGHT card ignored the brief ordered in the cart').toEqual(named.full)
     expect(tonightTag()).toBe(named.tag!)
     card = await readCard()
     expect(card.heading, `turn ${state.turn}: the card ignored the brief ordered in the cart`).toBe('THREAT INTEL · BRIEFED')
     expect(card.headline, 'the card does not name what the brief names').toBe(named.headline)
     expect(card.line, 'the card does not carry the named event REAL WORLD line').toBe(`${lead.technique} · ${lead.source}`)
-    // Taken back out of the cart: both dark again.
-    setBrief(false)
-    expect(tonightLines()).toEqual(dark.full)
-    card = await readCard()
-    expect(card.heading, 'the card kept a brief taken out of the cart').toBe('THREAT INTEL · NO BRIEF')
-    expect(card.line).toBeNull()
+    // Locked for the turn (v1.5 R2): the autosave carries the lock, so a
+    // reload keeps the names too.
+    const saved = JSON.parse(localStorage.getItem('dc-autosave') ?? 'null')
+    expect(saved?.state.briefRevealed, 'the autosave does not carry the locked brief').toBe(state.turn)
   })
 
   it('leaves the night after a briefed one dark when it is played without the brief', async () => {
     const state = paidNightWithLead()
     render(state)
-    setBrief(true)
+    orderBrief()
     await execute()
     expect(inNight(), 'the night did not start').toBe(true)
     // Tapped through to its END OF TURN, and BEGIN TURN n+1 (v1.3 R3: the
@@ -649,10 +649,13 @@ describe('the intel cards (v1.2 R3)', () => {
     await openFullBrief()
     // Ordering the brief would name something tonight (so dark is a real
     // reading), and the INTEL order prices it (so tonight is not free).
-    setBrief(true)
-    const wouldName = tonightLines()
-    setBrief(false)
-    expect(tonightLines(), `turn ${next}: the brief names nothing, so the dark reading proves nothing`).not.toEqual(wouldName)
+    // Read from the model, since an order would lock (v1.5 R2).
+    const saved = JSON.parse(localStorage.getItem('dc-autosave') ?? 'null')
+    const now = { ...saved.state, scenario: DEFAULT_SCENARIO } as GameState
+    expect(now.turn).toBe(next)
+    expect(briefFree(now), `turn ${next}: the brief is free, so dark proves nothing`).toBe(false)
+    expect(tonightLines()).toEqual(briefCopy(now, false).full)
+    expect(tonightLines(), `turn ${next}: the brief names nothing, so the dark reading proves nothing`).not.toEqual(briefCopy(now, true).full)
     const card = await readCard()
     expect(card.heading, 'the card named a night with no brief ordered').toBe('THREAT INTEL · NO BRIEF')
     expect(card.line).toBeNull()
