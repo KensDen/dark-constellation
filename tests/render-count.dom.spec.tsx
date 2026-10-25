@@ -35,7 +35,7 @@ import { ASSET_MAPS, assetSprite } from '../src/ui/sprites/assets'
 import { spriteRects, type Sprite } from '../src/ui/sprites/sprite'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
-import { NO_OP, WIN_SCRIPT } from './scripts'
+import { NO_OP } from './scripts'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -161,11 +161,12 @@ describe('render counts on the board (v1.2 R2 fix, v1.3 R2 strip)', () => {
     // The fixture: a turn that touches no asset, so every tile's sprite
     // should hold still for the whole night. v1.2's turn 1 scripted no
     // move and was that turn for free; v1.3's turn 1 scripts one, so the
-    // fleet here already owns both of its candidates' primary defenses (the
-    // two the prepared script orders on turn 1) and the night is held
-    // outright. Owned rather than ordered, so nothing arrives at the close
-    // and the EXECUTE below needs no order queued.
-    const state: GameState = { ...newGame(DEFAULT_SCENARIO, 20260712, 'standard'), counters: [...WIN_SCRIPT[1].buyCounters] }
+    // fleet here already owns both of its candidates' primary defenses
+    // (anti-jam and PNT authentication: the prepared script ordered both
+    // on turn 1 until v1.4's one new defense a night) and the night is
+    // held outright. Owned rather than ordered, so nothing arrives at the
+    // close and the EXECUTE below needs no order queued.
+    const state: GameState = { ...newGame(DEFAULT_SCENARIO, 20260712, 'standard'), counters: ['antiJam', 'pntAuth'] }
     const after = resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))
     const record = after.history[after.history.length - 1]
     expect(record.events.map((e) => e.outcome), 'turn 1 is no longer held outright by these defenses').toEqual(record.events.map(() => 'held'))

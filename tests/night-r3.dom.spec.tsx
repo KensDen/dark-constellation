@@ -241,7 +241,9 @@ describe("GUARD R3 (d): END OF TURN's rows add up to the next budget the engine 
     for (const [seed, script] of [
       [20260712, WIN_SCRIPT],
       [24, {} as Record<number, TurnActions>],
-      [4, { 2: a({ buyCounters: ['antiJam', 'pntAuth', 'groundZeroTrust'] }), 3: a({ buyCounters: ['linkAuth'] }) }],
+      // One new defense a night since v1.4: seed 4 ordered three on turn 2
+      // until then.
+      [4, { 2: a({ buyCounters: ['antiJam'] }), 3: a({ buyCounters: ['linkAuth'] }) }],
     ] as const) {
       let s = newGame(DEFAULT_SCENARIO, seed, 'standard')
       while (s.status === 'playing') {
@@ -291,10 +293,12 @@ describe('GUARD R3 (f): no retired word in any night card', () => {
     ['in this build', /in this build/i],
   ]
   it('finds none on a hit, a block, a partial, an opportunity, the debris call and its result, the intel card and every END OF TURN', async () => {
-    // Seed 24 on STANDARD, with these orders, meets every kind of card
-    // (scripts/phone-layout.mjs, NIGHT_PLAN, plays the same operation).
-    const plan: Record<number, string[]> = { 2: ['antiJam', 'pntAuth', 'groundZeroTrust'], 3: ['linkAuth'] }
-    render(newGame(DEFAULT_SCENARIO, 24, 'standard'))
+    // Seed 1 on STANDARD, with these orders, meets every kind of card
+    // (scripts/phone-layout.mjs, NIGHT_PLAN, plays the same operation). One
+    // new defense a night since v1.4: seed 24, with three on turn 2, until
+    // then.
+    const plan: Record<number, string[]> = { 1: ['antiJam'], 2: ['encryptedBackhaul'], 3: ['linkAuth'], 4: ['pntAuth'], 5: ['sensorFusion'], 6: ['groundZeroTrust'] }
+    render(newGame(DEFAULT_SCENARIO, 1, 'standard'))
     const seen = new Set<string>()
     for (let turn = 1; turn <= 6; turn += 1) {
       await order(plan[turn] ?? [])

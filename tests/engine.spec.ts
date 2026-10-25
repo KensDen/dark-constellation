@@ -21,6 +21,15 @@
 // and first on the poisoning card; the docking dazzle striking the RPO sat
 // when one is held (G-028); and every resolved event carrying the score it
 // found and left (the per-event score). win f6025194..., loss e5160981...
+//
+// IT MOVED ONCE MORE IN v1.4.0 (Ken, 24 October 2026): one new defense a
+// night. The engine plays every legal night exactly as before (the cap
+// only refuses orders that add two), so the loss line, which orders
+// nothing, keeps e5160981...; the prepared script ordered two defenses on
+// four nights, which the engine now refuses, and was rewritten to one a
+// night (tests/scripts.ts), so the win line's history is a different game:
+// win 830b14f3... (the v1.3.0 engine gives the same hash for the new
+// script). File sha1 ab375fc0.
 
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -81,10 +90,10 @@ describe('determinism', () => {
     expect(actual).toEqual(JSON.parse(readFileSync(SNAPSHOT_PATH, 'utf8')))
     // The committed file, pinned, so a regenerated snapshot is an edit to
     // this line as well as to the file: the snapshot moves deliberately or
-    // not at all. be6509e3 was the v1.3 Round 0 move; 2a5966f1 is the
-    // Round 6b move (see the header).
+    // not at all. be6509e3 was the v1.3 Round 0 move; 2a5966f1 the Round
+    // 6b move; ab375fc0 is the v1.4.0 move (see the header).
     expect(createHash('sha1').update(readFileSync(SNAPSHOT_PATH, 'utf8')).digest('hex'), 'the committed snapshot file changed').toBe(
-      '2a5966f1c0f8d18837bc4da66ad19a4049ea4921',
+      'ab375fc04366feffb24c61f371d4beabd19ca40f',
     )
   })
 
@@ -204,18 +213,20 @@ describe('the v1.3 rules (brief 6.1)', () => {
   })
 
   it('charges the orders at EXECUTE, and the turn closes with repairs, upkeep, funding and the coverage bonus after arrivals', () => {
-    const s = newGame(DEFAULT_SCENARIO, 3)
-    // A drone and both turn-1 primaries: nothing gets through, so no repairs.
-    const after = step(s, a({ buyAssets: [{ kind: 'drone' }], buyCounters: ['antiJam', 'pntAuth'] }))
+    // A drone and anti-jam, with PNT authentication already owned (one new
+    // defense a night, so a hand-built start holds the other turn-1
+    // primary): nothing gets through, so no repairs.
+    const s: GameState = { ...newGame(DEFAULT_SCENARIO, 3), counters: ['pntAuth'] }
+    const after = step(s, a({ buyAssets: [{ kind: 'drone' }], buyCounters: ['antiJam'] }))
     const l = after.history[0].ledger
-    expect(l.ordered).toBe(15 + 10 + 10)
+    expect(l.ordered).toBe(15 + 10)
     expect(l.repairs).toBe(0)
     expect(l.upkeep).toBe(2 * DEFAULT_SCENARIO.upkeepPerDefense)
     // The drone arrives at this close, and coverage 67 earns the bonus.
     expect(l.arrivals).toEqual(['t1-drone-1'])
     expect(l.bonusCoverage).toBe(58 + COVERAGE_PER_KIND.drone)
     expect(l.coverageBonus).toBe(DEFAULT_SCENARIO.slaBonus.credits)
-    expect(after.credits).toBe(100 - 35 - 4 + 20 + 10)
+    expect(after.credits).toBe(100 - 25 - 4 + 20 + 10)
     expect(l.after).toBe(after.credits)
     expect(l.afterNight - l.repairs - l.upkeep + l.funding + l.coverageBonus).toBe(l.after)
   })
@@ -229,13 +240,18 @@ describe('the v1.3 rules (brief 6.1)', () => {
   })
 
   it('ends the run insolvent when the close cannot cover repairs and upkeep, with funding frozen', () => {
-    // Every defense the budget allows on turn 1, then nothing: the upkeep
-    // and the hits outrun funding sooner or later on some seed.
+    // A new defense every night and drones to the bottom of the budget:
+    // the upkeep and the hits outrun funding sooner or later on some seed.
+    // (Before the cap this ordered eight defenses on turn 1.)
     let found = false
     for (let seed = 1; seed <= 200 && !found; seed += 1) {
       let s = newGame(DEFAULT_SCENARIO, seed)
-      s = step(s, a({ buyCounters: ['sensorFusion', 'groundZeroTrust', 'tierAAttestation', 'irRetainer', 'antiJam', 'pntAuth', 'linkAuth', 'encryptedBackhaul'] }))
-      while (s.status === 'playing') s = step(s)
+      while (s.status === 'playing') {
+        const next = DEFAULT_SCENARIO.countermeasures.find((cm) => !s.counters.includes(cm.id) && cm.cost <= s.credits)
+        const counters = next ? [next.id] : []
+        const drones = Math.floor((s.credits - (next?.cost ?? 0)) / DEFAULT_SCENARIO.prices.drone)
+        s = step(s, a({ buyCounters: counters, buyAssets: Array.from({ length: drones }, () => ({ kind: 'drone' as const })) }))
+      }
       if (s.lossReason !== 'insolvency') continue
       found = true
       const l = s.history.at(-1)!.ledger
@@ -366,8 +382,10 @@ describe('the v1.3 rules (brief 6.1)', () => {
   })
 
   it('counts a defense streak, points saved and what the player can now say', () => {
-    const s = newGame(DEFAULT_SCENARIO, 4)
-    const held = step(s, a({ buyCounters: ['antiJam', 'pntAuth'] }))
+    // Both turn-1 moves blocked: anti-jam ordered, PNT authentication held
+    // from a hand-built start (one new defense a night).
+    const s: GameState = { ...newGame(DEFAULT_SCENARIO, 4), counters: ['pntAuth'] }
+    const held = step(s, a({ buyCounters: ['antiJam'] }))
     const ev = held.history[0].events[0]
     expect(ev.outcome).toBe('held')
     expect(held.streak).toBe(1)

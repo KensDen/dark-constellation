@@ -7,7 +7,7 @@
 // which read TONIGHT and WORST CASE rather than following a script, live
 // in tests/policies.ts.
 
-import { resolveTurn } from '../src/engine/reducer'
+import { NEW_DEFENSES_PER_NIGHT, resolveTurn } from '../src/engine/reducer'
 import { mulberry32, turnRng } from '../src/engine/rng'
 import type { AssetKind, GameState, TurnActions } from '../src/engine/types'
 
@@ -19,16 +19,22 @@ export const NO_OP: TurnActions = {
 
 export const a = (partial: Partial<TurnActions>): TurnActions => ({ ...NO_OP, ...partial })
 
-// Keyed by turn number, 1..6. A drone and both turn-1 primaries first, then
-// each turn's likely moves, then the sensor stack before the chain and a
-// burn on the conjunction.
+// Keyed by turn number, 1..6. One new defense a night since v1.4 (the
+// engine refuses more): a drone and anti-jam first, then encrypted
+// backhaul and link authentication, so turn 3's two slots are held
+// outright and the defense streak reaches 2 (the most a capped game can,
+// tests/sweep.spec.ts), then PNT authentication and a burn on the
+// conjunction, the sensor stack before the LiDAR moves and the chain, and
+// ground zero trust last. Before the cap it ordered both turn-1 primaries
+// at once and two defenses on three later nights. It wins every one of
+// seeds 1 to 500 on Standard, 67 of them at S.
 export const WIN_SCRIPT: Record<number, TurnActions> = {
-  1: a({ buyAssets: [{ kind: 'drone' }], buyCounters: ['antiJam', 'pntAuth'] }),
-  2: a({ buyCounters: ['groundZeroTrust'] }),
-  3: a({ buyCounters: ['linkAuth', 'encryptedBackhaul'] }),
-  4: a({ buyCounters: ['sensorFusion', 'tierAAttestation'], debris: 'burn' }),
-  5: a({ buyCounters: ['insiderProgram', 'mlPipelineIntegrity'] }),
-  6: a({}),
+  1: a({ buyAssets: [{ kind: 'drone' }], buyCounters: ['antiJam'] }),
+  2: a({ buyCounters: ['encryptedBackhaul'] }),
+  3: a({ buyCounters: ['linkAuth'] }),
+  4: a({ buyCounters: ['pntAuth'], debris: 'burn' }),
+  5: a({ buyCounters: ['sensorFusion'] }),
+  6: a({ buyCounters: ['groundZeroTrust'] }),
 }
 
 export const LOSS_SCRIPT: Record<number, TurnActions> = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [i + 1, NO_OP]))
@@ -62,12 +68,12 @@ export const TOP_INTEL_SCRIPT: Record<number, TurnActions> = Object.fromEntries(
 )
 
 // THE RANDOM LINE (v1.2 R5a), a seeded policy that plays legal, random
-// turns rather than a plan. Each turn it may order the intel brief, up to
-// two defenses it does not own (the retainer among them) and up to two
-// assets of any kind, and calls the debris on a coin. The engine is the
-// judge of what is affordable: an order it refuses loses its last item
-// until it is accepted, so the line is legal by construction and restates
-// no price.
+// turns rather than a plan. Each turn it may order the intel brief, a
+// defense it does not own (the retainer among them; up to two before the
+// v1.4 cap of one new defense a night) and up to two assets of any kind,
+// and calls the debris on a coin. The engine is the judge of what is
+// affordable: an order it refuses loses its last item until it is
+// accepted, so the line is legal by construction and restates no price.
 const KINDS: readonly AssetKind[] = ['sat', 'rpoSat', 'drone', 'groundStation']
 
 export function randomPolicy(policySeed: number): (state: GameState) => TurnActions {
@@ -76,7 +82,7 @@ export function randomPolicy(policySeed: number): (state: GameState) => TurnActi
     const buys: TurnActions[] = []
     if (r.chance(0.3)) buys.push(a({ intelBrief: true }))
     const unowned = state.scenario.countermeasures.map((c) => c.id).filter((id) => !state.counters.includes(id))
-    for (let n = r.int(3); n > 0 && unowned.length > 0; n -= 1) buys.push(a({ buyCounters: [unowned.splice(r.int(unowned.length), 1)[0]] }))
+    for (let n = Math.min(r.int(3), NEW_DEFENSES_PER_NIGHT); n > 0 && unowned.length > 0; n -= 1) buys.push(a({ buyCounters: [unowned.splice(r.int(unowned.length), 1)[0]] }))
     for (let n = r.int(3); n > 0; n -= 1) buys.push(a({ buyAssets: [{ kind: r.pick(KINDS) }] }))
     const debris = r.chance(0.5) ? 'burn' : 'hold'
     const cart = (items: TurnActions[]): TurnActions => ({

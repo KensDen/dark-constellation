@@ -24,7 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Debrief from '../src/ui/Debrief'
 import { DEBRIEF_MOTION } from '../src/ui/debriefMotion'
-import { FILED_SHOWN, debriefStats, filedThisGame, lossLead } from '../src/ui/debriefModel'
+import { FILED_SHOWN, debriefStats, filedThisGame, lossLead, nextTime } from '../src/ui/debriefModel'
 import { shareText } from '../src/ui/reportCard'
 import { HOOK } from '../src/ui/night/nightCopy'
 import { DEFAULT_SCENARIO } from '../src/content'
@@ -119,9 +119,10 @@ function play(seed: number, script: Record<number, TurnActions>): GameState {
   while (state.status === 'playing') state = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
   return state
 }
-// A won campaign (S, 4 hits) and a lost one (D, 9 hits), both with a
-// mixed strip.
-const WON = () => play(20260712, WIN_SCRIPT)
+// A won campaign (S, 6 hits) and a lost one (D, 9 hits), both with a
+// mixed strip. The win is seed 6 since v1.4: the prepared script orders one
+// new defense a night, and on 20260712 it now wins at B.
+const WON = () => play(6, WIN_SCRIPT)
 const LOST = () => play(20260712, LOSS_SCRIPT)
 const TODAY: DailyOp = { dateKey: '20260927', n: 1 }
 
@@ -337,14 +338,46 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
   })
 })
 
+describe('NEXT TIME names an order of purchases, one new defense a night (v1.4)', () => {
+  it('says the night to order it on, a night with none or ahead of the one ordered then, and never "by turn"', () => {
+    let ahead = 0
+    let free = 0
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
+      for (const state of [play(seed, WIN_SCRIPT), play(seed, LOSS_SCRIPT)]) {
+        const next = nextTime(state)
+        if (!next) continue
+        show(state)
+        const text = container.querySelector('[data-next-time] p')!.textContent!
+        expect(text, `seed ${seed}: "${text}"`).not.toMatch(/by turn/)
+        expect(text, `seed ${seed}: "${text}"`).toContain(`on turn ${next.orderOn}`)
+        if (next.ahead) {
+          ahead += 1
+          expect(text, `seed ${seed}: "${text}"`).toContain(`ahead of ${next.ahead}`)
+        } else {
+          free += 1
+          expect(text, `seed ${seed}: "${text}"`).toContain('a night you ordered no defense')
+        }
+        // The retired words a line about ordering could slip into (GUARD
+        // R4 (e) below holds the whole debrief to the full list).
+        expect(text, `seed ${seed}: "${text}"`).not.toMatch(/\b(buy|buys|bought|purchas\w*|credits?)\b/i)
+      }
+    }
+    expect(ahead, 'no NEXT TIME put the defense ahead of another').toBeGreaterThan(0)
+    expect(free, 'no NEXT TIME found a night with no new defense').toBeGreaterThan(0)
+  })
+})
+
 describe('GUARD R5 (a): a won debrief and a lost one differ in layout, not only in colour', () => {
   // Read with motion off, where a win must still read as a win, and by
   // structure alone: which blocks the first screen holds, in what order,
   // and which shapes they carry. No class and no colour is compared.
   const C_WIN = () => {
-    let state = newGame(DEFAULT_SCENARIO, 24, 'standard')
+    // Seed 3 since v1.4: one new defense a night, where seed 24's plan
+    // ordered three on turn 2 (anti-jam, PNT authentication and ground
+    // zero trust).
+    let state = newGame(DEFAULT_SCENARIO, 3, 'standard')
     const plan: Record<number, TurnActions> = {
-      2: { ...NO_OP, buyCounters: ['antiJam', 'pntAuth', 'groundZeroTrust'] },
+      2: { ...NO_OP, buyCounters: ['antiJam'] },
       // Encrypted backhaul since the engine round of R6 (Decisions Q1), which
       // took link authentication off the listening threats.
       3: { ...NO_OP, buyCounters: ['encryptedBackhaul'] },

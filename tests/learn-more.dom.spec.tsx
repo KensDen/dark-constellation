@@ -35,7 +35,7 @@ import { callIndex, shortName } from '../src/ui/board/boardModel'
 import { LearnMore } from '../src/ui/learnMore'
 import Night, { type BoardView } from '../src/ui/night/Night'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
-import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
+import { LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -105,9 +105,12 @@ const buttons = () => [...container.querySelectorAll<HTMLButtonElement>('button[
 // or done.
 const nightAt = () => q('[data-intel-file]')?.getAttribute('data-intel-file') ?? q('[data-night-card]')?.getAttribute('aria-label') ?? 'done'
 
-// A turn of real play whose shape a test needs.
+// A turn of real play whose shape a test needs. The mixed line since v1.4:
+// with one new defense a night the prepared script's nights are held
+// outright or hit on every slot, and the mixed line's turn 3 blocks one
+// move and lets the other through.
 function find<T>(pick: (before: GameState, after: GameState) => T | undefined): T {
-  for (const script of [WIN_SCRIPT, LOSS_SCRIPT]) {
+  for (const script of [WIN_SCRIPT, MIXED_SCRIPT, LOSS_SCRIPT]) {
     for (const seed of [20260712, 4041, ...Array.from({ length: 200 }, (_, i) => i + 1)]) {
       let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
       while (state.status === 'playing') {

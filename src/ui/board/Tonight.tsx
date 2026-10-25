@@ -34,7 +34,7 @@ import {
   REVEAL,
   STATUS,
   TONIGHT_HIDDEN,
-  TONIGHT_REASON,
+  tonightReason,
   UNIDENTIFIED,
   WILL_HIT_LEAD,
   willHitCount,
@@ -113,7 +113,7 @@ function Noise({ tone = 'muted' }: { tone?: keyof typeof NOISE_RGB }) {
 // A move card's flag, and the same chip in the key.
 const FLAG_TAG = 'px-1 font-mono text-[10px] tracking-wider text-dc-ground'
 
-function MoveCard({ read, onMove, decoding = false }: { read: MoveRead; onMove: (ev: ThreatEvent) => void; decoding?: boolean }) {
+function MoveCard({ read, onMove, decoding = false, open }: { read: MoveRead; onMove: (ev: ThreatEvent) => void; decoding?: boolean; open: boolean }) {
   const { ev, status, flag } = read
   // The status changes the moment an order lands; a short highlight says so,
   // and only then: not when the card first appears.
@@ -154,7 +154,7 @@ function MoveCard({ read, onMove, decoding = false }: { read: MoveRead; onMove: 
         <span className={changed}>
           <StatusTag status={status} />
         </span>
-        <span className="font-mono text-[10px] text-dc-friendly">{tapHint(status)}</span>
+        <span className="font-mono text-[10px] text-dc-friendly">{tapHint(status, open)}</span>
       </span>
     </button>
   )
@@ -184,9 +184,11 @@ export interface TonightProps {
   // A nonce that, when it changes, pulses the moves.
   pulseMoves: number
   onReveal: () => void
+  // Whether tonight can still take a new defense (v1.4: one a night).
+  defenseOpen: boolean
 }
 
-export default function Tonight({ state, slots, brief, briefPrice, onMove, onToggleBrief, onIntel, onTag, pulseMoves, onReveal }: TonightProps) {
+export default function Tonight({ state, slots, brief, briefPrice, onMove, onToggleBrief, onIntel, onTag, pulseMoves, onReveal, defenseOpen }: TonightProps) {
   const named = brief !== 'none'
   const intro = planFor(state.scenario, state.turn)?.intro ?? ''
   const reduced = useReducedMotion()
@@ -241,7 +243,7 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
               </p>
               {i === firstDraw && (
                 <p className="text-xs text-dc-muted">
-                  {slot.hidden ? TONIGHT_HIDDEN : TONIGHT_REASON}
+                  {slot.hidden ? TONIGHT_HIDDEN : tonightReason(state.turn, defenseOpen)}
                   {/* The flags' key (R6 question 11), set after the rule that
                       names a pick and a tie, on the room its second line leaves:
                       on a key line of their own they pushed the turn-1 board
@@ -273,7 +275,7 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onTog
           )}
           <div className={`mt-1.5 grid gap-2 ${slot.moves.length === 1 ? 'grid-cols-1' : slot.moves.length === 2 ? 'grid-cols-2' : 'grid-cols-3'} ${slot.hidden ? '' : `${decode} ${flashMoves}`}`}>
             {slot.moves.map((read) =>
-              slot.hidden ? <UnknownCard key={read.ev.id} ev={read.ev} onReveal={onReveal} /> : <MoveCard key={read.ev.id} read={read} onMove={onMove} decoding={decoding} />,
+              slot.hidden ? <UnknownCard key={read.ev.id} ev={read.ev} onReveal={onReveal} /> : <MoveCard key={read.ev.id} read={read} onMove={onMove} decoding={decoding} open={defenseOpen} />,
             )}
           </div>
         </div>

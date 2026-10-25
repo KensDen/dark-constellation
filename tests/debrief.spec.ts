@@ -148,6 +148,8 @@ describe('the rest of the debrief reads the record too', () => {
 
   it('names the first defense the game missed and the turn its threat got through (NEXT TIME, M14)', () => {
     let named = 0
+    let aheadOfNone = 0
+    let aheadOfOne = 0
     for (const g of GAMES) {
       const miss = g.learned.find((l) => l.how === 'missed')
       const next = nextTime(g)
@@ -160,8 +162,23 @@ describe('the rest of the debrief reads the record too', () => {
       expect(next!.defense).toBe(cm.name)
       expect(next!.price).toBe(cm.cost)
       expect(next!.turn).toBe(g.history.find((r) => r.events.some((e) => e.eventId === miss.threat && e.effectiveSeverity > 0))!.turn)
+      // An order of purchases under one new defense a night (v1.4): the
+      // night to order it on is no later than the turn it was needed by,
+      // and is either a night that ordered no new defense, or the one whose
+      // defense the line puts after it, exactly as the record has them.
+      const night = g.history.find((r) => r.turn === next!.orderOn)!
+      expect(next!.orderOn).toBeGreaterThanOrEqual(1)
+      expect(next!.orderOn).toBeLessThanOrEqual(next!.turn)
+      const orderedThen = DEFAULT_SCENARIO.countermeasures.filter((c) => night.purchases.some((p) => p.startsWith(`${c.name} (`)))
+      expect(orderedThen.length, 'a night of real play ordered two defenses').toBeLessThanOrEqual(1)
+      expect(next!.ahead).toBe(orderedThen[0]?.name ?? null)
+      if (next!.ahead === null) aheadOfNone += 1
+      else aheadOfOne += 1
     }
     expect(named).toBeGreaterThan(0)
+    // Both branches are reached.
+    expect(aheadOfNone, 'no NEXT TIME found a night with no new defense').toBeGreaterThan(0)
+    expect(aheadOfOne, 'no NEXT TIME put the defense ahead of another').toBeGreaterThan(0)
   })
 
   it('writes one decision a turn, with what was ordered and spent', () => {

@@ -207,8 +207,13 @@ export function canSay(state: GameState): Saying[] {
   return out.sort((a, b) => SAY_ORDER[a.how] - SAY_ORDER[b.how])
 }
 
-// NEXT TIME (M14): the first defense this game missed, and the turn to
-// have it by, which is the turn its threat first got through.
+// NEXT TIME (M14): the first defense this game missed, the turn its threat
+// first got through, and, since one new defense a night (v1.4), the night
+// to order it on, as an order of purchases rather than one more defense on
+// a night that had one: the latest night up to that turn that ordered no
+// new defense and could pay for it, or else the latest whose budget could
+// take it in place of the defense ordered then, which the line puts after
+// it. With neither, the turn itself, ahead of what it ordered.
 export interface NextTime {
   defense: string
   price: number
@@ -218,6 +223,10 @@ export interface NextTime {
   procured: number | null
   // Whether it stops the move alone, blunts it, or answers the debris call.
   verb: StopVerb
+  // The night to order it on, and the defense ordered that night, which
+  // comes after it (null on a night with no new defense).
+  orderOn: number
+  ahead: string | null
 }
 
 export function nextTime(state: GameState): NextTime | null {
@@ -226,13 +235,27 @@ export function nextTime(state: GameState): NextTime | null {
   const rec = state.history.find((r) => r.events.some((ev) => ev.eventId === miss.threat && ev.effectiveSeverity > 0))
   const cm = defenseOf(state, miss.counter)
   const name = cm?.name ?? miss.counter
+  const price = cm?.cost ?? 0
+  const turn = rec?.turn ?? 1
+  // Each night up to the turn, latest first: the defense it ordered, and
+  // whether its budget could have taken this one instead.
+  const nights = state.history
+    .filter((r) => r.turn <= turn)
+    .reverse()
+    .map((r) => {
+      const ordered = state.scenario.countermeasures.find((c) => r.purchases.some((p) => p.startsWith(`${c.name} (`)))
+      return { turn: r.turn, ordered: ordered ?? null, fits: r.ledger.start - r.ledger.ordered + (ordered?.cost ?? 0) - price >= 0 }
+    })
+  const night = nights.find((n) => !n.ordered && n.fits) ?? nights.find((n) => n.fits) ?? nights[0]
   return {
     defense: name,
-    price: cm?.cost ?? 0,
+    price,
     threat: threatName(state, miss.threat),
-    turn: rec?.turn ?? 1,
+    turn,
     procured: state.history.find((r) => r.purchases.some((p) => p.startsWith(`${name} (`)))?.turn ?? null,
     verb: verbOf(state, miss.counter, miss.threat),
+    orderOn: night?.turn ?? turn,
+    ahead: night?.ordered?.name ?? null,
   }
 }
 

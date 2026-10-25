@@ -7,6 +7,7 @@
 // (principle 17).
 
 import { DEFAULT_SCENARIO } from '../content'
+import { NEW_DEFENSES_PER_NIGHT } from '../engine/rules'
 
 // Which picture a beat shows. ./briefingScenes.ts draws each one.
 export type SceneName = 'orbit' | 'disaster' | 'coldveil' | 'watch'
@@ -47,8 +48,11 @@ export const BEATS: readonly Beat[] = [
     time: '21:12Z',
     caption: ['OPS FLOOR', 'ON WATCH'],
     // The turn count and the win line from the scenario (R6 question 9:
-    // README says every count on screen derives from the data).
-    text: `You are the mission assurance architect. ${DEFAULT_SCENARIO.totalTurns} turns. 2 jobs: keep mission assurance at ${DEFAULT_SCENARIO.winThreshold} or above, and build the Dossier on COLDVEIL. Every move they make teaches you how they work. Your first intel brief is already on your desk.`,
+    // README says every count on screen derives from the data), and since
+    // v1.4 the order cap from the engine: the beat that sends the player
+    // to the board says how many defenses a night can bring online, and
+    // why, before PROCURE says it again.
+    text: `You are the mission assurance architect. ${DEFAULT_SCENARIO.totalTurns} turns. 2 jobs: keep mission assurance at ${DEFAULT_SCENARIO.winThreshold} or above, and build the Dossier on COLDVEIL. Every move they make teaches you how they work. The integration team brings ${NEW_DEFENSES_PER_NIGHT} new defense online a night, so choose what comes first. Your first intel brief is already on your desk.`,
   },
 ]
 

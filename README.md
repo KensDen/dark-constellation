@@ -10,13 +10,14 @@ architecture, defenses included, under budget while an adversary campaign escala
 
 Play it: https://kensden.github.io/dark-constellation/
 
-Status: v1.3.0, released 23 October 2026: the loop pass, six turns against a reacting adversary,
+Status: v1.4.0, released 24 October 2026: one new defense a night, so the order of your
+defenses is the decision. It builds on v1.3.0's loop pass: six turns against a reacting adversary,
 with the title and briefing, the board and PROCURE, the night, the debrief, the Dossier and LIBRARY.
 
 ## How to play
 
-Each turn you read what COLDVEIL could hit tonight, order fleet and defenses, then EXECUTE and
-see what your posture absorbed. The adversary reacts: it takes the move you have covered least.
+Each turn you read what COLDVEIL could hit tonight, order fleet and one new defense, then EXECUTE
+and see what your posture absorbed. The adversary reacts: it takes the move you have covered least.
 Finish turn 6 with the mission assurance score at 70 or higher to win; let it collapse, or run the budget
 below zero at a turn close, and the operation ends early. There is no dominant strategy: every
 defense carries upkeep, repairs come due at the turn close, and coverage, trust, and redundancy
@@ -50,6 +51,9 @@ trade off against each other.
   COLDVEIL is choosing between stay unnamed.
 - **Deployment lead time.** Satellites take two turns to reach orbit. Procure ahead of the threat,
   not into it.
+- **One new defense a night.** The integration team brings one new defense online each night (the
+  incident response retainer counts), so following COLDVEIL's LIKELY TARGET can no longer answer
+  every move at once: which defense comes first is the decision.
 - **Upkeep and WORST CASE.** Every defense needs upkeep in CR each turn, and repairs come out of
   the budget at the turn close before funding arrives. The WORST CASE line on the board's dock
   says, before you EXECUTE, whether a bad night could end the operation; tap it for the sum.
@@ -142,6 +146,7 @@ scenes were drawn in code for this project.
 
 ## Releases
 
+- v1.4.0, 24 October 2026: one new defense a night.
 - v1.3.0, 23 October 2026: the loop pass. Rounds 0 to 5 went live between 9 and 22 October 2026,
   before the tag.
 - v1.2 board rounds, 26 September to 5 October 2026: the cold open, the Daily Op and score

@@ -5,7 +5,7 @@
 
 import { ADVERSARY } from '../config'
 import { briefFree, gnssDenied } from '../engine/reducer'
-import { planFor } from '../engine/rules'
+import { defenseOpen, planFor } from '../engine/rules'
 import { coverage, maiScore } from '../engine/scoring'
 import type { GameState, ThreatEvent, TurnActions } from '../engine/types'
 import { coverageFigure, kindLabels, techniqueLabel, vectorLabels } from './labels'
@@ -30,7 +30,7 @@ import {
   hiddenOrder,
   turns,
   TONIGHT_HIDDEN,
-  TONIGHT_REASON,
+  tonightReason,
   UNIDENTIFIED,
   WILL_HIT,
   WORST_CASE,
@@ -92,7 +92,9 @@ import {
 // move your defenses take the fewest points off.", four words longer on
 // each slot: the worst board reads 150, at the bound. After the engine
 // round the rule is said once a night, on the first drawn slot, and the
-// worst board reads 139 (prepared, turn 5, with a STREAK chip). The
+// worst board reads 139 (prepared, turn 5, with a STREAK chip); 138 since
+// v1.4's one new defense a night, which ends that streak (lazy, turn 5),
+// and 144 once FIRST ORDERS says the cap on turn 1 (v1.4 fresh eyes). The
 // chrome bound stays 40: the board's labels and controls measure 29 at
 // worst. The headline cap stays for the full brief's own lines.
 export const HEADLINE_WORD_MAX = 8
@@ -444,7 +446,7 @@ export function firstInputCopy(state: GameState, actions: TurnActions = NO_ORDER
     if (slot.fixed) out.push(`CONFIRMED · ${confirmedNote(slot.moves[0].ev, slot.moves[0].status)}`)
     else {
       out.push(WILL_HIT(slot.moves.length))
-      if (i === firstDraw) out.push(slot.hidden ? TONIGHT_HIDDEN : TONIGHT_REASON)
+      if (i === firstDraw) out.push(slot.hidden ? TONIGHT_HIDDEN : tonightReason(state.turn, defenseOpen(state, actions)))
       if (!slot.hidden && state.turn <= 2)
         out.push(`${STATUS.exposed.word} ${KEY_EXPOSED}`, `${STATUS.blocked.word} ${KEY_BLOCKED}`, `LIKELY TARGET ${KEY_LIKELY}`, `EITHER ${KEY_EITHER}`)
     }
@@ -476,7 +478,7 @@ export function chromeCopy(state: GameState, actions: TurnActions = NO_ORDERS): 
     BUDGET_LABEL,
     SYSTEM_GEAR_LABEL,
     FULL_BRIEF_OPEN,
-    ...slots.flatMap((slot) => slot.moves.map((m) => (slot.hidden ? REVEAL : tapHint(m.status)))),
+    ...slots.flatMap((slot) => slot.moves.map((m) => (slot.hidden ? REVEAL : tapHint(m.status, defenseOpen(state, actions))))),
     ...(briefFree(state) ? [] : [briefButton(state.scenario.prices.intelBrief, actions.intelBrief)]),
     REMAINING,
     WORST_CASE,

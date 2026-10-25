@@ -249,10 +249,18 @@ describe('the night: the behaviour the source pins could only spell', () => {
     // ASSURED) in the director battery. The night ends on END OF TURN,
     // whose last edition says how the operation ended and offers DEBRIEF
     // in place of BEGIN TURN (brief 5.5 item 6). The prepared line wins on
-    // the anchor seed; its last night orders nothing.
+    // the anchor seed. Its last night ordered nothing until v1.4; with one
+    // new defense a night it has one left to place, which goes in through
+    // PROCURE as a player places it.
     const state = gameAt(DEFAULT_SCENARIO.totalTurns)
     expect(resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn)).status, 'the fixture no longer wins').toBe('won')
     render(state)
+    const last = WIN_SCRIPT[state.turn]?.buyCounters ?? []
+    if (last.length > 0) {
+      await tap(q('[data-action="procure"]'))
+      for (const id of last) await tap(q(`[data-procure-defense="${id}"]`))
+      await tap(q('[data-confirm]'))
+    }
     await tap(q('[data-execute]'))
     for (let i = 0; i < 20 && stage() !== 'end'; i += 1) await tap(way())
     expect(stage(), 'the deciding night never reached END OF TURN').toBe('end')

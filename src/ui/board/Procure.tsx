@@ -11,9 +11,14 @@
 // scrolls to the defenses and highlights the ones that stop it. One price
 // format, "10 CR", with "+2 CR a turn" beside each defense (QC G-101), and
 // the planned spend in words (QC G-102).
+//
+// One new defense a night (v1.4): a line pinned under the header says the
+// rule and its reason before tonight's defense is ordered, and once it is,
+// the reason the others are not available; each of them reads NOT
+// TONIGHT where its price was, so it never reads as unaffordable.
 
 import { useEffect, useRef } from 'react'
-import { briefActive, briefFree, candidatesTonight } from '../../engine/rules'
+import { NEW_DEFENSES_PER_NIGHT, briefActive, briefFree, candidatesTonight, defenseOpen } from '../../engine/rules'
 import { COVERAGE_PER_KIND, assetPrice } from '../../engine/scoring'
 import { DEPLOY_TURNS } from '../../engine/rules'
 import type { AssetKind, CountermeasureId, GameState, ThreatEvent, TurnActions } from '../../engine/types'
@@ -21,7 +26,7 @@ import { knownThreats } from '../../persistence'
 import PixelSprite from '../sprites/PixelSprite'
 import { ICON_CROSS, tinted } from '../sprites/icons'
 import { KIND_LAYER } from './board'
-import { PROCURE_KINDS, PROCURE_LABEL, hiddenOrder, matchNote, shortName, stopsLine, turns } from './boardModel'
+import { NOT_TONIGHT, PROCURE_KINDS, PROCURE_LABEL, defenseOrderIn, defenseRule, defensesPerNight, hiddenOrder, matchNote, shortName, stopsLine, turns } from './boardModel'
 
 export interface ProcureProps {
   state: GameState
@@ -64,6 +69,9 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const afford = (price: number) => remaining - price >= 0
+  // Tonight's room for a new defense, and whether any is left to order.
+  const open = defenseOpen(state, actions)
+  const left = scenario.countermeasures.some((cm) => !state.counters.includes(cm.id))
   return (
     <section role="dialog" aria-label="PROCURE" data-sheet="procure" className="dc-sheet-in absolute inset-x-0 bottom-0 z-30 flex max-h-[85%] flex-col border-t-2 border-dc-line bg-dc-panel px-safe text-dc-ink">
       <div className="flex flex-none items-center justify-between gap-2 border-b border-dc-line px-3 py-1">
@@ -74,6 +82,11 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
           <PixelSprite sprite={tinted(ICON_CROSS, 'ink')} scale={2} name="close" />
         </button>
       </div>
+      {left && (
+        <p id="procure-defense-rule" data-defense-rule={open ? 'open' : 'in'} className={`flex-none border-b border-dc-line px-3 py-1.5 text-xs ${open ? 'text-dc-go' : 'text-dc-ink'}`}>
+          {open ? defenseRule(NEW_DEFENSES_PER_NIGHT) : defenseOrderIn(NEW_DEFENSES_PER_NIGHT)}
+        </p>
+      )}
       {/* What the sheet was opened for stays above the list, which opens
           scrolled to the highlighted item (R6b fresh eyes: the note had
           scrolled off with the top of the list). */}
@@ -136,21 +149,27 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
 
         <p className={SECTION}>
           <span>DEFENSES</span>
-          <span>{upkeep} CR a turn to keep</span>
+          <span>
+            {defensesPerNight(NEW_DEFENSES_PER_NIGHT)} · {upkeep} CR a turn to keep
+          </span>
         </p>
         <ul className="mt-2 grid gap-2" data-procure-defenses>
           {scenario.countermeasures.map((cm) => {
             const owned = state.counters.includes(cm.id)
             const ordered = actions.buyCounters.includes(cm.id)
             const match = !!stops && stops.has(cm.id)
-            const off = owned || (!ordered && !afford(cm.cost))
+            // Not tonight: another new defense is already ordered.
+            const capped = !owned && !ordered && !open
+            const off = owned || capped || (!ordered && !afford(cm.cost))
             return (
               <li key={cm.id}>
                 <button
                   type="button"
                   data-procure-defense={cm.id}
                   data-match={match || undefined}
+                  data-capped={capped || undefined}
                   aria-pressed={owned || ordered}
+                  aria-describedby={capped ? 'procure-defense-rule' : undefined}
                   disabled={off}
                   onClick={() => onToggleCounter(cm.id)}
                   className={`${ITEM} ${ordered ? 'border-dc-go bg-dc-go/10' : match ? 'border-dc-friendly bg-dc-friendly/10' : 'border-dc-line bg-dc-chrome'} ${!owned && off ? 'opacity-50' : ''}`}
@@ -159,6 +178,11 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
                     <span className="text-sm font-semibold leading-tight">{cm.name}</span>
                     {owned ? (
                       <span className="whitespace-nowrap font-mono text-[11px] tracking-wider text-dc-go">OWNED · {upkeep} CR a turn</span>
+                    ) : capped ? (
+                      <span className="flex flex-none flex-col items-end gap-0.5">
+                        <span className="whitespace-nowrap font-mono text-[11px] tracking-wider text-dc-muted">{NOT_TONIGHT}</span>
+                        <span className="whitespace-nowrap font-mono text-[10px] text-dc-muted">{cm.cost} CR</span>
+                      </span>
                     ) : (
                       <Price ordered={ordered} price={cm.cost} extra={`+${upkeep} CR a turn`} />
                     )}

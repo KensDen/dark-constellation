@@ -118,6 +118,10 @@ const SHARE_NOTICE: Record<ShareOutcome, string> = {
 // What a saying is, as an icon and a word (section 4 rule 8).
 // NEXT TIME's verb after "would have", by the stops rule.
 const NEXT_VERB: Record<StopVerb, string> = { stops: 'stopped', blunts: 'blunted', answers: 'answered' }
+// NEXT TIME's night with room for it (v1.4).
+// "a night with no new defense" read as a night none was allowed (v1.4
+// fresh eyes).
+const NO_NEW_DEFENSE = 'a night you ordered no defense'
 
 const SAY_ICON: Record<LearnedHow, { icon: typeof ICON_CHECK; tone: 'go' | 'warn' | 'hostile' }> = {
   held: { icon: ICON_CHECK, tone: 'go' },
@@ -551,15 +555,32 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
           </h3>
           {next ? (
             <p className="mt-1 text-[13px] leading-snug">
+              {/* An order of purchases, one new defense a night (v1.4): the
+                  night to order it on, a night with none or ahead of the one
+                  ordered then. */}
               {next.procured !== null ? (
                 <>
-                  You procured <b>{next.defense}</b> on turn {next.procured}. Procure it by turn {next.turn} and it {next.verb} <b>{next.threat}</b>, which got through
-                  on turn {next.turn}.
+                  You procured <b>{next.defense}</b> on turn {next.procured}. Order it on turn {next.orderOn}
+                  {next.ahead ? (
+                    <>
+                      , ahead of <b>{next.ahead}</b>,
+                    </>
+                  ) : (
+                    `, ${NO_NEW_DEFENSE},`
+                  )}{' '}
+                  and it {next.verb} <b>{next.threat}</b>, which got through on turn {next.turn}.
                 </>
               ) : (
                 <>
-                  Procure <b>{next.defense}</b> ({next.price} CR) by turn {next.turn}. It would have {NEXT_VERB[next.verb]} <b>{next.threat}</b>, which got through on turn{' '}
-                  {next.turn}.
+                  Order <b>{next.defense}</b> ({next.price} CR) on turn {next.orderOn}
+                  {next.ahead ? (
+                    <>
+                      , ahead of <b>{next.ahead}</b>
+                    </>
+                  ) : (
+                    `, ${NO_NEW_DEFENSE}`
+                  )}
+                  . It would have {NEXT_VERB[next.verb]} <b>{next.threat}</b>, which got through on turn {next.turn}.
                 </>
               )}
             </p>

@@ -57,7 +57,7 @@ import SystemSheet from './board/SystemSheet'
 import { conditionsOn, tilesByLayer, turnBudget } from './board/board'
 import { COUNT_SHARE, STRIKE_MS } from './board/strike'
 import { DEFAULT_SCENARIO } from '../content'
-import { briefActive, briefFree, orderCost, resolveTurn } from '../engine/reducer'
+import { briefActive, briefFree, defenseOpen, orderCost, resolveTurn } from '../engine/reducer'
 import { worstCase } from '../engine/worstCase'
 import { defenseBonus } from '../engine/learning'
 import { turnRng } from '../engine/rng'
@@ -768,10 +768,13 @@ export default function Game({
     setActions({ ...actions, intelBrief: !actions.intelBrief })
   }
   // The IR retainer sits in PROCURE with the defenses (critique row M8),
-  // and since v1.3 Round 0 it is ordered like one.
+  // and since v1.3 Round 0 it is ordered like one. One new defense a night
+  // (v1.4): PROCURE disables the rest once one is ordered, and the engine
+  // refuses a second, so this refuses one too rather than queue it.
   const toggleCounter = (id: (typeof scenario.countermeasures)[number]['id']) => {
     const already = actions.buyCounters.includes(id)
     if (!already) {
+      if (!defenseOpen(state, actions)) return play('denied-buzz')
       const price = scenario.countermeasures.find((c) => c.id === id)?.cost ?? 0
       if (!afford(price)) return
     }
@@ -949,6 +952,7 @@ export default function Game({
                   onTag={(tag) => setGlossaryFocus(tag)}
                   pulseMoves={pulseMoves}
                   onReveal={() => openSheet('procure', { intel: true })}
+                  defenseOpen={defenseOpen(state, actions)}
                 />
                 <Orders state={state} actions={actions} onOrder={onOrder} />
               </>

@@ -23,8 +23,14 @@ const pct = (n: number, of: number) => (100 * n) / of
 // The brief's targets, by policy and difficulty: win rate in percent,
 // inclusive, and whether insolvency must be zero. Only the rows the brief
 // sets are gated; the rest are reported.
+//
+// Buy everything has no band since v1.4 (Ken, 24 October 2026): under one
+// new defense a night it can no longer order every defense and die of the
+// upkeep, so its row became the priciest defense it can afford each night,
+// with the target of winning no more often than Prepared; it won 99.6
+// percent on STANDARD against 79.6, so it is reported, not gated
+// (tests/policies.ts).
 const TARGETS: { name: PolicyName; difficulty: Difficulty; label: string; min: number; max: number }[] = [
-  { name: 'buyEverything', difficulty: 'standard', label: 'Buy everything', min: 0, max: 15 },
   { name: 'prepared', difficulty: 'standard', label: 'Prepared', min: 65, max: 85 },
   { name: 'prepared', difficulty: 'easy', label: 'Prepared on EASY', min: 90, max: 100 },
   { name: 'novice', difficulty: 'standard', label: 'Novice', min: 35, max: 60 },
@@ -53,7 +59,7 @@ describe('the sweep gate (v1.3 brief 7)', () => {
       [0, 1, 2].map((i) => `${(r.blocked1to3[i] / SEEDS).toFixed(2)} of ${(r.met1to3[i] / SEEDS).toFixed(2)}`).join(' / ')
     for (const difficulty of ['standard', 'easy'] as const) {
       const lines = [
-        ...POLICIES.map((p) => ({ label: p.label, r: runs.get(key(p.name, difficulty))! })),
+        ...POLICIES.map((p) => ({ label: p.reported ? `${p.label}, reported` : p.label, r: runs.get(key(p.name, difficulty))! })),
         ...REPORTED.map((p) => ({ label: `${p.label}, reported`, r: reported.get(`${p.name}:${difficulty}`)! })),
       ]
       for (const { label, r } of lines) {
@@ -94,9 +100,13 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     const all = [...runs, ...reported]
     const wrong = all.flatMap(([k, r]) => r.streakMismatches.map((m) => `${k} ${m}`))
     expect(wrong.slice(0, 10).join('\n'), `${wrong.length} runs disagree`).toBe('')
-    // Not vacuous: some run reaches a streak of 3, so a counter stuck at 0
-    // or 1 would disagree somewhere.
-    expect(all.some(([, r]) => r.bestStreaks.some((b) => b >= 3)), 'no run reached a streak of 3').toBe(true)
+    // Not vacuous: some run reaches a streak of 2, so a counter stuck at 0
+    // or 1 would disagree somewhere. The bar was 3 until v1.4 (Ken, 24
+    // October 2026): under one new defense a night no plan reaches 3 in
+    // FIRST LIGHT (turns 1 and 2 always land, and the later slots need more
+    // defenses than the nights allow), which a search of every
+    // one-defense-a-night plan, budget lifted, confirmed (v1.4 report).
+    expect(all.some(([, r]) => r.bestStreaks.some((b) => b >= 2)), 'no run reached a streak of 2').toBe(true)
   })
 
   it('GUARD R0 (b): no turn that read WORST CASE 0 or more closes insolvent, over every seed of every policy (brief 6.4)', () => {

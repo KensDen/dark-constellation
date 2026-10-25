@@ -125,6 +125,11 @@ describe('the grade is calibrated (brief 7.2)', () => {
   // roughly the top 5 percent of wins and A roughly the next 20. Measured
   // when the thresholds were set: 664 wins (Prepared 394, Novice 270; the
   // other three policies win none on Standard), S 4.5 percent, A 18.7.
+  // Since v1.4 the reported Buy everything line is left out (Ken, 24
+  // October 2026): it has no target, and its 498 wins on Standard, every
+  // one the same six orders, would set the shares by one fixed order, as
+  // the scripts below would. Measured then: 679 wins (Prepared 398, Novice
+  // 253, Random legal 28), S 4.9 percent, A 19.1.
   //
   // Why the policies, and not the lines v1.2 calibrated on. Brief 6.8 asks
   // for the thresholds to be recalibrated "the way R5a did (S about the top
@@ -148,7 +153,7 @@ describe('the grade is calibrated (brief 7.2)', () => {
     'gives S to about the top 5 percent of wins and A to about the next 20',
     () => {
       const grades: Grade[] = []
-      for (const { policy } of POLICIES) {
+      for (const { policy } of POLICIES.filter((p) => !p.reported)) {
         for (let seed = 1; seed <= 500; seed += 1) {
           const end = play(seed, policy)
           if (end.status === 'won') grades.push(gradeOf(end))

@@ -138,6 +138,24 @@ export function countersAfter(state: Pick<GameState, 'counters'>, actions: Pick<
   return out
 }
 
+// ONE NEW DEFENSE A NIGHT (v1.4, Ken's ruling of 24 October 2026 on the R6b
+// measurement, option A), on both difficulties. Without it, the flag named
+// COLDVEIL's move and the budget bought an answer to every move it could
+// take, so following LIKELY TARGET won every game at S; with it, which
+// defense comes first is the decision. A defense already owned is not new,
+// and the IR retainer is a defense here as it is in PROCURE. resolveTurn
+// refuses orders that add more (src/engine/reducer.ts).
+export const NEW_DEFENSES_PER_NIGHT = 1
+
+// The defenses tonight's orders add, each once, leaving out any owned.
+export function newDefenses(state: Pick<GameState, 'counters'>, actions: Pick<TurnActions, 'buyCounters'>): CountermeasureId[] {
+  return countersAfter(state, actions).filter((id) => !state.counters.includes(id))
+}
+
+// Whether tonight's orders leave room for another new defense.
+export const defenseOpen = (state: Pick<GameState, 'counters'>, actions: Pick<TurnActions, 'buyCounters'>): boolean =>
+  newDefenses(state, actions).length < NEW_DEFENSES_PER_NIGHT
+
 // What tonight's orders cost, at the prices the scenario sets. A defense
 // already owned, or ordered twice, costs nothing more; the brief costs
 // nothing on a night it is free.

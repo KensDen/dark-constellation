@@ -242,17 +242,17 @@ describe('the night at known turns', () => {
     // already carries them.
     const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 1)
     const night = nightOf(before, after)
-    // The prepared script's turn 1 (tests/scripts.ts): a drone and both
-    // turn-1 primaries. The intel brief is free on turn 1 (D2 a) and the
-    // script does not order it, so it costs nothing.
+    // The prepared script's turn 1 (tests/scripts.ts): a drone and
+    // anti-jam, one new defense a night since v1.4 (both turn-1 primaries
+    // before it). The intel brief is free on turn 1 (D2 a) and the script
+    // does not order it, so it costs nothing.
     const s = DEFAULT_SCENARIO
-    const expected =
-      s.countermeasures.find((c) => c.id === 'antiJam')!.cost + s.countermeasures.find((c) => c.id === 'pntAuth')!.cost + s.prices.drone
+    const expected = s.countermeasures.find((c) => c.id === 'antiJam')!.cost + s.prices.drone
     expect(before.credits - night.opening.credits).toBe(expected)
     expect(expected).toBe(after.history[0].ledger.ordered)
-    // Both defenses are active the night they are ordered (brief 6.1), and
-    // the drone is in transit at its fixed ETA.
-    expect(night.opening.counters).toEqual(expect.arrayContaining(['antiJam', 'pntAuth']))
+    // The defense is active the night it is ordered (brief 6.1), and the
+    // drone is in transit at its fixed ETA.
+    expect(night.opening.counters).toEqual(expect.arrayContaining(['antiJam']))
     expect(night.opening.pipeline).toContainEqual({ id: 't1-drone-1', kind: 'drone', etaTurns: DEPLOY_TURNS.drone })
     expect(night.steps.length, 'turn 1 has no move to meet the orders').toBeGreaterThan(0)
     expect(night.steps[0].before.credits, 'the first move met the board before the orders landed').toBe(night.opening.credits)
@@ -265,12 +265,21 @@ describe('the night at known turns', () => {
     // (brief 6.1: defenses are active from the turn they are ordered), so
     // the grain to pin is the opposite one: the defense lands with the
     // orders, the adversary reads it tonight, and the outcome block names
-    // it. The prepared script buys sensor fusion and firmware attestation
-    // on turn 4 (tests/scripts.ts).
-    const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 4)
+    // it. Until v1.4 the prepared script bought sensor fusion and firmware
+    // attestation together on turn 4 of WIN_SEED, and the pin was that
+    // night. With one new defense a night COLDVEIL mostly takes the other
+    // door, so no night of WIN_SEED meets the defense it ordered, and the
+    // night is found instead: the prepared script's first, over seeds 1 to
+    // 100, where a move meets a defense ordered that night.
+    const meets = (t: Turn) =>
+      nightOf(t.before, t.after).steps.some((x) => x.kind === 'threat' && x.def.counters.some((c) => (WIN_SCRIPT[t.before.turn]?.buyCounters ?? []).includes(c)))
+    let found: Turn | undefined
+    for (let seed = 1; seed <= 100 && !found; seed += 1) found = [...playTurns(seed, scripted(WIN_SCRIPT))].find(meets)
+    expect(found, 'no night of the prepared script meets a defense ordered that night').toBeDefined()
+    const { before, after } = found!
     const night = nightOf(before, after)
-    const bought = WIN_SCRIPT[4].buyCounters
-    expect(bought).toContain('sensorFusion')
+    const bought = WIN_SCRIPT[before.turn].buyCounters
+    expect(bought.length).toBeGreaterThan(0)
     for (const id of bought) expect(before.counters, `the fixture owned ${id} already`).not.toContain(id)
     const threats = night.steps.filter((s) => s.kind === 'threat')
     expect(threats.length).toBeGreaterThan(0)

@@ -63,10 +63,10 @@ import {
   type SoundCue,
   type VisualCue,
 } from '../src/cues'
-import { briefFree, candidatesTonight, newGame, orderCost, resolveTurn } from '../src/engine/reducer'
+import { briefFree, candidatesTonight, defenseOpen, newGame, orderCost, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import { METER_CAP, coverage, maiScore } from '../src/engine/scoring'
-import type { AssetKind, Difficulty, GameState, TurnActions } from '../src/engine/types'
+import type { AssetKind, CountermeasureId, Difficulty, GameState, TurnActions } from '../src/engine/types'
 import { callSigns } from '../src/ui/board/board'
 import { shortName } from '../src/ui/board/boardModel'
 import { briefCopy, firstInputWords } from '../src/ui/brief'
@@ -233,10 +233,14 @@ const SEEDS = 24
 // quiet beat came free on turn 1, which scripted no move at all, and in
 // v1.3 it has to be earned (brief 6.2, M2: "a hit lands on turn 1 unless
 // the player blocks both").
+//
+// Under one new defense a night (v1.4) it orders the primary of the first
+// named move it does not cover, and no more: the engine refuses a second.
 function defendsEveryNamedMove(s: GameState): TurnActions {
   let actions: TurnActions = { ...NO_OP }
   if (!briefFree(s) && orderCost(s, { ...actions, intelBrief: true }) <= s.credits) actions = { ...actions, intelBrief: true }
   for (const id of candidatesTonight(s)) {
+    if (!defenseOpen(s, actions)) break
     const primary = s.scenario.events.find((e) => e.id === id)?.counters[0]
     if (!primary || s.counters.includes(primary) || actions.buyCounters.includes(primary)) continue
     const next = { ...actions, buyCounters: [...actions.buyCounters, primary] }
@@ -245,7 +249,7 @@ function defendsEveryNamedMove(s: GameState): TurnActions {
   return actions
 }
 
-// Four lines a new player might plausibly take through their first turns.
+// Five lines a new player might plausibly take through their first turns.
 // The point is that the claim is about a NEW PLAYER, not about a fixture:
 // if the opening only works for someone who buys the right thing, it does
 // not work.
@@ -254,11 +258,20 @@ function defendsEveryNamedMove(s: GameState): TurnActions {
 // ordering the intel brief (free on turn 1, 8 CR after), and the surge
 // line, whose subject is gone, became the careful player above, the one
 // line that can hold a night outright.
+//
+// v1.4: one new defense a night. The careful player who answers tonight's
+// named moves no longer holds two in a row inside three turns, since
+// turn 3's two slots need three defenses by then (anti-jam, encrypted
+// backhaul, link authentication), which only a player who plans the order
+// across nights has. So the fifth line is that player, the prepared
+// script, as the DOM opening drive's prepared player has been since Round
+// 0 (tests/game.dom.spec.tsx).
 const LINES: [string, (s: GameState) => TurnActions][] = [
   ['does nothing', () => NO_OP],
   ['buys a drone first', (s) => (s.turn === 1 ? { ...NO_OP, buyAssets: [{ kind: 'drone' }] } : NO_OP)],
   ['orders the intel brief', () => ({ ...NO_OP, intelBrief: true })],
   ['defends every named move', defendsEveryNamedMove],
+  ['plans the order of its defenses', (s) => WIN_SCRIPT[s.turn] ?? NO_OP],
 ]
 
 function scriptFor(line: (s: GameState) => TurnActions, seed: number, difficulty: Difficulty) {
@@ -486,9 +499,14 @@ describe('the opening: the join itself (Round 7b)', () => {
 })
 
 // The orders that hold turn 1 outright: both of its candidates' primary
-// defenses (brief 6.2, M2), as the prepared script places them. Read off
-// the script rather than spelled, and checked where it is used.
+// defenses (brief 6.2, M2). One new defense a night since v1.4, so no
+// real first night holds both: the start is hand-built to own PNT
+// authentication, and the night orders anti-jam, as the prepared script
+// does (read off the script rather than spelled, and checked where it is
+// used).
+const HELD_FROM_START: CountermeasureId[] = ['pntAuth']
 const HOLDS_TURN_1: TurnActions = a({ buyCounters: WIN_SCRIPT[1].buyCounters })
+const holding = (s: GameState): GameState => ({ ...s, counters: [...HELD_FROM_START] })
 
 type MeterKey = keyof GameState['meters']
 const meterKeys = (s: GameState) => Object.keys(s.meters) as MeterKey[]
@@ -560,17 +578,20 @@ describe('the opening: the night tells the truth (Round 7b)', () => {
     expect(nightCopy.MOVING, 'the overlay EXECUTE opens on').toBe('COLDVEIL IS MOVING')
     let sawFull = false
     let sawHealed = false
-    const lines: [string, Record<number, TurnActions>][] = [
-      ['passive', LOSS_SCRIPT],
+    const lines: [string, Record<number, TurnActions>, (s: GameState) => GameState][] = [
+      ['passive', LOSS_SCRIPT, (s) => s],
       // The passive line never leaves every meter at the cap: each of its
-      // nights lands a move on a meter. The prepared script holds turn 1
-      // outright, so its close has nothing to heal.
-      ['prepared', WIN_SCRIPT],
+      // nights lands a move on a meter. The prepared script from a start
+      // that owns PNT authentication holds turn 1 outright, so its close
+      // has nothing to heal; under one new defense a night (v1.4) no real
+      // first night holds both turn-1 moves, so the start is hand-built.
+      ['prepared', WIN_SCRIPT, (s) => s],
+      ['prepared, PNT authentication held from the start', WIN_SCRIPT, holding],
     ]
-    for (const [name, script] of lines) {
+    for (const [name, script, start] of lines) {
       for (const difficulty of DIFFS) {
         for (let seed = 1; seed <= SEEDS; seed += 1) {
-          let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
+          let state = start(newGame(DEFAULT_SCENARIO, seed, difficulty))
           while (state.status === 'playing') {
             const before = state
             const after = resolveTurn(before, script[before.turn] ?? NO_OP, turnRng(before.seed, before.turn))
@@ -641,7 +662,7 @@ describe('the opening: the night tells the truth (Round 7b)', () => {
     // the engine's state after it is what the meter readouts count up by,
     // so the difference is the report. Turn 1's two moves are held, so
     // nothing lands on a meter before the close.
-    const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
+    const base = holding(newGame(DEFAULT_SCENARIO, 1, 'standard'))
     const offered = DEFAULT_SCENARIO.recovery.base
     expect(offered, 'the scenario now offers 1, so the clamp cannot be observed this way').toBeGreaterThan(1)
     const nearCap: GameState = {
@@ -670,7 +691,7 @@ describe('the opening: the night tells the truth (Round 7b)', () => {
     // v1.2, real play now reaches it, mostly under the IR retainer's 6 (the
     // top-intel line's turn 6 on Standard, seed 1, heals 2, 6 and 6); this
     // is the case at the base recovery, built by hand.
-    const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
+    const base = holding(newGame(DEFAULT_SCENARIO, 1, 'standard'))
     const uneven: GameState = {
       ...base,
       meters: { linkAvailability: 99, dataIntegrity: 90, sensorIntegrity: 100 },
@@ -784,7 +805,7 @@ describe('the opening: the night tells the truth (Round 7b)', () => {
     // hand-built fleet. The starter fleet covers 58 (5800 hundredths: sats
     // 13, RPO sat 8, drones 9, ground station 6, times integrity); each
     // case adds to it.
-    const base = newGame(DEFAULT_SCENARIO, 1, 'standard')
+    const base = holding(newGame(DEFAULT_SCENARIO, 1, 'standard'))
     const { coverageMin, credits } = DEFAULT_SCENARIO.slaBonus
     const layerOf = (kind: AssetKind) => base.assets.find((x) => x.kind === kind)!.layer
     const rpo = base.assets.find((x) => x.kind === 'rpoSat')!.id
@@ -866,8 +887,9 @@ describe('the opening: the night tells the truth (Round 7b)', () => {
     // REPORTS, joined to the state that owns it: BLOCKED with every point
     // blocked, and a HELD block naming the defense that held the move,
     // which has to be one the player owns tonight, one the move's own
-    // counters list, and the one the orders bought for it.
-    const before = newGame(DEFAULT_SCENARIO, 1, 'standard')
+    // counters list, and the one the orders bought for it or the
+    // hand-built start held (one new defense a night, v1.4).
+    const before = holding(newGame(DEFAULT_SCENARIO, 1, 'standard'))
     const after = resolveTurn(before, HOLDS_TURN_1, turnRng(before.seed, before.turn))
     const record = after.history[after.history.length - 1]
     expect(record.events.length, 'turn 1 scripted no move, so nothing was held').toBeGreaterThan(0)
@@ -886,7 +908,7 @@ describe('the opening: the night tells the truth (Round 7b)', () => {
       expect(held, `${step.def.id}: the card names no defense that held it`).toBeDefined()
       expect(after.counters, `${step.def.id}: the card names a defense the player does not own`).toContain(held!.id)
       expect(step.def.counters, `${step.def.id}: the card names a defense that does not answer it`).toContain(held!.id)
-      expect(HOLDS_TURN_1.buyCounters, `${step.def.id}: the card names a defense the orders did not buy`).toContain(held!.id)
+      expect([...HOLDS_TURN_1.buyCounters, ...HELD_FROM_START], `${step.def.id}: the card names a defense the orders did not buy`).toContain(held!.id)
       // The held block names the defense and what the player can now say;
       // the held line itself is the watch officer's report on a block
       // (v1.3 R3 fresh-eyes review), naming the tile it was aimed at.

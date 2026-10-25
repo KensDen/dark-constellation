@@ -69,7 +69,7 @@ import { glossaryEntries } from '../src/ui/reference'
 import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
 import { newOperation } from '../src/ui/session'
 import { DISCLOSURE_WORD_BUDGETS, JOB_FRAMING_HEADING, briefCopy, countWords, disclosureBlocks, jobFramingBlocks } from '../src/ui/brief'
-import { FULL_BRIEF_OPEN, chainLine } from '../src/ui/board/boardModel'
+import { FULL_BRIEF_OPEN, NOT_TONIGHT, chainLine } from '../src/ui/board/boardModel'
 import type { AssetKind, GameState, TurnActions, TurnRecord } from '../src/engine/types'
 import { CONDITION_CUES, MOMENT_CUES, SECTION_6_ROWS, VISUAL_CLASS, outcomeSound, strikeSound, type Moment, type SoundCue } from '../src/cues'
 import { nightOf, resultOf } from '../src/ui/night/nightModel'
@@ -762,6 +762,11 @@ describe('the procurement sounds, asserted by execution', () => {
     const counter = defenseButtons().find((b) => !b.disabled && !pressed(b) && !isRetainer(b))
     expect(counter, 'PROCURE offered no defense').toBeDefined()
     voiced('a countermeasure order', () => click(counter!))
+    // One new defense a night (v1.4): with that one ordered the retainer
+    // reads NOT TONIGHT, so the order is taken back before the retainer's.
+    expect(defenseButtons().find(isRetainer)!.hasAttribute('data-capped'), 'the retainer is open beside a defense ordered tonight').toBe(true)
+    click(counter!)
+    expect(pressed(counter!), 'the second tap did not cancel the defense').toBe(false)
 
     const retainer = defenseButtons().find(isRetainer)
     expect(retainer, 'the retainer is not among the defenses').toBeDefined()
@@ -799,6 +804,14 @@ function affordGate(label: string): string[] {
       expect(b.disabled, `${label}: ${id} arrives too late and is still offered`).toBe(true)
       continue
     }
+    // One new defense a night (v1.4): with tonight's ordered, the others
+    // are off for the cap, whatever their price, and say so instead of a
+    // price (tests/procure-cap.dom.spec.tsx).
+    if (b.hasAttribute('data-capped')) {
+      expect(b.disabled, `${label}: ${id} is capped and still offered`).toBe(true)
+      expect(b.textContent, `${label}: ${id} is capped and does not say so`).toContain(NOT_TONIGHT)
+      continue
+    }
     const price = Number(/\+ ADD · (\d+) CR/.exec(b.textContent ?? '')?.[1] ?? NaN)
     expect(Number.isNaN(price), `${label}: ${id} shows no price`).toBe(false)
     expect(b.disabled, `${label}: ${id} at ${price} CR against ${left} remaining`).toBe(price > left)
@@ -811,8 +824,11 @@ describe('every refusable control answers for its own refusal', () => {
   it('turns off the intel brief the filled budget cannot take, and only what it cannot take', () => {
     // The intel brief was the second refusable control the retired guard
     // covered, after the fleet tiles. Turn 2 since v1.3 Round 0: turn 1's
-    // brief is free, so it has no control to refuse.
-    render(gameAt(2), 'procure')
+    // brief is free, so it has no control to refuse. One new defense a
+    // night since v1.4, so the fill below takes one defense, not every one
+    // it can afford: the budget is set by hand to 80 CR, where the fleet
+    // and that defense leave less than the brief's price.
+    render({ ...gameAt(2), credits: 80 }, 'procure')
     expect(affordGate('nothing ordered'), 'the empty cart already refused something').toEqual([])
     // Fill the budget the way a player does, the fleet first and then the
     // defenses in the order the sheet lists them, until nothing more fits.
@@ -847,17 +863,24 @@ describe('every refusable control answers for its own refusal', () => {
     // one of PROCURE's DEFENSES, and the budget is filled with the other
     // defenses in that section first.
     //
-    // Turn 1, measured: on this line it owns no defense, and the other ten
-    // cost 103 against 100, so the fill stops with less left than the
-    // retainer's price. The refusal is asserted, so this cannot pass on a
-    // budget that never filled.
-    render(gameAt(1), 'brief')
+    // Until v1.4 the budget was filled with the other ten defenses (103 CR
+    // against 100 on turn 1). With one new defense a night a second
+    // defense turns the retainer off for the cap, not the budget, so the
+    // fill is the fleet, which the cap does not touch, on a budget set by
+    // hand to 80 CR: the three assets leave 10, under the retainer's 12.
+    // The refusal is asserted, so this cannot pass on a budget that never
+    // filled.
+    render({ ...gameAt(1), credits: 80 }, 'brief')
     openSheet('PROCURE')
     const retainer = () => defenseButtons().find(isRetainer)!
     expect(retainer(), 'the retainer is not on screen').toBeDefined()
     expect(retainer().disabled, 'the retainer is off before anything was ordered').toBe(false)
-    for (const b of defenseButtons()) if (!b.disabled && !pressed(b) && !isRetainer(b)) click(b)
-    const refused = affordGate('the other defenses ordered')
+    for (const kind of ['sat', 'groundStation', 'drone'] as AssetKind[]) {
+      const k = procureKind(kind)
+      if (!k.disabled) click(k)
+    }
+    expect(retainer().hasAttribute('data-capped'), 'the fill ordered a defense, so the retainer is off for the cap').toBe(false)
+    const refused = affordGate('the fleet ordered')
     expect(refused, `the other defenses never filled the budget (${readRemaining()} CR left)`).toContain('irRetainer')
     click(retainer())
     expect(pressed(retainer()), 'the refused retainer was still ordered').toBe(false)
@@ -1051,9 +1074,18 @@ describe('the operation ends on its last END OF TURN, from the player-s starting
 
   // Drive Game from the board of the deciding turn, through EXECUTE and its
   // night, to the last END OF TURN, untapped. Returns that card, the cards
-  // met on the way and every cue the night played.
-  async function playToEnd(before: GameState) {
+  // met on the way and every cue the night played. The deciding turn's
+  // orders, when the script has any, go in through PROCURE as a player
+  // places them: since v1.4 the prepared script orders a defense on its
+  // last night (one new defense a night left it one to place).
+  async function playToEnd(before: GameState, orders: TurnActions = NO_OP) {
     render(before, 'brief')
+    if (orders.buyCounters.length > 0 || orders.buyAssets.length > 0) {
+      openSheet('PROCURE')
+      for (const id of orders.buyCounters) click(container.querySelector(`button[data-procure-defense="${id}"]`)!)
+      for (const { kind } of orders.buyAssets) click(procureKind(kind))
+      click(container.querySelector('button[data-confirm]')!)
+    }
     const played = spyPlay()
     await tap(executeControl()!)
     expect(inNight(), 'the deciding turn did not enter the night').toBe(true)
@@ -1092,7 +1124,7 @@ describe('the operation ends on its last END OF TURN, from the player-s starting
     // none; together they cannot.
     const { before, after } = finalTurn(WIN_SCRIPT)
     expect(after.status, 'the prepared line lost this campaign').toBe('won')
-    const { end, seen, played } = await playToEnd(before)
+    const { end, seen, played } = await playToEnd(before, WIN_SCRIPT[before.turn])
     expect(end, `a won campaign reached its end with no END OF TURN; met ${seen.join(', ') || 'nothing'}`).not.toBeNull()
     const ending = end!.querySelector('[data-ending]')
     expect(ending?.getAttribute('data-ending'), 'a won campaign showed a losing ending').toBe('won')
@@ -1146,7 +1178,7 @@ describe('the operation ends on its last END OF TURN, from the player-s starting
       fixture,
       'no won campaign in the sweep has a score that differs from link availability, so this cannot discriminate',
     ).not.toBeNull()
-    const { end } = await playToEnd(fixture!.before)
+    const { end } = await playToEnd(fixture!.before, WIN_SCRIPT[fixture!.before.turn])
     expect(end, 'the night never reached the last END OF TURN').not.toBeNull()
     const shown = end!.querySelector('[data-end-score] b')?.textContent
     expect(shown, 'the last END OF TURN shows no score').toBeTruthy()
@@ -2312,10 +2344,13 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     //
     // A block, which Round 7b's quiet beat became in v1.3 R3: a defense
     // that holds a move is a win at a glance and to the ear (brief 5.5),
-    // the shield on the tile with the block's chime. The prepared line
-    // orders the primary defense of both of turn 1's moves and holds that
-    // night on every seed.
-    const turns = await driveOpening(2, { script: WIN_SCRIPT })
+    // the shield on the tile with the block's chime. Until v1.4 the
+    // prepared line ordered the primary defense of both of turn 1's moves
+    // and held that night on every seed; with one new defense a night it
+    // holds turn 3 outright on every seed instead (anti-jam, encrypted
+    // backhaul and link authentication answer both of its slots), so the
+    // drive plays three nights.
+    const turns = await driveOpening(3, { script: WIN_SCRIPT })
     const pairs = new Set<string>()
     for (const t of turns) for (const p of t.pairs) pairs.add(p)
     expect(pairs.size, 'nothing was ever observed painting and sounding together').toBeGreaterThan(1)
@@ -2331,7 +2366,7 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     // assertion above.
     const blockedTargets = new Set<string>()
     let st = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
-    for (let t = 0; t < 2; t += 1) {
+    for (let t = 0; t < 3; t += 1) {
       const next = resolveTurn(st, WIN_SCRIPT[st.turn] ?? NO_OP, turnRng(st.seed, st.turn))
       for (const step of nightOf(st, next).steps) {
         const id = step.ev.targetAssetId

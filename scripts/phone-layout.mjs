@@ -371,12 +371,13 @@ async function checkBoard(b, url, [w, h], reduced, wideFonts) {
 
 // THE NIGHT, DRIVEN (GUARD R3 (fit), and the R3 captures): a seeded
 // operation on STANDARD, replayed through SYSTEM's Replay a seed, with the
-// orders each turn gives. Seed 24 with NIGHT_PLAN meets every card: a hit
-// and its intel card on turn 1, a block on turn 2, a partial and an
-// opportunity on turn 3, the debris call on turn 4, and a won operation
-// into DEBRIEF on turn 6.
-export const NIGHT_SEED = 24
-export const NIGHT_PLAN = { 1: [], 2: ['antiJam', 'pntAuth', 'groundZeroTrust'], 3: ['linkAuth'], 4: [], 5: [], 6: [] }
+// orders each turn gives. Seed 1 with NIGHT_PLAN meets every card: a hit
+// and its intel card on turn 1, two blocks on turn 3, the debris call, a
+// hit and an opportunity on turn 4, two partials on turn 6, and a won
+// operation into DEBRIEF. One new defense a night since v1.4: until then
+// it was seed 24, with three defenses ordered on turn 2.
+export const NIGHT_SEED = 1
+export const NIGHT_PLAN = { 1: ['antiJam'], 2: ['encryptedBackhaul'], 3: ['linkAuth'], 4: ['pntAuth'], 5: ['sensorFusion'], 6: ['groundZeroTrust'] }
 
 const click = (sel) => `(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return false; e.click(); return true })()`
 

@@ -128,8 +128,14 @@ const WORST_HIT_CARD_HEADLINE_AND_LINE = 40
 // 150 since R6 (Decisions Q11): the rule line's true words take 4 more on
 // each of turn 5's two slots; at the bound, with no word to spare. 139 once
 // the engine round's longer defense streaks put a STREAK chip on that board
-// (151) and the rule is said once a night, not on every drawn slot.
-const WORST_BOARD = 139
+// (151) and the rule is said once a night, not on every drawn slot. 138
+// since v1.4: one new defense a night ends the prepared line's long
+// streaks, so its turn 5 lost the STREAK chip, and the worst board is the
+// lazy line's turn 5 on Easy, seed 1, with no orders and the moves named.
+// 144 after the v1.4 fresh-eyes review: FIRST ORDERS says the rule where
+// turn 1 asks for the order ("You get 1 new defense a night.", 6 words),
+// so turn 1 is the worst board again (prepared, Easy, seed 1, no orders).
+const WORST_BOARD = 144
 
 const tokensOf = (text: string) => new Set(text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
 
@@ -607,7 +613,7 @@ describe('reading diet: the intel brief', () => {
       ['the budget label', '{BUDGET_LABEL}', hud],
       [SYSTEM_GEAR_LABEL, `aria-label="${SYSTEM_GEAR_LABEL}"`, hud],
       ['the full brief toggle', 'FULL_BRIEF_OPEN}', tonight],
-      ['the tap hints', '{tapHint(status)}', tonight],
+      ['the tap hints', '{tapHint(status, open)}', tonight],
       ['the reveal hint', '{REVEAL}', tonight],
       ["the brief's price button", '{briefButton(briefPrice', tonight],
       ['REMAINING', '{REMAINING}', dock],

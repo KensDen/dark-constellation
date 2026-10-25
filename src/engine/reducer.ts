@@ -27,6 +27,7 @@ import {
   DEBRIS_LOSS_CHANCE,
   DEPLOY_TURNS,
   METER_DAMAGE_PER_SEVERITY,
+  NEW_DEFENSES_PER_NIGHT,
   RIDESHARE_RESELL_CREDITS,
   briefActive,
   briefFree,
@@ -39,6 +40,7 @@ import {
   hasRetainer,
   lossReviewBill,
   mitigationOf,
+  newDefenses,
   planFor,
   repairBill,
   scaled,
@@ -72,6 +74,7 @@ export {
   DIFFICULTIES,
   LOSS_REVIEW_FACTOR,
   METER_DAMAGE_PER_SEVERITY,
+  NEW_DEFENSES_PER_NIGHT,
   PRIMARY_MITIGATION,
   RIDESHARE_RESELL_CREDITS,
   SECONDARY_MITIGATION,
@@ -80,9 +83,11 @@ export {
   candidatesTonight,
   countersAfter,
   debrisTarget,
+  defenseOpen,
   gnssDenied,
   hasRetainer,
   mitigationOf,
+  newDefenses,
   orderCost,
   scaled,
   type DifficultyProfile,
@@ -142,9 +147,11 @@ function learn(state: GameState, counter: CountermeasureId, threat: string, how:
 // once (the adversary reads it tonight), an asset joins the pipeline, and
 // the brief costs its price unless it is free tonight. Throws when the
 // orders exceed the budget, which the UI never sends (EXECUTE is disabled
-// while REMAINING is below zero).
+// while REMAINING is below zero), and when they add more than one new
+// defense (NEW_DEFENSES_PER_NIGHT), which PROCURE never queues.
 function applyOrders(state: GameState, actions: TurnActions, purchases: string[]): number {
   const { scenario } = state
+  if (newDefenses(state, actions).length > NEW_DEFENSES_PER_NIGHT) throw new Error('invalid actions: one new defense a night')
   let spent = 0
   if (actions.intelBrief && !briefFree(state)) {
     spent += scenario.prices.intelBrief

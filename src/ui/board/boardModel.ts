@@ -12,7 +12,7 @@
 import { adversaryPicks } from '../../engine/adversary'
 import { worstCase } from '../../engine/worstCase'
 import { COVERAGE_PER_KIND, coverage } from '../../engine/scoring'
-import { CHAIN_BONUS, PRIMARY_MITIGATION, SECONDARY_MITIGATION, briefActive, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, planFor } from '../../engine/rules'
+import { CHAIN_BONUS, NEW_DEFENSES_PER_NIGHT, PRIMARY_MITIGATION, SECONDARY_MITIGATION, briefActive, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, planFor } from '../../engine/rules'
 import { answerKey } from '../../engine/learning'
 import type { ActiveCondition, AssetKind, Countermeasure, CountermeasureId, GameState, ThreatEvent, TurnActions } from '../../engine/types'
 import type { WorstCase } from '../../engine/worstCase'
@@ -146,6 +146,12 @@ export const WILL_HIT = (n: number) => `${WILL_HIT_LEAD}${willHitCount(n)}`
 // the defenses take the fewest points off, so a BLOCKED move can tie a
 // PARTLY BLOCKED one when both take the same off.
 export const TONIGHT_REASON = 'They go for the move your defenses take the fewest points off.'
+// Said after the rule once tonight's new defense is ordered (v1.4 fresh
+// eyes: an exposed move's "details ›" changed with nothing to say why).
+// Not on turn 1, where FIRST ORDERS says the rule and ticks the order, and
+// where the longer line would push the board past 375x667.
+export const DEFENSE_IN = "Tonight's new defense is in."
+export const tonightReason = (turn: number, open: boolean) => (open || turn === 1 ? TONIGHT_REASON : `${TONIGHT_REASON} ${DEFENSE_IN}`)
 export const TONIGHT_HIDDEN = 'The names are hidden. An intel brief reveals them.'
 // EXPOSED says what an exposed move does if it is the one COLDVEIL takes,
 // not that it will land (R6b fresh eyes: "will hit" beside both moves
@@ -158,7 +164,10 @@ export const confirmedNote = (ev: ThreatEvent, status: MoveStatus) =>
   ev.effect.special !== 'debrisStrike' ? 'lands tonight' : status === 'answered' ? 'your call; burn fuel is free' : 'your call when it arrives'
 export const INTEL_ROW = { none: 'Order an intel brief to name the moves.', ordered: 'Brief ordered. Names shown above.' } as const
 export const UNIDENTIFIED = 'Unidentified'
-export const tapHint = (status: MoveStatus) => (status === 'blocked' || status === 'answered' ? 'details ›' : 'defend ›')
+// "defend ›" only while tonight can still take a new defense (v1.4: one a
+// night); once it is ordered, a tap opens the same PROCURE, where the rest
+// read NOT TONIGHT, so it says "details ›".
+export const tapHint = (status: MoveStatus, open = true) => (status === 'blocked' || status === 'answered' || !open ? 'details ›' : 'defend ›')
 export const REVEAL = 'reveal ›'
 // A condition's turns left, one meaning everywhere (v1.3 R6, G-103; brief
 // 6.5): the nights it will still press after the one being played. The
@@ -193,7 +202,8 @@ export function firstOrders(state: GameState, actions: TurnActions): OrderLine[]
   const { coverageMin, credits } = scenario.slaBonus
   const lifts = coverage(state.assets) < coverageMin && coverage(state.assets) + COVERAGE_PER_KIND.drone >= coverageMin
   return [
-    { id: 'defense', text: 'Tap a red move above and order a defense that blocks it.', done: defended },
+    // The rule where turn 1 asks for the order (v1.4 fresh eyes).
+    { id: 'defense', text: `Tap a red move above and order a defense that blocks it. You get ${NEW_DEFENSES_PER_NIGHT} new defense a night.`, done: defended },
     {
       id: 'drone',
       text: `Order an ISR (surveillance) drone, ${scenario.prices.drone} CR. It arrives tomorrow${lifts ? `, and the coverage bonus pays +${credits} CR a turn` : ''}.`,
@@ -255,6 +265,23 @@ export type { WorstCase }
 // PROCURE (brief 5.4).
 // What PROCURE offers in ASSETS (brief 5.4): the ISR drone, the smallsat
 // and the ground station. The RPO sat stays on the starter manifest only.
+// One new defense a night (v1.4), as PROCURE says it: the rule before
+// tonight's order, with its reason, and the reason the rest are not
+// available once it is in. Numerals, by section 4 rule 6.
+// The v1.4 fresh-eyes review: the reason read as a lead time ("a night to
+// bring online"), the line read as covering the assets, and once the order
+// was in nothing said why or how to change it. Its re-run: "fleet" named
+// nothing on the sheet, whose section is ASSETS, and did not say why the
+// team's limit spares them.
+const newDefense = (n: number) => `${n} new defense${n === 1 ? '' : 's'}`
+export const defenseRule = (n: number) =>
+  `${newDefense(n)} tonight: the integration team can bring only ${n} online a night. Assets arrive ready and do not count.`
+export const defenseOrderIn = (n: number) =>
+  `Tonight's order is in. ${newDefense(n)} a night: the integration team is booked until tomorrow. To swap, cancel it first.`
+export const NOT_TONIGHT = 'NOT TONIGHT'
+// The DEFENSES heading's note, beside the upkeep.
+export const defensesPerNight = (n: number) => `${n} a night`
+
 export const PROCURE_KINDS: AssetKind[] = ['drone', 'sat', 'groundStation']
 export const PROCURE_LABEL: Record<AssetKind, string> = { drone: 'ISR DRONE', sat: 'SMALLSAT', groundStation: 'GROUND STATION', rpoSat: 'RPO SAT' }
 

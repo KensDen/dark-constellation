@@ -13,7 +13,7 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { adversaryPicks } from '../src/engine/adversary'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
-import { chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, orderCost, planFor } from '../src/engine/rules'
+import { NEW_DEFENSES_PER_NIGHT, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, orderCost, planFor } from '../src/engine/rules'
 import type { CountermeasureId, GameState, TurnActions } from '../src/engine/types'
 import { worstCase } from '../src/engine/worstCase'
 import { prepared, preparedFollow, type Policy } from './policies'
@@ -44,14 +44,22 @@ const affordable = (state: GameState, actions: TurnActions) => state.credits - o
 const bought = (state: GameState, actions: TurnActions) => countersAfter(state, actions).filter((id) => !state.counters.includes(id))
 
 describe('the sweep policies do what their comments say (R0b)', () => {
-  it('the Prepared line that follows the flag leaves no flagged move it could still answer', () => {
-    // After its orders, every move COLDVEIL is flagged to take on a slot is
-    // blocked, has no listed defense left, or would take WORST CASE below 0
-    // with the next one: the flag has nowhere left to move that the budget
-    // allows the player to follow.
+  it('the Prepared line that follows the flag leaves no flagged move it could still answer, until the cap', () => {
+    // After its orders, either tonight's one new defense is ordered (v1.4,
+    // NEW_DEFENSES_PER_NIGHT), or every move COLDVEIL is flagged to take on
+    // a slot is blocked, has no listed defense left, or would take WORST
+    // CASE below 0 with the next one: the flag has nowhere left to move
+    // that the budget and the cap allow the player to follow.
     const open: string[] = []
     let followed = 0
     for (const { state, actions, where } of decisions(preparedFollow)) {
+      expect(bought(state, actions).length, `${where}: more than one new defense`).toBeLessThanOrEqual(NEW_DEFENSES_PER_NIGHT)
+      // Tonight's defense is in: the flag it moved is the one the cap
+      // leaves for tomorrow.
+      if (bought(state, actions).length === NEW_DEFENSES_PER_NIGHT) {
+        followed += 1
+        continue
+      }
       const counters = countersAfter(state, actions)
       for (const [i, read] of adversaryPicks(state, counters).entries()) {
         for (const id of read.least) {
@@ -61,12 +69,12 @@ describe('the sweep policies do what their comments say (R0b)', () => {
           if (affordable(state, { ...actions, buyCounters: [...actions.buyCounters, next] })) open.push(`${where} slot ${i + 1}: ${id} still open, ${next} affordable`)
         }
       }
-      // A slot answered more than once: the flag moved and was followed.
-      const firstReads = adversaryPicks(state, state.counters)
-      if (bought(state, actions).length > firstReads.filter((r) => !r.fixed).length) followed += 1
     }
     expect(open.slice(0, 10).join('\n'), `${open.length} flags left unanswered`).toBe('')
-    expect(followed, 'the line never answered a slot more than once, so it never followed a moved flag').toBeGreaterThan(SEEDS)
+    // Not vacuous: on most of its nights the line orders tonight's defense.
+    // Before the cap it answered a slot more than once on over SEEDS of
+    // them, following the flag as it moved; the cap ends that at one.
+    expect(followed, 'the line never ordered a defense, so it never followed the flag').toBeGreaterThan(SEEDS)
   })
 
   it('the gated Prepared line answers each slot once, so the flag it leaves moves to an open door', () => {
@@ -85,6 +93,7 @@ describe('the sweep policies do what their comments say (R0b)', () => {
         (slot) => !(slot.fixed && eventById(state.scenario, slot.fixed).effect.special === 'debrisStrike'),
       ).length
       expect(bought(state, actions).length, `${where}: more than one defense a slot`).toBeLessThanOrEqual(answerable)
+      expect(bought(state, actions).length, `${where}: more than one new defense`).toBeLessThanOrEqual(NEW_DEFENSES_PER_NIGHT)
       const counters = countersAfter(state, actions)
       const open = adversaryPicks(state, counters).some((read) =>
         read.least.some((id) => !blocked(state, id, counters) && eventById(state.scenario, id).counters.some((c) => !counters.includes(c))),

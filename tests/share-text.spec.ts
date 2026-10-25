@@ -20,8 +20,8 @@
 // last turn, so their T6 cannot tell "the turn the campaign ended on"
 // (src/ui/reportCard.ts) from the scenario's length. So an early ending is
 // pinned too: a run of the same daily seed that goes insolvent before
-// turn 6 (randomPolicy(1) of tests/scripts.ts: lost at turn 4, four
-// squares). A gradeLine that printed totalTurns, or a strip padded to
+// turn 6 (randomPolicy(1) of tests/scripts.ts: lost at turn 5, five
+// squares, since v1.4; turn 4 before). A gradeLine that printed totalTurns, or a strip padded to
 // it, fails that pin and the square check below.
 //
 // Re-pinned for v1.3 Round 3, which retired MAI from player screens (v1.3
@@ -37,6 +37,12 @@
 // v1.3 Round 7 (R5's question 4): the win line is named, "score 55.5, win
 // line 70", since "/ 70" read as "out of 70" beside the HUD's "/ 100"; the
 // pins below moved by that and nothing else.
+//
+// v1.4 (one new defense a night): the share text's form did not change;
+// the games did. WIN_SCRIPT orders one defense a night, and wins this
+// Daily seed at C (an S before) and 20260712 in free play at B (an S);
+// randomPolicy(1) orders at most one, and goes insolvent at turn 5 (turn 4
+// before), five squares. LOSS_SCRIPT orders nothing, so its pins stay.
 //
 // v1.3 Round 4 (M37; QC G-056 and G-057): free play takes the Daily Op's
 // four lines. Its longer text said "survived 6 of 6 turns" on a loss, put
@@ -82,8 +88,8 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: op.daily!.n, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade S · won T6 · score 85.2, win line 70',
-        '\u{1F7E9}\u{1F7E9}\u{1F7E9}\u{1F7E8}\u{1F7E8}\u{1F7E5}',
+        'Grade C · won T6 · score 71.9, win line 70',
+        '\u{1F7E9}\u{1F7E8}\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )
@@ -103,15 +109,15 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
 
   it('names the turn the campaign ended on, not the scenario\'s length, for a run that ended early', () => {
     const end = play(startDailyOp(DAY).state, EARLY_END)
-    // The run really did end early, and to insolvency (an F), so T4 below
-    // is the turn it ended on and four squares are four turns played.
+    // The run really did end early, and to insolvency (an F), so T5 below
+    // is the turn it ended on and five squares are five turns played.
     expect(end.lossReason).toBe('insolvency')
     expect(end.history.length, 'the run did not end early').toBeLessThan(end.scenario.totalTurns)
     expect(shareText(end, { n: 1, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade F · lost T4 · score 78.0, win line 70',
-        '\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
+        'Grade F · lost T5 · score 78.2, win line 70',
+        '\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E9}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )
@@ -144,8 +150,8 @@ describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
     expect(shareText(end)).toBe(
       [
         'DARK CONSTELLATION · Practice · Standard',
-        'Grade S · won T6 · score 86.2, win line 70',
-        '\u{1F7E9}\u{1F7E9}\u{1F7E9}\u{1F7E8}\u{1F7E8}\u{1F7E8}',
+        'Grade B · won T6 · score 73.1, win line 70',
+        '\u{1F7E9}\u{1F7E8}\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E8}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )

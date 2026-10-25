@@ -7,19 +7,31 @@
 // WORST CASE exactly as a player would. Any randomness comes from a
 // stream seeded by the game's seed and the turn, so a sweep replays.
 //
+// Every line plans under the engine's cap, one new defense a night (v1.4,
+// NEW_DEFENSES_PER_NIGHT in src/engine/rules.ts): each chooses its one
+// defense itself, and nothing cuts its orders afterwards (the R6b
+// measurement cut them after the fact, and the record's streak guard
+// failed under it). resolveTurn refuses a night with more, so a line that
+// broke the cap would stop the sweep rather than move it quietly.
+//
 // What each one does, as the brief's table says it, and where the brief
 // left a choice, the choice made:
-//   - BUY EVERYTHING: every defense and the IR retainer as soon as
-//     affordable, then assets, cheapest first, until nothing more fits.
-//     It burns on the debris night. It never reads WORST CASE.
+//   - BUY EVERYTHING: under the cap, as Ken redefined the row on 24
+//     October 2026, the priciest defense it can afford each night, the IR
+//     retainer among them (ties in the deck's order), and nothing else.
+//     Before the cap it ordered every defense and then assets to the
+//     bottom of the budget; spending the rest on assets under the cap goes
+//     insolvent in every run, which the v1.4 report records beside it. It
+//     burns on the debris night. It never reads WORST CASE.
 //   - PREPARED: reads TONIGHT, which names the moves only under the intel
 //     brief, so it orders the brief on every night it is not free (while
 //     WORST CASE stays at 0 or more). A drone on turn 1, then, slot by
 //     slot, the primary defense (or the next one listed) of the move
 //     COLDVEIL will take (LIKELY TARGET, or the first of EITHER) while that
-//     move is not already blocked and WORST CASE stays at 0 or more, one
-//     order a slot (see preparedLine for the R0b finding, and the line that
-//     follows the flag, which the sweep reports beside it). It
+//     move is not already blocked and WORST CASE stays at 0 or more, on the
+//     first slot that needs one: one order a night under the cap (see
+//     preparedLine for the R0b finding, and the line that follows the
+//     flag, which the sweep reports beside it). It
 //     burns on the debris night when the fuel keeps WORST CASE at 0 or
 //     more, and holds otherwise; it never buys the SSA subscription, since
 //     at 10 CR and 2 CR a turn to keep it costs more than the one burn it
@@ -30,12 +42,13 @@
 //     turn while WORST CASE allows. A coin decides the debris call.
 //   - RANDOM LEGAL: each defense, asset kind and the brief offered in a
 //     random order, each taken on a coin of 3 in 10 while REMAINING stays
-//     at 0 or more. A coin decides the debris call.
+//     at 0 or more and, for a defense, while tonight has no new one yet. A
+//     coin decides the debris call.
 //   - NOTHING: orders nothing, and holds.
 
 import { adversaryPicks } from '../src/engine/adversary'
 import { mulberry32, type Rng } from '../src/engine/rng'
-import { briefFree, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, orderCost, planFor } from '../src/engine/rules'
+import { briefFree, chainBonusOf, countersAfter, defenseOpen, eventById, gnssDenied, mitigationOf, orderCost, planFor } from '../src/engine/rules'
 import { worstCase } from '../src/engine/worstCase'
 import type { AssetKind, CountermeasureId, GameState, TurnActions } from '../src/engine/types'
 
@@ -62,17 +75,10 @@ export const nothing: Policy = () => NO_ORDERS
 
 export const buyEverything: Policy = (state) => {
   let actions: TurnActions = { ...NO_ORDERS }
-  for (const cm of state.scenario.countermeasures) {
-    if (state.counters.includes(cm.id)) continue
-    const next = withCounter(actions, cm.id)
-    if (fits(state, next)) actions = next
-  }
-  const byPrice = [...KINDS].sort((x, y) => state.scenario.prices[x] - state.scenario.prices[y])
-  for (let guard = 0; guard < 20; guard += 1) {
-    const kind = byPrice.find((k) => fits(state, withAsset(actions, k)))
-    if (!kind) break
-    actions = withAsset(actions, kind)
-  }
+  const priciest = state.scenario.countermeasures
+    .filter((cm) => !state.counters.includes(cm.id) && fits(state, withCounter(actions, cm.id)))
+    .reduce<(typeof state.scenario.countermeasures)[number] | undefined>((best, cm) => (!best || cm.cost > best.cost ? cm : best), undefined)
+  if (priciest) actions = withCounter(actions, priciest.id)
   return debrisTonight(state) ? { ...actions, debris: 'burn' } : actions
 }
 
@@ -99,6 +105,9 @@ function nextDefenseFor(eventId: string, state: GameState, counters: readonly Co
 // 500 S on both difficulties, best streak 4 to 7, which is outside the
 // section 7 band of 65 to 85. Which line is the gate's Prepared is Ken's
 // ruling; until then the gate keeps 'once' and the sweep reports 'follow'.
+// Under one new defense a night (v1.4) the flag can be answered once a
+// night, so the two lines meet: both win 79.6 percent on STANDARD with the
+// same grades (S 0, A 46), and 100 percent on EASY.
 function preparedLine(answer: 'once' | 'follow'): Policy {
   return (state) => {
     // TONIGHT names the moves only under the intel brief (brief 5.3), so a
@@ -111,7 +120,9 @@ function preparedLine(answer: 'once' | 'follow'): Policy {
       return ev.effect.special === 'debrisStrike' || ev.baseSeverity + chainBonusOf(ev, denied) - mitigationOf(ev, counters) <= 0
     }
     const reads = adversaryPicks(state, countersAfter(state, actions))
-    for (let i = 0; i < reads.length; i += 1) {
+    // One new defense a night: the first slot that takes an order takes
+    // tonight's, on either line.
+    for (let i = 0; i < reads.length && defenseOpen(state, actions); i += 1) {
       if (answer === 'once') {
         // One defense a slot: the primary (or the next one listed) of the
         // move COLDVEIL will take there, the LIKELY TARGET or the first of
@@ -125,8 +136,9 @@ function preparedLine(answer: 'once' | 'follow'): Policy {
         continue
       }
       // Follow the flag: the LIKELY TARGET, or the first open move of
-      // EITHER, re-read after every order, until none is left to answer.
-      for (let order = 0; order < state.scenario.countermeasures.length; order += 1) {
+      // EITHER, re-read after every order, until none is left to answer
+      // or tonight's one new defense is ordered.
+      for (let order = 0; order < state.scenario.countermeasures.length && defenseOpen(state, actions); order += 1) {
         const counters = countersAfter(state, actions)
         const target = adversaryPicks(state, counters)[i].least.find((id) => !blocked(id, counters) && nextDefenseFor(id, state, counters))
         if (!target) break
@@ -179,6 +191,7 @@ export const randomLegal: Policy = (state) => {
   }
   for (const option of options) {
     if (!r.chance(0.3)) continue
+    if (option.kind === 'counter' && !defenseOpen(state, actions)) continue
     const next =
       option.kind === 'counter' ? withCounter(actions, option.id) : option.kind === 'asset' ? withAsset(actions, option.asset) : { ...actions, intelBrief: true }
     if (fits(state, next)) actions = next
@@ -186,8 +199,17 @@ export const randomLegal: Policy = (state) => {
   return debrisTonight(state) ? { ...actions, debris: r.chance(0.5) ? 'burn' : 'hold' } : actions
 }
 
-export const POLICIES: readonly { name: PolicyName; label: string; policy: Policy }[] = [
-  { name: 'buyEverything', label: 'Buy everything', policy: buyEverything },
+// Buy everything is played and reported with no target since v1.4 (Ken,
+// 24 October 2026): under its new definition it wins 99.6 percent on
+// STANDARD, above Prepared, and as one fixed order (sensor fusion, firmware
+// attestation, ground zero trust, the IR retainer, anti-jam, PNT
+// authentication) that wins the same on v1.3.0, so the cap does not
+// create it; the v1.4 backlog carries it for a balance pass. `reported`
+// keeps it out of the grade calibration's population (tests/grade.spec.ts)
+// and marks it in the sweep's table, and every suite that walks these
+// lines still plays it.
+export const POLICIES: readonly { name: PolicyName; label: string; policy: Policy; reported?: true }[] = [
+  { name: 'buyEverything', label: 'Buy everything', policy: buyEverything, reported: true },
   { name: 'prepared', label: 'Prepared', policy: prepared },
   { name: 'novice', label: 'Novice', policy: novice },
   { name: 'randomLegal', label: 'Random legal', policy: randomLegal },
