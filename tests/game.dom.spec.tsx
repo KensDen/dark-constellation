@@ -69,8 +69,8 @@ import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
 import { glossaryEntries } from '../src/ui/reference'
 import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
 import { newOperation } from '../src/ui/session'
-import { DISCLOSURE_WORD_BUDGETS, JOB_FRAMING_HEADING, briefCopy, countWords, disclosureBlocks, jobFramingBlocks } from '../src/ui/brief'
-import { FULL_BRIEF_OPEN, chainLine } from '../src/ui/board/boardModel'
+import { DISCLOSURE_WORD_BUDGETS, briefCopy, countWords, coverageLine, fullBriefCopy, helpCopy } from '../src/ui/brief'
+import { BRIEF_LABEL, HELP_LABEL, INTEL_ROW, chainLine } from '../src/ui/board/boardModel'
 import type { AssetKind, GameState, TurnActions, TurnRecord } from '../src/engine/types'
 import { CONDITION_CUES, MOMENT_CUES, SECTION_6_ROWS, VISUAL_CLASS, outcomeSound, strikeSound, type Moment, type SoundCue } from '../src/cues'
 import { nightOf, resultOf } from '../src/ui/night/nightModel'
@@ -313,15 +313,16 @@ const intelButton = () => container.querySelector('button[data-procure-intel]') 
 const isRetainer = (b: HTMLButtonElement) => b.getAttribute('data-procure-defense') === 'irRetainer'
 const pressed = (b: Element) => b.getAttribute('aria-pressed') === 'true'
 
-// The full brief behind the TONIGHT card's toggle, opened the way a player
-// opens it. It is its own chunk since v1.3 R2, so the open waits for the
-// import to settle, as the Glossary's does below.
+// The full brief's sheet, opened the way a player opens it: its icon on
+// TONIGHT's header (v1.6 R3, Ken's playtest item 6). Its own chunk since
+// v1.3 R2, so the open waits for the import to settle, as the Glossary's
+// does below.
 async function openFullBrief() {
-  const toggle = container.querySelector('button[data-full-brief]')
-  expect(toggle, 'the TONIGHT card has no full brief toggle').not.toBeNull()
-  if (toggle!.getAttribute('aria-expanded') !== 'true') click(toggle!)
+  const key = container.querySelector('button[data-full-brief]')
+  expect(key, 'the TONIGHT card has no full brief key').not.toBeNull()
+  if (key!.getAttribute('aria-expanded') !== 'true') click(key!)
   await settle()
-  expect(container.querySelector('div[data-brief-scroll]'), 'the full brief did not open').not.toBeNull()
+  expect(container.querySelector('[data-sheet="brief"]'), 'the full brief did not open').not.toBeNull()
 }
 
 // THE COMMIT AND THE NIGHT (v1.3 Round 3, brief 5.5). EXECUTE is a plain
@@ -751,7 +752,7 @@ describe('the procurement sounds, asserted by execution', () => {
     expect(intelButton(), 'the ordered brief is still a control').toBeNull()
     expect(container.querySelector('[data-procure-intel][data-locked]')?.textContent, 'the ordered brief does not say it is locked').toContain('LOCKED')
     expect(container.querySelector('button[data-brief-order]'), 'the TONIGHT card still offers the ordered brief').toBeNull()
-    expect(container.querySelector('[data-brief-locked]')?.textContent).toBe(`${DEFAULT_SCENARIO.prices.intelBrief} CR · LOCKED`)
+    expect(container.querySelector('[data-brief-locked]')?.textContent).toBe(`INTEL BRIEF · ${DEFAULT_SCENARIO.prices.intelBrief} CR · LOCKED`)
 
     // Call sites four and five lived in the HARDENING phase, which the
     // first render never reached. Two of the five were therefore still
@@ -904,7 +905,9 @@ describe('the chrome the reading budget counts, asserted by execution', () => {
   // FIRST ORDERS, SECOND ORDERS and a paid brief night with its intel row.
   const missingOn = (state: GameState, lines: string[]) => {
     render(state, 'brief')
-    const text = container.textContent ?? ''
+    // An icon control says its name to assistive tech alone (TONIGHT's
+    // "?" and full brief keys, v1.6 R3), so its accessible name counts.
+    const text = [container.textContent ?? '', ...[...container.querySelectorAll('[aria-label]')].map((e) => e.getAttribute('aria-label'))].join(' ')
     return lines.filter((line) => !text.includes(line))
   }
 
@@ -930,8 +933,10 @@ describe('the chrome the reading budget counts, asserted by execution', () => {
     // board: the HUD's two labels and SYSTEM, the full brief's toggle, one
     // "reveal ›" for each of the night's five unnamed moves, the brief's
     // price button, and the dock's REMAINING, WORST CASE, PROCURE and
-    // EXECUTE.
-    expect(chromeCopy(gameAt(3)).length, 'the chrome list changed size without this guard noticing').toBe(14)
+    // EXECUTE. Eleven since v1.6 R3 (Ken's playtest items 1 and 6): the
+    // toggle and the five "reveal ›" left, and COLDVEIL's chip, the "?"
+    // and the full brief's icon joined TONIGHT's header.
+    expect(chromeCopy(gameAt(3)).length, 'the chrome list changed size without this guard noticing').toBe(11)
   })
 
   it('renders every reading line the first-input budget counts', () => {
@@ -1605,9 +1610,9 @@ describe('the technique tag opens the GLOSSARY entry', () => {
     // the save-code paste box is on the start screen rather than this one,
     // so both would have failed for reasons unrelated to what is asserted.
     render(turnWithATag(), 'brief')
-    await openFullBrief()
-    // Copy save code lives in the SYSTEM sheet since R1b; the sheet stays
-    // open across the glossary round trip, like the cart does.
+    // Copy save code lives in the SYSTEM sheet since R1b. The full brief is
+    // a sheet too since v1.6 R3, and one sheet stands at a time, so SYSTEM
+    // goes first and the brief opens after it, over the notice.
     click(container.querySelector('button[aria-label="System"]')!)
     const exportButton = byText(/copy save code/i)
     expect(exportButton, 'the brief screen has no export control, so this asserts nothing').toBeDefined()
@@ -1616,6 +1621,7 @@ describe('the technique tag opens the GLOSSARY entry', () => {
     })
     const noticeBefore = (container.textContent ?? '').match(/Save code copied[^|]*|Copy failed[^|]*/)
     expect(noticeBefore, 'no notice appeared, so its survival proves nothing').not.toBeNull()
+    await openFullBrief()
 
     click(tag()!)
     expect(overlay()).not.toBeNull()
@@ -1628,7 +1634,9 @@ describe('the technique tag opens the GLOSSARY entry', () => {
     expect(
       container.textContent,
       'opening a glossary entry threw away state the component was holding',
-    ).toContain(noticeBefore![0].trim())
+      // Its head: read off the SYSTEM sheet, the match runs on into the
+      // sheet's own lines, and the board shows the notice alone.
+    ).toContain(noticeBefore![0].trim().slice(0, 40))
     // The board has no "intel brief" heading; the TONIGHT card is the
     // landmark the brief lives under since v1.3 R2, and its full brief is
     // still open where the player left it.
@@ -2399,8 +2407,8 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
   // (brief 5.1): the framing now renders only in the full brief, which the
   // guards below read.
 
-  // THE DISCLOSURES SINCE v1.3 R2. The deciding board carries one: the
-  // full brief behind the TONIGHT card's toggle. "What these numbers mean"
+  // THE DISCLOSURES SINCE v1.3 R2. The deciding board carries one: since
+  // v1.6 R3 TONIGHT's "?" (the full brief became a sheet). "What these numbers mean"
   // and "Posture detail" left with the v1.2 board's reference and nothing
   // replaces them, and the BLACKOUT CHAIN line is no longer a disclosure:
   // it is a line on the TONIGHT card, counted by the reading budget.
@@ -2473,8 +2481,15 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     for (const [label, st] of states) {
       render(st, 'brief')
       for (const d of container.querySelectorAll('details')) measure(label, d.querySelector('summary')?.textContent?.trim() ?? '', d)
+      // TONIGHT's "?" (v1.6 R3), opened where it is closed.
+      const help = container.querySelector('button[data-tonight-help]')!
+      if (help.getAttribute('data-tonight-help') === 'closed') click(help)
+      measure(label, help.getAttribute('aria-label')!, container.querySelector('[data-tonight-help-panel]')!)
+      // The full brief is a sheet now, not a disclosure in the card; it
+      // renders exactly what fullBriefCopy builds.
       await openFullBrief()
-      measure(label, FULL_BRIEF_OPEN, container.querySelector('div[data-brief-scroll]')!)
+      const sheet = fullBriefCopy(st)
+      expect(container.querySelector('[data-brief-coverage]')!.textContent, `${label}: the sheet's coverage line`).toBe(sheet.coverage)
       // The chain line, where it renders, is the TONIGHT card's and the
       // reading budget's: the card prints exactly the line firstInputCopy
       // counts.
@@ -2494,91 +2509,51 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     expect(stale.sort(), 'a budget bounds a disclosure the brief screen never rendered').toEqual([...RETIRED_DISCLOSURES].sort())
   })
 
-  it('puts a disclosure on the brief screen that adds to what is above it', async () => {
-    // Item 2, from the player's seat rather than from briefCopy. The panel
-    // used to expand into a longer copy of its own summary; on three of
-    // four intel levels it expanded into a SHORTER one.
-    render(newGame(DEFAULT_SCENARIO, 20260712, 'standard'), 'brief')
-    // The panel, found through the control the player taps rather than by
-    // querySelector over the page.
-    const toggle = container.querySelector('button[data-full-brief]')
-    expect(toggle, 'the brief screen offers no expand control').not.toBeNull()
-    expect(toggle!.textContent, 'the expand control does not say what it opens').toBe(FULL_BRIEF_OPEN)
+  it('opens the full brief as a sheet that says only what the board does not (v1.6 R3)', async () => {
+    // Ken's playtest item 6. The brief opened inside the TONIGHT card,
+    // scrolled inside the page, and its bullets repeated the board. Now it
+    // opens from its icon as a sheet like PROCURE, with DONE, and carries
+    // the coverage line and the night's techniques.
+    const state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
+    render(state, 'brief')
+    const key = container.querySelector('button[data-full-brief]')!
+    expect(key.getAttribute('aria-label'), 'the icon does not say what it opens').toBe(BRIEF_LABEL)
+    expect(key.textContent?.trim(), 'the key is a text link').toBe('')
     await openFullBrief()
-    expect(toggle!.getAttribute('aria-expanded'), 'the open full brief does not say it is open').toBe('true')
-    const panel = container.querySelector('div[data-brief-scroll]') as HTMLElement
-    // Read the panel BLOCK BY BLOCK, not as one textContent string.
-    // textContent concatenates sibling elements with no separator, so
-    // "<li>...at full integrity.</li><li>Nothing in transit.</li>" comes
-    // back as "...integrity.Nothing in transit." and two words become one.
-    // Over ten list items that lost nine words, and the first version of
-    // the join below reported a 100-word panel against a 109-word array.
-    // A lossy reader is a measurement that disagrees with the screen in
-    // the direction that makes the bound look satisfied.
-    const body = [...panel.querySelectorAll('li, p')]
-      .map((el) => el.textContent ?? '')
-      .filter(Boolean)
-      .join(' ')
-    const words = (t: string) => new Set(t.toLowerCase().match(/[a-z0-9]+/g) ?? [])
-    // The summary is the headline and the vector THE PLAYER IS LOOKING AT,
-    // taken from briefCopy for the same state rather than scraped off a
-    // parent element. The first version of this walked up from an <h2> and
-    // subtracted the body from it, which is the nearest observable rather
-    // than the one the claim is about: it passed with the panel reverted
-    // to the engine's forecast, which is the exact defect item 2 exists to
-    // remove. The mutation that reverted Game.tsx slept through it.
-    const copy = briefCopy(newGame(DEFAULT_SCENARIO, 20260712, 'standard'))
-    const summaryWords = words([copy.headline, copy.vector, copy.tag ?? ''].join(' '))
-    const novel = [...words(body)].filter((w) => !summaryWords.has(w))
-    expect(
-      novel.length,
-      `the disclosure added ${novel.length} words the summary did not already carry: "${body.trim().slice(0, 200)}"`,
-    ).toBeGreaterThan(5)
-    // THE CEILING, MEASURED ON THE RENDERED PANEL. tests/reading-diet.spec.ts
-    // bounds briefCopy().full, which is a module's return value: nothing
-    // joins that string to the element the player opens, so JSX rendered
-    // inside this panel is invisible to it. That is exactly how the
-    // turn-1 job framing sat unmeasured while the bound read 90 of 100,
-    // and moving the framing into brief.ts fixed the instance without
-    // fixing the mechanism. This measures the subtree.
-    expect(
-      countWords(body),
-      `the expand panel renders ${countWords(body)} words: "${body.trim().slice(0, 200)}"`,
-    ).toBeLessThanOrEqual(DISCLOSURE_WORD_BUDGETS[FULL_BRIEF_OPEN])
-    // And the two figures must agree, which is the join: if they diverge,
-    // something renders in the panel that briefCopy does not know about.
-    expect(
-      countWords(body),
-      'the rendered panel and the measured array disagree, so something renders that the budget cannot see',
-    ).toBe(countWords(disclosureBlocks(copy).join(' ')))
-    // THE JOB AND THE POSTURE ARE TWO SECTIONS, not one list. Round 7b
-    // folded the turn-1 job into the posture bullets, and at 375px the
-    // player's instructions ran straight into their fleet status with no
-    // heading and no numbering. Asserted as structure the player sees: a
-    // heading, the numbered job as paragraphs, and the posture as a list.
-    const heading = [...panel.querySelectorAll('p')].find((p) => (p.textContent ?? '').trim() === 'Your job')
-    expect(heading, 'the turn-1 disclosure has no "Your job" heading').toBeDefined()
-    const jobParas = [...panel.querySelectorAll('p')].map((p) => (p.textContent ?? '').trim())
-    expect(jobParas.some((p) => p.startsWith('1. ')), 'the job lines lost their numbering').toBe(true)
-    const listItems = [...panel.querySelectorAll('li')].map((li) => (li.textContent ?? '').trim())
-    expect(listItems.some((li) => /^\d\. /.test(li)), 'a numbered job line was rendered inside the posture list').toBe(false)
-    expect(listItems.length, 'the posture list is empty').toBeGreaterThan(0)
-    // ORDER, which the checks above cannot see: the job comes first and the
-    // posture list after it, and the job's blocks are exactly the shared
-    // framing, heading first. Moving the framing below the list passed every
-    // assertion above until this line existed.
-    const list = panel.querySelector('ul')!
-    expect(
-      heading!.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING,
-      'the job heading does not come before the posture list',
-    ).toBeTruthy()
-    const jobBlocks = [...panel.querySelectorAll('p')]
-      .filter((el) => el.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING)
-      .map((el) => (el.textContent ?? '').trim())
-    expect(jobBlocks).toEqual([JOB_FRAMING_HEADING, ...jobFramingBlocks(DEFAULT_SCENARIO)])
-    // And it is THIS panel, not some other block on the screen: the body
-    // must carry what briefCopy built, so rendering the engine's forecast
-    // here fails rather than reading as a different-but-fine disclosure.
-    expect(body, 'the expand panel is not rendering the brief the screen built').toContain(copy.full[0])
+    expect(key.getAttribute('aria-expanded'), 'the open full brief does not say it is open').toBe('true')
+    const sheet = container.querySelector('[data-sheet="brief"]') as HTMLElement
+    // No panel scrolling inside the card any more.
+    expect(container.querySelector('[data-brief-scroll]'), 'the old in-card scroller is back').toBeNull()
+    expect(sheet.textContent).toContain(coverageLine(state))
+    // Turn 1's brief is free, so the techniques are named, each a control
+    // that opens its Glossary entry.
+    const copy = fullBriefCopy(state, true)
+    expect(copy.moves.length).toBeGreaterThan(0)
+    for (const m of copy.moves) if (m.tag) expect(sheet.querySelector(`button[data-technique-tag="${m.tag}"]`), `${m.name}'s technique`).not.toBeNull()
+    // Nothing the board already says: not the night's named lines, not the
+    // intel row, not the job.
+    for (const repeat of ['WILL HIT', INTEL_ROW.none, 'Your job', 'Nothing in transit', 'No conditions']) {
+      expect(sheet.textContent, `the sheet repeats "${repeat}"`).not.toContain(repeat)
+    }
+    // DONE closes it.
+    click([...sheet.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'DONE')!)
+    expect(container.querySelector('[data-sheet="brief"]')).toBeNull()
+  })
+
+  it('keeps the rule and the keys behind "?", open on the first board only (v1.6 R3)', () => {
+    // Ken's playtest item 1: the rule sentence and both keys stood on every
+    // board. They open on their own the first time a device sees the board.
+    localStorage.removeItem('dc-tonight-help-seen')
+    const state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
+    render(state, 'brief')
+    const panel = () => container.querySelector('[data-tonight-help-panel]')
+    expect(panel(), 'the first board does not open "?" on its own').not.toBeNull()
+    for (const line of helpCopy(state)) expect(panel()!.textContent).toContain(line)
+    expect(container.querySelector('button[data-tonight-help]')!.getAttribute('aria-label')).toBe(HELP_LABEL)
+    // The next board a device sees keeps it closed.
+    render(state, 'brief')
+    expect(panel(), 'the "?" opened on its own a second time').toBeNull()
+    click(container.querySelector('button[data-tonight-help]')!)
+    expect(panel()).not.toBeNull()
   })
 })

@@ -169,7 +169,7 @@ export default function Title(p: TitleProps) {
         </div>
         <button type="button" className={TILE} data-goal="2" onClick={p.onDossier}>
           <span className="block font-mono text-[10px] tracking-widest text-dc-muted">GOAL 2</span>
-          <span className="mt-1 block text-sm font-bold">Complete the Dossier</span>
+          <span className="mt-1 block text-sm font-bold">Complete the&nbsp;Dossier</span>
           <span className="mt-1 block font-mono text-xs text-dc-go">
             {goal.filed} / {goal.total} filed
           </span>
@@ -237,7 +237,7 @@ export default function Title(p: TitleProps) {
             </span>
             {/* Once today's official run is in, the button replays it as
                 practice, and says so (section 4 rule 3). */}
-            {dailyText !== DAILY_OPEN_LINE && <span className="font-mono text-[10px] tracking-wider text-dc-friendly">replay as practice ›</span>}
+            {dailyText !== DAILY_OPEN_LINE && <span className="font-mono text-[10px] tracking-wider text-dc-friendly">REPLAY AS PRACTICE</span>}
           </button>
         )}
         {/* The countdown once today's official run is in (brief 5.1), as

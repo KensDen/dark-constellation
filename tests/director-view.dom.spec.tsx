@@ -37,7 +37,7 @@ import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState, TurnActions } from '../src/engine/types'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
-import { LOCK_SHARE, STRIKE_MS } from '../src/ui/board/strike'
+import { LOCK_SHARE, STRIKE_HOLD_MS, STRIKE_MS } from '../src/ui/board/strike'
 import { nightOf } from '../src/ui/night/nightModel'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 import { NO_OP, WIN_SCRIPT, debrisTurnOf } from './scripts'
@@ -192,7 +192,7 @@ describe('the night: the behaviour the source pins could only spell', () => {
     setHidden(false)
     await advance(STRIKE_MS * LOCK_SHARE + 1)
     expect(locked(), 'the strike did not land once the page came back').toBe(false)
-    await advance(STRIKE_MS * (1 - LOCK_SHARE) + 1)
+    await advance((STRIKE_HOLD_MS - STRIKE_MS * LOCK_SHARE) + 1)
     expect(stage(), 'the strike did not give way to its card').toBe('hit')
 
     // The card waits, hidden or not.

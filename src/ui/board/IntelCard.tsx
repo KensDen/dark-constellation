@@ -93,7 +93,7 @@ function BannerIntel({ state, briefed = briefFree(state) }: { state: GameState; 
   return (
     <>
       <h2 id="intel-title" className={HEAD}>
-        THREAT INTEL · {briefed ? 'BRIEFED' : 'NO BRIEF'}
+        COLDVEIL · {briefed ? 'BRIEFED' : 'NO BRIEF'}
       </h2>
       <p className="mt-2 text-phosphor">{copy.headline}</p>
       <p className="mt-1">{copy.vector}</p>

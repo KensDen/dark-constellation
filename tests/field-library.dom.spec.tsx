@@ -29,7 +29,7 @@ import { briefFree, resolveTurn, newGame } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
 import { captureGame, encodeSaveCode } from '../src/persistence'
-import { STRIKE_MS } from '../src/ui/board/strike'
+import { STRIKE_HOLD_MS } from '../src/ui/board/strike'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
@@ -342,7 +342,7 @@ describe("the event cards' learn more", () => {
   // One move on, as a player makes it: only the 750ms overlay and the
   // strikes play on their own, so the timers run `ms` whenever no card is
   // up; every card waits for its tap.
-  async function onward(ms = STRIKE_MS) {
+  async function onward(ms = STRIKE_HOLD_MS) {
     const way = wayOn()
     if (way) return tap(way)
     await act(async () => {
@@ -433,21 +433,20 @@ describe("the event cards' learn more", () => {
     expect(document.querySelectorAll('h1').length, 'a second h1').toBeLessThanOrEqual(1)
     // Held: the night has no keys of its own (its cards are tapped), so
     // what could run it on behind the library is time. A minute passes,
-    // and the same intel card is up, not yet filed.
+    // and the same Dossier card is up (filed at FILE TO DOSSIER since v1.6
+    // R3, so still filed).
     const held = nightAt()
     await act(async () => {
       vi.advanceTimersByTime(60_000)
     })
     expect(nightAt(), 'the night ran on behind the library').toBe(held)
-    expect(filedNow(), 'the card was filed behind the library').not.toContain(id)
+    expect(filedNow(), 'the card FILE TO DOSSIER filed is gone').toContain(id)
     escape()
     expect(container.querySelector('[data-library-overlay]'), 'Escape did not close the library').toBeNull()
     expect(nightAt(), 'Escape on the library moved the night on').toBe(held)
     expect(document.activeElement?.getAttribute('data-learn-more'), 'focus did not come back to the link').toBe(id)
-    // Let go: once the library is closed, FILE IT files the card and the
-    // night goes on.
+    // Let go: once the library is closed, CONTINUE moves the night on.
     await tap(container.querySelector('[data-file-it]')!)
-    expect(filedNow()).toContain(id)
     expect(nightAt(), 'the night stayed held after the library closed').not.toBe(held)
   })
 
@@ -465,13 +464,11 @@ describe("the event cards' learn more", () => {
 
   it('from the intel card, closes the card, opens the library, and returns focus to what opened the card', async () => {
     // Under the intel brief COLDVEIL's card names the lead threat with its
-    // REAL WORLD line. Its button is in the TONIGHT card's full brief since
-    // v1.3 R2, a chunk of its own.
+    // REAL WORLD line. It opens from COLDVEIL's name and emblem on TONIGHT's
+    // header since v1.6 R3 (Ken's playtest item 6).
     render(briefedWithLead())
-    click(container.querySelector('button[data-full-brief]')!)
-    await settle()
-    const banner = container.querySelector<HTMLButtonElement>('button[aria-label="COLDVEIL intel"]')!
-    expect(banner, 'the full brief has no intel button').not.toBeNull()
+    const banner = container.querySelector<HTMLButtonElement>('button[data-coldveil]')!
+    expect(banner, 'TONIGHT has no COLDVEIL chip').not.toBeNull()
     banner.focus()
     click(banner)
     await settle()

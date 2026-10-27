@@ -30,7 +30,7 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { AssetKind, GameState } from '../src/engine/types'
-import { STRIKE_MS } from '../src/ui/board/strike'
+import { STRIKE_HOLD_MS } from '../src/ui/board/strike'
 import { ASSET_MAPS, assetSprite } from '../src/ui/sprites/assets'
 import { spriteRects, type Sprite } from '../src/ui/sprites/sprite'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
@@ -201,13 +201,16 @@ describe('render counts on the board (v1.2 R2 fix, v1.3 R2 strip)', () => {
       const label = card?.getAttribute('aria-label')
       if (card && label && !cards.has(label)) {
         cards.add(label)
-        cardSprites += card.querySelectorAll('[data-target] svg[data-sprite^="target-"]').length
+        // The card's result tiles, sprites the probe counts too (v1.6 R3:
+        // the card no longer draws its target, whose integrity change the
+        // strip's tile carries).
+        cardSprites += card.querySelectorAll('[data-result-tiles] svg').length
       }
       const way = container.querySelector('[data-file-it]') ?? container.querySelector('[data-collect]') ?? container.querySelector('[data-continue]')
       if (way) await tap(way)
       else
         await act(async () => {
-          vi.advanceTimersByTime(STRIKE_MS)
+          vi.advanceTimersByTime(STRIKE_HOLD_MS)
         })
     }
     expect(container.querySelector('button[data-begin]'), 'the night never reached END OF TURN').not.toBeNull()
@@ -218,7 +221,8 @@ describe('render counts on the board (v1.2 R2 fix, v1.3 R2 strip)', () => {
 
     expect(container.querySelector('[data-strip]'), 'the strip left the board during the night').not.toBeNull()
     // The positive control: the probe sees the night's renders at all.
-    expect(cardSprites, 'no card drew its target, so the probe saw nothing of the night').toBeGreaterThan(0)
-    expect(tileSpriteRenders(), 'tile sprites re-rendered in the strip during a night that touched no asset').toBe(cardSprites)
+    expect(cardSprites, 'no card drew its result tiles, so the probe saw nothing of the night').toBeGreaterThan(0)
+    expect(vi.mocked(spriteRects).mock.calls.length, 'the probe counted no sprite through the night').toBeGreaterThan(0)
+    expect(tileSpriteRenders(), 'tile sprites re-rendered in the strip during a night that touched no asset').toBe(0)
   })
 })

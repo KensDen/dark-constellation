@@ -81,6 +81,10 @@ interface TileHit {
   fromPips: number
   // The still mark while the move's card is up: the brackets, no motion.
   rest?: boolean
+  // The integrity before the hit, so the tile can say the change while
+  // the card is up (v1.6 R3, Ken's playtest item 3: the hit card's
+  // "integrity 100 → 76" folded into the strip, which shows the damage).
+  fromIntegrity?: number
 }
 
 function Art({ tile, hit }: { tile: TileModel; hit?: TileHit | null }) {
@@ -152,6 +156,11 @@ function Tile({
           </span>
         )}
         <Art tile={tile} hit={hit} />
+        {hit?.rest && hit.fromIntegrity !== undefined && hit.fromIntegrity !== asset.integrity && (
+          <span data-integrity-change aria-hidden="true" className="pointer-events-none absolute -top-1.5 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap bg-dc-ground px-0.5 font-mono text-[10px] leading-none text-dc-hostile">
+            {hit.fromIntegrity}→{asset.integrity}
+          </span>
+        )}
         {/* Positioned, so the call sign and the pips sit above the strobe
             and stay readable through a hit (fresh-eyes review). */}
         <span className={`relative whitespace-nowrap font-mono text-[10px] leading-none ${state === 'lost' ? 'text-dc-muted' : 'text-dc-ink'}`}>{callSign}</span>
@@ -212,7 +221,7 @@ export default function AssetStrip({ tiles, chips, selectedKey, onSelect, onCanc
   const strip = useRef<HTMLElement | null>(null)
   const Playfield = useSyncExternalStore(onArrival, loadedPlayfield, loadedPlayfield)?.default
   const struck = hit ? hit.before.assets.find((a) => a.id === hit.assetId) : undefined
-  const tileHit: TileHit | null = hit && struck ? { id: hit.id, landed: hit.landed, fromPips: pipsFor(struck.integrity), rest: hit.rest } : null
+  const tileHit: TileHit | null = hit && struck ? { id: hit.id, landed: hit.landed, fromPips: pipsFor(struck.integrity), rest: hit.rest, fromIntegrity: struck.integrity } : null
   // Each column starts as wide as its tiles. When the fleet outgrows the
   // row, the fullest column gives way and its tiles wrap; the others keep
   // one row.

@@ -110,7 +110,18 @@ export const ICON_AIM = mono(`
   ..iiii.. .i....i. i..ii..i i.i..i.i
   i.i..i.i i..ii..i .i....i. ..iiii..
 `)
-// ✦ new intel, on COLLECT INTEL CARD (v1.3 R3).
+// ? TONIGHT's rule and keys, behind a key on its header (v1.6 R3, Ken's
+// playtest item 1).
+export const ICON_HELP = mono(`
+  ..iiii.. .ii..ii. .....ii. ....ii..
+  ...ii... ...ii... ........ ...ii...
+`)
+// The full brief, a page of lines, on TONIGHT's header (v1.6 R3, item 6).
+export const ICON_BRIEF = mono(`
+  iiiiii.. i....ii. i.ii..i. i.....i.
+  i.iiii.i i......i i.iii..i iiiiiiii
+`)
+// ✦ a new card for the Dossier, on FILE TO DOSSIER (v1.3 R3; renamed v1.6 R3).
 export const ICON_SPARK = mono(`
   ...ii... ...ii... ..iiii.. iiiiiiii
   iiiiiiii ..iiii.. ...ii... ...ii...

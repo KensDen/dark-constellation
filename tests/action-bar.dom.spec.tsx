@@ -33,7 +33,7 @@ vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 import Game from '../src/ui/Game'
 import { ACTIONS, resolveLabel } from '../src/ui/board/actions'
 import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
-import { STRIKE_MS } from '../src/ui/board/strike'
+import { STRIKE_HOLD_MS } from '../src/ui/board/strike'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
@@ -161,7 +161,7 @@ async function playOut() {
     if (way) await tap(way)
     else
       await act(async () => {
-        vi.advanceTimersByTime(STRIKE_MS)
+        vi.advanceTimersByTime(STRIKE_HOLD_MS)
       })
   }
   expect(begin(), 'the night did not reach END OF TURN').not.toBeNull()
@@ -305,14 +305,16 @@ describe('EXECUTE says what it does (v1.2 R2b, a tap since v1.3 Round 0)', () =>
 })
 
 describe('the SYSTEM sheet (v1.2 R1b; v1.3 R1, brief 5.8)', () => {
-  it('GUARD (d): renders all ten controls, derived from its list', () => {
+  it('GUARD (d): renders all eleven controls, derived from its list', () => {
     // Pinned, not merely iterated: a control dropped from the list would
     // drop from both the sheet and a derived expectation at once. Ten
     // since v1.3 R1 (brief 5.8): Save left with the named slots (M21), Back
     // to menu became Back to title with the menu's retirement (M1), and
     // difficulty, motion, Load save code, Replay a seed, the scoreboard and
-    // credits arrived from the retired menu and start screen.
-    expect(SYSTEM_CONTROLS.length, 'the SYSTEM list changed size; say why').toBe(10)
+    // credits arrived from the retired menu and start screen. Eleven since
+    // v1.6 R3: HOW TO PLAY, where the full brief's YOUR JOB went (Ken's
+    // playtest item 6).
+    expect(SYSTEM_CONTROLS.length, 'the SYSTEM list changed size; say why').toBe(11)
     render(gameAt(2), 'brief')
     expect(container.querySelector('[data-sheet="system"]'), 'the sheet is open before the gear was pressed').toBeNull()
     const gear = container.querySelector('button[aria-label="System"]')

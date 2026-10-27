@@ -43,6 +43,8 @@ export interface NightStep {
   // nothing through extends it, any point through resets it, and the
   // debris call and an opportunity leave it where it was.
   streak: number
+  // Its place in the night, 0 first: the watch officer's clock (v1.6 R3).
+  index: number
 }
 
 export interface Night {
@@ -163,7 +165,7 @@ export function nightOf(before: GameState, after: GameState): Night {
     next.streak = streak
     // The figure is the engine's own (the per-event score, v1.3 R6); a
     // record from before the engine kept it falls back to the replay.
-    steps.push({ kind, ev, def, before: shown, after: next, scoreBefore: ev.scoreBefore ?? maiScore(shown), scoreAfter: ev.scoreAfter ?? maiScore(next), streak })
+    steps.push({ kind, ev, def, before: shown, after: next, scoreBefore: ev.scoreBefore ?? maiScore(shown), scoreAfter: ev.scoreAfter ?? maiScore(next), streak, index: steps.length })
     shown = next
   }
   return { turn: before.turn, before, record, opening, pressed, steps, closing: after }

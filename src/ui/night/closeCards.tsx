@@ -36,7 +36,7 @@ export function DebrisCall({
   const t = callTerms(step.before, step.ev)
   const ref = useRef<HTMLButtonElement | null>(null)
   useEffect(() => ref.current?.focus({ preventScroll: true }), [])
-  const officer = copy.OFFICER[step.ev.eventId] ? copy.aimedAt(copy.OFFICER[step.ev.eventId], step.ev.eventId, t.sat) : ''
+  const officer = copy.officerFor(step, t.sat)
   return (
     <Card
       kind="call"
@@ -50,11 +50,11 @@ export function DebrisCall({
           {/* Two buttons with their cost on the face, each saying what it
               risks in the odds line's own words. */}
           <button ref={ref} type="button" data-call="burn" onClick={() => onCall('burn')} className={`${CHOICE} border-dc-friendly! bg-dc-friendly/10!`}>
-            <span className="font-display text-[13px] text-dc-friendly">{copy.burnFace(t.fuel)} ›</span>
+            <span className="font-display text-[13px] text-dc-friendly">{copy.burnFace(t.fuel)}</span>
             <span className="text-[13px] text-dc-ink/90">{copy.burnLine(t.ssa, t.chance, t.sat, t.bonus)}</span>
           </button>
           <button type="button" data-call="hold" onClick={() => onCall('hold')} className={`${CHOICE} border-dc-warn! bg-dc-warn/10!`}>
-            <span className="font-display text-[13px] text-dc-warn">{copy.HOLD_FACE} ›</span>
+            <span className="font-display text-[13px] text-dc-warn">{copy.HOLD_FACE}</span>
             <span className="text-[13px] text-dc-ink/90">{copy.holdLine(t.ssa, t.chance, t.sat, t.review)}</span>
           </button>
         </>
@@ -63,7 +63,7 @@ export function DebrisCall({
       {/* The header's DEBRIS chip says what it is; the body keeps to what
           the call turns on, so it fits 375 (second fresh-eyes pass). */}
       <h3 className="text-lg font-bold leading-tight">{shortName(step.def)}</h3>
-      {officer && <Officer line={officer} />}
+      {officer && <Officer line={officer.line} clock={officer.clock} />}
       <p data-odds-line className="bg-dc-chrome px-2.5 py-2 text-sm">
         {copy.oddsLine(t.ssa, t.chance).map((part, i) =>
           i === 1 ? (
@@ -269,11 +269,14 @@ export function EndOfTurn({
       </div>
       {/* The score's own lines, so its change is checkable too (fresh-eyes
           review: it fell during the overlay and rose by the close with
-          nothing on screen saying why). A night played here only. */}
+          nothing on screen saying why). A night played here only. The
+          end of turn's own row went in v1.6 R3's sweep: the header says the
+          score it lands on, and the third time ran the card under its foot
+          at 375x667. */}
       {night && (
         <div data-score-lines className="flex flex-col font-mono text-[12px]">
           <p className="font-mono text-[10px] tracking-widest text-dc-muted">{copy.SCORE_LINES}</p>
-          {scoreRows(night).map((row) => (
+          {scoreRows(night).filter((row) => row.key !== 'to').map((row) => (
             <div key={row.key} data-score-row={row.key} className="dc-ledger-row flex items-baseline justify-between gap-3 py-0.5">
               <span className="min-w-0">
                 {row.label}

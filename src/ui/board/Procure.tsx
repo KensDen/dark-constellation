@@ -34,10 +34,10 @@ import { knownThreats } from '../../persistence'
 import PixelSprite from '../sprites/PixelSprite'
 import { assetSprite } from '../sprites/assets'
 import { DEFENSE_ICONS } from '../sprites/defenses'
-import { EYE, ICON_CHECK, ICON_CROSS, ICON_LOCK, tinted } from '../sprites/icons'
+import { EYE, ICON_CHECK, ICON_CROSS, ICON_HELP, ICON_LOCK, tinted } from '../sprites/icons'
 import { KIND_LAYER } from './board'
 import ScrollCue from './ScrollCue'
-import { BRIEF_LOCKED_LINE, BRIEF_RULE, PROCURE_HOW, NOT_THIS_TURN, PROCURE_KINDS, briefLockedTag, PROCURE_LABEL, capLabel, confirmNote, defenseCount, defenseOrderIn, defenseRule, defensesPerTurn, hiddenOrder, matchNote, shortName, stopsLine, stopsTags, turns } from './boardModel'
+import { BRIEF_LOCKED_LINE, BRIEF_RULE, FUNDING_LINE, PROCURE_HELP_LABEL, PROCURE_HELP_SEEN_KEY, PROCURE_HOW, NOT_THIS_TURN, PROCURE_KINDS, briefLockedTag, PROCURE_LABEL, capLabel, confirmNote, defenseCount, defenseOrderIn, defenseRule, defensesPerTurn, hiddenOrder, matchNote, shortName, stopsLine, stopsTags, turns } from './boardModel'
 
 export interface ProcureProps {
   state: GameState
@@ -166,6 +166,23 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
     return () => el.removeEventListener('scroll', check)
   })
   const afford = (price: number) => remaining - price >= 0
+  // TEACH ONCE (v1.6 R3, from Ken's notes): how the cards work, the one
+  // new defense a turn and when funding arrives open on their own the
+  // first time a device opens PROCURE, and stand behind "?" after.
+  const [help, setHelp] = useState(() => {
+    try {
+      return localStorage.getItem(PROCURE_HELP_SEEN_KEY) !== '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(PROCURE_HELP_SEEN_KEY, '1')
+    } catch {
+      // Storage refused: the lines open on their own each time.
+    }
+  }, [])
   // The defense whose blurb is open behind its key, one at a time.
   const [about, setAbout] = useState<CountermeasureId | null>(null)
   // Tonight's room for a new defense, and whether any is left to order.
@@ -179,11 +196,20 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
         <h2 className="font-mono text-xs tracking-widest">
           PROCURE · <b className={remaining < 0 ? 'text-dc-hostile' : 'text-dc-ink'}>{remaining}</b> CR LEFT
         </h2>
-        <button type="button" data-sheet-close aria-label="Close PROCURE" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center">
-          <PixelSprite sprite={tinted(ICON_CROSS, 'ink')} scale={2} name="close" />
-        </button>
+        <span className="flex flex-none items-center">
+          <button type="button" data-procure-help={help ? 'open' : 'closed'} aria-label={PROCURE_HELP_LABEL} aria-expanded={help} onClick={() => setHelp((h) => !h)} className="flex min-h-11 min-w-11 items-center justify-center">
+            <span className={`flex h-6 w-6 items-center justify-center border-2 ${help ? 'border-dc-friendly bg-dc-friendly/15' : 'border-dc-line'}`}>
+              <PixelSprite sprite={tinted(ICON_HELP, help ? 'friendly' : 'ink')} scale={1} name="procure-help" />
+            </span>
+          </button>
+          <button type="button" data-sheet-close aria-label="Close PROCURE" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center">
+            <PixelSprite sprite={tinted(ICON_CROSS, 'ink')} scale={2} name="close" />
+          </button>
+        </span>
       </div>
-      {left && (
+      {/* The rule while tonight's defense is open is teaching, behind "?";
+          once it is in, the line is the night's state and always shows. */}
+      {left && (help || !open) && (
         <p id="procure-defense-rule" data-defense-rule={open ? 'open' : 'in'} className={`flex-none border-b border-dc-line px-3 py-1.5 text-xs ${open ? 'text-dc-go' : 'text-dc-ink'}`}>
           {open ? defenseRule(NEW_DEFENSES_PER_NIGHT) : defenseOrderIn(tonights?.name ?? '', state.turn >= scenario.totalTurns)}
         </p>
@@ -209,12 +235,12 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
         </p>
       )}
       <div ref={body} data-procure-body className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3">
-        {!(focus && ('move' in focus || 'intel' in focus)) && (
-          <p className="mt-1.5 text-xs text-dc-muted">{PROCURE_HOW}</p>
+        {help && !(focus && ('move' in focus || 'intel' in focus)) && (
+          <p data-procure-how className="mt-1.5 text-xs text-dc-muted">{PROCURE_HOW}</p>
         )}
         <p data-planned className="mt-0.5 text-[11px] text-dc-muted">
           {left && <>{defenseCount(newDefenses(state, actions).length, NEW_DEFENSES_PER_NIGHT)} </>}
-          Ordered: {cost} of {state.credits} CR. Funding arrives at the turn close, after repairs.
+          Ordered: {cost} of {state.credits} CR.{help && ` ${FUNDING_LINE}`}
         </p>
 
         <p className={SECTION}>
@@ -330,8 +356,10 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
           })}
         </ul>
 
+        {/* INTEL BRIEF, the one thing "intel" names (v1.6 R3, Ken's
+            playtest item 4). */}
         <p className={SECTION}>
-          <span>INTEL</span>
+          <span>INTEL BRIEF</span>
           <span>this turn only</span>
         </p>
         <div className="mt-2">

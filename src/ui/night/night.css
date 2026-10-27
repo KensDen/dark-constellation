@@ -69,18 +69,20 @@
     animation: dc-depth 1.3s ease-in-out infinite;
   }
 
-  /* The strike (brief 5.5 item 1): the banner holds for the strike's
-     length, the reticle locks on in its first half, and a block flashes
-     a shield on the tile it was aimed at. */
+  /* The strike (brief 5.5 item 1): the banner rises in and stands until
+     the move's card comes up (v1.6 R3: it faded at the end of the
+     animation, and the strike now holds about 2.5 s), the reticle locks on
+     in the strike's first half, and a block flashes a shield on the tile
+     it was aimed at. */
   .dc-banner-in {
-    animation: dc-banner-in var(--dc-beat, 1200ms) ease both;
+    animation: dc-banner-in calc(var(--dc-beat, 1500ms) * 0.14) ease both;
   }
   .dc-reticle {
-    animation: dc-lock calc(var(--dc-beat, 1200ms) * 0.46) ease both;
+    animation: dc-lock calc(var(--dc-beat, 1500ms) * 0.46) ease both;
   }
   .dc-shield-tile {
-    animation: dc-shield calc(var(--dc-beat, 1200ms) * 0.75) ease both;
-    animation-delay: calc(var(--dc-beat, 1200ms) * 0.46);
+    animation: dc-shield calc(var(--dc-beat, 1500ms) * 0.75) ease both;
+    animation-delay: calc(var(--dc-beat, 1500ms) * 0.46);
   }
 
   /* The result tiles animate in one after another, the blocked ones with
@@ -137,15 +139,9 @@
     opacity: 0;
     transform: translateY(10px);
   }
-  14% {
+  100% {
     opacity: 1;
     transform: none;
-  }
-  82% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
   }
 }
 @keyframes dc-lock {
@@ -245,5 +241,31 @@
   from {
     opacity: 0;
     transform: translateY(6px);
+  }
+}
+
+/* FILED, stamped on the Dossier card as FILE TO DOSSIER files it (v1.6
+   R3, Ken's playtest item 4), in the Library's stamp's ink and tilt, which
+   Ken named the model for game-feel touches. */
+.dc-filed-stamp {
+  border: 2px solid var(--dc-go);
+  transform: rotate(-8deg);
+  line-height: 1;
+}
+.dc-stamp-slam {
+  animation: dc-stamp-slam 420ms cubic-bezier(0.2, 0.9, 0.3, 1.2) 350ms both;
+}
+@keyframes dc-stamp-slam {
+  0% {
+    transform: rotate(-8deg) scale(2.4);
+    opacity: 0;
+  }
+  70% {
+    transform: rotate(-8deg) scale(0.92);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(-8deg) scale(1);
+    opacity: 1;
   }
 }

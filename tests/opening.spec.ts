@@ -69,7 +69,7 @@ import { METER_CAP, coverage, maiScore } from '../src/engine/scoring'
 import type { AssetKind, CountermeasureId, Difficulty, GameState, TurnActions } from '../src/engine/types'
 import { callSigns } from '../src/ui/board/board'
 import { shortName } from '../src/ui/board/boardModel'
-import { briefCopy, firstInputWords } from '../src/ui/brief'
+import { coverageLine, firstInputWords } from '../src/ui/brief'
 import { coverageFigure } from '../src/ui/labels'
 import { HitCard } from '../src/ui/night/cards'
 import { ledgerRows } from '../src/ui/night/closeModel'
@@ -628,11 +628,13 @@ describe('the opening: the night tells the truth (Round 7b)', () => {
                 const step = night.steps.find((x) => x.ev.eventId === card.eventId)!
                 const blocked = step.ev.effectiveSeverity === 0 && !!nightCopy.HELD[step.ev.eventId]
                 const officer = pick(card.html, /<p data-officer="(?:hit|held)"[^>]*>([\s\S]*?)<\/p>/)
-                expect(nightCopy.OFFICER[card.eventId!], `${at}: ${card.eventId} has no watch officer's line`).toBeTruthy()
+                expect(nightCopy.OFFICER[card.eventId!]?.length, `${at}: ${card.eventId} has no watch officer's line`).toBeTruthy()
                 const sign = step.ev.targetAssetId ? signsOf(before, after).get(step.ev.targetAssetId) : undefined
-                expect(officer, `${at}: the ${card.eventId} card does not carry its watch officer's line`).toBe(
-                  `${nightCopy.WATCH_OFFICER}${nightCopy.aimedAt((blocked ? nightCopy.HELD : nightCopy.OFFICER)[card.eventId!], card.eventId!, sign)}`,
-                )
+                // The line for this meeting of the run, under its night's
+                // clock (v1.6 R3, Ken's playtest item 5).
+                const said = nightCopy.officerFor(step, sign)!
+                expect(said.held, `${at}: ${card.eventId} reads the wrong side of the block`).toBe(blocked)
+                expect(officer, `${at}: the ${card.eventId} card does not carry its watch officer's line`).toBe(`${nightCopy.officerLabel(said.clock)}${said.line}`)
               }
               if (card.kind === 'end') expect(head, `${at}: END OF TURN says "${head}"`).toBe(`END OF TURN ${before.turn}`)
             }
@@ -848,7 +850,7 @@ describe('the opening: the night tells the truth (Round 7b)', () => {
       const bonus = ledgerRows(record, after).find((r) => r.key === 'bonus')!
       const card = renderNight(state, after).cards.find((c) => c.kind === 'end')!
       const row = pick(card.html, /<div data-ledger-row="bonus"[^>]*>([\s\S]*?)<\/div>/)
-      const posture = briefCopy(state).full.join(' ')
+      const posture = coverageLine(state)
       if (clear) {
         expect(row, `${at}: END OF TURN reads "${row}"`).toBe(`${nightCopy.COVERAGE_BONUS} (coverage ${printed}, needs ${coverageMin})+${credits}`)
         expect(posture, `${at}: the posture panel says "${posture}"`).toContain(
@@ -913,12 +915,14 @@ describe('the opening: the night tells the truth (Round 7b)', () => {
       // the held line itself is the watch officer's report on a block
       // (v1.3 R3 fresh-eyes review), naming the tile it was aimed at.
       const block = pick(card.html, /<div data-outcome="held"[^>]*>([\s\S]*?)<\/div>/)
-      expect(block, `${step.def.id}: the held block says "${block}"`).toBe(`BLOCKED · ${held!.name.toUpperCase()}You can now say it: ${held!.name} blocked ${shortName(step.def)} tonight.`)
+      // The defense is named once, in its line, since v1.6 R3: the panel
+      // above it says BLOCKED (the round's fresh eyes, H8).
+      expect(block, `${step.def.id}: the held block says "${block}"`).toBe(`You can now say it: ${held!.name} blocked ${shortName(step.def)} tonight.`)
       expect(nightCopy.HELD[step.ev.eventId], `${step.def.id}: the block has no held line of its own`).toBeTruthy()
       const sign = step.ev.targetAssetId ? signsOf(night.before, after).get(step.ev.targetAssetId) : undefined
-      expect(pick(card.html, /<p data-officer="held"[^>]*>([\s\S]*?)<\/p>/), `${step.def.id}: the officer's report on a block`).toBe(
-        `${nightCopy.WATCH_OFFICER}${nightCopy.aimedAt(nightCopy.HELD[step.ev.eventId], step.ev.eventId, sign)}`,
-      )
+      const said = nightCopy.officerFor(step, sign)!
+      expect(said.held, `${step.def.id}: the officer reports a hit on a block`).toBe(true)
+      expect(pick(card.html, /<p data-officer="held"[^>]*>([\s\S]*?)<\/p>/), `${step.def.id}: the officer's report on a block`).toBe(`${nightCopy.officerLabel(said.clock)}${said.line}`)
     }
   })
 })
@@ -967,7 +971,11 @@ describe('the opening: the reading diet has a floor as well as a ceiling (Round 
     // drawn slots of five Unidentified cards with the hidden-names line
     // under each, and the intel row. Turn 1 is no longer the shortest
     // because FIRST ORDERS sits under it. 91 since R6: the hidden-names line
-    // is said once a night, on the first drawn slot, not under each.
-    expect(shortest, `shortest opening screen: ${shortest} words at ${at}`).toBe(91)
+    // is said once a night, on the first drawn slot, not under each. 68
+    // since v1.6 R3 (Ken's playtest item 1), on turn 3 (Easy, seed 1): the
+    // rule and the keys stand behind "?", the margin's words left the HUD,
+    // the coach shows one step, the slot header reads WILL HIT 1 OF N, and
+    // the intel row is its button alone.
+    expect(shortest, `shortest opening screen: ${shortest} words at ${at}`).toBe(68)
   })
 })

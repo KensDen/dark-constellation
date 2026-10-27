@@ -18,7 +18,7 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { NEW_DEFENSES_PER_NIGHT, newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
-import { DEFENSE_IN, NOT_THIS_TURN, capLabel, defenseCount, defenseOrderIn, defenseRule, tapHint } from '../src/ui/board/boardModel'
+import { DEFENSE_IN, NOT_THIS_TURN, capLabel, defenseCount, defenseOrderIn, defenseRule } from '../src/ui/board/boardModel'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 
@@ -202,23 +202,29 @@ describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', 
 })
 
 describe('TONIGHT under one new defense a turn (v1.4)', () => {
-  it('offers "defend ›" on an exposed move only while tonight can take a defense', () => {
+  it('makes each move card one tap with one tag, and no "defend ›" or "details ›" (v1.6 R3)', () => {
     render(newGame(DEFAULT_SCENARIO, SEED, 'standard'))
-    const hints = () => [...container.querySelectorAll('[data-move]')].map((m) => m.lastElementChild?.lastElementChild?.textContent)
-    expect(hints().every((h) => h === tapHint('exposed')), `turn 1 reads ${hints().join(', ')}`).toBe(true)
-    expect(tapHint('exposed')).toBe('defend ›')
+    const cards = () => [...container.querySelectorAll<HTMLButtonElement>('[data-move]')]
+    // Ken's playtest item 1: the whole card is the control, its one tag
+    // its status, and no text-link hint on it.
+    for (const m of cards()) {
+      expect(m.tagName, 'the card is the button').toBe('BUTTON')
+      expect(m.textContent, `${m.getAttribute('data-move')} carries a chevron`).not.toContain('›')
+      expect(m.querySelectorAll('[data-status]').length, 'one tag, the status').toBe(1)
+    }
     expect(container.querySelector('[data-tonight]')!.textContent).not.toContain(DEFENSE_IN)
-    // FIRST ORDERS asks for the one order and says the rule.
-    expect(container.textContent).toContain('1 new defense a turn, so they hit the other one.')
+    // The coach's first step asks for the one order and says the rule.
+    expect(container.querySelector('[data-orders]')!.textContent).toContain('1 new defense a turn, so they hit the other.')
     // Order a defense for one of the two moves, from its card.
     click(q('[data-move="uplink-jamming"]')!)
     click(defense('antiJam'))
     click(q('button[data-confirm]')!)
-    const after = Object.fromEntries([...container.querySelectorAll('[data-move]')].map((m) => [m.getAttribute('data-move'), m.lastElementChild?.lastElementChild?.textContent]))
-    expect(after['uplink-jamming'], 'the blocked move').toBe('details ›')
-    expect(after['gnss-spoofing'], 'the exposed move still offers a defense the night cannot take').toBe('details ›')
-    // Turn 1's FIRST ORDERS says the rule and ticks the order, so the rule
-    // line keeps its length there (the board fits 375x667)...
+    const after = Object.fromEntries(cards().map((m) => [m.getAttribute('data-move'), m.querySelector('[data-status]')!.getAttribute('data-status')]))
+    expect(after['uplink-jamming'], 'the blocked move').toBe('blocked')
+    expect(after['gnss-spoofing'], 'the other move').toBe('exposed')
+    for (const m of cards()) expect(m.textContent).not.toContain('›')
+    // Turn 1's coach says the rule, so the rule line behind "?" keeps its
+    // length there.
     expect(container.querySelector('[data-tonight]')!.textContent).not.toContain(DEFENSE_IN)
   })
 
@@ -231,13 +237,14 @@ describe('TONIGHT under one new defense a turn (v1.4)', () => {
     click(q('button[data-brief-order]')!)
     click(q('[data-sheet="procure"] button[data-procure-intel]')!)
     click(q('[data-sheet="procure"] button[data-confirm]')!)
+    // The rule stands behind TONIGHT's "?" since v1.6 R3.
+    if (q('[data-tonight-help]')!.getAttribute('data-tonight-help') === 'closed') click(q('[data-tonight-help]')!)
     expect(container.querySelector('[data-tonight]')!.textContent).toContain('They go for the move')
     expect(container.querySelector('[data-tonight]')!.textContent).not.toContain(DEFENSE_IN)
     openProcure()
     click(defense('pntAuth'))
     click(q('button[data-confirm]')!)
     expect(container.querySelector('[data-tonight]')!.textContent).toContain(DEFENSE_IN)
-    const hints = [...container.querySelectorAll('[data-move]')].map((m) => m.lastElementChild?.lastElementChild?.textContent)
-    expect(hints.every((h) => h === 'details ›'), `turn 2 reads ${hints.join(', ')}`).toBe(true)
+    for (const m of container.querySelectorAll('[data-move]')) expect(m.textContent).not.toContain('›')
   })
 })

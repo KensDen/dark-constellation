@@ -3,49 +3,42 @@
 // cannot drift from the deck, and the word budgets are enforced by battery
 // tests rather than trusted.
 
-import { ADVERSARY } from '../config'
 import { briefFree, gnssDenied } from '../engine/reducer'
 import { planFor } from '../engine/campaign'
 import { defenseOpen } from '../engine/rules'
 import { coverage, maiScore } from '../engine/scoring'
 import type { GameState, ThreatEvent, TurnActions } from '../engine/types'
-import { coverageFigure, kindLabels, techniqueLabel, vectorLabels } from './labels'
-import { LAYERS } from '../engine/types'
+import { coverageFigure, techniqueLabel, vectorLabels } from './labels'
 import { ACTIONS } from './board/actions'
 import {
+  BRIEF_LABEL,
   BUDGET_LABEL,
+  COLDVEIL_LABEL,
+  HELP_LABEL,
   CHAIN_ARMED_LINE,
   chainLine,
-  FULL_BRIEF_OPEN,
-  INTEL_ROW,
-  KEY_BLOCKED,
-  KEY_EITHER,
-  KEY_EXPOSED,
-  KEY_LIKELY,
   REMAINING,
-  REVEAL,
   SCORE_LABEL,
   STATUS,
   FIRST_ORDERS_SET,
   SECOND_ORDER,
   hiddenOrder,
-  turns,
-  TONIGHT_HIDDEN,
-  showsStrength,
+  KEY_BLOCKED,
+  KEY_EXPOSED,
+  KEY_LIKELY,
+  KEY_STRENGTH,
   tonightReason,
+  showsStrength,
   UNIDENTIFIED,
   WILL_HIT,
   WORST_CASE,
   briefButton,
-  briefLockedTag,
+  briefLockedRow,
   confirmedNote,
   firstOrders,
-  marginChip,
   shortName,
-  ordersDone,
   streakChip,
   strengthLine,
-  tapHint,
   tonightSlots,
   vectorTo,
   winLineLabel,
@@ -100,9 +93,10 @@ import {
 // 144 once FIRST ORDERS says the cap on turn 1 (v1.4 fresh eyes), and 145
 // once it says the other door, in turns and in 2 lines (v1.5 R1), and 144
 // since v1.6 R1 (turn 1's watch officer in one sentence; the worst board
-// is a turn-4 one). The
-// chrome bound stays 40: the board's labels and controls measure 29 at
-// worst. The headline cap stays for the full brief's own lines.
+// is a turn-4 one), and 109 since v1.6 R3 (Ken's playtest item 1: the
+// rule and the keys behind "?", the margin's words gone to the bar, the
+// coach one step). The chrome bound stays 40. The headline cap stays for
+// COLDVEIL's card's own lines.
 export const HEADLINE_WORD_MAX = 8
 export const FIRST_INPUT_WORD_BUDGET = 150
 // THE CHROME BOUND, 40 since v1.2 R2b, raised from 32 as Ken ruled on
@@ -134,13 +128,6 @@ export interface BriefCopy {
   vector: string
   tag?: string
   tagUrl?: string
-  // The full forecast, shown only behind EXPAND.
-  full: string[]
-  // The turn-1 job, shown above `full` in the same disclosure under its
-  // own heading. Kept apart from `full` after Round 7 found that folding it
-  // in had merged the player's instructions and their fleet status into one
-  // undifferentiated bullet list at 375px.
-  framing: string[]
 }
 
 
@@ -161,127 +148,26 @@ function capWords(text: string, max: number): string {
   return words.slice(0, max).join(' ')
 }
 
-// The expansion below top intel (Round 7b).
-//
-// THE DISCLOSURE WAS A DEAD CONTROL. Measured at every level: the
-// expansion carried 0 tokens the summary did not already have at intel 0
-// turn 1 and at intel 2, and at intel 1 the single novel token was the
-// word "the". At intel 1 and 2 it was also SHORTER than the summary, so
-// the player tapped "Expand full brief" and received less than was already
-// on screen. Only intel 3 earned its tap.
-//
-// So below intel 3 the expansion stops trying to restate a forecast the
-// player has not bought and reports what they already own instead: their
-// own posture, their own pipeline, their own conditions, and the published
-// price of the next level. NOTHING HERE IS DERIVED FROM THIS TURN'S
-// CAMPAIGN SLOTS, which is what keeps the intel purchase worth making;
-// tests/reading-diet.spec.ts holds that by comparing two states that
-// differ only in their slots.
-function postureLines(state: GameState): string[] {
+// THE COVERAGE LINE, the one line of the old posture panel the full brief
+// keeps (v1.6 R3, Ken's playtest item 6): the fleet's coverage against the
+// line the coverage bonus pays at, which nothing else on the board states.
+// The panel's other lines (the layers held and their integrity, what is in
+// transit, the conditions running, the intel brief's price) repeated the
+// strip, the chips and the intel row, and left with it. NOTHING HERE IS
+// DERIVED FROM THIS TURN'S CAMPAIGN SLOTS, which keeps the intel brief
+// worth its price (tests/reading-diet.spec.ts).
+export function coverageLine(state: GameState): string {
   const { scenario } = state
-  const lines: string[] = []
-
   const cov = coverage(state.assets)
   const min = scenario.slaBonus.coverageMin
-  lines.push(
-    cov >= min
-      ? `Coverage ${coverageFigure(cov)}, clear of the ${min} the coverage bonus pays at.`
-      : `Coverage ${coverageFigure(cov)}. The coverage bonus pays ${scenario.slaBonus.credits} CR a turn from ${min}.`,
-  )
-
-  // THREE POPULATIONS, not one. The first version computed only the
-  // DEGRADED assets (0 < integrity < 100), so a fleet with wreckage in it
-  // and no merely-damaged survivors was told "Every asset at full
-  // integrity", which is false about the player's own state and is
-  // contradicted twice on the same screen. With every asset destroyed it
-  // also rendered an empty layer list beside that claim.
-  const alive = state.assets.filter((a) => a.integrity > 0)
-  const lost = state.assets.length - alive.length
-  const degraded = alive.filter((a) => a.integrity < 100).length
-  const layers = LAYERS.filter((l) => alive.some((a) => a.layer === l))
-  const holding = layers.length > 0 ? `Holding ${layers.join(', ')}.` : 'No layer is holding.'
-  const condition =
-    lost > 0 && degraded > 0
-      ? `${lost} lost, ${degraded} below full integrity.`
-      : lost > 0
-        ? `${lost} asset${lost > 1 ? 's' : ''} lost.`
-        : degraded > 0
-          ? `${degraded} asset${degraded > 1 ? 's' : ''} below full integrity.`
-          : alive.length > 0
-            ? 'Every asset at full integrity.'
-            : 'Nothing left flying.'
-  lines.push(`${holding} ${condition}`)
-
-  lines.push(
-    state.pipeline.length > 0
-      ? `In transit: ${state.pipeline
-          .map((p) => `${kindLabels[p.kind]} in ${p.etaTurns} turn${p.etaTurns === 1 ? '' : 's'}`)
-          .join(', ')}.`
-      : 'Nothing in transit.',
-  )
-
-  lines.push(
-    state.conditions.length > 0
-      ? `Running against you: ${state.conditions.map((c) => `${c.name}, ${turns(c.remainingTurns)} left`).join(', ')}.`
-      : 'No conditions running against you.',
-  )
-
-  // The price is read from the deck, never spelled, so it cannot drift
-  // from what procurement charges (the intel brief, D2 a).
-  lines.push(
-    briefFree(state)
-      ? "Tonight's intel brief is free and names the candidate moves."
-      : `An intel brief is ${scenario.prices.intelBrief} CR and names tonight's moves.`,
-  )
-
-  return lines
+  return cov >= min
+    ? `Coverage ${coverageFigure(cov)}, clear of the ${min} the coverage bonus pays at.`
+    : `Coverage ${coverageFigure(cov)}. The coverage bonus pays ${scenario.slaBonus.credits} CR a turn from ${min}.`
 }
 
-// The turn-1 "Your job" framing, as text rather than as JSX.
-//
-// IT RENDERS INSIDE THE SAME DISCLOSURE as the posture panel, on the first
-// screen of the game, and Round 7b's first disclosure ceiling did not see
-// it: the ceiling measured briefCopy().full and worsted at 90 against a
-// budget of 100, while the body a new player actually reads on turn 1 was
-// 132 words. That is principle 16's newest level reproduced inside the
-// guard written to close it, on the exact screen the round is about.
-//
-// So it lives here, the module the budget functions read, and Game.tsx
-// renders it from this list on both screens that carry it. Every number
-// is interpolated from the scenario, per the standing rule that prose
-// cannot drift from mechanics.
-export function jobFramingLines(scenario: GameState['scenario']): string[] {
-  return [
-    `Finish turn ${scenario.totalTurns} with the mission assurance score at ${scenario.winThreshold} or higher.`,
-    `You start above the win line. ${ADVERSARY} spends ${scenario.totalTurns} turns eroding it.`,
-    `Procure fleet and defenses to slow it. A score under ${scenario.collapseThreshold} or a negative budget ends the operation.`,
-    `Some attacks become conditions that press every turn until they lift. Deployments take turns to arrive. Each defense takes ${scenario.upkeepPerDefense} CR a turn.`,
-  ]
-}
-
-// The framing as the screen shows it: the first three lines are the
-// numbered job, the fourth is context. Built here so the start screen and
-// the brief's disclosure render the same strings, and so the budget below
-// measures the numbers the player reads.
-export function jobFramingBlocks(scenario: GameState['scenario']): string[] {
-  return jobFramingLines(scenario).map((line, i) => (i < 3 ? `${i + 1}. ${line}` : line))
-}
-
-export const JOB_FRAMING_HEADING = 'Your job'
-
-// True exactly where Game.tsx renders the framing inside the brief's
-// disclosure: the opening screen of a campaign that has not resolved a
-// turn yet.
-export function showsJobFraming(state: GameState): boolean {
-  return state.turn === 1 && state.history.length === 0
-}
-
-// Every text block the "Expand full brief" disclosure renders, in order.
-// The budget measures this and tests/game.dom.spec.tsx asserts the rendered
-// panel carries exactly these words, so the two cannot drift apart again.
-export function disclosureBlocks(copy: BriefCopy): string[] {
-  return copy.framing.length > 0 ? [JOB_FRAMING_HEADING, ...copy.framing, ...copy.full] : copy.full
-}
+// The turn-1 "Your job" framing left the full brief in v1.6 R3 (Ken's
+// playtest item 6) for the turn-1 coach's first step (boardModel's
+// firstOrders) and SYSTEM's HOW TO PLAY (systemControls' howToLines).
 
 // What the banner says on a night without the intel brief, and the gist of
 // what the banner's intel card says then (v1.2 R3, brief 4.8; the intel
@@ -299,31 +185,17 @@ export function forecastLead(state: GameState, briefed = briefFree(state)): Thre
   return plannedEvents(state, state.turn).filter((s) => s.length === 1)[0]?.[0]
 }
 
-// The brief's named lines (D2 a): every slot's candidates, by name. This
-// replaced the engine's forecast prose, which left with the intel levels.
-function namedLines(slots: ThreatEvent[][]): string[] {
-  return slots.map((slot) =>
-    slot.length === 1 ? `CONFIRMED: ${shortName(slot[0])}.` : `${WILL_HIT(slot.length)}: ${slot.map(shortName).join(' / ')}.`,
-  )
-}
-
 // `briefed` is whether the intel brief names tonight's moves: free on its
 // free nights, or ordered (the board passes the cart's order in).
 export function briefCopy(state: GameState, briefed = briefFree(state)): BriefCopy {
   const turn = state.turn
-  // Carried beside `full` rather than inside it (Round 7): disclosureBlocks
-  // joins the two in render order, and the budget measures that join.
-  const framing = showsJobFraming(state) ? jobFramingBlocks(state.scenario) : []
   const slots = plannedEvents(state, turn)
   const events = slots.flat()
-  const full = namedLines(slots)
 
   if (events.length === 0) {
     return {
       headline: 'No adversary activity forecast',
       vector: 'Quiet is not the same as safe.',
-      full: postureLines(state),
-      framing,
     }
   }
 
@@ -337,8 +209,6 @@ export function briefCopy(state: GameState, briefed = briefFree(state)): BriefCo
     return {
       headline: FORECAST_DARK.headline,
       vector: `On ${layerList}; ${vectors.join(', ')} signature. ${FORECAST_DARK.vector}`,
-      full: postureLines(state),
-      framing,
     }
   }
 
@@ -360,8 +230,6 @@ export function briefCopy(state: GameState, briefed = briefFree(state)): BriefCo
     return {
       headline,
       vector: `${candidates} candidates on ${layerList}; ${vectors.join(', ')} signature.`,
-      full: [...full, ...postureLines(state)],
-      framing,
     }
   }
   // Cap the name before the count is appended, so the trim can never bite
@@ -384,9 +252,34 @@ export function briefCopy(state: GameState, briefed = briefFree(state)): BriefCo
     // The brief carries the named moves AND the posture. The names alone
     // were not enough: on a turn with exactly one fixed event the headline
     // already names it, so the expansion added almost nothing.
-    full: [...full, ...postureLines(state)],
-    framing,
   }
+}
+
+// THE FULL BRIEF'S SHEET (v1.6 R3, Ken's playtest item 6): only what the
+// board does not already show. Its bullets had repeated the HUD and the
+// board (the named moves over their cards, the layers held over the
+// strip, nothing in transit, no conditions, the intel brief's price over
+// its row), and its job framing moved to the turn-1 coach and SYSTEM's
+// how-to. What is left: the coverage against the bonus's line, which no
+// other screen of the board states, and, once the moves are named, each
+// move's framework technique, a tap to its Glossary entry.
+export interface FullBriefCopy {
+  coverage: string
+  moves: { id: string; name: string; tag?: string }[]
+  // Without the brief the moves and their techniques are not named.
+  dark?: string
+}
+export const FULL_BRIEF_DARK = 'Order an intel brief to name tonight\'s moves and their techniques.'
+export function fullBriefCopy(state: GameState, briefed = briefFree(state)): FullBriefCopy {
+  const coverage = coverageLine(state)
+  if (!briefed) return { coverage, moves: [], dark: FULL_BRIEF_DARK }
+  const moves = plannedEvents(state, state.turn)
+    .flat()
+    .map((ev) => {
+      const ref = ev.techniqueRefs[0]
+      return { id: ev.id, name: shortName(ev), tag: ref ? techniqueLabel(ref) : undefined }
+    })
+  return { coverage, moves }
 }
 
 // Every string on screen before the player's first input on a turn.
@@ -394,24 +287,28 @@ export function briefCopy(state: GameState, briefed = briefFree(state)): BriefCo
 // and the battery never measures copy the screen no longer renders.
 export { CHAIN_ARMED_LINE, chainLine }
 
+const NO_ORDERS: TurnActions = { buyAssets: [], buyCounters: [], intelBrief: false }
+
 // Every disclosure the board renders, bounded (Round 7, brief v2.4
-// section 5). Keyed by the summary the player taps, so the set is the
+// section 5). Keyed by the control the player taps, so the set is the
 // screen's own: tests/game.dom.spec.tsx walks every disclosure the board
 // carries and fails on one with no entry here, so a disclosure added later
 // is bounded by default. The figure is a MEASURED worst plus room, and the
 // test pins the measured worst exactly, so re-baselining is a deliberate
-// edit:
+// edit. Since v1.6 R3 (Ken's playtest items 1 and 6) the board's one
+// disclosure is TONIGHT's "?", the rule and the keys; the full brief is a
+// sheet (fullBriefCopy) and its job framing is the coach's and SYSTEM's:
 //
-//   Expand full brief   119 on turn 1, where the job framing sits under
-//                       its heading above the posture lines (v1.3 R2: the
-//                       retired words came back two longer, and three were
-//                       cut from the framing to keep under the cap)
-//
-// "What these numbers mean" and "Posture detail" left with the board's
-// reference panel in v1.3 R2, and the BLACKOUT CHAIN line is a line of the
-// TONIGHT card now, counted with its reading (firstInputCopy).
+//   How tonight works   31 on turn 2 once tonight's defense is ordered,
+//                       the rule with "This turn's new defense is ordered."
+//                       and the four keys
 export const DISCLOSURE_WORD_BUDGETS: Record<string, number> = {
-  'Expand full brief': 120,
+  [HELP_LABEL]: 32,
+}
+
+// The "?" panel's words, as TONIGHT renders them.
+export function helpCopy(state: GameState, actions: TurnActions = NO_ORDERS): string[] {
+  return [tonightReason(state.turn, defenseOpen(state, actions)), KEY_LIKELY, KEY_STRENGTH, `${STATUS.exposed.word} ${KEY_EXPOSED}`, `${STATUS.blocked.word} ${KEY_BLOCKED}`]
 }
 
 // THE BOARD'S WORDS (v1.3 R2). Everything the deciding board prints, in
@@ -421,11 +318,13 @@ export const DISCLOSURE_WORD_BUDGETS: Record<string, number> = {
 // disagree. tests/game.dom.spec.tsx renders the board and fails on any
 // line here the screen does not show.
 //
-// The reading is the HUD's figures, the TONIGHT card and the orders card;
-// the chrome is the HUD's labels, SYSTEM, the full brief's toggle, each
-// move's "defend ›", "details ›" or "reveal ›", the brief's price button,
-// and the dock.
-const NO_ORDERS: TurnActions = { buyAssets: [], buyCounters: [], intelBrief: false }
+// The reading is the HUD's figures, the TONIGHT card and the coach; the
+// chrome is the HUD's labels, SYSTEM, COLDVEIL's chip, the "?" and full
+// brief keys, the brief's price button, and the dock. Since v1.6 R3 the
+// rule and the keys stand behind "?" (helpCopy), open on their own only
+// on the first board a device sees, so a normal turn's reading leaves
+// them out; the margin's words left the HUD for its bar; the coach shows
+// one step.
 
 export function firstInputCopy(state: GameState, actions: TurnActions = NO_ORDERS): string[] {
   const { scenario } = state
@@ -436,36 +335,31 @@ export function firstInputCopy(state: GameState, actions: TurnActions = NO_ORDER
     `TURN ${Math.min(state.turn, scenario.totalTurns)} OF ${scenario.totalTurns}`,
     String(score),
     '/ 100',
-    marginChip(score, scenario.winThreshold).text,
     ...(state.streak >= 2 ? [streakChip(state.streak)] : []),
     `${state.credits} CR`,
     '0',
     winLineLabel(scenario.winThreshold),
     '100',
-    `TONIGHT${free ? ' · INTEL BRIEF FREE' : ''}`,
+    // A free brief on a line of its own under TONIGHT since v1.6 R3.
+    'TONIGHT',
+    ...(free ? ['INTEL BRIEF FREE'] : []),
     planFor(state, state.turn)?.intro ?? '',
     ...(gnssDenied(state.conditions, scenario) ? [chainLine()] : []),
   ]
   const slots = tonightSlots(state, actions)
-  const firstDraw = slots.findIndex((s) => !s.fixed)
-  for (const [i, slot] of slots.entries()) {
+  for (const slot of slots) {
     if (slot.fixed) out.push(`CONFIRMED · ${confirmedNote(slot.moves[0].ev, slot.moves[0].status)}`)
     else {
       out.push(WILL_HIT(slot.moves.length))
-      if (i === firstDraw) out.push(slot.hidden ? TONIGHT_HIDDEN : tonightReason(state.turn, defenseOpen(state, actions)))
-      if (!slot.hidden && state.turn <= 2)
-        out.push(`${STATUS.exposed.word} ${KEY_EXPOSED}`, `${STATUS.blocked.word} ${KEY_BLOCKED}`, `LIKELY TARGET ${KEY_LIKELY}`, `EITHER ${KEY_EITHER}`)
     }
-    for (const { ev, status, flag } of slot.moves) {
+    for (const { ev, status } of slot.moves) {
       if (slot.hidden) out.push(UNIDENTIFIED, vectorTo(ev))
-      else out.push(...(flag ? [flag] : []), shortName(ev), vectorTo(ev), ...(showsStrength(ev) ? [strengthLine(ev)] : []), STATUS[status].word)
+      else out.push(shortName(ev), vectorTo(ev), ...(showsStrength(ev) ? [strengthLine(ev)] : []), STATUS[status].word)
     }
   }
-  if (!free) out.push(INTEL_ROW[actions.intelBrief ? 'ordered' : 'none'])
   if (state.turn === 1) {
-    const lines = firstOrders(state, actions)
-    const done = lines.filter((l) => l.done).length
-    out.push(...(done === lines.length ? [FIRST_ORDERS_SET] : ['FIRST ORDERS', ordersDone(done, lines.length), ...lines.map((l) => l.text)]))
+    const next = firstOrders(state, actions).find((l) => !l.done)
+    out.push(...(next ? ['FIRST ORDERS', next.text] : [FIRST_ORDERS_SET]))
   } else if (state.turn === 2)
     out.push('SECOND ORDERS', tonightSlots(state, actions).some((s) => s.hidden) ? hiddenOrder(scenario.prices.intelBrief) : SECOND_ORDER)
   return out
@@ -478,14 +372,14 @@ export function firstInputWords(state: GameState, actions: TurnActions = NO_ORDE
 export const SYSTEM_GEAR_LABEL = 'System'
 
 export function chromeCopy(state: GameState, actions: TurnActions = NO_ORDERS): string[] {
-  const slots = tonightSlots(state, actions)
   return [
     SCORE_LABEL,
     BUDGET_LABEL,
     SYSTEM_GEAR_LABEL,
-    FULL_BRIEF_OPEN,
-    ...slots.flatMap((slot) => slot.moves.map((m) => (slot.hidden ? REVEAL : tapHint(m.status, defenseOpen(state, actions))))),
-    ...(briefFree(state) ? [] : [actions.intelBrief ? briefLockedTag(state.scenario.prices.intelBrief) : briefButton(state.scenario.prices.intelBrief)]),
+    COLDVEIL_LABEL,
+    HELP_LABEL,
+    BRIEF_LABEL,
+    ...(briefFree(state) ? [] : [actions.intelBrief ? briefLockedRow(state.scenario.prices.intelBrief) : briefButton(state.scenario.prices.intelBrief)]),
     REMAINING,
     WORST_CASE,
     ...ACTIONS.map((a) => a.label),

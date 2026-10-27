@@ -78,7 +78,10 @@
 // GUARDS, (g) to (m): the strike card's outcome line and the night so far,
 // the desktop log during a strike, the desktop debrief's columns, desktop
 // type, "more below" on a solid band, one HUD height, and the desktop's
-// FIRST ORDERS above the dock (see desktopType below).
+// FIRST ORDERS above the dock (see desktopType below). THE v1.6 R3
+// GUARDS, (n) to (q), from Ken's phone playtest: no text-link controls, no
+// nested scroll, the hit card on one 390x844 screen, and a strike's hold
+// (see r3Guards below).
 //
 // Exit codes: 0 pass, 1 fail, 2 skipped (no Chrome on this machine). The
 // battery runs it after the build. GitHub's ubuntu-24.04 runner has
@@ -968,7 +971,9 @@ const STRIKE_CARD = `(() => {
     move: card?.querySelector('[data-move-name]')?.textContent ?? '',
     moveColor: card?.querySelector('[data-move-name]') ? getComputedStyle(card.querySelector('[data-move-name]')).color : null,
     defense: card?.querySelector('[data-strike-defense]')?.textContent ?? '',
-    verdict: card?.querySelector('[data-verdict]')?.textContent ?? '',
+    // The result is the banner's word since v1.6 R3 (the card under it
+    // keeps the count, F22).
+    verdict: banner.querySelector('[data-strike-word]')?.textContent ?? '',
     top: r?.top ?? 0, bottom: r?.bottom ?? 0, closeBottom: close?.bottom ?? 0, vh: innerHeight,
     closeTop: close?.top ?? 0, stripBottom: document.querySelector('[data-strip]')?.getBoundingClientRect().bottom ?? 0,
     page: document.documentElement.scrollHeight > innerHeight + 1,
@@ -1248,7 +1253,7 @@ const DESKTOP_ORDERS = `(() => {
   const col = document.querySelector('[data-board-play]')
   const orders = document.querySelector('[data-orders]')?.getBoundingClientRect()
   const dock = document.querySelector('[data-dock]')?.getBoundingClientRect()
-  return { over: col.scrollHeight - col.clientHeight, ordersBottom: orders?.bottom ?? null, dockTop: dock?.top ?? 0, colBottom: col.getBoundingClientRect().bottom, brief: !!document.querySelector('[data-brief-scroll]') }
+  return { over: col.scrollHeight - col.clientHeight, ordersBottom: orders?.bottom ?? null, dockTop: dock?.top ?? 0, colBottom: col.getBoundingClientRect().bottom }
 })()`
 
 async function desktopOrders(b, url) {
@@ -1259,7 +1264,8 @@ async function desktopOrders(b, url) {
   for (const seed of [2, 32]) {
     const where = `${w}x${h}, seed ${seed}, turn 1`
     if (!(await startSeedAt(b, url, [w, h], true, seed, true))) return [`${where}: could not replay the seed`]
-    if (!(await waitFor(b, '!!document.querySelector("[data-brief-scroll]")'))) return [`${where}: the full brief never opened`]
+    // The full brief is a sheet since v1.6 R3 and stays shut until its
+    // icon is tapped, so the column holds TONIGHT and the coach alone.
     await sleep(400)
     const m = await b.evaluate(DESKTOP_ORDERS)
     if (m.ordersBottom === null) failures.push(`${where}: no FIRST ORDERS`)
@@ -1288,6 +1294,264 @@ async function desktopDebrief(b, url) {
   return failures
 }
 
+
+// THE v1.6 R3 GUARDS (Ken's phone playtest of 27 October 2026), (n) to (q).
+// (n) NO TEXT-LINK CONTROLS on the board, PROCURE, the night or the
+// debrief: no control whose words carry a "›", and none drawn as bare
+// link-blue text (no border, no fill, no icon). (o) NO PANEL SCROLLS INSIDE
+// A SCROLLING ONE, on every screen of the sweep. (p) THE HIT CARD FITS
+// 390x844: every hit card of two campaigns' nights, won and lost, with no
+// scroll and no "more below". (q) A STRIKE HOLDS AT LEAST 2 SECONDS unless
+// tapped, a tap ends it at once, and SKIP NIGHT plays no more strikes.
+const TEXT_LINKS = `(() => {
+  const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden' }
+  const probe = document.createElement('span'); probe.className = 'text-dc-friendly'; document.body.appendChild(probe)
+  const blue = getComputedStyle(probe).color; probe.remove()
+  const clear = (c) => !c || c === 'transparent' || /rgba\\([^)]*,\\s*0\\)$/.test(c) || /\\/ 0\\)$/.test(c)
+  const out = []
+  for (const e of document.querySelectorAll('button, a[href], summary, [role=button]')) {
+    if (!vis(e)) continue
+    const t = (e.innerText || '').trim().replace(/\\s+/g, ' ')
+    const st = getComputedStyle(e)
+    // A key's border may be on the box inside its 44px hit area (SYSTEM's).
+    const bordered = [e, ...e.querySelectorAll('*')].some((x) => { const xs = getComputedStyle(x); return ['Top', 'Right', 'Bottom', 'Left'].some((k) => parseFloat(xs['border' + k + 'Width']) > 0 && !clear(xs['border' + k + 'Color'])) })
+    const iconic = !!e.querySelector('svg, canvas, img')
+    const blueWords = [e, ...e.querySelectorAll('*')].some((x) => [...x.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && getComputedStyle(x).color === blue)
+    if (t.includes('›')) out.push('chevron: ' + t.slice(0, 60))
+    else if (blueWords && !bordered && clear(st.backgroundColor) && !iconic) out.push('link-blue: ' + t.slice(0, 60))
+  }
+  return out
+})()`
+const NESTED_SCROLL = `(() => {
+  const scrolls = (e) => { const st = getComputedStyle(e); return ['auto', 'scroll'].includes(st.overflowY) && e.scrollHeight > e.clientHeight + 2 }
+  const pageScrolls = document.documentElement.scrollHeight > innerHeight + 1
+  const out = []
+  for (const e of document.querySelectorAll('body *')) {
+    if (e.tagName === 'TEXTAREA' || !scrolls(e) || e.closest('details:not([open])')) continue
+    const r = e.getBoundingClientRect()
+    if (r.width < 1 || r.height < 1) continue
+    let outer = null
+    for (let p = e.parentElement; p && p !== document.body; p = p.parentElement) if (scrolls(p)) { outer = p; break }
+    const fixed = !!e.closest('[role=dialog], [data-sheet], [data-intel-file]') || getComputedStyle(e).position === 'fixed'
+    const name = (x) => [...x.attributes].filter((a) => a.name.startsWith('data-')).map((a) => a.name).join(' ') || x.tagName.toLowerCase()
+    if (outer) out.push(name(e) + ' scrolls inside ' + name(outer))
+    else if (pageScrolls && !fixed) out.push(name(e) + ' scrolls inside the scrolling page')
+  }
+  return out
+})()`
+async function screenAudit(b, where, failures, { links = true } = {}) {
+  await sleep(250)
+  if (links) for (const l of await b.evaluate(TEXT_LINKS)) failures.push(`${where}: a text-link control (${l})`)
+  for (const n of await b.evaluate(NESTED_SCROLL)) failures.push(`${where}: ${n}`)
+}
+
+async function r3Screens(b, url, [w, h]) {
+  const failures = []
+  const desktop = w >= 1100
+  const tag = `${w}x${h}`
+  await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: !desktop })
+  await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+  // The title, its SYSTEM, the Dossier and the Library: nested scroll.
+  if (!(await cleanLoad(b, url, { 'dc-intro-seen': '1' }))) return [`${tag}: no title`]
+  await screenAudit(b, `${tag} title`, failures, { links: false })
+  await b.evaluate(click('[data-title-system]'))
+  await sleep(300)
+  await screenAudit(b, `${tag} title SYSTEM`, failures, { links: false })
+  for (const room of ['dossier', 'library']) {
+    if (!(await cleanLoad(b, url, { 'dc-intro-seen': '1' }))) return [`${tag}: no title`]
+    await b.evaluate(click(`[data-read="${room}"]`))
+    await waitFor(b, `!!document.querySelector('[data-${room}]')`)
+    await screenAudit(b, `${tag} ${room}`, failures, { links: false })
+  }
+  // A game on seed 32 to its won debrief, and seed 2 lost: every board,
+  // PROCURE, the full brief, SYSTEM, every night card, both debriefs.
+  for (const [seed, plan, what] of [[32, NIGHT_PLAN, 'won'], [2, {}, 'lost']]) {
+    if (!(await startSeedAt(b, url, [w, h], true, seed, desktop))) return [`${tag}, seed ${seed}: could not replay the seed`]
+    for (let turn = 1; turn <= 6; turn += 1) {
+      const at = `${tag}, seed ${seed}, turn ${turn}`
+      await sleep(250)
+      await screenAudit(b, `${at} board`, failures)
+      if (turn === 1) {
+        await b.evaluate(click('[data-full-brief]'))
+        await waitFor(b, '!!document.querySelector("[data-sheet=brief]")')
+        await screenAudit(b, `${at} full brief`, failures)
+        await b.evaluate(click('button[aria-label="System"]'))
+        await sleep(250)
+        await screenAudit(b, `${at} SYSTEM`, failures)
+        await b.evaluate(click('button[aria-label="System"]'))
+        await sleep(150)
+      }
+      if (!desktop) {
+        await b.evaluate(click('[data-action="procure"]'))
+        await waitFor(b, '!!document.querySelector("[data-sheet=procure]")')
+        await screenAudit(b, `${at} PROCURE`, failures)
+        await b.evaluate(click('[data-action="procure"]'))
+        await sleep(150)
+      }
+      await orderDefenses(b, plan[turn] ?? [])
+      if (!desktop) await b.evaluate(`(() => { if (document.querySelector('[data-sheet=procure]')) document.querySelector('[data-action="procure"]').click(); return true })()`)
+      await b.evaluate(click('[data-execute]'))
+      let last = false
+      for (let steps = 0; steps < 40; steps += 1) {
+        if (!(await waitFor(b, `${NIGHT_STAGE} !== 'busy'`, 8000))) return [...failures, `${at}: the night stopped`]
+        const stage = await b.evaluate(NIGHT_STAGE)
+        if (stage === 'board') break
+        await screenAudit(b, `${at} night ${stage}`, failures)
+        last = stage === 'end' && (await b.evaluate('document.querySelector("[data-begin]").innerText.trim()')) === 'DEBRIEF'
+        await b.evaluate(NIGHT_TAP)
+        await sleep(80)
+        if (last) break
+      }
+      if (last) break
+    }
+    if (!(await waitFor(b, '!!document.querySelector("[data-debrief]")', 8000))) return [...failures, `${tag}, seed ${seed}: no ${what} debrief`]
+    await sleep(500)
+    await screenAudit(b, `${tag} ${what} debrief`, failures)
+    await b.evaluate('(() => { const s = document.querySelector("[data-debrief-screen]") || document.scrollingElement; s.scrollTop = s.scrollHeight; scrollTo(0, document.body.scrollHeight); return true })()')
+    await screenAudit(b, `${tag} ${what} debrief, its foot`, failures)
+  }
+  return failures
+}
+
+// (p) Every hit card's measure at 390x844: its body scrolls by how much,
+// "more below", the page, and its way on under the screen's foot.
+const HIT_CARD_FIT = `(() => {
+  const c = document.querySelector('[data-night-card="hit"]')
+  if (!c) return null
+  const body = c.querySelector('[data-card-body]')
+  const foot = c.querySelector('footer').getBoundingClientRect()
+  return { over: body.scrollHeight - body.clientHeight, more: !!c.querySelector('[data-more]'), page: document.documentElement.scrollHeight > innerHeight + 1, footBottom: foot.bottom, vh: innerHeight, name: (c.querySelector('[data-move-name]') || {}).textContent }
+})()`
+async function hitCardsFit(b, url) {
+  const [w, h] = [390, 844]
+  const failures = []
+  let cards = 0
+  for (const [seed, plan] of [[2, {}], [2, NIGHT_PLAN], [32, {}], [32, NIGHT_PLAN], [7, NIGHT_PLAN]]) {
+    for (const wide of [false, true]) {
+      if (!(await startSeed(b, url, [w, h], true, seed))) return [`${w}x${h}, seed ${seed}: could not replay the seed`]
+      if (wide) await b.evaluate(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(WIDE_FONTS)}; document.head.appendChild(s); return document.fonts.ready.then(() => true) })()`)
+      for (let turn = 1; turn <= 6; turn += 1) {
+        await orderDefenses(b, plan[turn] ?? [])
+        await b.evaluate(`(() => { if (document.querySelector('[data-sheet=procure]')) document.querySelector('[data-action="procure"]').click(); return true })()`)
+        await b.evaluate(click('[data-execute]'))
+        let last = false
+        for (let steps = 0; steps < 40; steps += 1) {
+          if (!(await waitFor(b, `${NIGHT_STAGE} !== 'busy'`, 8000))) return [...failures, `seed ${seed}, turn ${turn}: the night stopped`]
+          const stage = await b.evaluate(NIGHT_STAGE)
+          if (stage === 'board') break
+          if (stage === 'hit') {
+            await sleep(120)
+            const m = await b.evaluate(HIT_CARD_FIT)
+            cards += 1
+            const where = `${w}x${h}${wide ? ' wide fonts' : ''}, seed ${seed}, turn ${turn}, ${m.name}`
+            if (m.over > 1) failures.push(`${where}: the hit card scrolls ${m.over}px`)
+            if (m.more) failures.push(`${where}: the hit card says "more below"`)
+            if (m.page) failures.push(`${where}: the page scrolls`)
+            if (m.footBottom > m.vh + 0.5) failures.push(`${where}: its way on ends at ${Math.round(m.footBottom)}, under ${m.vh}`)
+          }
+          last = stage === 'end' && (await b.evaluate('document.querySelector("[data-begin]").innerText.trim()')) === 'DEBRIEF'
+          await b.evaluate(NIGHT_TAP)
+          await sleep(60)
+          if (last) break
+        }
+        if (last) break
+      }
+    }
+  }
+  if (cards < 40) failures.push(`${w}x${h}: only ${cards} hit cards were measured`)
+  return failures
+}
+
+// (q) The strike's clock, read in the page: when each banner came and
+// went, by a MutationObserver, so a poll's gaps cannot hide a short one.
+const WATCH_BANNERS = `(() => {
+  window.__banners = []
+  let on = null
+  const look = () => {
+    const e = document.querySelector('[data-strike-banner]')
+    if (e && !on) { on = { start: performance.now(), name: e.textContent }; window.__banners.push(on) }
+    if (!e && on) { on.end = performance.now(); on = null }
+  }
+  new MutationObserver(look).observe(document.body, { childList: true, subtree: true })
+  return true
+})()`
+async function strikeTiming(b, url) {
+  const failures = []
+  for (const [w, h] of [[375, 667], [390, 844]]) {
+    const tag = `${w}x${h}`
+    if (!(await startSeed(b, url, [w, h], false, 32))) return [`${tag}: could not replay the seed`]
+    await b.evaluate(WATCH_BANNERS)
+    // Turn 1 untapped: every strike holds at least 2 seconds.
+    await orderDefenses(b, NIGHT_PLAN[1])
+    await b.evaluate(`(() => { if (document.querySelector('[data-sheet=procure]')) document.querySelector('[data-action="procure"]').click(); return true })()`)
+    await b.evaluate(click('[data-execute]'))
+    for (let steps = 0; steps < 30; steps += 1) {
+      if (!(await waitFor(b, `${NIGHT_STAGE} !== 'busy'`, 12000))) return [...failures, `${tag}, turn 1: the night stopped`]
+      const stage = await b.evaluate(NIGHT_STAGE)
+      if (stage === 'board') break
+      await b.evaluate(NIGHT_TAP)
+      await sleep(80)
+    }
+    const held = await b.evaluate('window.__banners.filter((x) => x.end).map((x) => Math.round(x.end - x.start))')
+    if (!held.length) failures.push(`${tag}, turn 1: no strike played`)
+    for (const ms of held) if (ms < 2000) failures.push(`${tag}, turn 1: a strike held ${ms}ms, under 2 seconds untapped`)
+    // Turn 2: a tap on the strike ends it at once.
+    await b.evaluate('(window.__banners = [], true)')
+    await orderDefenses(b, NIGHT_PLAN[2])
+    await b.evaluate(`(() => { if (document.querySelector('[data-sheet=procure]')) document.querySelector('[data-action="procure"]').click(); return true })()`)
+    await b.evaluate(click('[data-execute]'))
+    let tapped = 0
+    for (let steps = 0; steps < 40; steps += 1) {
+      if (await waitFor(b, '!!document.querySelector("[data-strike-tap]")', 3000)) {
+        await sleep(300)
+        const t0 = await b.evaluate('performance.now()')
+        await b.evaluate(click('[data-strike-tap]'))
+        if (!(await waitFor(b, '!document.querySelector("[data-strike-banner]")', 2000))) failures.push(`${tag}, turn 2: a tap did not end the strike`)
+        else {
+          const gone = await b.evaluate(`Math.round(performance.now() - ${t0})`)
+          if (gone > 400) failures.push(`${tag}, turn 2: the strike stood ${gone}ms after its tap`)
+          tapped += 1
+        }
+      }
+      if (!(await waitFor(b, `${NIGHT_STAGE} !== 'busy'`, 12000))) return [...failures, `${tag}, turn 2: the night stopped`]
+      const stage = await b.evaluate(NIGHT_STAGE)
+      if (stage === 'board') break
+      await b.evaluate(NIGHT_TAP)
+      await sleep(80)
+    }
+    if (!tapped) failures.push(`${tag}, turn 2: no strike was tapped, so the tap was not measured`)
+    // Turn 3: SKIP NIGHT on the first strike, and no strike after it.
+    await orderDefenses(b, NIGHT_PLAN[3])
+    await b.evaluate(`(() => { if (document.querySelector('[data-sheet=procure]')) document.querySelector('[data-action="procure"]').click(); return true })()`)
+    await b.evaluate(click('[data-execute]'))
+    if (!(await waitFor(b, '!!document.querySelector("[data-skip-night]")', 4000))) failures.push(`${tag}, turn 3: no SKIP NIGHT on the strike`)
+    else {
+      const skip = await b.evaluate(`(() => { const r = document.querySelector('[data-skip-night]').getBoundingClientRect(); return { bottom: r.bottom, right: r.right, vw: innerWidth, vh: innerHeight } })()`)
+      if (skip.bottom > skip.vh || skip.right > skip.vw) failures.push(`${tag}, turn 3: SKIP NIGHT stands off the screen`)
+      await b.evaluate('(window.__banners = [], true)')
+      await b.evaluate(click('[data-skip-night]'))
+      for (let steps = 0; steps < 40; steps += 1) {
+        if (!(await waitFor(b, `${NIGHT_STAGE} !== 'busy'`, 6000))) return [...failures, `${tag}, turn 3: the night stopped after SKIP NIGHT`]
+        const stage = await b.evaluate(NIGHT_STAGE)
+        if (stage === 'board') break
+        await b.evaluate(NIGHT_TAP)
+        await sleep(80)
+      }
+      const after = await b.evaluate('window.__banners.length')
+      if (after > 0) failures.push(`${tag}, turn 3: ${after} strike(s) played after SKIP NIGHT`)
+    }
+  }
+  return failures
+}
+
+export async function r3Guards(b, url) {
+  const failures = []
+  for (const vp of [[375, 667], [1440, 900]]) failures.push(...(await r3Screens(b, url, vp)))
+  failures.push(...(await hitCardsFit(b, url)))
+  failures.push(...(await strikeTiming(b, url)))
+  return failures
+}
+
 export async function v16Guards(b, url) {
   const failures = []
   const on = await scoreStills(b, url, false)
@@ -1309,6 +1573,8 @@ export async function phoneLayout(chrome) {
     const failures = []
     // PHONE_LAYOUT_ONLY=v16 runs the v1.6 guards alone, R1's and R2's
     // (with the debrief's, which hold its shape), for a mutation run.
+    // PHONE_LAYOUT_ONLY=r3 runs the v1.6 R3 guards alone, for a mutation run.
+    if (process.env.PHONE_LAYOUT_ONLY === 'r3') return await r3Guards(b, url)
     if (process.env.PHONE_LAYOUT_ONLY === 'v16') {
       failures.push(...(await v16Guards(b, url)))
       failures.push(...(await checkDebrief(b, url, VIEWPORTS[0], NIGHT_PLAN, 'won')), ...(await checkDebrief(b, url, VIEWPORTS[0], {}, 'lost')))
@@ -1331,6 +1597,7 @@ export async function phoneLayout(chrome) {
     failures.push(...(await checkReadingRooms(b, url, VIEWPORTS[0])))
     failures.push(...(await checkDesktop(b, url)))
     failures.push(...(await v16Guards(b, url)))
+    failures.push(...(await r3Guards(b, url)))
     failures.push(...(await checkEveryScreen(b, url)))
     return failures
   } finally {

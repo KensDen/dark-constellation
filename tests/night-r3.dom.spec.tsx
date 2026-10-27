@@ -5,10 +5,12 @@
 //   GUARD R3 (a), NOTHING ADVANCES WITHOUT A TAP but the 750ms overlay and
 //   the strike: a card, the intel card and END OF TURN wait a minute and
 //   are still there; one tap moves each on.
-//   GUARD R3 (b), A FIRST MEETING SHOWS COLLECT INTEL CARD, a repeat shows
-//   CONTINUE (and the IN YOUR DOSSIER row).
-//   GUARD R3 (c), FILE IT RAISES THE DOSSIER BY ONE AND SURVIVES A RELOAD:
-//   the device's dossier, and GOAL 2's count of it, read again from
+//   GUARD R3 (b), A FIRST MEETING SHOWS FILE TO DOSSIER (COLLECT INTEL CARD
+//   until v1.6 R3, Ken's playtest item 4), a repeat shows CONTINUE (and
+//   the IN YOUR DOSSIER row).
+//   GUARD R3 (c), FILE TO DOSSIER RAISES THE DOSSIER BY ONE AND SURVIVES A
+//   RELOAD: filed at the tap since v1.6 R3, the card arriving stamped
+//   FILED; the device's dossier, and GOAL 2's count of it, read again from
 //   storage.
 //   GUARD R3 (d), END OF TURN'S ROWS ADD UP TO THE NEXT BUDGET THE ENGINE
 //   REPORTS, live and from a reload, on every turn of seeded games.
@@ -34,7 +36,7 @@ import type { GameState, TurnActions } from '../src/engine/types'
 import { dossier } from '../src/persistence'
 import { dossierCount } from '../src/ui/titleStatus'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
-import { LOCK_SHARE, STRIKE_MS } from '../src/ui/board/strike'
+import { LOCK_SHARE, STRIKE_HOLD_MS, STRIKE_MS } from '../src/ui/board/strike'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 import { NO_OP, WIN_SCRIPT, a, debrisTurnOf } from './scripts'
 
@@ -158,7 +160,7 @@ describe('GUARD R3 (a): nothing in the night advances without a tap but the over
     await act(async () => void vi.advanceTimersByTime(STRIKE_MS * LOCK_SHARE + 1))
     await act(async () => {})
     expect(stage()).toBe('strike')
-    await act(async () => void vi.advanceTimersByTime(STRIKE_MS * (1 - LOCK_SHARE) + 1))
+    await act(async () => void vi.advanceTimersByTime((STRIKE_HOLD_MS - STRIKE_MS * LOCK_SHARE) + 1))
     await act(async () => {})
     expect(stage(), 'the strike did not give way to the hit card').toBe('hit')
     // From here every card waits: a minute passes and the same one is up.
@@ -178,12 +180,12 @@ describe('GUARD R3 (a): nothing in the night advances without a tap but the over
   })
 })
 
-describe('GUARD R3 (b): a first meeting shows COLLECT INTEL CARD and a repeat shows CONTINUE', () => {
-  it('offers COLLECT for a threat not yet filed, and CONTINUE with the dossier row for one that is', async () => {
+describe('GUARD R3 (b): a first meeting shows FILE TO DOSSIER and a repeat shows CONTINUE', () => {
+  it('offers FILE TO DOSSIER for a threat not yet filed, and CONTINUE with the dossier row for one that is', async () => {
     render(gameAt(1))
     await tap(q('[data-execute]'))
     expect(stage()).toBe('hit')
-    expect(q('[data-collect]')?.textContent).toBe('COLLECT INTEL CARD')
+    expect(q('[data-collect]')?.textContent).toBe('FILE TO DOSSIER')
     expect(q('[data-continue]')).toBeNull()
     expect(q('[data-dossier-row]')).toBeNull()
     // The same night, with both of turn 1's moves already filed: the seed's
@@ -198,18 +200,23 @@ describe('GUARD R3 (b): a first meeting shows COLLECT INTEL CARD and a repeat sh
   })
 })
 
-describe('GUARD R3 (c): FILE IT raises the dossier by one and survives a reload', () => {
-  it('files the card on the device at once, where GOAL 2 counts it after a reload', async () => {
+describe('GUARD R3 (c): FILE TO DOSSIER raises the dossier by one and survives a reload', () => {
+  it('files the card on the device at the tap, stamps it FILED, and GOAL 2 counts it after a reload', async () => {
     render(gameAt(1))
     const before = dossierCount().filed
     await tap(q('[data-execute]'))
     await tap(q('[data-collect]'))
     expect(stage()).toBe('intel')
     const id = q('[data-intel-file]')!.getAttribute('data-intel-file')!
-    // The counter ticks up as the card arrives, before it is filed.
+    // Filed at the tap that names it (Ken's playtest item 4: no second
+    // FILE IT), the card arriving with FILED stamped on it.
+    expect(dossier().has(id), 'not filed at FILE TO DOSSIER').toBe(true)
+    expect(dossierCount().filed).toBe(before + 1)
+    expect(q('[data-filed-stamp]')?.textContent).toBe('FILED')
     expect(q('[data-dossier-count]')!.textContent).toBe(`${before + 1} / ${dossierCount().total}`)
-    expect(dossier().has(id), 'filed before FILE IT').toBe(false)
+    expect(q('[data-file-it]')!.textContent).toBe('CONTINUE')
     await tap(q('[data-file-it]'))
+    expect(stage()).not.toBe('intel')
     expect(dossierCount().filed).toBe(before + 1)
     // A reload: nothing held in memory, only what storage kept.
     act(() => root.unmount())

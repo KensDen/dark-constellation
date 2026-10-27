@@ -135,6 +135,26 @@ body {
   overscroll-behavior: none;
 }
 
+/* No line ends on one word (v1.6 R3, from Ken's notes: no one-word last
+   lines at 375). The browser moves a word down to the last line where it
+   would stand alone; a line it cannot help still wraps as before. The
+   style alone, which every element inherits, so a nowrap line keeps its
+   nowrap. */
+body {
+  text-wrap-style: pretty;
+}
+
+/* A disclosure's arrow turns as it opens (v1.6 R3: the "details ›" text
+   links on the debrief's save code, the Dossier's cards and the night's
+   Dossier row became this). */
+.dc-open-turn {
+  display: inline-block;
+  transition: transform 120ms ease;
+}
+details[open] .dc-open-turn {
+  transform: rotate(180deg);
+}
+
 /* Focus visibility on a dark terminal surface. */
 :focus-visible {
   outline: 2px solid var(--color-phosphor);
@@ -334,35 +354,35 @@ body {
      Transform and opacity only. The lock-on is the first LOCK_SHARE of
      the strike (src/ui/board/strike.ts); the rest starts when it lands. */
   .dc-lock-on {
-    animation: dc-lock-on calc(var(--dc-beat, 1200ms) * 0.3) steps(3, end) both;
+    animation: dc-lock-on calc(var(--dc-beat, 1500ms) * 0.3) steps(3, end) both;
   }
 
   .dc-hit-strobe {
-    animation: dc-hit-strobe calc(var(--dc-beat, 1200ms) * 0.45) steps(1, end) forwards;
+    animation: dc-hit-strobe calc(var(--dc-beat, 1500ms) * 0.45) steps(1, end) forwards;
   }
 
   .dc-burst {
-    animation: dc-burst calc(var(--dc-beat, 1200ms) * 0.12) steps(1, end) forwards;
+    animation: dc-burst calc(var(--dc-beat, 1500ms) * 0.12) steps(1, end) forwards;
   }
 
   .dc-burst-1 {
-    animation-delay: calc(var(--dc-beat, 1200ms) * 0.12);
+    animation-delay: calc(var(--dc-beat, 1500ms) * 0.12);
   }
 
   .dc-burst-2 {
-    animation-delay: calc(var(--dc-beat, 1200ms) * 0.24);
+    animation-delay: calc(var(--dc-beat, 1500ms) * 0.24);
   }
 
   .dc-pip-pop {
-    animation: dc-pip-pop calc(var(--dc-beat, 1200ms) * 0.4) ease-out forwards;
+    animation: dc-pip-pop calc(var(--dc-beat, 1500ms) * 0.4) ease-out forwards;
   }
 
   .dc-mai-float {
-    animation: dc-mai-float calc(var(--dc-beat, 1200ms) * 0.6) ease-out forwards;
+    animation: dc-mai-float calc(var(--dc-beat, 1500ms) * 0.6) ease-out forwards;
   }
 
   .dc-shield-flash {
-    animation: dc-shield-flash calc(var(--dc-beat, 1200ms) * 0.5) steps(1, end) both;
+    animation: dc-shield-flash calc(var(--dc-beat, 1500ms) * 0.5) steps(1, end) both;
   }
 }
 
@@ -810,6 +830,10 @@ body {
   /* The strike's banner stands in the night's column, empty while the
      move plays out on the playfield beside it. */
   [data-board] [data-board-play] [data-strike-banner] {
+    position: absolute;
+  }
+  /* SKIP NIGHT at the foot of the night's column, not over the log. */
+  [data-board] [data-board-play] [data-skip-night] {
     position: absolute;
   }
   /* The strike's card is the phone's (v1.6 R1): the night's log says it

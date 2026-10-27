@@ -194,7 +194,10 @@ describe('the hit card (critique row M3)', () => {
     expect(card.getAttribute('aria-label')).toBe(`${shortName(f.def)}: HIT`)
     const block = card.querySelector('[data-outcome="open"]')
     expect(block, 'the hit card has no UNDEFENDED block').not.toBeNull()
-    expect(block!.textContent).toMatch(/^UNDEFENDED/)
+    // UNDEFENDED stands in the result panel since v1.6 R3 (Ken's playtest
+    // item 3), and the block under it says what would have helped.
+    expect(card.querySelector('[data-result] [data-undefended]')?.textContent).toBe('UNDEFENDED')
+    expect(block!.textContent).not.toContain('UNDEFENDED')
     expect(line(), 'the hit card names nothing that would have helped').not.toBeNull()
     expect(line()!.closest('[data-outcome="open"]'), 'the line is not on the UNDEFENDED block').toBe(block)
     // Where the player is looking: on the card, not behind a disclosure.
@@ -217,7 +220,11 @@ describe('the hit card (critique row M3)', () => {
     expect(block, 'the hit card has no REDUCED block').not.toBeNull()
     const missing = f.def.counters.find((c) => !f.state.counters.includes(c))!
     const held = f.def.counters.find((c) => f.state.counters.includes(c))!
-    expect(block!.textContent).toContain(`PARTIAL · ${nameOf(held).toUpperCase()}`)
+    // The defense named once, in its line; the panel above says PARTIAL
+    // (v1.6 R3).
+    expect(block!.textContent).toContain(`${nameOf(held)} blunted it.`)
+    expect(card.querySelector('[data-result] [data-verdict]')?.textContent).toBe('PARTIAL')
+    expect(card.querySelector('[data-result] [data-undefended]'), 'a partial is not undefended').toBeNull()
     expect(block!.textContent).toContain(`Would have finished it: ${nameOf(missing)}, ${costOf(missing)} CR.`)
     // The UNDEFENDED line is for a move nothing answered.
     expect(line()).toBeNull()

@@ -26,7 +26,9 @@ import PixelSprite from '../sprites/PixelSprite'
 import { ICON_CHECK, ICON_UP, tinted } from '../sprites/icons'
 import { BUDGET_LABEL, SCORE_LABEL, marginChip, streakChip, winLineLabel } from './boardModel'
 
-const TONE_TEXT = { go: 'text-dc-go', warn: 'text-dc-warn', hostile: 'text-dc-hostile' } as const
+// The bar's fill says the margin: blue clear of the line, amber within
+// CLOSE_MARGIN of it, red under it.
+const BAR_TONE = { go: 'bg-dc-friendly', warn: 'bg-dc-warn', hostile: 'bg-dc-hostile' } as const
 
 export interface BoardHudProps {
   shown: GameState
@@ -132,14 +134,17 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
           </span>
           <span className="whitespace-nowrap pb-0.5 font-mono text-[11px] text-dc-muted">/ 100</span>
           <span className="relative flex min-w-0 flex-col pb-0.5 font-mono text-[10px] leading-tight">
-            {/* The delta chip takes the margin line's place while it
-                shows, never over the score's digits or layered on the line
+            {/* The delta chip, beside the score, never over its digits
                 (fresh-eyes review, v1.3 R3): a fall in red, to one decimal
                 as the card says it, NO LOSS in green on a block, and any
                 other change in its own colour. The one place the score's
                 red and green show (v1.6 R1). It floats off with motion
-                on, and stands still with motion off. */}
-            {chip ? (
+                on, and stands still with motion off. The margin's words
+                ("17.4 ABOVE WIN LINE") left in v1.6 R3 (Ken's playtest
+                item 1): the bar under it says the same, its fill amber
+                within 6 of the line and red under it. */}
+            <span className="sr-only">{margin.text}</span>
+            {chip && (
               <span
                 key={chip.key}
                 aria-hidden="true"
@@ -150,10 +155,6 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
                 {/* What caused a fall nothing struck: the live conditions,
                     by name (v1.3 R5, R3's question 8). */}
                 {chip.label && <span data-drop-label className="ml-1 font-mono text-[10px] tracking-widest">{chip.label}</span>}
-              </span>
-            ) : (
-              <span data-margin={margin.tone} className={`whitespace-nowrap ${TONE_TEXT[margin.tone]}`}>
-                {margin.text}
               </span>
             )}
           </span>
@@ -173,7 +174,8 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
       <div className="px-3 pb-1 pt-1">
         <div className="relative h-1.5 bg-dc-line" aria-hidden="true">
           <i
-            className={`absolute inset-y-0 left-0 ${score < winAt ? 'bg-dc-hostile' : 'bg-dc-friendly'}`}
+            data-margin={margin.tone}
+            className={`absolute inset-y-0 left-0 ${BAR_TONE[margin.tone]}`}
             style={{ width: `${fill}%` }}
           />
           <b className="absolute -inset-y-0.5 w-0.5 bg-dc-go" style={{ left: `${winAt}%` }} />

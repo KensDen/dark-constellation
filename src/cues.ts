@@ -104,8 +104,8 @@ export const VISUAL_MS: Record<VisualCue, number> = {
   silent: 0,
   transmission: 320,
   sweep: 200,
-  strike: 1200,
-  shield: 900,
+  strike: 210,
+  shield: 1125,
   tiles: 350,
   'chip-in': 500,
   'card-rise': 250,
@@ -350,9 +350,9 @@ export const MOMENTS: Moment[] = [
 ]
 
 export const MOMENT_CUES: Record<Moment, Cue> = {
-  // BEGIN TURN n: the next night's intel arrives, and the TONIGHT card's
+  // BEGIN TURN n: the next night's word arrives, and the TONIGHT card's
   // intro comes in as a transmission.
-  'turn-start': cue('Turn start: intel incoming', 'transmission', 'data-burst'),
+  'turn-start': cue('Turn start: a transmission arrives', 'transmission', 'data-burst'),
   // The 750ms overlay. Its sound is EXECUTE's own sweep, played by the
   // press that opened it.
   moving: cue('COLDVEIL is moving', 'sweep', 'silent'),
@@ -366,8 +366,10 @@ export const MOMENT_CUES: Record<Moment, Cue> = {
   // The family's stand-in: the hit card plays the deck's own alarm for
   // the condition (CONDITION_CUES).
   condition: cue('Condition applied', 'chip-in', 'alarm-gnss'),
-  collect: cue('COLLECT INTEL CARD', 'collect-glow', 'data-burst'),
-  file: cue('FILE IT', 'intel-in', 'arrive-chime'),
+  // FILE TO DOSSIER, and the FILED stamp on the Dossier card (v1.6 R3,
+  // Ken's playtest item 4: COLLECT INTEL CARD and FILE IT).
+  collect: cue('FILE TO DOSSIER', 'collect-glow', 'data-burst'),
+  file: cue('FILED stamp', 'intel-in', 'arrive-chime'),
   opportunity: cue('Opportunity', 'card-rise', 'resolve-chime'),
   // A decision, not an event: the call arrives quietly.
   'debris-call': cue('Your call', 'card-rise', 'silent'),
@@ -465,7 +467,7 @@ export interface Section6Row {
 
 export const SECTION_6_ROWS: Section6Row[] = [
   {
-    beat: 'Turn start, intel incoming',
+    beat: 'Turn start, a transmission arrives',
     moments: ['turn-start'],
     visual: 'transmission',
     where: 'ui/board/Tonight.tsx (the turn intro arrives as a transmission)',
@@ -609,7 +611,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     soundWhere: 'ui/night/cards.tsx',
   },
   {
-    beat: 'COLLECT INTEL CARD',
+    beat: 'FILE TO DOSSIER',
     moments: ['collect'],
     visual: 'collect-glow',
     where: 'ui/night/cards.tsx',
@@ -618,10 +620,10 @@ export const SECTION_6_ROWS: Section6Row[] = [
     soundWhere: 'ui/night/Night.tsx',
   },
   {
-    beat: 'FILE IT',
+    beat: 'FILED stamp',
     moments: ['file'],
     visual: 'intel-in',
-    where: 'ui/night/cards.tsx (the intel card)',
+    where: 'ui/night/cards.tsx (the Dossier card)',
     sound: 'arrive-chime',
     haptic: 'none',
     soundWhere: 'ui/night/Night.tsx',

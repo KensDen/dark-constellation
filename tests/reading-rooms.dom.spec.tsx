@@ -46,6 +46,12 @@ beforeAll(async () => {
   await import('../src/ui/night/Night')
   await import('../src/ui/night/cards')
   await import('../src/ui/night/closeCards')
+  // The reading rooms' chunks too, so a lazy screen resolves on a
+  // microtask under a loaded full run (v1.6 R3: the Library's entries once
+  // came back empty there and whole alone).
+  await import('../src/ui/Library')
+  await import('../src/ui/FieldLibrary')
+  await import('../src/ui/Dossier')
 })
 
 function memoryStorage(): Storage {
@@ -191,7 +197,9 @@ describe('GUARD R4 (c): the Dossier counts its filed cards, and keeps them acros
     await openDossierFromTitle()
     const card = q<HTMLDetailsElement>('[data-dossier-card="ground-ransomware"]')!
     const def = THREATS.find((t) => t.id === 'ground-ransomware')!
-    expect(card.querySelector('summary')!.textContent).toContain('details ›')
+    // The whole card opens; an arrow says so, not "details ›" (v1.6 R3).
+    expect(card.querySelector('summary')!.textContent).not.toContain('›')
+    expect(card.querySelector('summary .dc-open-turn'), 'the card has no open arrow').not.toBeNull()
     click(card.querySelector('summary')!)
     card.open = true
     const body = card.textContent ?? ''

@@ -11,7 +11,7 @@ import type { SoundPrefs } from '../audio'
 import type { Difficulty } from '../engine/types'
 import { DIFFICULTIES } from '../engine/rules'
 import { SHEET_BUTTON, SHEET_PRIMARY, SHEET_TOGGLE } from './board/Sheet'
-import { MOTION_TOGGLE_LABEL, SYSTEM_CONTROLS, type SystemControl } from './systemControls'
+import { MOTION_TOGGLE_LABEL, SYSTEM_CONTROLS, howToLines, type SystemControl } from './systemControls'
 import SoundToggles from './cues/SoundToggles'
 import { useMotionSettingOff, setMotionSettingOff } from './cues/motion'
 import { parseSeed } from './session'
@@ -46,6 +46,7 @@ export default function SystemPanel(p: SystemPanelProps) {
   const motionOff = useMotionSettingOff()
   const [pending, setPending] = useState<Difficulty | null>(null)
   const [leaving, setLeaving] = useState(false)
+  const [howTo, setHowTo] = useState(false)
   // The confirm scrolls into view as it opens, rather than opening half
   // under the board's dock (R6 question 14).
   const confirmRef = useRef<HTMLDivElement | null>(null)
@@ -62,6 +63,21 @@ export default function SystemPanel(p: SystemPanelProps) {
   }
   return (
     <div className="space-y-4 py-3 px-3 text-dc-ink">
+      {/* HOW TO PLAY (v1.6 R3): the job and the turn, behind one button so
+          SYSTEM's controls stay where a player reaches for them. */}
+      <section aria-label={name('howto')}>
+        <button type="button" data-system-control="howto" aria-expanded={howTo} className={SHEET_TOGGLE(howTo)} onClick={() => setHowTo((o) => !o)}>
+          HOW TO PLAY
+        </button>
+        {howTo && (
+          <ol data-how-to className="mt-2 list-decimal space-y-1.5 pl-5 text-sm">
+            {howToLines().map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ol>
+        )}
+      </section>
+
       <section data-system-control="difficulty" aria-label={name('difficulty')}>
         <p className={LABEL}>DIFFICULTY</p>
         <div className="mt-1 flex flex-wrap gap-2">

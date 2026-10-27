@@ -21,7 +21,7 @@ import type { DebrisChoice, GameState } from '../../engine/types'
 import { dossier, fileCard, knownThreats } from '../../persistence'
 import { callSigns } from '../board/board'
 import { WIDE_BOARD, shortName, stoppedByLine } from '../board/boardModel'
-import { LOCK_SHARE, STRIKE_MS, strikeOf, tracesOf, type Strike, type Trace } from '../board/strike'
+import { LOCK_SHARE, STRIKE_HOLD_MS, STRIKE_MS, strikeOf, tracesOf, type Strike, type Trace } from '../board/strike'
 import { CloseUp, type CloseUpProps } from '../board/Playfield'
 import { useReducedMotion } from '../cues/motion'
 import { maiScore } from '../../engine/scoring'
@@ -129,11 +129,18 @@ export default function Night(p: NightProps) {
   // device, and tonight's own, whether or not the turn is committed yet.
   const known = useMemo(() => new Set([...knownThreats(), ...record.events.map((e) => e.eventId), ...record.named]), [record])
 
+  // SKIP NIGHT (v1.6 R3, Ken's ruling of 27 October 2026 on his playtest
+  // item 2): the rest of the night plays without strikes, and stops only
+  // where the player has something to do: the debris call, and a move met
+  // for the first time, whose card files it to the Dossier. Every other
+  // card is passed, and END OF TURN shows the night whole.
+  const [skipping, setSkipping] = useState(false)
   // Where a step's card starts: the call, the strike, or the card itself.
-  const entry = (i: number): Stage => {
+  const entry = (i: number, skip = skipping): Stage => {
     if (!night || i >= night.steps.length) return { at: 'end' }
     if (i === call && pending) return { at: 'call', i }
     const step = night.steps[i]
+    if (skip) return firstMeeting(step) ? { at: 'card', i, first: true } : entry(i + 1, skip)
     if (step.kind === 'threat' && !reduced) return { at: 'strike', i, landed: false }
     return { at: 'card', i, first: firstMeeting(step) }
   }
@@ -151,16 +158,34 @@ export default function Night(p: NightProps) {
   // The two clocks: the overlay, and the strike's lock-on and landing.
   useStageTimer(stage.at === 'moving' ? 'moving' : null, 750, () => go(0))
   const striking = stage.at === 'strike' ? stage : null
-  useStageTimer(striking && !striking.landed ? `lock-${striking.i}` : null, STRIKE_MS * LOCK_SHARE, () => {
+  const land = () => {
     if (!striking || !night) return
     const step = night.steps[striking.i]
     play(strikeSound(step.ev.eventId, step.ev.effectiveSeverity > 0), { intensity: strikeIntensity(step.ev.effectiveSeverity) })
     setStage({ at: 'strike', i: striking.i, landed: true })
-  })
-  useStageTimer(striking?.landed ? `land-${striking.i}` : null, STRIKE_MS * (1 - LOCK_SHARE), () => {
+  }
+  const toCard = () => {
     if (!striking || !night) return
     setStage({ at: 'card', i: striking.i, first: firstMeeting(night.steps[striking.i]) })
-  })
+  }
+  useStageTimer(striking && !striking.landed ? `lock-${striking.i}` : null, STRIKE_MS * LOCK_SHARE, land)
+  // The landed strike stands until STRIKE_HOLD_MS from its lock-on (v1.6
+  // R3, Ken's playtest item 2), then its card comes up.
+  useStageTimer(striking?.landed ? `land-${striking.i}` : null, STRIKE_HOLD_MS - STRIKE_MS * LOCK_SHARE, toCard)
+  // A tap during a strike ends its hold: a strike still locking on lands
+  // (its sound with it), and a landed one gives way to its card.
+  const tapStrike = () => {
+    if (!striking) return
+    if (striking.landed) toCard()
+    else {
+      land()
+      toCard()
+    }
+  }
+  const skipNight = () => {
+    setSkipping(true)
+    if (striking) setStage(firstMeeting(night!.steps[striking.i]) ? { at: 'card', i: striking.i, first: true } : entry(striking.i + 1, true))
+  }
 
   // Under reduced motion a threat's card is where its strike is heard.
   const heard = useRef(-1)
@@ -213,14 +238,24 @@ export default function Night(p: NightProps) {
     onBoard({ shown: step.after, strike: rest ? { ...rest, rest: true } : null, drop, preClose: true, traces: traces(step.kind === 'debris' ? stage.i + 1 : stage.i), log: traces(stage.i + 1) })
   }, [stage, night, after, onBoard, reduced, record, scenario])
 
+  // FILE TO DOSSIER files the card at once (v1.6 R3, Ken's playtest item
+  // 4), and the card arrives stamped FILED; the file cue rings as the stamp
+  // lands.
   const onContinue = (i: number) => (collect: boolean) => {
-    if (collect) {
+    if (collect && night) {
+      const filed = dossierCount().filed
+      fileCard(night.steps[i].ev.eventId)
       play(MOMENT_CUES.collect.sound)
-      setStage({ at: 'intel', i, filed: dossierCount().filed })
+      setStage({ at: 'intel', i, filed })
       return
     }
     go(i + 1)
   }
+  useEffect(() => {
+    if (stage.at !== 'intel') return
+    const id = window.setTimeout(() => play(MOMENT_CUES.file.sound), reduced ? 0 : 420)
+    return () => window.clearTimeout(id)
+  }, [stage, reduced, play])
 
   const turn = record.turn
   if (stage.at === 'moving') return <Moving />
@@ -239,9 +274,21 @@ export default function Night(p: NightProps) {
       landed: stage.landed,
     }
     return (
-      <StrikeBanner key={`banner-${stage.i}`} held={step.ev.effectiveSeverity === 0} name={shortName(step.def)} view={view}>
-        {cards && <cards.StrikeCard step={step} signs={signs} earlier={tracesOf(turn, record.events, scenario, stage.i)} of={tracesOf(turn, record.events, scenario).length} />}
-      </StrikeBanner>
+      <>
+        {/* The whole screen takes the tap that ends the strike's hold. */}
+        <button type="button" data-strike-tap aria-label={copy.NEXT_STRIKE} onClick={tapStrike} className="fixed inset-0 z-[39] cursor-pointer" />
+        <StrikeBanner key={`banner-${stage.i}`} result={step.ev.effectiveSeverity === 0 ? 'held' : step.ev.outcome === 'reduced' ? 'reduced' : 'hit'} name={shortName(step.def)} view={view}>
+          {cards && <cards.StrikeCard step={step} signs={signs} earlier={tracesOf(turn, record.events, scenario, stage.i)} of={tracesOf(turn, record.events, scenario).length} />}
+        </StrikeBanner>
+        <button
+          type="button"
+          data-skip-night
+          onClick={skipNight}
+          className="dc-tile fixed bottom-3 right-3 z-50 min-h-11 border-2 border-dc-line bg-dc-panel px-3 font-display text-[10px] text-dc-ink shadow-press active:shadow-none"
+        >
+          {copy.SKIP_NIGHT}
+        </button>
+      </>
     )
   }
   if (!cards || !close) {
@@ -312,12 +359,7 @@ export default function Night(p: NightProps) {
           filed={stage.filed}
           total={dossierCount().total}
           reduced={reduced}
-          onFile={() => {
-            // Filed on the device at once (brief 5.5 item 3).
-            fileCard(step.ev.eventId)
-            play(MOMENT_CUES.file.sound)
-            go(stage.i + 1)
-          }}
+          onContinue={() => go(stage.i + 1)}
         />
       )}
     </>
@@ -325,7 +367,7 @@ export default function Night(p: NightProps) {
 }
 
 // A threat met for the first time is one not yet in the Dossier: its card
-// offers COLLECT INTEL CARD, and every later meeting offers CONTINUE.
+// offers FILE TO DOSSIER, and every later meeting offers CONTINUE.
 // Opportunities are not threats and are never filed.
 function firstMeeting(step: NightStep): boolean {
   return step.kind !== 'opportunity' && !dossier().has(step.ev.eventId)
@@ -351,7 +393,8 @@ function Moving() {
 // The strike's banner (brief 5.5 item 1): COLDVEIL MOVES or BLOCKED, with the
 // move's name; on a phone the strike's card under it names the move
 // instead (v1.6 R1), and the stylesheet keeps one of the two.
-function StrikeBanner({ held, name, view, children }: { held: boolean; name: string; view: CloseUpProps; children?: ReactNode }) {
+function StrikeBanner({ result, name, view, children }: { result: keyof typeof copy.STRIKE_WORD; name: string; view: CloseUpProps; children?: ReactNode }) {
+  const held = result === 'held'
   // On a phone the banner stands under the asset strip, never over it
   // (v1.6 R2's fresh eyes, G7: once a condition's chip or the streak's
   // line made the strip taller, its foot ran under the close-up). Read as
@@ -371,9 +414,9 @@ function StrikeBanner({ held, name, view, children }: { held: boolean; name: str
     >
       {/* The move on its target, close up (v1.5 R2). */}
       <CloseUp {...view} />
-      <span className={`flex items-center gap-2.5 font-display ${held ? 'text-[28px] text-dc-go' : 'text-[20px] text-dc-hostile'}`}>
+      <span data-strike-word={result} className={`flex items-center gap-2.5 font-display text-[28px] ${held ? 'text-dc-go' : result === 'reduced' ? 'text-dc-warn' : 'text-dc-hostile'}`}>
         {held && <PixelSprite sprite={SHIELD_STAMP} scale={3} name="banner-shield" className="dc-stamp-pop" />}
-        {held ? copy.STRIKE_HELD : copy.STRIKE_HIT}
+        {copy.STRIKE_WORD[result]}
       </span>
       <small data-strike-name className="max-w-full bg-dc-ground/90 px-2.5 py-1 text-center font-mono text-xs text-dc-ink">
         {name}

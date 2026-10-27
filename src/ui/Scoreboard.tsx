@@ -157,8 +157,8 @@ export default function Scoreboard({ onBack }: { onBack: () => void }) {
               </div>
             </div>
           ) : (
-            <button type="button" data-ask-clear className="min-h-11 self-start text-[13px] text-dc-hostile underline underline-offset-2" onClick={() => setConfirmClear(true)}>
-              clear practice scores ›
+            <button type="button" data-ask-clear className={`${DC_BTN} self-start border-dc-hostile/60! text-dc-hostile!`} onClick={() => setConfirmClear(true)}>
+              CLEAR PRACTICE SCORES
             </button>
           ))}
       </div>

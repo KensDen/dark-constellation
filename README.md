@@ -115,9 +115,11 @@ value, and each beat carries its own visual cue and its own sound.
   no seam. The briefing builds the same bed slide by slide and hands it on to the title or to turn 1.
 - **Three toggles, Sound, Music and Motion**, all remembered between visits. Nothing plays until
   your first tap or click.
-- **Tapped through.** Every card of the night waits for a tap; there is no SKIP. Reduced motion is
-  honored as a motion preference: the sequence still plays, every cue takes its static form,
-  and the sound is unchanged.
+- **Tapped through.** Every card of the night waits for a tap. Each strike holds about 2.5 seconds
+  on the board before its card; a tap ends it, and SKIP NIGHT plays the rest of the night without
+  strikes, stopping only for a move met for the first time, whose card files it to the Dossier, and
+  for the debris call. Reduced motion is honored as a motion preference: the cards come up with no
+  strike, every cue takes its static form, and the sound is unchanged.
 - **Haptics** on Chrome-family Android browsers that support vibration. Nothing fires on iPhone,
   by design.
 

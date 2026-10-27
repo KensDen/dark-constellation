@@ -1,41 +1,43 @@
 // THE TONIGHT CARD (v1.3 brief 5.3 item 3). COLDVEIL, the watch officer's
 // line for the turn, then each slot: a fixed slot is CONFIRMED; a drawn one
-// reads "COLDVEIL WILL HIT 1 OF N" with "They go for the one you've
-// covered least." and, on turns 1 and 2, the key (⚠ EXPOSED will hit ·
-// ✓ BLOCKED is safe). Each move is a card: its name, vector → layer,
-// strength, a status (icon and word, never a control) and what a tap does,
-// "defend ›" or "details ›". LIKELY TARGET, EITHER and CONFIRMED come from
-// ./tonight, which is the engine's own pick.
+// reads "WILL HIT 1 OF N" (COLDVEIL WILL HIT until v1.6 R3). Each move is a card: its name, vector
+// → layer, strength and a status (icon and word). LIKELY TARGET, EITHER
+// and CONFIRMED come from ./tonight, which is the engine's own pick.
+//
+// DECLUTTERED IN v1.6 R3 (Ken's playtest item 1, "SUPER busy", every turn):
+// the rule and both keys stand behind a "?" on the header, open on their
+// own the first time a player sees the board and closed after; each move
+// card is one whole-card tap with one tag, its status, and the likely
+// target marked by a reticle and a red edge rather than a second tag; no
+// "defend ›", "details ›" or "reveal ›". Item 6: the full brief opens as a
+// sheet from its icon on the header, and COLDVEIL's card from its name and
+// emblem there, so nothing in the card scrolls inside the board.
 //
 // Without an intel brief a drawn slot's moves are Unidentified: a noise
-// field, the vector and layer, and "reveal ›", which opens PROCURE at the
-// intel brief (R6 question 14: it used to pulse the intel row and reveal
-// nothing). With the brief ordered the names decode in.
-//
-// The full brief stays one tap away at the foot (QC G-026: it reads "Hide
-// full brief" while open, and it is closed whenever the card is not on
-// screen, so playback never squeezes it; G-099: a cue says when it scrolls).
+// field and the vector and layer; a tap opens PROCURE at the intel brief
+// (R6 question 14). With the brief ordered the names decode in.
 
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { planFor } from '../../engine/campaign'
 import { gnssDenied } from '../../engine/rules'
 import type { GameState, ThreatEvent } from '../../engine/types'
 import { useCueClass, usePageVisible, useReducedMotion } from '../cues/motion'
 import PixelSprite from '../sprites/PixelSprite'
-import { ICON_LOCK, ICON_WARN, tinted } from '../sprites/icons'
+import { COLDVEIL_EMBLEM, ICON_AIM, ICON_BRIEF, ICON_HELP, ICON_LOCK, ICON_WARN, tinted } from '../sprites/icons'
+import type { Sprite } from '../sprites/sprite'
 import {
-  FULL_BRIEF_CLOSE,
-  FULL_BRIEF_OPEN,
+  BRIEF_LABEL,
+  COLDVEIL_LABEL,
+  HELP_LABEL,
+  HELP_SEEN_KEY,
   INTEL_ROW,
   briefButton,
-  briefLockedTag,
+  briefLockedRow,
   KEY_BLOCKED,
-  KEY_EITHER,
   KEY_EXPOSED,
   KEY_LIKELY,
-  REVEAL,
+  KEY_STRENGTH,
   STATUS,
-  TONIGHT_HIDDEN,
   tonightReason,
   UNIDENTIFIED,
   WILL_HIT_LEAD,
@@ -44,16 +46,14 @@ import {
   confirmedNote,
   shortName,
   showsStrength,
-  tapHint,
   type MoveRead,
   type MoveStatus,
   type SlotView,
   chainLine,
 } from './boardModel'
 
-// The full brief and ../brief.ts load as their own chunk (see ./FullBrief),
-// fetched as soon as the card mounts.
-const FullBrief = lazy(() => import('./FullBrief'))
+// The full brief's chunk (./FullBrief, with ../brief.ts), fetched as soon
+// as the card mounts, so the first tap on its icon finds it.
 const preloadFullBrief = () => import('./FullBrief').catch(() => undefined)
 
 
@@ -113,10 +113,28 @@ function Noise({ tone = 'muted' }: { tone?: keyof typeof NOISE_RGB }) {
   return <canvas ref={ref} aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full [image-rendering:pixelated]" />
 }
 
-// A move card's flag, and the same chip in the key.
-const FLAG_TAG = 'px-1 font-mono text-[10px] tracking-wider text-dc-ground'
+// A key on TONIGHT's header: a small bordered icon, its hit area 44px,
+// reaching into the lines above and below it, which hold no control.
+function HeaderKey({ icon, label, on = false, onClick, ...data }: { icon: Sprite; label: string; on?: boolean; onClick: () => void; [k: `data-${string}`]: string | boolean | undefined; 'aria-expanded'?: boolean }) {
+  return (
+    <button type="button" aria-label={label} onClick={onClick} {...data} className="-my-3 flex min-h-11 min-w-11 items-center justify-center">
+      <span className={`flex h-6 w-6 items-center justify-center border-2 ${on ? 'border-dc-friendly bg-dc-friendly/15' : 'border-dc-line bg-dc-panel'}`}>
+        <PixelSprite sprite={tinted(icon, on ? 'friendly' : 'ink')} scale={1} name={label} />
+      </span>
+    </button>
+  )
+}
 
-function MoveCard({ read, onMove, decoding = false, open }: { read: MoveRead; onMove: (ev: ThreatEvent) => void; decoding?: boolean; open: boolean }) {
+// Whether this device has seen TONIGHT's "?" opened on its own.
+function helpSeen(): boolean {
+  try {
+    return localStorage.getItem(HELP_SEEN_KEY) === '1'
+  } catch {
+    return true
+  }
+}
+
+function MoveCard({ read, onMove, decoding = false }: { read: MoveRead; onMove: (ev: ThreatEvent) => void; decoding?: boolean }) {
   const { ev, status, flag } = read
   // The status changes the moment an order lands; a short highlight says so,
   // and only then: not when the card first appears.
@@ -128,6 +146,7 @@ function MoveCard({ read, onMove, decoding = false, open }: { read: MoveRead; on
       type="button"
       data-move={ev.id}
       data-flag={flag ?? undefined}
+      aria-label={`${shortName(ev)}, ${STATUS[status].word}${likely ? `, ${KEY_LIKELY.split(',')[0]}` : ''}`}
       onClick={() => onMove(ev)}
       className={`dc-tile relative flex min-w-0 flex-col gap-1 border bg-dc-chrome p-2 text-left ${likely ? 'border-dc-hostile' : 'border-dc-line'}`}
     >
@@ -138,28 +157,21 @@ function MoveCard({ read, onMove, decoding = false, open }: { read: MoveRead; on
           <Noise tone="go" />
         </span>
       )}
-      {/* One line, and close enough to the corner that LIKELY TARGET stays
-          inside a three-move card at 375 in an iPhone's mono face (R6
-          question 14: nowrap alone hung it 0.88 px past the card). */}
-      {flag && (
-        <span data-flag-tag className={`absolute -top-2 right-1 whitespace-nowrap ${FLAG_TAG} ${flag === 'CONFIRMED' ? 'bg-dc-warn' : 'bg-dc-hostile'}`}>
-          {flag}
+      {/* COLDVEIL's pick: a reticle in the corner and the red edge, on
+          both cards of a tie; the key behind "?" says so. One tag on the
+          card, its status (Ken's playtest item 1). */}
+      {likely && (
+        <span data-flag-tag aria-hidden="true" className="absolute right-1.5 top-1.5">
+          <PixelSprite sprite={tinted(ICON_AIM, 'hostile')} scale={1} name="likely-target" />
         </span>
       )}
-      <span className="text-[13px] font-semibold leading-tight text-dc-ink">{shortName(ev)}</span>
+      <span className={`text-[13px] font-semibold leading-tight text-dc-ink ${likely ? 'pr-3' : ''}`}>{shortName(ev)}</span>
       <span className="flex flex-wrap gap-x-2 font-mono text-[10px] text-dc-muted">
         <span>{vectorTo(ev)}</span>
-        {showsStrength(ev) && (
-          <span>
-            STRENGTH <span className="text-dc-hostile">{'●'.repeat(ev.baseSeverity)}</span>
-          </span>
-        )}
+        {showsStrength(ev) && <span className="text-dc-hostile">{'●'.repeat(ev.baseSeverity)}</span>}
       </span>
-      <span className="mt-auto flex flex-wrap items-center justify-between gap-1">
-        <span className={changed}>
-          <StatusTag status={status} />
-        </span>
-        <span className="font-mono text-[10px] text-dc-friendly">{tapHint(status, open)}</span>
+      <span className={`mt-auto ${changed}`}>
+        <StatusTag status={status} />
       </span>
     </button>
   )
@@ -167,11 +179,10 @@ function MoveCard({ read, onMove, decoding = false, open }: { read: MoveRead; on
 
 function UnknownCard({ ev, onReveal }: { ev: ThreatEvent; onReveal: () => void }) {
   return (
-    <button type="button" data-move-unknown onClick={onReveal} className="dc-tile relative flex min-w-0 flex-col gap-1 overflow-hidden border border-dc-line bg-dc-chrome p-2 text-left">
+    <button type="button" data-move-unknown aria-label={`${UNIDENTIFIED}, ${vectorTo(ev)}. ${INTEL_ROW.none}`} onClick={onReveal} className="dc-tile relative flex min-w-0 flex-col gap-1 overflow-hidden border border-dc-line bg-dc-chrome p-2 text-left">
       <Noise />
       <span className="relative text-[13px] font-semibold leading-tight text-dc-muted">{UNIDENTIFIED}</span>
       <span className="relative font-mono text-[10px] text-dc-muted">{vectorTo(ev)}</span>
-      <span className="relative mt-auto font-mono text-[10px] text-dc-friendly">{REVEAL}</span>
     </button>
   )
 }
@@ -185,11 +196,10 @@ export interface TonightProps {
   onMove: (ev: ThreatEvent) => void
   // Opens PROCURE at the intel brief, where its lock is said (v1.5 R2).
   onOrderBrief: () => void
-  // The full brief opens with the card: on the desktop board, which has
-  // the room (v1.5 R2's review: its middle column stood half empty).
-  openBrief?: boolean
+  // The full brief's sheet (v1.6 R3).
+  onBrief: () => void
+  briefOpen?: boolean
   onIntel: () => void
-  onTag: (tag: string) => void
   // A nonce that, when it changes, pulses the moves.
   pulseMoves: number
   onReveal: () => void
@@ -197,7 +207,7 @@ export interface TonightProps {
   defenseOpen: boolean
 }
 
-export default function Tonight({ state, slots, brief, briefPrice, onMove, onOrderBrief, onIntel, onTag, pulseMoves, onReveal, defenseOpen, openBrief = false }: TonightProps) {
+export default function Tonight({ state, slots, brief, briefPrice, onMove, onOrderBrief, onBrief, briefOpen = false, onIntel, pulseMoves, onReveal, defenseOpen }: TonightProps) {
   const named = brief !== 'none'
   const intro = planFor(state, state.turn)?.intro ?? ''
   const reduced = useReducedMotion()
@@ -211,21 +221,39 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onOrd
   useEffect(() => {
     if (pulseMoves) card.current?.querySelector('[data-move]')?.scrollIntoView?.({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
   }, [pulseMoves, reduced])
-  const [open, setOpen] = useState(openBrief)
+  // "?" opens on its own the first board a device sees, and from then on
+  // only on a tap (Ken's playtest item 1).
+  const [help, setHelp] = useState(() => !helpSeen())
   useEffect(() => {
+    try {
+      localStorage.setItem(HELP_SEEN_KEY, '1')
+    } catch {
+      // Storage refused: the "?" opens on its own each time, still closable.
+    }
     void preloadFullBrief()
   }, [])
   const chain = gnssDenied(state.conditions, state.scenario)
-  const firstDraw = slots.findIndex((s) => !s.fixed)
   return (
     <section ref={card} aria-label="Tonight" data-tonight className="flex-none border border-dc-line bg-dc-panel px-3 py-1">
-      <div className="flex items-center justify-between gap-2">
-        <p className="whitespace-nowrap font-mono text-[10px] tracking-widest text-dc-muted">
-          TONIGHT{brief === 'free' && <span className="text-dc-go"> · INTEL BRIEF FREE</span>}
-        </p>
-        <button type="button" data-full-brief aria-expanded={open} onClick={() => setOpen((o) => !o)} className="-my-3 min-h-11 whitespace-nowrap font-mono text-[10px] text-dc-friendly">
-          {open ? FULL_BRIEF_CLOSE : FULL_BRIEF_OPEN}
+      <div className="flex items-center gap-2">
+        {/* COLDVEIL's card, behind its name and emblem (Ken's playtest
+            item 6; it was "COLDVEIL intel ›" inside the full brief). */}
+        <button type="button" data-coldveil aria-label={COLDVEIL_LABEL} aria-haspopup="dialog" onClick={onIntel} className="-my-3 -ml-1 flex min-h-11 items-center">
+          <span className="dc-tile flex items-center gap-1.5 border-2 border-dc-hostile/60 bg-dc-ground px-1.5 py-0.5">
+            <PixelSprite sprite={COLDVEIL_EMBLEM} scale={1} name="coldveil" />
+            <span className="font-display text-[10px] text-dc-hostile">COLDVEIL</span>
+          </span>
         </button>
+        {/* A free brief on a line of its own under TONIGHT: beside it, it
+            ran out of the header at 375 between COLDVEIL and the keys. */}
+        <p className="min-w-0 font-mono text-[10px] leading-tight tracking-widest text-dc-muted">
+          TONIGHT
+          {brief === 'free' && <span className="block whitespace-nowrap tracking-wider text-dc-go">INTEL BRIEF FREE</span>}
+        </p>
+        <span className="ml-auto flex flex-none items-center">
+          <HeaderKey icon={ICON_HELP} label={HELP_LABEL} on={help} aria-expanded={help} data-tonight-help={help ? 'open' : 'closed'} onClick={() => setHelp((h) => !h)} />
+          <HeaderKey icon={ICON_BRIEF} label={BRIEF_LABEL} on={briefOpen} data-full-brief aria-expanded={briefOpen} onClick={onBrief} />
+        </span>
       </div>
       <p data-intro className={`${arriving} mt-1 border-l-2 border-dc-hostile pl-2 text-xs leading-snug text-dc-ink`}>
         {intro}
@@ -236,89 +264,69 @@ export default function Tonight({ state, slots, brief, briefPrice, onMove, onOrd
           {chainLine()}
         </p>
       )}
+      {/* The rule and the keys, said once behind "?" (Ken's playtest item 1:
+          they stood on every board, and EITHER and EXPOSED three times). */}
+      {help && (
+        <div data-tonight-help-panel className="mt-1.5 border-l-2 border-dc-friendly/60 pl-2 text-[11px] leading-snug text-dc-muted">
+          <p>{tonightReason(state.turn, defenseOpen)}</p>
+          <p data-key className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]">
+            <span className="inline-flex items-center gap-1">
+              <PixelSprite sprite={tinted(ICON_AIM, 'hostile')} scale={1} name="key-likely" /> {KEY_LIKELY}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="font-mono text-dc-hostile">●</span> {KEY_STRENGTH}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <StatusTag status="exposed" /> {KEY_EXPOSED}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <StatusTag status="blocked" /> {KEY_BLOCKED}
+            </span>
+          </p>
+        </div>
+      )}
       {slots.map((slot, i) => (
-        // The rule (or the hidden line) once a night, on its first drawn
-        // slot: it is the same sentence for every slot (v1.3 R6).
         <div key={i} data-slot={slot.fixed ? 'fixed' : 'draw'} className="mt-1.5">
           {slot.fixed ? (
             <p className="font-mono text-[10px] tracking-widest text-dc-warn">
               CONFIRMED <span className="text-dc-muted">· {confirmedNote(slot.moves[0].ev, slot.moves[0].status)}</span>
             </p>
           ) : (
-            <>
-              <p className="font-mono text-[11px] tracking-widest text-dc-ink">
-                {WILL_HIT_LEAD}
-                <b className="text-dc-hostile">{willHitCount(slot.moves.length)}</b>
-              </p>
-              {i === firstDraw && (
-                <p className="text-xs text-dc-muted">
-                  {slot.hidden ? TONIGHT_HIDDEN : tonightReason(state.turn, defenseOpen)}
-                  {/* The flags' key (R6 question 11), set after the rule that
-                      names a pick and a tie, on the room its second line leaves:
-                      on a key line of their own they pushed the turn-1 board
-                      past 375x667. */}
-                  {!slot.hidden && state.turn <= 2 && (
-                    <span data-flag-key className="text-[10px]">
-                      {' '}
-                      <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                        <span className={`${FLAG_TAG} bg-dc-hostile`}>LIKELY TARGET</span> {KEY_LIKELY}
-                      </span>{' '}
-                      <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                        <span className={`${FLAG_TAG} bg-dc-hostile`}>EITHER</span> {KEY_EITHER}
-                      </span>
-                    </span>
-                  )}
-                </p>
-              )}
-              {!slot.hidden && state.turn <= 2 && (
-                <p data-key className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[10px] text-dc-muted">
-                  <span className="inline-flex items-center gap-1">
-                    <StatusTag status="exposed" /> {KEY_EXPOSED}
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <StatusTag status="blocked" /> {KEY_BLOCKED}
-                  </span>
-                </p>
-              )}
-            </>
+            <p className="font-mono text-[11px] tracking-widest text-dc-ink">
+              {WILL_HIT_LEAD}
+              <b className="text-dc-hostile">{willHitCount(slot.moves.length)}</b>
+            </p>
           )}
           <div className={`mt-1.5 grid gap-2 ${slot.moves.length === 1 ? 'grid-cols-1' : slot.moves.length === 2 ? 'grid-cols-2' : 'grid-cols-3'} ${slot.hidden ? '' : `${decode} ${flashMoves}`}`}>
             {slot.moves.map((read) =>
-              slot.hidden ? <UnknownCard key={read.ev.id} ev={read.ev} onReveal={onReveal} /> : <MoveCard key={read.ev.id} read={read} onMove={onMove} decoding={decoding} open={defenseOpen} />,
+              slot.hidden ? <UnknownCard key={read.ev.id} ev={read.ev} onReveal={onReveal} /> : <MoveCard key={read.ev.id} read={read} onMove={onMove} decoding={decoding} />,
             )}
           </div>
         </div>
       ))}
       {brief !== 'free' && (
-        <div data-intel-row className="mt-2 flex items-center justify-between gap-2">
-          <p className="text-xs text-dc-muted">{INTEL_ROW[brief === 'ordered' ? 'ordered' : 'none']}</p>
+        <div data-intel-row className="mt-2 flex justify-end pb-1">
           {/* Once ordered the brief has named the moves and is locked
               (v1.5 R2): a status with its icon, not a control. Before, the
-              row opens PROCURE at the brief, which says so first. */}
+              row opens PROCURE at the brief, which says so first. One
+              control, no sentence (v1.6 R3's fresh eyes, H15). */}
           {brief === 'ordered' ? (
-            <span data-brief-locked className="flex flex-none items-center gap-1 font-mono text-[10px] tracking-wider text-dc-go">
+            <span data-brief-locked className="flex min-h-11 flex-none items-center gap-1 font-mono text-[10px] tracking-wider text-dc-go">
               <PixelSprite sprite={tinted(ICON_LOCK, 'go')} scale={1} name="brief-lock" />
-              {briefLockedTag(briefPrice)}
+              {briefLockedRow(briefPrice)}
             </span>
           ) : (
             <button
               type="button"
               data-brief-order
               onClick={onOrderBrief}
-              className="dc-tile min-h-11 flex-none border border-dc-line px-2 font-mono text-[10px] tracking-wider text-dc-ink"
+              className="dc-tile min-h-11 flex-none border-2 border-dc-line bg-dc-chrome px-2 font-mono text-[10px] tracking-wider text-dc-ink shadow-press active:shadow-none"
             >
               {briefButton(briefPrice)}
             </button>
           )}
         </div>
       )}
-      <div>
-        {open && (
-          <Suspense fallback={<p className="font-mono text-[10px] text-dc-muted">Loading</p>}>
-            <FullBrief state={state} named={named} onIntel={onIntel} onTag={onTag} />
-          </Suspense>
-        )}
-      </div>
     </section>
   )
 }

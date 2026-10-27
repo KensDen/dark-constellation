@@ -13,8 +13,8 @@
 // Kept free of React and of the sheet components, so brief.ts and the
 // node battery can read it.
 
-export type SheetId = 'procure' | 'system'
-export type StepSheet = Exclude<SheetId, 'system'>
+export type SheetId = 'procure' | 'system' | 'brief'
+export type StepSheet = Exclude<SheetId, 'system' | 'brief'>
 export type StepId = StepSheet | 'resolve'
 
 export interface BoardAction {

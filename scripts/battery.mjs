@@ -247,8 +247,12 @@ run('pre-push OPSEC hook is active (local only)', () => {
 // the tagline is one line. jsdom lays nothing out, so the suite cannot
 // hold these. SKIP only when the machine has no Chrome at all; any other
 // failure is a FAIL.
+// Fifteen minutes since v1.6 R3: its guards (n) to (q) walk two whole games
+// at two sizes, every hit card of five nights' runs twice and three timed
+// nights, about four minutes on top of the three and a half the earlier
+// guards take, which ran the 5 minutes it had out.
 run('phone layout: briefing fit, board fit, SYSTEM in bounds, scroll reset, tagline, the night fits 375 (v1.3 R1, R2, R3)', () => {
-  const r = spawnSync(process.execPath, ['scripts/phone-layout.mjs'], { encoding: 'utf8', timeout: 300000 })
+  const r = spawnSync(process.execPath, ['scripts/phone-layout.mjs'], { encoding: 'utf8', timeout: 900000 })
   if (r.status === 2) return 'skip'
   if (r.status !== 0) throw Object.assign(new Error('phone layout failed'), { stdout: r.stdout || String(r.error ?? ''), stderr: r.stderr })
   process.stdout.write(`${r.stdout.trim()} ... `)

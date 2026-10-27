@@ -153,8 +153,8 @@ async function renderNight(turn: { before: GameState; after: GameState }, open: 
   })
   await act(async () => {})
 }
-// On through the night to the next intel card: CONTINUE, COLLECT INTEL
-// CARD, FILE IT on any intel card before it.
+// On through the night to the next Dossier card: CONTINUE, FILE TO DOSSIER,
+// and CONTINUE on any Dossier card before it.
 async function toIntelCard() {
   for (let guard = 0; guard < 20 && !q('[data-intel-file]'); guard += 1) await tap(q('[data-collect]') ?? q('[data-continue]'))
   expect(q('[data-intel-file]'), 'the night never reached an intel card').not.toBeNull()
@@ -186,13 +186,13 @@ describe("LEARN MORE on the night's intel card (critique row M7)", () => {
     expect(button.getAttribute('aria-haspopup')).toBe('dialog')
     expect(button.textContent).toBe(`LEARN MORE in the Field Library: ${shortName(def)}`)
     expect(button.querySelector('.sr-only')?.textContent).toBe(` in the Field Library: ${shortName(def)}`)
-    // In the display face, as FILE IT beside it is (v1.3 R3 fresh-eyes
+    // In the display face, as CONTINUE beside it is (v1.3 R3 fresh-eyes
     // review: a thin mono LEARN MORE over a pixel FILE IT).
     for (const cls of ['w-full', 'min-h-11', 'font-display', 'text-[11px]', 'border-dc-go', 'bg-dc-go/10']) expect(button.className.split(' ')).toContain(cls)
     expect(button.className, 'still the old underlined link').not.toMatch(/underline|text-\[10px\]/)
   })
 
-  it('asks for the library without moving the night on, and the intel card waits until it is filed', async () => {
+  it('asks for the library without moving the night on, and the Dossier card waits for its CONTINUE', async () => {
     // This case proved PAUSE ON INTENT, then that the tap and a key meant
     // for the library left the playback's card alone. What it was for still
     // stands in the night: the card the player asked about is the card on
@@ -213,16 +213,17 @@ describe("LEARN MORE on the night's intel card (critique row M7)", () => {
     expect(asked, 'LEARN MORE did not ask for the library about this card').toEqual([held])
     expect(from, 'LEARN MORE did not say which link asked, so focus could not come back to it').toEqual([button])
     expect(nightAt(), 'the tap on LEARN MORE moved the night on').toBe(held)
-    expect(JSON.parse(localStorage.getItem('dc-dossier') ?? '[]'), 'the tap on LEARN MORE filed the card').not.toContain(held)
+    // FILE TO DOSSIER filed it as the card arrived (v1.6 R3, Ken's playtest
+    // item 4).
+    expect(JSON.parse(localStorage.getItem('dc-dossier') ?? '[]'), 'the card was not filed at FILE TO DOSSIER').toContain(held)
     // The library's keys are its own.
     press(' ')
     press('Escape')
     press('Enter')
     expect(nightAt(), 'a key meant for the library moved the night on behind it').toBe(held)
-    // The positive control: FILE IT files the card and the night goes on.
+    // The positive control: CONTINUE moves the night on.
     await tap(q('[data-file-it]'))
-    expect(JSON.parse(localStorage.getItem('dc-dossier') ?? '[]')).toContain(held)
-    expect(nightAt(), 'FILE IT did not move the night on').not.toBe(held)
+    expect(nightAt(), 'CONTINUE did not move the night on').not.toBe(held)
   })
 
   it('offers it for every threat met for the first time, landed or held, and for no opportunity', async () => {

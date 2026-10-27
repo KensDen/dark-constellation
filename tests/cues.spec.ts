@@ -397,6 +397,7 @@ describe('cue timing and card safety', () => {
       return ''
     }
     const endsHidden: string[] = []
+    let parsed = 0
     for (const [visual, className] of Object.entries(VISUAL_CLASS)) {
       if (!className) continue
       const name = declared(className)?.name
@@ -405,6 +406,7 @@ describe('cue timing and card safety', () => {
       expect(block, `${className} animates @keyframes ${name}, which no stylesheet declares`).not.toBe('')
       const last = /100%\s*\{([^}]*)\}/.exec(block)?.[1] ?? ''
       const opacity = /opacity:\s*([0-9.]+)/.exec(last)?.[1]
+      if (opacity !== undefined) parsed += 1
       if (opacity !== undefined && Number(opacity) < 1) endsHidden.push(visual)
     }
     const onCards = new Set(SECTION_6_ROWS.filter((r) => /^ui\/night\/(cards|closeCards)\.tsx/.test(r.where)).map((r) => r.visual))
@@ -413,7 +415,13 @@ describe('cue timing and card safety', () => {
       expect(onCards.has(visual as VisualCue), `${visual} ends at reduced opacity and must not rest on a card`).toBe(false)
     }
     // The check is only meaningful if it found the known case.
-    expect(endsHidden).toContain('strike')
+    // The check is only meaningful if it read the keyframes' ends. Until
+    // v1.6 R3 the strike's banner was the known case that ended hidden; it
+    // now stands until its card comes up (Ken's playtest item 2: a strike
+    // holds about 2.5 s), so none ends hidden, and the banner's end is one
+    // the parse must read.
+    expect(parsed, 'no keyframes end was read, so this asserts nothing').toBeGreaterThan(3)
+    expect(endsHidden).toEqual([])
   })
 
   it('declares no animation for a cue class outside the reduced-motion guard', () => {

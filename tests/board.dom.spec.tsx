@@ -377,14 +377,15 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
       render(gameAt(3), phase)
       expect(container.textContent, `"in this build" at ${phase}`).not.toMatch(/in this build/i)
     }
-    // PROCURE with an order queued, and the TONIGHT card's full brief,
+    // PROCURE with an order queued, and the full brief's sheet (v1.6 R3),
     // whose chunk loads on first open.
     render(gameAt(3), 'brief')
     click(container.querySelector('button[data-full-brief]')!)
     await act(async () => {
       await vi.dynamicImportSettled()
     })
-    expect(container.querySelector('[data-brief-scroll]'), 'the full brief did not open').not.toBeNull()
+    expect(container.querySelector('[data-sheet="brief"]'), 'the full brief did not open').not.toBeNull()
+    expect(container.textContent).not.toMatch(/in this build/i)
     click(procureButton())
     click(container.querySelector('[data-procure-kind="sat"]')!)
     expect(container.querySelector('[data-procure-kind="sat"]')!.getAttribute('aria-pressed'), 'PROCURE did not order the sat').toBe('true')

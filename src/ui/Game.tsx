@@ -52,7 +52,8 @@ import Dock from './board/Dock'
 import Procure from './board/Procure'
 import type { SheetId } from './board/actions'
 import { ACTIONS, resolveLabel } from './board/actions'
-import { WIDE_BOARD, callIndex, tonightSlots, turnsLeft } from './board/boardModel'
+import { FULL_BRIEF_TITLE, WIDE_BOARD, callIndex, tonightSlots, turnsLeft } from './board/boardModel'
+import Sheet from './board/Sheet'
 import SystemSheet from './board/SystemSheet'
 import NightLog from './board/NightLog'
 import ScrollCue from './board/ScrollCue'
@@ -88,6 +89,7 @@ const IntelUnavailable = ({ onClose }: IntelCardProps) => (
     CLOSE
   </button>
 )
+const BriefUnavailable = () => <p className="font-mono text-xs text-dc-muted">The brief did not load.</p>
 const Glossary = lazy(() => import('./Glossary').catch(() => ({ default: BackOnly })))
 // The intel card (v1.2 R3, brief 4.8), for a tile or the threat banner,
 // loaded on first open like the Glossary: it is an element of this
@@ -97,6 +99,9 @@ const IntelCard = lazy(() => import('./board/IntelCard').catch(() => ({ default:
 // from that threat's event card. The same module as the menu's FIELD
 // LIBRARY screen, so one chunk.
 const FieldLibrary = lazy(() => import('./FieldLibrary').catch(() => ({ default: BackOnly })))
+// The full brief's sheet (v1.6 R3, Ken's playtest item 6), with ./brief.ts
+// in a chunk of its own, which the TONIGHT card fetches as it mounts.
+const FullBrief = lazy(() => import('./board/FullBrief').catch(() => ({ default: BriefUnavailable })))
 // THE NIGHT (v1.3 brief 5.5), in chunks of its own, all fetched as the
 // board opens so EXECUTE never waits on them, and rendered from the loaded
 // module rather than through React.lazy, whose first showing would hold
@@ -393,7 +398,7 @@ export default function Game({
     () =>
       intel?.kind === 'tile'
         ? document.querySelector<HTMLElement>(`button[data-asset-id="${intel.assetId}"]`)
-        : document.querySelector<HTMLElement>('button[aria-label="COLDVEIL intel"]'),
+        : document.querySelector<HTMLElement>('button[data-coldveil]'),
     () => setIntel(null),
   )
   // The Field Library at one threat (v1.2 R5b), opened by a card's "learn
@@ -845,10 +850,13 @@ export default function Game({
             whose clipboard API is gated. The copy button sends this
             string, not a freshly stamped one. Kept here rather than in
             the debrief's chunk, so it never waits on a fetch. */}
-        <details data-save-code className="mt-4 bg-dc-panel">
+        <details data-save-code className="mt-4 border-2 border-dc-line bg-dc-panel">
           <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 font-mono text-[11px] tracking-widest text-dc-muted [&::-webkit-details-marker]:hidden">
             <span>SAVE CODE</span>
-            <span>details ›</span>
+            {/* An arrow that turns as it opens (v1.6 R3: no "details ›"). */}
+            <span aria-hidden="true" className="dc-open-turn text-dc-ink">
+              ▼
+            </span>
           </summary>
           <div className="px-3 pb-3">
             <p className="text-[13px] text-dc-muted">Paste it into SYSTEM on any device to read this debrief again.</p>
@@ -980,11 +988,11 @@ export default function Game({
                   onMove={(ev) => openSheet('procure', { move: ev })}
                   onOrderBrief={() => openSheet('procure', { intel: true })}
                   onIntel={() => setIntel({ kind: 'banner' })}
-                  onTag={(tag) => setGlossaryFocus(tag)}
+                  onBrief={() => toggleSheet('brief')}
+                  briefOpen={sheet === 'brief'}
                   pulseMoves={pulseMoves}
                   onReveal={() => openSheet('procure', { intel: true })}
                   defenseOpen={defenseOpen(state, actions)}
-                  openBrief={wide}
                 />
                 <Orders state={state} actions={actions} onOrder={onOrder} />
               </>
@@ -1014,6 +1022,13 @@ export default function Game({
             cost={cost}
             orders={orders}
           />
+        )}
+        {shownSheet === 'brief' && deciding && (
+          <Sheet id="brief" title={FULL_BRIEF_TITLE} onClose={() => openSheet(null)}>
+            <Suspense fallback={null}>
+              <FullBrief state={state} named={free || !!actions.intelBrief} onTag={(tag) => setGlossaryFocus(tag)} />
+            </Suspense>
+          </Sheet>
         )}
         {nightLog && (
           <NightLog turn={displayTurn} scenario={scenario} log={view?.log ?? []} moving={view?.moving} signs={callSigns(shown)} />
@@ -1077,7 +1092,7 @@ export default function Game({
           className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-dc-ground outline-none"
           role="dialog"
           aria-modal="true"
-          aria-label="Intel"
+          aria-label={intel.kind === 'tile' ? 'Asset' : 'COLDVEIL'}
           data-intel-overlay
         >
           <Suspense fallback={<OverlayLoading />}>

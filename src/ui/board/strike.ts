@@ -15,8 +15,15 @@
 
 import type { GameState, Layer, ResolvedEvent, Scenario } from '../../engine/types'
 
-// "About 1.2 s" (brief 5.5). The stylesheet reads it as --dc-beat.
-export const STRIKE_MS = 1200
+// The strike's animation, "about 1.2 s" (brief 5.5) until v1.6 R3, 1.5 s
+// since (Ken's playtest item 2: "the night plays too fast"). The
+// stylesheet reads it as --dc-beat.
+export const STRIKE_MS = 1500
+// How long a strike stands before its card, from the lock-on: about 2.5
+// s (Ken's ruling of 27 October 2026, tuned at 375x667 and 390x844), so
+// the landed result reads before the card comes up. A tap ends it early,
+// and SKIP NIGHT plays the rest of the night without strikes.
+export const STRIKE_HOLD_MS = 2500
 export const LOCK_SHARE = 0.35
 // How much of the strike the score's count takes once the move lands.
 export const COUNT_SHARE = 0.35

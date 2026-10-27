@@ -7,6 +7,10 @@ import { useMemo, useState } from 'react'
 import { DC_BTN } from './buttons'
 import { glossaryEntries, glossaryMatches, type GlossaryEntry } from './reference'
 
+// A framework's own page, an outbound source: a chip in the ink with the
+// Library's ↗, not link-blue underlined text (v1.6 R3's sweep).
+const SOURCE_CHIP = 'inline-flex min-h-8 items-center border border-dc-line bg-dc-chrome px-2 uppercase tracking-wider text-dc-ink'
+
 const CATEGORIES: GlossaryEntry['category'][] = ['Technique', 'Advisory', 'Countermeasure', 'Threat event', 'Opportunity']
 
 // `focus` is a GlossaryEntry key, not a search string. The intel brief's
@@ -102,9 +106,10 @@ export default function Glossary({
               <p className="text-xs mt-1 font-mono">
                 {focused.refs.map((r, i) => (
                   <span key={r.url}>
-                    {i > 0 ? '\u00a0| ' : ''}
-                    <a className="text-dc-friendly underline underline-offset-2" href={r.url} target="_blank" rel="noreferrer">
+                    {i > 0 ? ' ' : ''}
+                    <a className={SOURCE_CHIP} href={r.url} target="_blank" rel="noreferrer">
                       {r.label}
+                      <span aria-hidden="true">{'\u00a0'}↗</span>
                     </a>
                   </span>
                 ))}
@@ -130,9 +135,10 @@ export default function Glossary({
                     <dd className="text-xs mt-1 font-mono">
                       {e.refs.map((r, i) => (
                         <span key={r.url}>
-                          {i > 0 ? '\u00a0| ' : ''}
-                          <a className="text-dc-friendly underline underline-offset-2" href={r.url} target="_blank" rel="noreferrer">
+                          {i > 0 ? ' ' : ''}
+                          <a className={SOURCE_CHIP} href={r.url} target="_blank" rel="noreferrer">
                             {r.label}
+                            <span aria-hidden="true">{'\u00a0'}↗</span>
                           </a>
                         </span>
                       ))}

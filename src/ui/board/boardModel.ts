@@ -144,7 +144,9 @@ export function matchNote(ev: ThreatEvent): string {
 export const shortName = (ev: Pick<ThreatEvent, 'name'>) => ev.name.split(' (')[0]
 
 // The TONIGHT card's words.
-export const WILL_HIT_LEAD = 'COLDVEIL WILL HIT '
+// "WILL HIT 1 OF N" since v1.6 R3: COLDVEIL's chip names them two lines up,
+// and the turn's intro often does too (the sweep: the name three times).
+export const WILL_HIT_LEAD = 'WILL HIT '
 export const willHitCount = (n: number) => `1 OF ${n}`
 export const WILL_HIT = (n: number) => `${WILL_HIT_LEAD}${willHitCount(n)}`
 // The adversary's rule as the engine plays it (R6 question 11): the move
@@ -163,22 +165,25 @@ export const TONIGHT_HIDDEN = 'The names are hidden. An intel brief reveals them
 // under COLDVEIL WILL HIT 1 OF 2).
 export const KEY_EXPOSED = 'full strength'
 export const KEY_BLOCKED = 'is safe'
-export const KEY_LIKELY = 'their pick'
-export const KEY_EITHER = 'a tie'
+export const KEY_LIKELY = 'their pick, on both when tied'
+// A move card's dots, without the word since v1.6 R3: the key says it.
+export const KEY_STRENGTH = 'strength'
 export const confirmedNote = (ev: ThreatEvent, status: MoveStatus) =>
   ev.effect.special !== 'debrisStrike' ? 'lands tonight' : status === 'answered' ? 'your call; burn fuel is free' : 'your call when it arrives'
-export const INTEL_ROW = { none: 'Order an intel brief to name the moves.', ordered: 'Brief ordered. Names shown above.' } as const
+// What an Unidentified card says it needs, to a screen reader. The intel
+// row's own sentences ("Order an intel brief to name the moves.", "Brief
+// ordered. Names shown above.") left in v1.6 R3 (its fresh eyes, H15: said
+// every turn, and twice on turn 2 under the coach); the row is its button.
+export const INTEL_ROW = { none: 'Order an intel brief to name the moves.' } as const
 export const UNIDENTIFIED = 'Unidentified'
-// "defend ›" only while tonight can still take a new defense (v1.4: one a
-// night); once it is ordered, a tap opens the same PROCURE, where the rest
-// read 1 A TURN, so it says "details ›".
-export const tapHint = (status: MoveStatus, open = true) =>
-  status === 'blocked' || status === 'answered' || status === 'call' || !open ? 'details ›' : 'defend ›'
+// What a move card says it is, for its accessible name: it opens PROCURE
+// at the defenses that answer it. Since v1.6 R3 (Ken's playtest item 1)
+// the whole card is the control, with no "defend ›" or "details ›" on it.
+export const moveCardLabel = (name: string, status: MoveStatus) => `${name}, ${STATUS[status].word}. Open PROCURE at its defenses.`
 // A move's strength, shown on an attack only: the debris conjunction is a
 // hazard nothing mitigates, so its tile shows none (v1.5 R1; R6b's fresh
 // eyes, item 11).
 export const showsStrength = (ev: ThreatEvent) => ev.effect.special !== 'debrisStrike'
-export const REVEAL = 'reveal ›'
 // A condition's turns left, one meaning everywhere (v1.3 R6, G-103; brief
 // 6.5): the nights it will still press after the one being played. The
 // engine counts it down at each turn close, so a board between turns reads
@@ -215,7 +220,9 @@ export function firstOrders(state: GameState, actions: TurnActions): OrderLine[]
     // The rule where turn 1 asks for the order (v1.4 fresh eyes).
     // v1.5 R1: and that COLDVEIL then takes the other door (R6b's fresh
     // eyes, item 2: the tick read as the turn held).
-    { id: 'defense', text: `Tap a red move above to block it. ${NEW_DEFENSES_PER_NIGHT} new defense a turn, so they hit the other one.`, done: defended },
+    // v1.6 R3: and the job, which left the full brief for the coach's
+    // first step (Ken's playtest item 6).
+    { id: 'defense', text: `Hold ${scenario.winThreshold}+ to the end of turn ${scenario.totalTurns}. Tap a red move to block it. ${NEW_DEFENSES_PER_NIGHT} new defense a turn, so they hit the other.`, done: defended },
     {
       id: 'drone',
       text: `Order an ISR (surveillance) drone, ${scenario.prices.drone} CR. It arrives next turn${lifts ? `, and the coverage bonus pays +${credits} CR a turn` : ''}.`,
@@ -224,7 +231,7 @@ export function firstOrders(state: GameState, actions: TurnActions): OrderLine[]
     // "Then": it ticks once an order is in and WORST CASE holds, so on an
     // empty first board it is unticked while the dock reads a sound WORST
     // CASE (R7 fresh eyes).
-    { id: 'worst', text: 'Then keep WORST CASE at 0 or above.', done: worst },
+    { id: 'worst', text: 'Keep WORST CASE at 0 or above, then EXECUTE.', done: worst },
   ]
 }
 
@@ -257,15 +264,27 @@ export const streakChip = (streak: number) => `×${streak} STREAK`
 export const winLineLabel = (winAt: number) => `${winAt} WIN LINE`
 
 // A move's vector and layer, "RF → ORBIT".
-export const vectorTo = (ev: ThreatEvent) => `${vectorLabels[ev.vector].toUpperCase()} → ${ev.layers.join(' · ')}`
-export const strengthLine = (ev: ThreatEvent) => `STRENGTH ${'●'.repeat(ev.baseSeverity)}`
+// The layers held together (v1.6 R3's sweep: in a three-card row at 375
+// "RF → ORBIT ·" ran over a line onto a lone "GROUND").
+export const vectorTo = (ev: ThreatEvent) => `${vectorLabels[ev.vector].toUpperCase()} → ${ev.layers.join('\u00a0·\u00a0')}`
+export const strengthLine = (ev: ThreatEvent) => '●'.repeat(ev.baseSeverity)
 
-// The full brief's toggle (QC G-026: it says what a tap does either way).
-export const FULL_BRIEF_OPEN = 'Expand full brief'
-export const FULL_BRIEF_CLOSE = 'Hide full brief'
+// TONIGHT's header keys (v1.6 R3, Ken's playtest items 1 and 6): the
+// rule and both keys behind "?", the full brief behind its icon, and
+// COLDVEIL's card behind its name and emblem. Their accessible names.
+export const HELP_LABEL = 'How tonight works'
+export const BRIEF_LABEL = 'Full brief'
+// The full brief's sheet's title, which Game's Sheet frame carries.
+export const FULL_BRIEF_TITLE = 'FULL BRIEF'
+export const COLDVEIL_LABEL = 'COLDVEIL'
+// The "?" opens on its own the first time a player sees the board, and
+// stays closed after (Ken's playtest item 1).
+export const HELP_SEEN_KEY = 'dc-tonight-help-seen'
 // The intel brief's row on TONIGHT opens PROCURE at the brief (v1.5 R2),
 // where its lock is said before the order; once ordered it is a status.
-export const briefButton = (price: number) => `BRIEF · ${price} CR ›`
+// The intel brief by its whole name (v1.6 R3's fresh eyes, H12: "BRIEF"
+// alone named it, the full brief's sheet and INTEL BRIEF FREE at once).
+export const briefButton = (price: number) => `INTEL BRIEF · ${price} CR`
 // THE BRIEF'S LOCK (v1.5 R2, Ken's ruling of 24 October 2026; the engine's
 // briefLocked): the brief names the moves the moment it is ordered, so the
 // order stands for the turn.
@@ -273,6 +292,8 @@ export const BRIEF_RULE = "Names COLDVEIL's moves the moment you order it, and t
 export const BRIEF_LOCKED_LINE = "It has named tonight's moves, so it stays ordered: no cancel, no refund."
 export const BRIEF_LOCKED = 'LOCKED'
 export const briefLockedTag = (price: number) => `${price} CR · ${BRIEF_LOCKED}`
+// The TONIGHT row once the brief is ordered: a status with its padlock.
+export const briefLockedRow = (price: number) => `INTEL BRIEF · ${briefLockedTag(price)}`
 
 // The dock's words (brief 5.3 item 5).
 export const REMAINING = 'REMAINING'
@@ -329,6 +350,10 @@ export const confirmNote = (cost: number, briefLocked = false) =>
   briefLocked ? `${cost} CR committed. The intel brief stays ordered.` : `${cost} CR committed. Nothing is final until you EXECUTE.`
 // PROCURE's one line on how its cards work (v1.6 R1: the whole card is the
 // tap, where "+ ADD" was).
+// PROCURE's teaching, behind its "?" after the first time (v1.6 R3).
+export const PROCURE_HELP_LABEL = 'How PROCURE works'
+export const PROCURE_HELP_SEEN_KEY = 'dc-procure-help-seen'
+export const FUNDING_LINE = 'Funding arrives at the turn close, after repairs.'
 export const PROCURE_HOW = 'Tap a card to order it, again to cancel.'
 
 export const PROCURE_KINDS: AssetKind[] = ['drone', 'sat', 'groundStation']

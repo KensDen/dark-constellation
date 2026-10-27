@@ -19,8 +19,7 @@ import { LogRows } from '../board/LogRows'
 import type { Trace } from '../board/strike'
 import { techniqueLabel } from '../labels'
 import { LearnMore } from '../learnMore'
-import { assetSprite } from '../sprites/assets'
-import { ICON_CHECK, ICON_CROSS, ICON_HALF, ICON_SPARK, tinted } from '../sprites/icons'
+import { ICON_CHECK, ICON_CROSS, ICON_DOWN, ICON_HALF, ICON_SPARK, tinted } from '../sprites/icons'
 import PixelSprite from '../sprites/PixelSprite'
 import { EMBLEMS } from '../sprites/emblems'
 import DotField from './DotField'
@@ -106,10 +105,10 @@ export function Signed({ text }: { text: string }) {
   )
 }
 
-export function Officer({ line, held = false }: { line: string; held?: boolean }) {
+export function Officer({ line, held = false, clock }: { line: string; held?: boolean; clock?: string }) {
   return (
     <p data-officer={held ? 'held' : 'hit'} className="text-sm">
-      <span className={`block ${LABEL} ${held ? 'text-dc-go' : 'text-dc-hostile'}`}>{copy.WATCH_OFFICER}</span>
+      <span data-officer-clock={clock} className={`block ${LABEL} ${held ? 'text-dc-go' : 'text-dc-hostile'}`}>{clock ? copy.officerLabel(clock) : copy.WATCH_OFFICER}</span>
       <Signed text={line} />
     </p>
   )
@@ -137,7 +136,10 @@ export function Named({ parts }: { parts: readonly string[] }) {
 // blocked first, then the verdict, "x of y blocked" and the streak, and
 // what it cost on the right.
 const RESULT_TONE = { BLOCKED: 'go', PARTIAL: 'warn', HIT: 'hostile' } as const
-function ResultPanel({ step, reduced, compact = false }: { step: NightStep; reduced: boolean; compact?: boolean }) {
+// v1.6 R3 (Ken's playtest item 3): on the hit card the panel also says
+// UNDEFENDED, which stood in a block of its own lower down, and the repair
+// bill the hit queued, which stood on a line of its own under it.
+function ResultPanel({ step, reduced, compact = false, undefended = false, repair = '' }: { step: NightStep; reduced: boolean; compact?: boolean; undefended?: boolean; repair?: string }) {
   const r = resultOf(step.ev)
   const tone = RESULT_TONE[r.verdict]
   const d = scoreDelta(step)
@@ -173,18 +175,35 @@ function ResultPanel({ step, reduced, compact = false }: { step: NightStep; redu
       </div>
       </div>
       <div className="flex min-w-0 flex-col gap-0.5">
-        <b data-verdict className={`font-display ${compact ? 'text-[12px]' : 'text-[15px]'} leading-tight ${HEAD_TONE[tone]}`}>
-          {r.verdict}
-        </b>
-        <span data-blocked-of className="font-mono text-[11px]">
-          {copy.blockedOf(r.blocked, r.strength, r.chained)}
-        </span>
+        {/* On the strike's card the banner over it says the verdict (v1.6
+            R3), so the panel keeps the count. */}
+        {!compact && (
+          <b data-verdict className={`font-display text-[15px] leading-tight ${HEAD_TONE[tone]}`}>
+            {r.verdict}
+          </b>
+        )}
+        {/* UNDEFENDED in the count's place on a move nothing answered: the
+            tiles show none blocked (v1.6 R3's fresh eyes, H7). */}
+        {undefended ? (
+          <span data-undefended className={`${LABEL} text-dc-hostile`}>
+            {copy.UNDEFENDED}
+          </span>
+        ) : (
+          <span data-blocked-of className="font-mono text-[11px]">
+            {copy.blockedOf(r.blocked, r.strength, r.chained)}
+          </span>
+        )}
       </div>
       <div className="flex flex-col items-end gap-0.5 text-right">
         <b data-result-score className={`whitespace-nowrap font-display leading-none ${compact ? 'text-[14px]' : r.through === 0 ? 'text-[18px]' : 'text-[20px]'} ${r.through === 0 ? 'text-dc-go' : 'text-dc-hostile'}`}>
           {big}
         </b>
         {small && <span className={`${LABEL} ${r.through === 0 || r.blocked > 0 ? 'text-dc-go' : 'text-dc-muted'}`}>{small}</span>}
+        {repair && (
+          <span data-repair-line className={`${LABEL} whitespace-nowrap text-dc-warn`}>
+            {repair}
+          </span>
+        )}
       </div>
     </div>
   )
@@ -216,6 +235,8 @@ function StreakLine({ step, reduced }: { step: NightStep; reduced: boolean }) {
 // this is, and the moves before it as the desktop's log writes them. The
 // list stands only where it fits under the card: at 375x667 a night's
 // later move can leave it no room, and the card never scrolls.
+// The room SKIP NIGHT's row takes at the foot of a phone's screen.
+const SKIP_ROW = 60
 export function StrikeCard({ step, signs, earlier, of }: { step: NightStep; signs: Map<string, string>; earlier: readonly Trace[]; of: number }) {
   const { ev, def } = step
   const asset = ev.targetAssetId === undefined ? undefined : step.before.assets.find((a) => a.id === ev.targetAssetId)
@@ -236,7 +257,9 @@ export function StrikeCard({ step, signs, earlier, of }: { step: NightStep; sign
     // strike starts (dc-banner-in), so its offset now is taken off.
     const banner = el.closest('[data-strike-banner]')
     const rise = banner && typeof DOMMatrixReadOnly !== 'undefined' ? new DOMMatrixReadOnly(getComputedStyle(banner).transform === 'none' ? undefined : getComputedStyle(banner).transform).m42 : 0
-    setRoom(el.getBoundingClientRect().bottom - rise <= window.innerHeight - 8)
+    // SKIP NIGHT stands in the screen's foot (v1.6 R3), so the list ends
+    // above its row.
+    setRoom(el.getBoundingClientRect().bottom - rise <= window.innerHeight - SKIP_ROW)
   }, [])
   return (
     <div data-strike-card={ev.eventId} data-strike-moves={of} className="flex w-full max-w-[420px] flex-col gap-2 border-t-2 border-dc-line bg-dc-panel/95 p-2.5 text-dc-ink">
@@ -276,36 +299,11 @@ export function StrikeCard({ step, signs, earlier, of }: { step: NightStep; sign
   )
 }
 
-// The target (brief 5.5 item 2): before and after sprites with the
-// integrity either side, or why it was not damaged.
-function Target({ step, signs }: { step: NightStep; signs: Map<string, string> }) {
-  const { ev } = step
-  const asset = ev.targetAssetId === undefined ? undefined : step.before.assets.find((a) => a.id === ev.targetAssetId)
-  if (!asset) return null
-  const damagedNow = ev.integrityAfter !== undefined && ev.integrityBefore !== undefined
-  return (
-    <div data-target={asset.id} className="flex items-center gap-3 bg-dc-chrome p-2">
-      <span className="flex flex-none items-center gap-1.5">
-        <PixelSprite sprite={assetSprite(asset.kind, damagedNow ? ev.integrityBefore! : asset.integrity)} scale={3} name="target-before" />
-        {damagedNow && (
-          <>
-            <span aria-hidden="true" className="font-mono text-dc-muted">
-              →
-            </span>
-            <PixelSprite sprite={assetSprite(asset.kind, ev.integrityAfter!)} scale={3} name="target-after" />
-          </>
-        )}
-      </span>
-      <p className="min-w-0 text-[13px] leading-snug">
-        <b className="font-mono">{signs.get(asset.id) ?? asset.id}</b>
-        <br />
-        {damagedNow ? copy.integrityLine(ev.integrityBefore!, ev.integrityAfter!) : ev.effectiveSeverity > 0 ? copy.NOT_DAMAGED : copy.UNTOUCHED}
-      </p>
-    </div>
-  )
-}
-
-// THE OUTCOME BLOCK (brief 5.5 item 2; M13 and M3).
+// THE OUTCOME BLOCK (brief 5.5 item 2; M13 and M3): what would answer
+// the move. Since v1.6 R3 (Ken's playtest item 3, and the round's fresh
+// eyes, H8) it names the defense once, in its line: the panel above says
+// BLOCKED or PARTIAL and the count, and an open move's UNDEFENDED and
+// "Nothing you own answers this." moved into the panel as its one word.
 function Outcome({ step, known, lastTurn }: { step: NightStep; known: ReadonlySet<string>; lastTurn: boolean }) {
   const { ev, def } = step
   const r = resultOf(ev)
@@ -313,12 +311,9 @@ function Outcome({ step, known, lastTurn }: { step: NightStep; known: ReadonlySe
   const { held, missing, partner } = defensesFor(def, step.after.counters, scenario)
   if (ev.outcome === 'held' && held) {
     return (
-      <div data-outcome="held" className={`border-l-4 p-2.5 ${BLOCK_TONE.go}`}>
-        <p className={HEAD_TONE.go}>
-          <span className="font-display text-[11px]">{copy.HELD_WORD}</span>
-          <span className="font-mono text-[11px] font-bold tracking-wider">{copy.headName(held.name)}</span>
-        </p>
-        <p data-can-say className="mt-1 text-[13px] text-dc-ink/85">
+      <div data-outcome="held" className={`flex items-start gap-1.5 border-l-4 p-2.5 ${BLOCK_TONE.go}`}>
+        <PixelSprite sprite={tinted(ICON_CHECK, 'go')} scale={1} name="outcome-held" className="mt-1 flex-none" />
+        <p data-can-say className="text-[13px] text-dc-ink/85">
           <Named parts={partner ? copy.canNowSayWith(held.name, shortName(def), partner.name) : copy.canNowSay(held.name, shortName(def))} />
         </p>
       </div>
@@ -326,32 +321,28 @@ function Outcome({ step, known, lastTurn }: { step: NightStep; known: ReadonlySe
   }
   if (ev.outcome === 'reduced' && held) {
     return (
-      <div data-outcome="reduced" className={`border-l-4 p-2.5 ${BLOCK_TONE.warn}`}>
-        <p className={HEAD_TONE.warn}>
-          <span className="font-display text-[11px]">{copy.REDUCED_WORD}</span>
-          <span className="font-mono text-[11px] font-bold tracking-wider">{copy.headName(held.name)}</span>
-        </p>
-        <p className="mt-1 text-sm">
-          {copy.reducedLine(r.strength, r.through, held.name)}
-          {r.chained ? ` ${copy.CHAIN_REDUCED}` : ''}
-        </p>
-        {missing && (
-          <p className="mt-1.5 text-[13px] text-dc-ink/85">
-            <Named parts={copy.finishedIt(missing.name, missing.cost)} />
+      <div data-outcome="reduced" className={`flex items-start gap-1.5 border-l-4 p-2.5 ${BLOCK_TONE.warn}`}>
+        <PixelSprite sprite={tinted(ICON_HALF, 'warn')} scale={1} name="outcome-reduced" className="mt-1 flex-none" />
+        <div className="text-[13px]">
+          <p>
+            {copy.reducedLine(held.name)}
+            {r.chained ? ` ${copy.CHAIN_REDUCED}` : ''}
           </p>
-        )}
+          {missing && (
+            <p className="mt-1 text-dc-ink/85">
+              <Named parts={copy.finishedIt(missing.name, missing.cost)} />
+            </p>
+          )}
+        </div>
       </div>
     )
   }
+  if (!missing && !r.chained) return null
   return (
     <div data-outcome="open" className={`border-l-4 p-2.5 ${BLOCK_TONE.hostile}`}>
-      <p className={`font-display text-[11px] ${HEAD_TONE.hostile}`}>{copy.UNDEFENDED}</p>
-      <p className="mt-1 text-sm">
-        {copy.NOTHING_ANSWERS}
-        {r.chained ? ` ${copy.CHAIN_OPEN}` : ''}
-      </p>
+      {r.chained && <p className="text-[13px]">{copy.CHAIN_OPEN}</p>}
       {missing && (
-        <p data-would-have-helped className="mt-1.5 text-[13px] text-dc-ink/85">
+        <p data-would-have-helped className={`${r.chained ? 'mt-1' : ''} text-[13px] text-dc-ink/85`}>
           <Named parts={copy.wouldHaveHelped(missing.name, missing.cost)} /> {copy.itStops(stopsKnown(missing, def, scenario, known))}
           {lastTurn ? '' : ` ${copy.IN_PROCURE}`}
         </p>
@@ -368,10 +359,14 @@ export function DossierRow({ def }: { def: ThreatEvent }) {
   return (
     <details data-dossier-row={def.id} className="border-2 border-dc-friendly/60 bg-dc-friendly/5 shadow-press">
       <summary className="flex min-h-11 cursor-pointer list-none flex-col justify-center px-2.5 py-1.5">
-        <span className={`${LABEL} text-dc-friendly`}>
-          {copy.IN_DOSSIER}
-          {ref ? ` · ${techniqueLabel(ref).split(' ')[0]}` : ''}
-          <span className="float-right text-dc-muted">details ›</span>
+        <span className={`flex items-center justify-between ${LABEL} text-dc-friendly`}>
+          <span>
+            {copy.IN_DOSSIER}
+            {ref ? ` · ${techniqueLabel(ref).split(' ')[0]}` : ''}
+          </span>
+          {/* A pixel arrow that turns as the row opens, not a "details ›"
+              (v1.6 R3: no text-link chevrons on the night's cards). */}
+          <PixelSprite sprite={tinted(ICON_DOWN, 'friendly')} scale={1} name="dossier-row-open" className="dc-open-turn flex-none" />
         </span>
         <span className="mt-0.5 text-sm font-bold">{copy.HOOK[def.id] ?? def.name}</span>
       </summary>
@@ -398,14 +393,14 @@ export function DossierRow({ def }: { def: ThreatEvent }) {
   )
 }
 
-// The way on: COLLECT INTEL CARD on a first meeting, CONTINUE otherwise.
+// The way on: FILE TO DOSSIER on a first meeting, CONTINUE otherwise.
 export function Onward({ first, reduced, onContinue }: { first: boolean; reduced: boolean; onContinue: (collect: boolean) => void }) {
   const ref = useRef<HTMLButtonElement | null>(null)
   useEffect(() => ref.current?.focus({ preventScroll: true }), [])
   return first ? (
     <button ref={ref} type="button" data-collect onClick={() => onContinue(true)} className={`${PRIMARY} ${reduced ? '' : 'dc-collect-glow'}`}>
       <PixelSprite sprite={tinted(ICON_SPARK, 'ground')} scale={2} name="collect-spark" />
-      {copy.COLLECT}
+      {copy.FILE_TO_DOSSIER}
     </button>
   ) : (
     <button ref={ref} type="button" data-continue onClick={() => onContinue(false)} className={PRIMARY}>
@@ -420,7 +415,8 @@ export interface StepCardProps {
   lastTurn: boolean
   signs: Map<string, string>
   known: ReadonlySet<string>
-  // Whether this is the first time the player meets the threat: COLLECT.
+  // Whether this is the first time the player meets the threat: FILE TO
+  // DOSSIER.
   first: boolean
   reduced: boolean
   play: Play
@@ -433,6 +429,7 @@ export function HitCard({ step, turn, lastTurn, signs, known, first, reduced, pl
   const r = resultOf(ev)
   const asset = ev.targetAssetId === undefined ? undefined : step.before.assets.find((a) => a.id === ev.targetAssetId)
   const sign = asset ? signs.get(asset.id) : undefined
+  const officer = copy.officerFor(step, sign)
   // The tiles tick as they land, then a new condition sounds its alarm and
   // a streak its fanfare (brief 8.4).
   useOnce(() => {
@@ -454,13 +451,19 @@ export function HitCard({ step, turn, lastTurn, signs, known, first, reduced, pl
       reduced={reduced}
       foot={<Onward first={first} reduced={reduced} onContinue={onContinue} />}
     >
-      <ResultPanel step={step} reduced={reduced} />
+      <ResultPanel
+        step={step}
+        reduced={reduced}
+        undefended={!((ev.outcome === 'held' || ev.outcome === 'reduced') && defensesFor(def, step.after.counters, step.after.scenario).held)}
+        repair={ev.repairCost > 0 ? copy.repairTag(ev.repairCost, ev.integrityAfter !== undefined) : ''}
+      />
       <div>
         <h3 data-move-name className="text-lg font-bold leading-tight">
           {shortName(def)}
         </h3>
+        {/* One tag for where it landed, and a second only for a condition
+            it left (Ken's playtest item 3: the move carried three). */}
         <div className="mt-1 flex flex-wrap gap-1.5">
-          <Tag tone="muted">{copy.attackTag(def.vector)}</Tag>
           <Tag tone="muted">{copy.aimedTag(ev.effectiveSeverity > 0, asset?.layer ?? def.layers[0])}</Tag>
           {ev.condition && (
             <Tag tone="warn" cue={reduced ? '' : 'dc-chip-in'}>
@@ -473,33 +476,28 @@ export function HitCard({ step, turn, lastTurn, signs, known, first, reduced, pl
       {/* The watch officer's line for the move (M29); on a block, what the
           defense did instead, since the attack's line reports a loss that
           did not happen (fresh-eyes review). Either names the tile the
-          move was aimed at. */}
-      {r.through === 0 && copy.HELD[ev.eventId] ? (
-        <Officer held line={copy.aimedAt(copy.HELD[ev.eventId], ev.eventId, sign)} />
-      ) : (
-        copy.OFFICER[ev.eventId] && <Officer line={copy.aimedAt(copy.OFFICER[ev.eventId], ev.eventId, sign)} />
-      )}
-      <Target step={step} signs={signs} />
+          move was aimed at. Since v1.6 R3 (Ken's playtest item 5) a move
+          met again says it another way, and each night keeps its own
+          clock (nightModel's officerFor). */}
+      {officer && <Officer held={officer.held} line={officer.line} clock={officer.clock} />}
       <Outcome step={step} known={known} lastTurn={lastTurn} />
-      {ev.repairCost > 0 && (
-        <p data-repair-line className="font-mono text-[11px] text-dc-ink/75">
-          {ev.integrityAfter === undefined ? copy.cleanupQueued(ev.repairCost) : copy.repairQueued(ev.repairCost)}
-        </p>
-      )}
       {!first && <DossierRow def={def} />}
     </Card>
   )
 }
 
-// THE INTEL CARD (brief 5.5 item 3): what COLLECT opens. The dossier count
-// ticks up as it arrives; FILE IT files it on the device at once.
+// THE DOSSIER CARD (brief 5.5 item 3; the intel card until v1.6 R3): what
+// FILE TO DOSSIER shows. The tap has filed it on the device already (Ken's
+// playtest item 4: the button names the action, so the card does not ask
+// for a second FILE IT); the card arrives with the count ticking up and
+// FILED stamped across its corner, the Library's stamp, then CONTINUE.
 export function IntelFile({
   def,
   stoppedBy,
   filed,
   total,
   reduced,
-  onFile,
+  onContinue,
 }: {
   def: ThreatEvent
   // The names of the defenses that stop it, primary first.
@@ -508,7 +506,7 @@ export function IntelFile({
   filed: number
   total: number
   reduced: boolean
-  onFile: () => void
+  onContinue: () => void
 }) {
   const [n, setN] = useState(reduced ? filed + 1 : filed)
   useEffect(() => {
@@ -525,10 +523,13 @@ export function IntelFile({
   const source = def.learnMoreCards[0]?.sources[0]
   return (
     <div data-intel-file={def.id} className="fixed inset-0 z-40 flex items-center justify-center bg-dc-ground p-4" role="dialog" aria-modal="true" aria-labelledby="intel-file-title">
-      <div className={`flex max-h-full w-full max-w-[420px] flex-col border-2 border-dc-friendly bg-dc-panel shadow-hard ${reduced ? '' : 'dc-intel-in'}`}>
+      <div className={`relative flex max-h-full w-full max-w-[420px] flex-col border-2 border-dc-friendly bg-dc-panel shadow-hard ${reduced ? '' : 'dc-intel-in'}`}>
+        <span data-filed-stamp className={`dc-filed-stamp absolute right-3 top-3 z-10 bg-dc-ground/85 px-2 py-1 font-display text-[13px] text-dc-go ${reduced ? '' : 'dc-stamp-slam'}`}>
+          {copy.FILED}
+        </span>
         <div className="relative flex h-24 flex-none flex-col justify-end overflow-hidden border-b border-dc-line bg-dc-chrome px-4 py-2.5">
           <DotField token={def.vector === 'environmental' ? 'warn' : 'friendly'} mode="noise" />
-          <span className={`relative mb-auto self-start bg-dc-ground/80 px-2 py-0.5 ${LABEL} text-dc-go`}>{copy.NEW_INTEL}</span>
+          <span className={`relative mb-auto self-start bg-dc-ground/80 px-2 py-0.5 ${LABEL} text-dc-go`}>{copy.NEW_CARD}</span>
           <span className="relative font-display text-[22px] leading-none text-dc-ink">{copy.vectorWord(def.vector)}</span>
           <span className="relative mt-1 font-mono text-xs tracking-widest">→ {def.layers.join(' · ')}</span>
         </div>
@@ -572,7 +573,7 @@ export function IntelFile({
           </dl>
         </div>
         {more && <MoreBelow />}
-        {/* LEARN MORE and FILE IT, pinned under the thumb (rule 4). */}
+        {/* LEARN MORE and CONTINUE, pinned under the thumb (rule 4). */}
         <div className="flex flex-none flex-col gap-2 border-t border-dc-line px-4 py-2.5">
           {learnMore && techRef && (
             <button
@@ -585,8 +586,8 @@ export function IntelFile({
               LEARN MORE<span className="sr-only"> in the Field Library: {shortName(def)}</span>
             </button>
           )}
-          <button ref={ref} type="button" data-file-it onClick={onFile} className={PRIMARY}>
-            {copy.FILE_IT}
+          <button ref={ref} type="button" data-file-it data-continue onClick={onContinue} className={PRIMARY}>
+            {copy.CONTINUE}
           </button>
         </div>
       </div>

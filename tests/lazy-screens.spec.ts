@@ -200,8 +200,10 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     // Still five since v1.3 R4: the debrief (./Debrief, brief 5.6) replaced
     // the score screen in the same place. Four since v1.3 R5: the wide
     // board went (brief section 11: the desktop is the phone column,
-    // centered, with no three-column board).
-    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(4)
+    // centered, with no three-column board). Five since v1.6 R3: the full
+    // brief left the TONIGHT card for a sheet of its own (Ken's playtest
+    // item 6), which Game opens like SYSTEM, from its chunk with brief.ts.
+    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(5)
     const graph = staticGraphFrom(ENTRY)
     const offenders: string[] = []
     for (const spec of gameSpecs) {
@@ -213,6 +215,7 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     expect(offenders.join('\n'), 'an overlay Game loads on demand is in the initial chunk anyway').toBe('')
     expect(gameSpecs).toContain('./board/IntelCard')
     expect(gameSpecs).toContain('./Debrief')
+    expect(gameSpecs).toContain('./board/FullBrief')
     expect(gameSpecs).toContain('./FieldLibrary')
   })
 })

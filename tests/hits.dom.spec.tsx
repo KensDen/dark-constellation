@@ -45,7 +45,7 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { briefFree, newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState, ResolvedEvent } from '../src/engine/types'
-import { FORECAST_DARK, briefCopy, forecastLead } from '../src/ui/brief'
+import { FORECAST_DARK, briefCopy, forecastLead, fullBriefCopy } from '../src/ui/brief'
 import { techniqueLabel, vectorLabels } from '../src/ui/labels'
 import { realWorldFor } from '../src/ui/realWorldLine'
 import { assetRole, pipsFor } from '../src/ui/board/board'
@@ -200,14 +200,12 @@ async function execute() {
   expect(button, 'EXECUTE is not on screen').not.toBeNull()
   await tap(button!)
 }
-// The TONIGHT card's full brief, opened if it is not, and its chunk let
-// in: COLDVEIL's intel button and the technique tag live there (v1.3 R2).
+// COLDVEIL's chip on TONIGHT's header, which opens its card (v1.6 R3,
+// Ken's playtest item 6; it was "COLDVEIL intel ›" inside the full brief).
 async function openFullBrief() {
-  const toggle = q('button[data-full-brief]')
-  expect(toggle, 'the TONIGHT card is not on screen').not.toBeNull()
-  if (toggle!.getAttribute('aria-expanded') !== 'true') click(toggle!)
+  expect(q('section[data-tonight]'), 'the TONIGHT card is not on screen').not.toBeNull()
   await settle()
-  expect(q('button[aria-label="COLDVEIL intel"]'), 'the full brief has no intel button').not.toBeNull()
+  expect(q('button[data-coldveil]'), 'TONIGHT has no COLDVEIL chip').not.toBeNull()
 }
 const tiles = () => [...container.querySelectorAll('button[data-asset-id]')]
 const inTiles = (selector: string) => tiles().filter((t) => t.querySelector(selector)).map((t) => t.getAttribute('data-asset-id'))
@@ -462,7 +460,7 @@ describe('the intel cards (v1.2 R3)', () => {
     const named = DEFAULT_SCENARIO.events.find((e) => e.id === fixed)!
     render(state)
     await openFullBrief()
-    const opener = container.querySelector('button[aria-label="COLDVEIL intel"]') as HTMLButtonElement
+    const opener = container.querySelector('button[data-coldveil]') as HTMLButtonElement
     expect(opener).not.toBeNull()
     act(() => opener.focus())
     click(opener)
@@ -487,7 +485,7 @@ describe('the intel cards (v1.2 R3)', () => {
     expect(briefFree(state), 'the fixture has no brief, so the dark card would pass for the wrong reason').toBe(true)
     render(state)
     await openFullBrief()
-    click(container.querySelector('button[aria-label="COLDVEIL intel"]')!)
+    click(container.querySelector('button[data-coldveil]')!)
     await settle()
     const card = container.querySelector('section[data-intel-card="banner"]')
     expect(card).not.toBeNull()
@@ -568,8 +566,18 @@ describe('the intel cards (v1.2 R3)', () => {
   }
   // What the TONIGHT card's full brief says: its lines and its technique
   // tag, both read from briefCopy with the card's brief state.
-  const tonightLines = () => [...container.querySelectorAll('[data-brief-scroll] li')].map((li) => li.textContent)
-  const tonightTag = () => container.querySelector('[data-brief-scroll] [data-technique-tag]')?.getAttribute('data-technique-tag') ?? null
+  // The full brief's sheet (v1.6 R3), opened from its icon and read: the
+  // moves it names and the first technique, then closed with DONE.
+  const readSheet = async () => {
+    click(q('button[data-full-brief]')!)
+    await settle()
+    const sheet = q('[data-sheet="brief"]')
+    expect(sheet, 'the full brief did not open').not.toBeNull()
+    const ids = [...sheet!.querySelectorAll('[data-brief-move]')].map((e) => e.getAttribute('data-brief-move'))
+    const tag = sheet!.querySelector('[data-technique-tag]')?.getAttribute('data-technique-tag') ?? null
+    click([...sheet!.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'DONE')!)
+    return { ids, tag }
+  }
   const intelOrder = () => container.querySelector<HTMLButtonElement>('[data-sheet="procure"] button[data-procure-intel]')
   const toggleProcure = () => {
     const step = container.querySelector('nav[aria-label="Actions"] button[data-action="procure"]')
@@ -590,12 +598,12 @@ describe('the intel cards (v1.2 R3)', () => {
     toggleProcure()
     expect(container.querySelector('[data-sheet="procure"]'), 'PROCURE did not close').toBeNull()
   }
-  // Opens COLDVEIL's card by its button in the full brief, reads it, and
+  // Opens COLDVEIL's card by its chip on TONIGHT, reads it, and
   // closes it on Escape (which does not end the night, as the test below
   // pins).
   async function readCard() {
     await openFullBrief()
-    click(container.querySelector('button[aria-label="COLDVEIL intel"]')!)
+    click(container.querySelector('button[data-coldveil]')!)
     await settle()
     const card = container.querySelector('section[data-intel-card="banner"]')
     expect(card, 'no banner card').not.toBeNull()
@@ -611,30 +619,32 @@ describe('the intel cards (v1.2 R3)', () => {
     return read
   }
 
-  it('reads THREAT INTEL · BRIEFED and names what the TONIGHT card names once the brief is ordered in the cart, and NO BRIEF without it', async () => {
+  it('reads COLDVEIL · BRIEFED and names what the TONIGHT card names once the brief is ordered in the cart, and NO BRIEF without it', async () => {
     const state = paidNightWithLead()
     const named = briefCopy(state, true)
-    const dark = briefCopy(state, false)
+    const sheetNamed = fullBriefCopy(state, true)
     const lead = realWorldFor(forecastLead(state, true)!)!
     expect(named.headline, 'the briefed headline is the dark one, so the two readings cannot be told apart').not.toBe(FORECAST_DARK.headline)
-    expect(named.full, 'the briefed lines are the dark ones, so the two readings cannot be told apart').not.toEqual(dark.full)
+    expect(sheetNamed.moves.length, 'the brief names no moves, so the two readings cannot be told apart').toBeGreaterThan(0)
     expect(named.tag, 'the brief names no technique tonight').toBeDefined()
     render(state)
-    // Not ordered: the TONIGHT card and the intel card are both dark.
+    // Not ordered: the full brief and COLDVEIL's card are both dark.
     await openFullBrief()
-    expect(tonightLines()).toEqual(dark.full)
-    expect(tonightTag()).toBeNull()
+    let sheet = await readSheet()
+    expect(sheet.ids).toEqual([])
+    expect(sheet.tag).toBeNull()
     let card = await readCard()
-    expect(card.heading, `turn ${state.turn}: the card claims a brief nobody ordered`).toBe('THREAT INTEL · NO BRIEF')
+    expect(card.heading, `turn ${state.turn}: the card claims a brief nobody ordered`).toBe('COLDVEIL · NO BRIEF')
     expect(card.headline).toBe(FORECAST_DARK.headline)
     expect(card.line, 'the card with no brief carries an event line').toBeNull()
     // Ordered, before EXECUTE: the TONIGHT card names the move, and the
     // intel card names exactly what it names.
     orderBrief()
-    expect(tonightLines(), 'the TONIGHT card ignored the brief ordered in the cart').toEqual(named.full)
-    expect(tonightTag()).toBe(named.tag!)
+    sheet = await readSheet()
+    expect(sheet.ids, 'the full brief ignored the brief ordered in the cart').toEqual(sheetNamed.moves.map((m) => m.id))
+    expect(sheet.tag).toBe(sheetNamed.moves.find((m) => m.tag)!.tag!)
     card = await readCard()
-    expect(card.heading, `turn ${state.turn}: the card ignored the brief ordered in the cart`).toBe('THREAT INTEL · BRIEFED')
+    expect(card.heading, `turn ${state.turn}: the card ignored the brief ordered in the cart`).toBe('COLDVEIL · BRIEFED')
     expect(card.headline, 'the card does not name what the brief names').toBe(named.headline)
     expect(card.line, 'the card does not carry the named event REAL WORLD line').toBe(`${lead.technique} · ${lead.source}`)
     // Locked for the turn (v1.5 R2): the autosave carries the lock, so a
@@ -668,10 +678,10 @@ describe('the intel cards (v1.2 R3)', () => {
     const now = { ...saved.state, scenario: DEFAULT_SCENARIO } as GameState
     expect(now.turn).toBe(next)
     expect(briefFree(now), `turn ${next}: the brief is free, so dark proves nothing`).toBe(false)
-    expect(tonightLines()).toEqual(briefCopy(now, false).full)
-    expect(tonightLines(), `turn ${next}: the brief names nothing, so the dark reading proves nothing`).not.toEqual(briefCopy(now, true).full)
+    expect((await readSheet()).ids).toEqual([])
+    expect(fullBriefCopy(now, true).moves.length, `turn ${next}: the brief names nothing, so the dark reading proves nothing`).toBeGreaterThan(0)
     const card = await readCard()
-    expect(card.heading, 'the card named a night with no brief ordered').toBe('THREAT INTEL · NO BRIEF')
+    expect(card.heading, 'the card named a night with no brief ordered').toBe('COLDVEIL · NO BRIEF')
     expect(card.line).toBeNull()
   })
 

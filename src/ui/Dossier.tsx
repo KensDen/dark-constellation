@@ -79,9 +79,10 @@ function FiledCard({ def, index, onLearnMore }: { def: ThreatEvent; index: numbe
             review: the number crowded the tag). */}
         <span className="mt-auto flex items-baseline justify-between pt-1 font-mono text-[11px]">
           <span className="text-dc-muted">{num(index)}</span>
-          <span className="text-dc-ink">
-            <span className="group-open:hidden">details ›</span>
-            <span className="hidden group-open:inline">close</span>
+          {/* An arrow that turns as the card opens (v1.6 R3: no "details ›"
+              on a game screen; the whole card is the control). */}
+          <span aria-hidden="true" className="dc-open-turn text-dc-ink">
+            ▼
           </span>
         </span>
       </summary>

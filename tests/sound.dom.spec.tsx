@@ -31,7 +31,7 @@ vi.mock('../src/ui/Constellation', () => ({
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { CONDITION_CUES, EVENT_CUES, MOMENT_CUES, SECTION_6_ROWS, VISUAL_CLASS, outcomeSound, type Moment, type SoundCue } from '../src/cues'
-import { LOCK_SHARE, STRIKE_MS } from '../src/ui/board/strike'
+import { LOCK_SHARE, STRIKE_HOLD_MS, STRIKE_MS } from '../src/ui/board/strike'
 import { ACTIONS } from '../src/ui/board/actions'
 import { strikeIntensity } from '../src/audio'
 import Game from '../src/ui/Game'
@@ -409,7 +409,7 @@ describe('the controls that sound themselves', () => {
     await act(async () => {})
     let turnEnded = false
     for (let guard = 0; guard < 100 && stage() !== 'board'; guard += 1) {
-      await wait(STRIKE_MS)
+      await wait(STRIKE_HOLD_MS)
       if (q('[data-begin]')) turnEnded = true
       const next = way()
       if (next) await tap(next)
@@ -767,7 +767,7 @@ describe('the night sounds the moment it is showing', () => {
               shows(q('[data-shield="held"]'), 'strike-block', where)
               shields += 1
             }
-            await wait(STRIKE_MS * (1 - LOCK_SHARE) + 1)
+            await wait((STRIKE_HOLD_MS - STRIKE_MS * LOCK_SHARE) + 1)
             expect(stage(), where).toBe('hit')
             expect(q('[data-night-card]')!.getAttribute('aria-label'), `${where}: the card is not this step's`).toContain(step.def.name.split(' (')[0])
             expect(cues(since()), `${where}: the hit card arrived with a sound of its own`).toEqual([])
@@ -823,21 +823,24 @@ describe('the night sounds the moment it is showing', () => {
             at('opportunity', chime)
             shows(q('[data-night-card="opportunity"]'), 'opportunity', where)
           }
-          // The way on: COLLECT and FILE IT on a first meeting, CONTINUE
-          // on every later one.
+          // The way on: FILE TO DOSSIER on a first meeting, which files the
+          // card and rings the file cue as its FILED stamp lands (v1.6 R3,
+          // Ken's playtest item 4), then CONTINUE; CONTINUE on every later
+          // one.
           if (q('[data-collect]')) {
             shows(q('[data-collect]'), 'collect', where)
             await tap(q('[data-collect]'))
             const collected = since()
-            expect(cues(collected), `${where}: COLLECT`).toEqual([MOMENT_CUES.collect.sound])
-            at('collect', collected)
+            expect(cues(collected.slice(0, 1)), `${where}: FILE TO DOSSIER`).toEqual([MOMENT_CUES.collect.sound])
+            at('collect', collected.slice(0, 1))
             expect(stage(), where).toBe('intel')
             shows(q('[data-intel-file]')?.firstElementChild, 'file', where)
-            await tap(q('[data-file-it]'))
-            const filed = since()
-            expect(cues(filed.slice(0, 1)), `${where}: FILE IT`).toEqual([MOMENT_CUES.file.sound])
+            await wait(500)
+            const filed = [...collected.slice(1), ...since()]
+            expect(cues(filed.slice(0, 1)), `${where}: the FILED stamp`).toEqual([MOMENT_CUES.file.sound])
             at('file', filed.slice(0, 1))
-            carried = filed.slice(1)
+            await tap(q('[data-file-it]'))
+            carried = [...filed.slice(1), ...since()]
           } else {
             await tap(q('[data-continue]'))
             carried = since()
@@ -1004,7 +1007,7 @@ describe('the night sounds the moment it is showing', () => {
     await wait(STRIKE_MS * LOCK_SHARE + 1)
     rerender()
     rerender()
-    await wait(STRIKE_MS * (1 - LOCK_SHARE) + 1)
+    await wait((STRIKE_HOLD_MS - STRIKE_MS * LOCK_SHARE) + 1)
     expect(stage()).toBe('hit')
     // The card's tiles and its closing cue, all of them, then the same
     // card re-rendered with a long wait after.
@@ -1130,7 +1133,7 @@ describe('the night sounds the moment it is showing', () => {
     await execute(board.state)
     await wait(750)
     ctx().reset()
-    await wait(STRIKE_MS)
+    await wait(STRIKE_HOLD_MS)
     expect(ctx().startedCount(), 'the strike never sounded on a visible page, so this proves nothing').toBeGreaterThan(0)
     act(() => root.unmount())
     root = createRoot(container)
@@ -1139,7 +1142,7 @@ describe('the night sounds the moment it is showing', () => {
     await wait(750)
     ctx().reset()
     act(() => setHidden(true))
-    await wait(STRIKE_MS * 3)
+    await wait(STRIKE_HOLD_MS * 3)
     expect(ctx().startedCount(), 'a hidden page played the strike that landed behind it').toBe(0)
     expect(stage(), 'the strike ran on behind a hidden page').toBe('strike')
 
