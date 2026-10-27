@@ -27,6 +27,7 @@ vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 
 import Game from '../src/ui/Game'
 import { DEFAULT_SCENARIO } from '../src/content'
+import { planFor } from '../src/engine/campaign'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState, TurnActions } from '../src/engine/types'
@@ -35,7 +36,7 @@ import { dossierCount } from '../src/ui/titleStatus'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { LOCK_SHARE, STRIKE_MS } from '../src/ui/board/strike'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
-import { NO_OP, WIN_SCRIPT, a } from './scripts'
+import { NO_OP, WIN_SCRIPT, a, debrisTurnOf } from './scripts'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -185,8 +186,9 @@ describe('GUARD R3 (b): a first meeting shows COLLECT INTEL CARD and a repeat sh
     expect(q('[data-collect]')?.textContent).toBe('COLLECT INTEL CARD')
     expect(q('[data-continue]')).toBeNull()
     expect(q('[data-dossier-row]')).toBeNull()
-    // The same night, with both of turn 1's moves already filed.
-    localStorage.setItem('dc-dossier', JSON.stringify(['gnss-spoofing', 'uplink-jamming']))
+    // The same night, with both of turn 1's moves already filed: the seed's
+    // own two (v1.6 R1, its opening).
+    localStorage.setItem('dc-dossier', JSON.stringify(planFor(gameAt(1), 1)!.slots[0].drawFrom))
     render(gameAt(1))
     await tap(q('[data-execute]'))
     expect(stage()).toBe('hit')
@@ -258,11 +260,12 @@ describe("GUARD R3 (d): END OF TURN's rows add up to the next budget the engine 
 describe('GUARD R3 (e): BURN and HOLD state the same odds as the odds line', () => {
   for (const ssa of [false, true]) {
     it(`says the odds in the odds line's words on both buttons, ${ssa ? 'with' : 'without'} the SSA service`, async () => {
-      const state = gameAt(4, 20260712, { 1: a({}), 2: a({}), 3: a({ buyCounters: ssa ? ['ssaManeuver'] : [] }) })
+      // The night of the call: turn 5 on this seed (v1.6 R1).
+      const state = gameAt(debrisTurnOf(20260712), 20260712, { 1: a({}), 2: a({}), 3: a({ buyCounters: ssa ? ['ssaManeuver'] : [] }) })
       render(state)
       await tap(q('[data-execute]'))
       for (let i = 0; i < 6 && stage() !== 'call'; i += 1) await tap(way())
-      expect(stage(), 'turn 4 never made the call').toBe('call')
+      expect(stage(), 'the night never made the call').toBe('call')
       const odds = q('[data-odds]')!.textContent!
       expect(odds).toBe(ssa ? '35 percent' : '20 to 60 percent')
       for (const choice of ['burn', 'hold']) expect(q(`[data-call="${choice}"]`)!.textContent, `${choice.toUpperCase()} does not say the odds line's odds`).toContain(odds)
@@ -293,12 +296,13 @@ describe('GUARD R3 (f): no retired word in any night card', () => {
     ['in this build', /in this build/i],
   ]
   it('finds none on a hit, a block, a partial, an opportunity, the debris call and its result, the intel card and every END OF TURN', async () => {
-    // Seed 1 on STANDARD, with these orders, meets every kind of card
-    // (scripts/phone-layout.mjs, NIGHT_PLAN, plays the same operation). One
-    // new defense a night since v1.4: seed 24, with three on turn 2, until
-    // then.
+    // Seed 32 on STANDARD, with these orders, meets every kind of card
+    // (scripts/phone-layout.mjs, NIGHT_PLAN, plays the same operation), on
+    // the campaign's other order. Seed 1 until v1.6 R1, when each seed
+    // began to play its own order; seed 24, with three on turn 2, until
+    // v1.4's one new defense a night.
     const plan: Record<number, string[]> = { 1: ['antiJam'], 2: ['encryptedBackhaul'], 3: ['linkAuth'], 4: ['pntAuth'], 5: ['sensorFusion'], 6: ['groundZeroTrust'] }
-    render(newGame(DEFAULT_SCENARIO, 1, 'standard'))
+    render(newGame(DEFAULT_SCENARIO, 32, 'standard'))
     const seen = new Set<string>()
     for (let turn = 1; turn <= 6; turn += 1) {
       await order(plan[turn] ?? [])

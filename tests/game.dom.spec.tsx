@@ -61,7 +61,8 @@ vi.mock('../src/ui/Constellation', () => ({
 import Game from '../src/ui/Game'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { gnssDenied, newGame, resolveTurn } from '../src/engine/reducer'
-import { eventById, planFor } from '../src/engine/rules'
+import { planFor } from '../src/engine/campaign'
+import { eventById } from '../src/engine/rules'
 import { maiScore } from '../src/engine/scoring'
 import { turnRng } from '../src/engine/rng'
 import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
@@ -813,7 +814,8 @@ function affordGate(label: string): string[] {
       expect(/\d A TURN/.test(b.textContent ?? ''), `${label}: ${id} is capped and does not say so`).toBe(true)
       continue
     }
-    const price = Number(/\+ ADD · (\d+) CR/.exec(b.textContent ?? '')?.[1] ?? NaN)
+    // The card's cost chip (v1.6 R1: "10 CR", where "+ ADD · 10 CR" was).
+    const price = Number(/^(\d+) CR$/.exec(b.querySelector('[data-cost]')?.textContent ?? '')?.[1] ?? NaN)
     expect(Number.isNaN(price), `${label}: ${id} shows no price`).toBe(false)
     expect(b.disabled, `${label}: ${id} at ${price} CR against ${left} remaining`).toBe(price > left)
     if (b.disabled) refused.push(id)
@@ -1936,9 +1938,9 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
   // stop one of tonight's moves are left alone, because this player's
   // night has to land: the old over-buyer spent everything on servicers
   // and no defense, and the strike control below needs moves that land.
-  function spendItAll(turn: number) {
+  function spendItAll(turn: number, seed: number) {
     const stops = new Set(
-      (planFor(DEFAULT_SCENARIO, turn)?.slots ?? []).flatMap((slot) =>
+      (planFor({ scenario: DEFAULT_SCENARIO, seed }, turn)?.slots ?? []).flatMap((slot) =>
         (slot.fixed ? [slot.fixed] : (slot.drawFrom ?? [])).flatMap((id) => eventById(DEFAULT_SCENARIO, id).counters),
       ),
     )
@@ -2006,7 +2008,7 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     // of its own; PROCURE turns an order it cannot afford off since then,
     // so the drive spends to the floor instead, which is what reaches the
     // insolvency below.
-    if (opts.overbuy ?? !opts.script) spendItAll(turn)
+    if (opts.overbuy ?? !opts.script) spendItAll(turn, opts.seed ?? 20260712)
     const execute = executeControl()
     expect(execute, 'the commit control is not on screen').not.toBeNull()
     await tap(execute!)

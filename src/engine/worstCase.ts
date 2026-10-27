@@ -16,7 +16,8 @@
 // One function; the dock, the FIRST ORDERS check and the battery all call
 // it (brief 6.4).
 
-import { burnFuel, chainBonusOf, countersAfter, eventById, gnssDenied, lossReviewBill, mitigationOf, orderCost, planFor, repairBill } from './rules'
+import { burnFuel, chainBonusOf, countersAfter, eventById, gnssDenied, lossReviewBill, mitigationOf, orderCost, repairBill } from './rules'
+import { planFor } from './campaign'
 import type { GameState, TurnActions } from './types'
 
 export interface WorstCase {
@@ -34,7 +35,7 @@ export function worstCase(state: GameState, actions: TurnActions): WorstCase {
   // that lands earlier tonight makes it live for the slots after it.
   let denied = gnssDenied(state.conditions, scenario)
   let repairs = 0
-  for (const slot of planFor(scenario, state.turn)?.slots ?? []) {
+  for (const slot of planFor(state, state.turn)?.slots ?? []) {
     let worst = 0
     let jams = false
     for (const id of slot.fixed ? [slot.fixed] : (slot.drawFrom ?? [])) {

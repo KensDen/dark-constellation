@@ -164,6 +164,10 @@ export const reducedLine = (strength: number, through: number, defense: string) 
 export const CHAIN_REDUCED = 'GNSS was still denied, so the chain added a point before your defenses saw it.'
 export const finishedIt = (defense: string, price: number) => ['Would have finished it: ', defense, `, ${price} CR.`] as const
 export const UNDEFENDED = 'UNDEFENDED'
+// The strike's card on a phone (v1.6 R1): what answers the move, or that
+// nothing owned does.
+export const DEFENSE_WORD = 'DEFENSE'
+export const NO_DEFENSE_OWNED = 'No defense owned'
 export const NOTHING_ANSWERS = 'Nothing you own answers this.'
 export const CHAIN_OPEN = 'GNSS was still denied, so the squadron was flying on one sensor and the chain added a point.'
 export const wouldHaveHelped = (defense: string, price: number) => ['What would have helped: ', defense, `, ${price} CR.`] as const

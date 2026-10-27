@@ -122,7 +122,9 @@ function play(seed: number, script: Record<number, TurnActions>): GameState {
 // A won campaign (S, 6 hits) and a lost one (D, 9 hits), both with a
 // mixed strip. The win is seed 6 since v1.4: the prepared script orders one
 // new defense a night, and on 20260712 it now wins at B.
-const WON = () => play(6, WIN_SCRIPT)
+// Seed 16 since v1.6 R1, an S for the prepared script on the seed's
+// other order (seed 6 under v1.5's one order).
+const WON = () => play(16, WIN_SCRIPT)
 const LOST = () => play(20260712, LOSS_SCRIPT)
 const TODAY: DailyOp = { dateKey: '20260927', n: 1 }
 
@@ -167,7 +169,9 @@ const settle = () =>
 const statValues = () => [...container.querySelectorAll('[data-stat-value]')].map((el) => Number(el.textContent))
 const statsByLabel = () =>
   Object.fromEntries([...container.querySelectorAll('[data-stat]')].map((el) => [el.getAttribute('data-stat'), Number(el.querySelector('[data-stat-value]')!.textContent)]))
-const gradeEl = () => container.querySelector('[data-grade]')!
+// The grade lands with its shield, which carries the reveal's classes.
+const gradeEl = () => container.querySelector('[data-shield]')!
+const gradeLetter = () => container.querySelector('[data-grade]')!
 const cells = () => [...container.querySelectorAll<HTMLElement>('[data-strip-cell]')]
 const tiles = () => [...container.querySelectorAll<HTMLElement>('[data-stat]')]
 const filedRows = () => [...container.querySelectorAll<HTMLElement>('[data-filed-card]')]
@@ -176,12 +180,12 @@ const MOTION = ['dc-stamp-in', 'dc-shield-pop', 'dc-rays-in', 'dc-burst-fly', 'd
 const hasMotion = (el: Element) => MOTION.some((c) => el.classList.contains(c))
 const waiting = (el: Element) => el.classList.contains('dc-score-wait')
 const notice = () => container.querySelector('[data-share-notice]')?.textContent ?? null
-// The six values in the order the screen shows them: a win opens on what
-// held (v1.3 R5).
+// The six values in the order the screen shows them, won or lost: what
+// held first (v1.3 R5 for a win; both since v1.6 R1).
 const WIN_FIRST = ['MOVES BLOCKED', 'BEST STREAK', 'POINTS SAVED']
 const finals = (state: GameState) => {
   const all = debriefStats(state)
-  const order = state.status === 'won' ? [...WIN_FIRST.map((l) => all.find((s) => s.label === l)!), ...all.filter((s) => !WIN_FIRST.includes(s.label))] : all
+  const order = [...WIN_FIRST.map((l) => all.find((s) => s.label === l)!), ...all.filter((s) => !WIN_FIRST.includes(s.label))]
   return order.map((s) => s.value)
 }
 // An element's words, each text node apart (textContent runs one node's
@@ -198,7 +202,7 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
     setReducedMotion(true)
     for (const state of [WON(), LOST()]) {
       show(state)
-      expect(gradeEl().textContent).toBe(gradeOf(state))
+      expect(gradeLetter().textContent).toBe(gradeOf(state))
       expect(container.querySelector('[data-mission]')!.textContent).toBe(state.status === 'won' ? 'MISSION HELD' : 'MISSION LOST')
       const events = state.history.flatMap((r) => r.events)
       const last = state.history[state.history.length - 1]
@@ -210,12 +214,8 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
         'DEFENSES KEPT': state.counters.length,
         'POINTS SAVED': Math.round(state.saved * 10) / 10,
       })
-      // A loss in the brief's order; a win opens on what held (v1.3 R5).
-      expect(tiles().map((t) => t.getAttribute('data-stat'))).toEqual(
-        state.status === 'won'
-          ? ['MOVES BLOCKED', 'BEST STREAK', 'POINTS SAVED', 'HITS TAKEN', 'BUDGET LEFT', 'DEFENSES KEPT']
-          : ['HITS TAKEN', 'MOVES BLOCKED', 'BEST STREAK', 'BUDGET LEFT', 'DEFENSES KEPT', 'POINTS SAVED'],
-      )
+      // One order, won or lost (v1.6 R1): what held first (v1.3 R5).
+      expect(tiles().map((t) => t.getAttribute('data-stat'))).toEqual(['MOVES BLOCKED', 'BEST STREAK', 'POINTS SAVED', 'HITS TAKEN', 'BUDGET LEFT', 'DEFENSES KEPT'])
       expect(container.querySelector('[data-final]')!.textContent).toContain(`Final mission assurance ${last.maiScore.toFixed(1)}, needed ${DEFAULT_SCENARIO.winThreshold}`)
     }
   })
@@ -270,12 +270,14 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
     const lost = LOST()
     show(lost)
     const lead = lossLead(lost)!
-    expect(container.querySelector('[data-loss-lead]')!.textContent).toBe(`BIGGEST DROP · TURN ${lead.turn} · -${lead.drop.toFixed(1)} NET${lead.line}`)
-    // The move's own drop rides in its line, from its own scores (v1.5 R1;
-    // R6b's fresh eyes, item 7).
+    expect(container.querySelector('[data-loss-lead]')!.textContent).toBe(`BIGGEST DROP · TURN ${lead.turn}${lead.line}`)
+    // The turn's net and the move's own drop in one sentence that says how
+    // they relate (v1.6 R1, Ken's ruling of 26 October 2026), the move's
+    // from its own scores (v1.5 R1; R6b's fresh eyes, item 7).
+    expect(lead.line.startsWith(`-${lead.drop.toFixed(1)} net this turn`), lead.line).toBe(true)
     const rec = lost.history.find((r) => r.turn === lead.turn)!
     const worst = rec.events.filter((e) => e.effectiveSeverity > 0).sort((a, b) => b.effectiveSeverity - a.effectiveSeverity)[0]
-    if (worst) expect(lead.line).toContain(`: -${(Math.round((worst.scoreBefore - worst.scoreAfter) * 10) / 10).toFixed(1)} of it.`)
+    if (worst) expect(lead.line).toContain(`, -${(Math.round((worst.scoreBefore - worst.scoreAfter) * 10) / 10).toFixed(1)} of it from one strike: `)
     show(WON())
     expect(container.querySelector('[data-loss-lead]')).toBeNull()
   })
@@ -399,10 +401,10 @@ describe('GUARD R5 (a): a won debrief and a lost one differ in layout, not only 
   // structure alone: which blocks the first screen holds, in what order,
   // and which shapes they carry. No class and no colour is compared.
   const C_WIN = () => {
-    // Seed 3 since v1.4: one new defense a night, where seed 24's plan
-    // ordered three on turn 2 (anti-jam, PNT authentication and ground
-    // zero trust).
-    let state = newGame(DEFAULT_SCENARIO, 3, 'standard')
+    // Seed 53 since v1.6 R1, where each seed plays its own order (seed 3
+    // under v1.5's one order now grades D); seed 3 since v1.4, one new
+    // defense a night, where seed 24's plan ordered three on turn 2.
+    let state = newGame(DEFAULT_SCENARIO, 53, 'standard')
     const plan: Record<number, TurnActions> = {
       2: { ...NO_OP, buyCounters: ['antiJam'] },
       // Encrypted backhaul since the engine round of R6 (Decisions Q1), which
@@ -414,41 +416,52 @@ describe('GUARD R5 (a): a won debrief and a lost one differ in layout, not only 
   }
   const blocks = () =>
     [...container.querySelector('[data-debrief-first]')!.children].map((el) =>
-      ['data-debrief-eyebrow', 'data-win-hero', 'data-win-lines', 'data-loss-lead', 'data-grade-block', 'data-stats', 'data-filed-this-game'].find((a) => el.hasAttribute(a)) ?? el.tagName,
+      ['data-debrief-eyebrow', 'data-hero', 'data-hero-lines', 'data-loss-lead', 'data-stats', 'data-filed-this-game'].find((a) => el.hasAttribute(a)) ?? el.tagName,
     )
   const shapes = () => ({
-    shield: !!container.querySelector('[data-debrief-first] [data-sprite="win-shield"]'),
+    shield: container.querySelector('[data-debrief-first] [data-shield] [data-sprite]')?.getAttribute('data-sprite') ?? null,
     stamp: !!container.querySelector('[data-debrief-first] [data-stamp]'),
-    rays: !!container.querySelector('[data-debrief-first] .dc-rays'),
+    rays: container.querySelector('[data-debrief-first] .dc-rays')?.classList.contains('dc-rays-lost') ? 'lost' : container.querySelector('[data-debrief-first] .dc-rays') ? 'won' : null,
     sparks: container.querySelectorAll('[data-debrief-first] [data-spark]').length,
   })
+  const tileOrder = () => [...container.querySelectorAll('[data-stats] [data-stat]')].map((t) => t.getAttribute('data-stat'))
 
-  it('gives a win its own blocks and shapes, a C included, and a loss none of them', () => {
+  it('gives a win and a loss one shape: the same hero in the same place, the same tiles in one order, the drop under the hero (v1.6 R1)', () => {
+    // Ken's ruling of 26 October 2026. Until v1.6 a win had a hero of its
+    // own and a loss led with BIGGEST DROP over a plain grade row, its
+    // tiles in another order.
     setReducedMotion(true)
     const c = C_WIN()
     expect(gradeOf(c), 'the C fixture no longer grades C').toBe('C')
     show(c)
     const win = blocks()
-    expect(win).toEqual(['data-debrief-eyebrow', 'data-win-hero', 'data-win-lines', 'data-stats', 'data-filed-this-game'])
-    expect(shapes()).toEqual({ shield: true, stamp: true, rays: true, sparks: 0 })
-    expect(container.querySelector('[data-win-hero]')!.getAttribute('data-tier')).toBe('C')
+    // The reason and the final lines sit in the hero itself (v1.6 R1).
+    expect(win).toEqual(['data-debrief-eyebrow', 'data-hero', 'data-stats', 'data-filed-this-game'])
+    expect(container.querySelector('[data-hero] [data-hero-lines] [data-reason]'), 'the reason is not in the hero').not.toBeNull()
+    expect(shapes()).toEqual({ shield: 'win-shield', stamp: true, rays: 'won', sparks: 0 })
+    expect(container.querySelector('[data-hero]')!.getAttribute('data-tier')).toBe('C')
     expect(container.querySelector('[data-tier-line]')!.textContent).toBe('HELD THE LINE')
-    expect(container.querySelector('[data-win-hero] [data-grade]')!.textContent).toBe('C')
+    expect(container.querySelector('[data-hero] [data-grade]')!.textContent).toBe('C')
+    expect(container.querySelector('[data-hero] [data-margin]')!.textContent).toMatch(/^FINAL \d+\.\d · \d+\.\d ABOVE WIN LINE$/)
+    const winTiles = tileOrder()
 
     show(LOST())
     const loss = blocks()
-    // A loss leads with what went wrong, then a plain grade row.
-    expect(loss).toEqual(['data-debrief-eyebrow', 'data-loss-lead', 'data-grade-block', 'data-stats', 'data-filed-this-game'])
-    expect(shapes()).toEqual({ shield: false, stamp: false, rays: false, sparks: 0 })
-    expect(loss, 'a win and a loss share one layout').not.toEqual(win)
+    // The same blocks, the drop under the hero.
+    expect(loss).toEqual(['data-debrief-eyebrow', 'data-hero', 'data-loss-lead', 'data-stats', 'data-filed-this-game'])
+    expect(shapes()).toEqual({ shield: 'loss-shield', stamp: true, rays: 'lost', sparks: 0 })
+    expect(container.querySelector('[data-hero] [data-grade]')!.textContent).toBe('D')
+    expect(container.querySelector('[data-hero] [data-stamp]')!.className).toContain('text-dc-hostile')
+    expect(container.querySelector('[data-hero] [data-margin]')!.textContent).toMatch(/^FINAL \d+\.\d · \d+\.\d BELOW WIN LINE$/)
+    expect(tileOrder(), 'a loss orders its tiles another way').toEqual(winTiles)
   })
 
   it('scales the win by its grade: an S carries more than a C', () => {
     setReducedMotion(true)
     show(WON())
     expect(gradeOf(WON())).toBe('S')
-    expect(shapes()).toEqual({ shield: true, stamp: true, rays: true, sparks: 4 })
-    expect(container.querySelector('[data-win-hero]')!.getAttribute('data-tier')).toBe('S')
+    expect(shapes()).toEqual({ shield: 'win-shield', stamp: true, rays: 'won', sparks: 4 })
+    expect(container.querySelector('[data-hero]')!.getAttribute('data-tier')).toBe('S')
     expect(container.querySelector('[data-tier-line]')!.textContent).toBe('TOP GRADE')
   })
 })
@@ -459,7 +472,11 @@ describe('the reveal (brief 5.6 and 8.3)', () => {
     const state = LOST()
     firstGameOnDevice(state)
     const want = finals(state)
-    expect(want[0], 'too few hits to see the count mid-way').toBeGreaterThanOrEqual(5)
+    // The tiles open on what held since v1.6 R1, which a loss with no
+    // orders has none of, so the count is watched on the first tile with
+    // enough to count (HITS TAKEN).
+    const k = want.findIndex((v) => v >= 5)
+    expect(k, 'too few hits to see the count mid-way').toBeGreaterThanOrEqual(0)
     show(state)
     const blips = () => played.filter((c) => c === 'tick-up').length
     expect(tiles().every(waiting), 'a tile showed before the reveal').toBe(true)
@@ -468,9 +485,11 @@ describe('the reveal (brief 5.6 and 8.3)', () => {
 
     const M = DEBRIEF_MOTION
     step(M.leadMs)
-    // The grade, sober: no drop, no stamp, and the loss's own sound.
+    // The grade, in the win's shape (v1.6 R1): the cracked shield and the
+    // stamp land as a win's do, with no burst and the loss's own sound.
     expect(waiting(gradeEl()), 'the grade did not land first').toBe(false)
-    expect(hasMotion(gradeEl()), 'a loss\'s grade moves').toBe(false)
+    expect(gradeEl().classList.contains('dc-shield-pop'), "a loss's shield does not land as a win's").toBe(true)
+    expect(container.querySelector('[data-burst]'), 'a loss burst').toBeNull()
     expect(played.filter((c) => c === 'tick-down')).toHaveLength(1)
     expect(played, 'a loss played the fanfare').not.toContain('commendation-fanfare')
     expect(tiles().every(waiting), 'a tile rose with the grade').toBe(true)
@@ -478,16 +497,17 @@ describe('the reveal (brief 5.6 and 8.3)', () => {
     expect(waiting(tiles()[0]), 'the first tile did not rise').toBe(false)
     expect(tiles()[0].classList.contains('dc-stat-in')).toBe(true)
     expect(waiting(tiles()[1]), 'the second tile rose with the first').toBe(true)
-    // Half a count in: the first is on its way, not landed.
-    step(M.countMs / 2)
-    expect(statValues()[0]).not.toBe(0)
-    expect(statValues()[0]).not.toBe(want[0])
-    expect(blips()).toBe(0)
     // Each tile lands at the end of its own count, with its blip.
-    step(M.countMs / 2)
+    step(M.countMs)
     expect(statValues()[0]).toBe(want[0])
     expect(blips()).toBe(1)
-    step((want.length - 1) * M.statStepMs)
+    // Half its own count in, tile k is on its way, not landed.
+    const mid = k * M.statStepMs + M.countMs / 2
+    expect(mid, 'tile k is half way before the first tile lands').toBeGreaterThanOrEqual(M.countMs)
+    step(mid - M.countMs)
+    expect(statValues()[k]).not.toBe(0)
+    expect(statValues()[k]).not.toBe(want[k])
+    step((want.length - 1) * M.statStepMs + M.countMs - mid)
     expect(statValues()).toEqual(want)
     expect(blips()).toBe(want.length)
     expect(filedRows().every(waiting) && cells().every(waiting), 'the cards came before the tiles had landed').toBe(true)
@@ -504,7 +524,7 @@ describe('the reveal (brief 5.6 and 8.3)', () => {
     const state = WON()
     expect(gradeOf(state)).toBe('S')
     show(state)
-    const hero = () => container.querySelector('[data-win-hero]')!
+    const hero = () => container.querySelector('[data-hero]')!
     const stamp = () => hero().querySelector('[data-stamp]')!
     const shield = () => hero().querySelector('[data-shield]')!
     expect(waiting(stamp()) && waiting(shield()), 'the win showed before the reveal').toBe(true)

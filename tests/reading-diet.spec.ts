@@ -15,7 +15,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { briefFree, gnssDenied, newGame, resolveTurn } from '../src/engine/reducer'
-import { briefActive, countersAfter, eventById, planFor } from '../src/engine/rules'
+import { planFor } from '../src/engine/campaign'
+import { briefActive, countersAfter, eventById } from '../src/engine/rules'
 import { coverage, maiScore } from '../src/engine/scoring'
 import { turnRng } from '../src/engine/rng'
 import type { AssetKind, Difficulty, GameState, TurnActions } from '../src/engine/types'
@@ -120,8 +121,9 @@ const WORST_CARD_HEADLINE = 12
 // the worst line is ground segment ransomware's on the passive line, turn 5
 // on Easy, seed 16, at 30 words, and the worst card the rogue ground
 // station's on the same line, seed 2, at 40 with its headline (33 and 44
-// before it, 35 and 45 before R6).
-const WORST_HELPED_LINE = 30
+// before it, 35 and 45 before R6). 29 since v1.6 R1, when each seed plays
+// its own order: the same line, turn 5 on Easy, seed 8, prepared.
+const WORST_HELPED_LINE = 29
 const WORST_HIT_CARD_HEADLINE_AND_LINE = 40
 
 // The deciding board's reading at its longest over the swept lines of play
@@ -143,8 +145,12 @@ const WORST_HIT_CARD_HEADLINE_AND_LINE = 40
 // (the game counts in turns; v1.4's fresh eyes, finding 11). 145 after
 // the round's phone check: that line ran the turn-1 board 3px past
 // 375x667, so it is shorter ("Tap a red move above to block it. 1 new
-// defense a turn, so they hit the other one.").
-const WORST_BOARD = 145
+// defense a turn, so they hit the other one."). 144 since v1.6 R1, on
+// turn 4 (top intel, Easy, seed 1, the line's orders, the moves named):
+// turn 1's watch officer says one sentence where it said two, and the
+// other opening's PNT jamming against a time spoof runs two words longer
+// than uplink jamming against GNSS spoofing.
+const WORST_BOARD = 144
 
 const tokensOf = (text: string) => new Set(text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
 
@@ -455,7 +461,7 @@ describe('reading diet: the intel brief', () => {
             for (const [queued, actions] of ordersOf(script, before)) {
               const named = briefActive(before, actions)
               reached.add(fidelityLabel(named))
-              const slots = planFor(before.scenario, before.turn)?.slots ?? []
+              const slots = planFor(before, before.turn)?.slots ?? []
               if (named && slots.some((s) => s.fixed) && slots.some((s) => !s.fixed)) reached.add('named beside a confirmed move')
               if (gnssDenied(before.conditions, before.scenario)) reached.add('under the chain banner')
               if (before.turn === 1) {
@@ -521,7 +527,7 @@ describe('reading diet: the intel brief', () => {
             // brief names it (or the slot is fixed) and Unidentified where it
             // does not, each with its vector, and a named one with its
             // strength and its status.
-            const plan = planFor(scenario, before.turn)
+            const plan = planFor(before, before.turn)
             if (plan?.intro) has(plan.intro, 'the intro')
             // The whole line the card prints, the strength it adds included.
             if (gnssDenied(before.conditions, scenario)) has(chainLine(), 'the chain banner')
@@ -592,7 +598,7 @@ describe('reading diet: the intel brief', () => {
             // One tap hint per move card, counted from the plan rather than
             // from the slots chromeCopy reads.
             const named = briefActive(before, actions)
-            const slots = planFor(before.scenario, before.turn)?.slots ?? []
+            const slots = planFor(before, before.turn)?.slots ?? []
             const cards = slots.reduce((n, s) => n + (s.fixed ? 1 : (s.drawFrom ?? []).length), 0)
             const hidden = slots.reduce((n, s) => n + (s.fixed || named ? 0 : (s.drawFrom ?? []).length), 0)
             const hints = chrome.filter((c) => c === tapHint('exposed') || c === tapHint('blocked')).length

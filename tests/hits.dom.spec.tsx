@@ -324,24 +324,30 @@ describe('hits land on their tiles (v1.2 R3, the night since v1.3 R3)', () => {
     expect(headers, 'a block aimed at a tile flashed HELD on a header').toBe(0)
   })
 
-  it('turns the score and its bar green while a block floats NO LOSS, and only then (v1.3 R7)', async () => {
-    // R5's question 6: "nothing in the game state reacts" to a block. The
-    // score's digits and its bar take the go colour while the HUD floats
-    // NO LOSS, and never while it floats a fall.
+  it('keeps the score one neutral colour through a night; only the delta chip is red or green (v1.6 R1)', async () => {
+    // Ken's ruling of 26 October 2026: the score's digits never take a
+    // tone, a fall's chip is red and a block's NO LOSS green. v1.3 R7 had
+    // the digits and the bar go green on a block.
     const state = gameAt(firstTurnWhere((events) => events.some((e) => isThreat(e) && e.effectiveSeverity === 0) && events.some((e) => isThreat(e) && e.effectiveSeverity > 0)))
     render(state)
     await execute()
-    let greenOnBlock = false
-    let greenOnFall = false
+    const seen = { held: false, fall: false }
     await tapThrough(() => {
-      const drop = q('span[data-mai-drop]')?.getAttribute('data-mai-drop')
-      const green = !!q('[data-hud] [data-score-held].dc-score-held') && !!q('[data-hud] i[data-bar-held].bg-dc-go')
-      if (drop === 'held' && green) greenOnBlock = true
-      if (drop === 'fall' && (q('[data-score-held]') || q('[data-bar-held]'))) greenOnFall = true
-      if (!drop) expect(q('[data-score-held]'), 'the score stayed green after the block').toBeNull()
+      const digits = q('[data-hud] [data-score] .tabular-nums')!
+      expect(digits.className, 'the score took a tone').not.toMatch(/dc-flash|hero-|text-alert|dc-go|dc-hostile|dc-strobe/)
+      expect(digits.className).toContain('text-dc-ink')
+      const chip = q('span[data-mai-drop]')
+      const drop = chip?.getAttribute('data-mai-drop')
+      if (drop === 'held') {
+        expect(chip!.className).toContain('text-dc-go')
+        seen.held = true
+      }
+      if (drop === 'fall') {
+        expect(chip!.className).toContain('text-dc-hostile')
+        seen.fall = true
+      }
     }, 20)
-    expect(greenOnBlock, 'the score and its bar did not go green as the block landed').toBe(true)
-    expect(greenOnFall, 'the score went green on a fall').toBe(false)
+    expect(seen, 'a block and a fall each showed their chip').toEqual({ held: true, fall: true })
   })
 })
 
@@ -492,9 +498,17 @@ describe('the intel cards (v1.2 R3)', () => {
   it('opens a tile card with what the asset is, its integrity and its layer conditions with sources', async () => {
     // The first turn of the prepared line with a condition pressing, and a
     // live asset on that condition's layer, so the list is not empty.
-    let turn = 2
-    while (gameAt(turn).conditions.length === 0) turn += 1
-    const base = gameAt(turn)
+    // Searched over seeds, bounded: since v1.6 R1 the seed's order decides
+    // which nights leave a condition, and the prepared line's own seed may
+    // carry none into a turn.
+    const base = (() => {
+      for (let seed = 20260712; seed < 20260712 + 40; seed += 1)
+        for (let turn = 2; turn <= DEFAULT_SCENARIO.totalTurns; turn += 1) {
+          const s = gameAt(turn, seed)
+          if (s.status === 'playing' && s.turn === turn && s.conditions.length > 0 && !briefFree(s)) return s
+        }
+      throw new Error('no seed of the prepared line carries a condition into a turn')
+    })()
     const def = DEFAULT_SCENARIO.events.find((e) => e.id === base.conditions[0].eventId)!
     const asset = base.assets.find((a) => def.layers.includes(a.layer) && a.integrity > 0)!
     const onLayer = base.conditions.filter((c) => DEFAULT_SCENARIO.events.find((e) => e.id === c.eventId)!.layers.includes(asset.layer))
@@ -750,19 +764,23 @@ describe('GUARD R3 (e): under reduced motion nothing strobes, bursts, pops or fl
     // Every keyframes rule the hit added to the index sheet, from the
     // stylesheet itself rather than from what happens to be running at
     // this moment. The shake, the beam and the stamp left with the
-    // director in v1.3 R3; the lock-on, the strobe, the burst, the pip, the
-    // float, the odometer and the shield flash remain.
+    // director in v1.3 R3, and the odometer's slide in v1.6 R1 (no digit
+    // moves in its box); the lock-on, the strobe, the burst, the pip, the
+    // float and the shield flash remain.
     const frames = [...sheets.index.cssRules].filter((r): r is CSSKeyframesRule => r instanceof CSSKeyframesRule)
     const r3 = frames.filter((f) => /^dc-(hit|lock|burst|pip|mai|odo|shield)/.test(f.name))
-    expect(r3.length, 'the R3 keyframes were not found').toBeGreaterThanOrEqual(7)
+    expect(r3.length, 'the R3 keyframes were not found').toBeGreaterThanOrEqual(6)
+    expect(frames.some((f) => f.name === 'dc-odo'), "the odometer's slide is back").toBe(false)
     const layout = r3
       .flatMap((f) => ([...f.cssRules] as CSSKeyframeRule[]).flatMap((k) => [...Array(k.style.length).keys()].map((i) => `${f.name}: ${k.style.item(i)}`)))
       .filter((t) => !/: (transform|opacity)$/.test(t))
     expect(layout).toEqual([])
   })
 
-  it("turns the score green while a block's card is up under reduced motion, where no strike floats NO LOSS (v1.3 R7)", async () => {
-    // R5's rule: a colour cue carries meaning, so it stays with motion off.
+  it("stands the delta chip beside a still score while a move's card is up under reduced motion (v1.6 R1)", async () => {
+    // With motion off no strike floats the change, so the chip stands for
+    // the card's length: NO LOSS in green on a block, the fall in red on a
+    // hit, and the digits stay ink either way.
     setReducedMotion(true)
     const state = gameAt(firstTurnWhere((events) => events.some((e) => isThreat(e) && e.effectiveSeverity === 0) && events.some((e) => isThreat(e) && e.effectiveSeverity > 0)))
     render(state)
@@ -771,12 +789,14 @@ describe('GUARD R3 (e): under reduced motion nothing strobes, bursts, pops or fl
     let onHit = 0
     await tapThrough(() => {
       const result = q('[data-night-card="hit"] [data-result]')?.getAttribute('data-result')
-      const green = !!q('[data-hud] [data-score-held].dc-score-held') && !!q('[data-hud] i[data-bar-held].bg-dc-go')
+      const chip = q('span[data-mai-drop]')
+      expect(q('[data-hud] [data-score] .tabular-nums')!.className).toContain('text-dc-ink')
       if (result === 'blocked') {
-        expect(green, "a block's card under reduced motion left the score its own colour").toBe(true)
+        expect(chip?.getAttribute('data-mai-drop'), "a block's card stood no NO LOSS").toBe('held')
+        expect(chip!.className).not.toContain('dc-mai-float')
         onBlock += 1
-      } else if (result) {
-        expect(q('[data-score-held]'), `the score was green on a ${result} card`).toBeNull()
+      } else if (result === 'hit') {
+        expect(chip?.getAttribute('data-mai-drop'), "a hit's card stood no fall").toBe('fall')
         onHit += 1
       }
     }, 20)
@@ -795,9 +815,12 @@ describe('GUARD R3 (e): under reduced motion nothing strobes, bursts, pops or fl
     await execute()
     let seen = false
     await tapThrough(() => {
-      for (const sel of ['[data-moving]', '[data-strike-banner]', 'span[data-strobe]', 'svg[data-sprite^="hit-burst"]', 'span[data-pip-pop]', 'span[data-mai-drop]']) {
+      for (const sel of ['[data-moving]', '[data-strike-banner]', 'span[data-strobe]', 'svg[data-sprite^="hit-burst"]', 'span[data-pip-pop]']) {
         expect(q(sel), `${sel} is on screen under reduced motion`).toBeNull()
       }
+      // The delta chip stands still beside the score with motion off (v1.6
+      // R1): there, but never floating.
+      expect(q('span[data-mai-drop]')?.className ?? '', 'the delta chip floats under reduced motion').not.toMatch(/dc-mai-float/)
       // The lock-on's brackets rest still on the card's tile (v1.3 R3
       // fresh-eyes review: under reduced motion nothing marked it), with
       // none of the strike's motion on them.

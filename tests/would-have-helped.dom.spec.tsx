@@ -33,7 +33,7 @@ import { damaged } from '../src/ui/night/closeModel'
 import * as copy from '../src/ui/night/nightCopy'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 import { POLICIES } from './policies'
-import { LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT, a } from './scripts'
+import { LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT, a, debrisTurnOf } from './scripts'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -289,7 +289,8 @@ describe('the debris result', () => {
   const callNight = (ssa: boolean) => {
     let state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
     const script: Record<number, TurnActions> = { 3: a({ buyCounters: ssa ? ['ssaManeuver'] : [] }) }
-    while (state.turn < 4) state = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+    // The night of the call: turn 5 on this seed (v1.6 R1).
+    while (state.turn < debrisTurnOf(20260712)) state = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
     return state
   }
   const ssa = DEFAULT_SCENARIO.countermeasures.find((c) => c.id === 'ssaManeuver')!

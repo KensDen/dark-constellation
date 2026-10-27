@@ -30,6 +30,14 @@
 // night (tests/scripts.ts), so the win line's history is a different game:
 // win 830b14f3... (the v1.3.0 engine gives the same hash for the new
 // script). File sha1 ab375fc0.
+//
+// IT MOVED ONCE MORE IN v1.6 R1 (Ken, 26 October 2026): COLDVEIL varies
+// per seed. Each seed plays one of two campaigns, drawn from its deck
+// stream (src/engine/campaign.ts), and both anchor seeds, 20260712 and
+// 4041, play the other one: the opening on the other layers, turns 4 and 5
+// traded. The rules and every number are unchanged, so the move is the
+// order the seeds now meet: win cf111d31..., loss b99db795..., file sha1
+// b5017102.
 
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -53,10 +61,11 @@ import {
   resolveTurn,
 } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
+import { planFor } from '../src/engine/campaign'
 import { worstCase } from '../src/engine/worstCase'
 import { COVERAGE_PER_KIND, coverage, maiScore } from '../src/engine/scoring'
 import type { GameState, TurnActions } from '../src/engine/types'
-import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT, a } from './scripts'
+import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT, a, debrisTurnOf } from './scripts'
 
 const SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), 'determinism.snap.json')
 
@@ -91,9 +100,10 @@ describe('determinism', () => {
     // The committed file, pinned, so a regenerated snapshot is an edit to
     // this line as well as to the file: the snapshot moves deliberately or
     // not at all. be6509e3 was the v1.3 Round 0 move; 2a5966f1 the Round
-    // 6b move; ab375fc0 is the v1.4.0 move (see the header).
+    // 6b move; ab375fc0 the v1.4.0 move; b5017102 is the v1.6 R1 move (see
+    // the header).
     expect(createHash('sha1').update(readFileSync(SNAPSHOT_PATH, 'utf8')).digest('hex'), 'the committed snapshot file changed').toBe(
-      'ab375fc04366feffb24c61f371d4beabd19ca40f',
+      'b5017102765b652ddebc7581345748642d12e92f',
     )
   })
 
@@ -277,14 +287,21 @@ describe('the v1.3 rules (brief 6.1)', () => {
   })
 
   it('has COLDVEIL take the move the defenses mitigate least', () => {
+    // Turn 1 is a jam against a spoof on either opening (v1.6 R1): uplink
+    // jamming against GNSS spoofing as written, PNT jamming against a time
+    // spoof on the other.
+    const openings = new Set<string>()
     for (let seed = 1; seed <= 40; seed += 1) {
       const s = newGame(DEFAULT_SCENARIO, seed)
-      // Block uplink jamming outright: the spoofing lands.
+      const [jam, spoof] = planFor(s, 1)!.slots[0].drawFrom!
+      openings.add(`${jam} ${spoof}`)
+      // Block the jam outright: the spoof lands.
       const blocked = step(s, a({ buyCounters: ['antiJam'] }))
-      expect(blocked.history[0].events.map((e) => e.eventId)).toEqual(['gnss-spoofing'])
+      expect(blocked.history[0].events.map((e) => e.eventId)).toEqual([spoof])
       const other = step(s, a({ buyCounters: ['pntAuth'] }))
-      expect(other.history[0].events.map((e) => e.eventId)).toEqual(['uplink-jamming'])
+      expect(other.history[0].events.map((e) => e.eventId)).toEqual([jam])
     }
+    expect([...openings].sort()).toEqual(['pnt-jamming time-spoof', 'uplink-jamming gnss-spoofing'])
   })
 
   it('leaves a condition with a fixed clock that presses the next night and lifts on time', () => {
@@ -324,10 +341,12 @@ describe('the v1.3 rules (brief 6.1)', () => {
   })
 
   it('makes the debris a call: a burn costs fuel without SSA and nothing with it, a hold risks the satellite', () => {
+    // The night of the call: turn 4 as written, turn 5 when the seed trades
+    // turns 4 and 5 (v1.6 R1).
     const toTurn4 = (seed: number, buy: TurnActions['buyCounters'] = []) => {
       let s = newGame(DEFAULT_SCENARIO, seed)
       s = step(s, a({ buyCounters: buy }))
-      while (s.turn < 4) s = step(s)
+      while (s.turn < debrisTurnOf(seed)) s = step(s)
       return s
     }
     const s = toTurn4(9)

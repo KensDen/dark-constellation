@@ -14,7 +14,8 @@
 
 import type { Rng } from './rng'
 import { turnRng } from './rng'
-import { eventById, mitigationOf, planFor } from './rules'
+import { planFor } from './campaign'
+import { eventById, mitigationOf } from './rules'
 import type { CountermeasureId, GameState } from './types'
 
 export interface SlotRead {
@@ -35,7 +36,7 @@ export function adversaryPicks(
 ): SlotRead[] {
   const { scenario } = state
   const reads: SlotRead[] = []
-  for (const slot of planFor(scenario, state.turn)?.slots ?? []) {
+  for (const slot of planFor(state, state.turn)?.slots ?? []) {
     if (slot.fixed) {
       const mitigation = mitigationOf(eventById(scenario, slot.fixed), counters)
       reads.push({ fixed: true, candidates: [{ id: slot.fixed, mitigation }], least: [slot.fixed], pick: slot.fixed })

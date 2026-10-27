@@ -883,7 +883,6 @@ export default function Game({
   const sheetOpen = sheet !== null
   // How far the score fell on the move that just landed, floated off it.
   const maiDrop = phase === 'night' ? (view?.drop ?? null) : null
-  const maiHeld = phase === 'night' && !!view?.held
   // The night on screen: the one EXECUTE opened, or, after a reload,
   // END OF TURN alone for the turn the save closed on (QC G-067: nothing
   // of the next night shows until BEGIN TURN).
@@ -924,7 +923,6 @@ export default function Game({
         shown={shown}
         displayTurn={displayTurn}
         drop={maiDrop}
-        held={maiHeld}
         countMs={beatMs ? beatMs * COUNT_SHARE : undefined}
         dailyNumber={daily?.n}
         onSystem={() => toggleSheet('system')}
@@ -1051,6 +1049,7 @@ export default function Game({
         worst={worst}
         orders={orders}
         procureOpen={sheet === 'procure'}
+        quiet={sheet === 'procure' && !wide}
         onProcure={() => toggleSheet('procure')}
         executeName={resolveLabel(state.turn)}
         executeRef={executeRef}

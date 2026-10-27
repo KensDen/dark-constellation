@@ -3,6 +3,7 @@
 // are interfaces a v2 backend can implement with no engine or UI change.
 
 export {
+  OLDEST_RESUMABLE,
   SAVE_VERSION,
   STALE_SAVE_MESSAGE,
   SaveError,

@@ -28,7 +28,9 @@ describe('the playfield (v1.5 R2)', () => {
     let traced = 0
     let opportunities = 0
     const results = new Set<string>()
-    for (const seed of [1, 2, 7, 20260712]) {
+    // Ten seeds since v1.6 R1, so both of the campaign's orders and an
+    // opportunity are met.
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20260712]) {
       let s = newGame(DEFAULT_SCENARIO, seed, 'standard')
       while (s.status === 'playing') {
         s = resolveTurn(s, WIN_SCRIPT[s.turn] ?? NO_OP, turnRng(s.seed, s.turn))

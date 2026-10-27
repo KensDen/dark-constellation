@@ -77,6 +77,10 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+// Seed 2, which plays the campaign as written (v1.6 R1: uplink jamming
+// against GNSS spoofing on turn 1); seed 3 until then.
+const SEED = 2
+
 let mounts = 0
 function render(state: GameState) {
   mounts += 1
@@ -98,7 +102,7 @@ const openProcure = () => click(q('button[data-action="procure"]')!)
 
 describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', () => {
   it('says the rule and its reason before the night has a defense, and caps none', () => {
-    render(newGame(DEFAULT_SCENARIO, 3, 'standard'))
+    render(newGame(DEFAULT_SCENARIO, SEED, 'standard'))
     openProcure()
     expect(rule()?.getAttribute('data-defense-rule')).toBe('open')
     expect(rule()?.textContent).toBe(defenseRule(NEW_DEFENSES_PER_NIGHT))
@@ -115,7 +119,7 @@ describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', 
 
   it('once one is ordered, reads the rest 1 A TURN with the reason, not as unaffordable, and the order can be taken back', () => {
     // Owned PNT authentication beside it, which stays OWNED and is not new.
-    render({ ...newGame(DEFAULT_SCENARIO, 3, 'standard'), counters: ['pntAuth'] })
+    render({ ...newGame(DEFAULT_SCENARIO, SEED, 'standard'), counters: ['pntAuth'] })
     openProcure()
     click(defense('antiJam'))
     expect(pressed(defense('antiJam')), 'the tap did not order anti-jam').toBe(true)
@@ -123,11 +127,12 @@ describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', 
     const antiJam = DEFAULT_SCENARIO.countermeasures.find((c) => c.id === 'antiJam')!.name
     expect(rule()?.textContent).toBe(defenseOrderIn(antiJam))
     // It names the defense ordered, so a sheet opened from another move
-    // says what to cancel (v1.4 round 2, finding 1).
-    expect(rule()?.textContent).toContain(`${antiJam} is this turn's new defense`)
+    // says what to cancel (v1.4 round 2, finding 1), after the reason
+    // Ken's ruling of 26 October 2026 names (v1.6 R1).
+    expect(rule()?.textContent).toContain(`Tonight's order is in: ${antiJam}.`)
     expect(q('[data-planned]')!.textContent).toContain(defenseCount(1, 1))
     // Why, and how to change it (the v1.4 fresh-eyes review).
-    expect(rule()?.textContent).toContain('booked until next turn')
+    expect(rule()?.textContent).toContain('1 new defense a turn.')
     expect(rule()?.textContent).toContain('To swap, cancel it first.')
     const others = defenses().filter((b) => !['antiJam', 'pntAuth'].includes(b.getAttribute('data-procure-defense')!))
     expect(others.length).toBe(DEFAULT_SCENARIO.countermeasures.length - 2)
@@ -163,7 +168,7 @@ describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', 
   })
 
   it('reads the rule on the last turn, where there is no next one', () => {
-    let s = newGame(DEFAULT_SCENARIO, 3, 'standard')
+    let s = newGame(DEFAULT_SCENARIO, SEED, 'standard')
     while (s.turn < DEFAULT_SCENARIO.totalTurns) s = resolveTurn(s, { buyAssets: [], buyCounters: [], intelBrief: false, debris: 'burn' }, turnRng(s.seed, s.turn))
     render(s)
     openProcure()
@@ -172,12 +177,12 @@ describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', 
     expect(capped.length).toBeGreaterThan(0)
     for (const b of capped) expect(b.textContent).toContain('1 A TURN')
     // The last turn has no next one to be booked until (the R1 re-review).
-    expect(rule()?.textContent).toContain("is the operation's last new defense")
+    expect(rule()?.textContent).toContain("the operation's last new defense")
     expect(rule()?.textContent).not.toContain('next turn')
   })
 
   it('says, on a move whose defenses must wait, that it is not this turn', () => {
-    render({ ...newGame(DEFAULT_SCENARIO, 3, 'standard') })
+    render({ ...newGame(DEFAULT_SCENARIO, SEED, 'standard') })
     openProcure()
     click(defense('antiJam'))
     click(q('button[data-confirm]')!)
@@ -190,7 +195,7 @@ describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', 
   })
 
   it('says nothing of the rule once every defense is owned', () => {
-    render({ ...newGame(DEFAULT_SCENARIO, 3, 'standard'), counters: DEFAULT_SCENARIO.countermeasures.map((c) => c.id) })
+    render({ ...newGame(DEFAULT_SCENARIO, SEED, 'standard'), counters: DEFAULT_SCENARIO.countermeasures.map((c) => c.id) })
     openProcure()
     expect(rule()).toBeNull()
   })
@@ -198,7 +203,7 @@ describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', 
 
 describe('TONIGHT under one new defense a turn (v1.4)', () => {
   it('offers "defend ›" on an exposed move only while tonight can take a defense', () => {
-    render(newGame(DEFAULT_SCENARIO, 3, 'standard'))
+    render(newGame(DEFAULT_SCENARIO, SEED, 'standard'))
     const hints = () => [...container.querySelectorAll('[data-move]')].map((m) => m.lastElementChild?.lastElementChild?.textContent)
     expect(hints().every((h) => h === tapHint('exposed')), `turn 1 reads ${hints().join(', ')}`).toBe(true)
     expect(tapHint('exposed')).toBe('defend ›')
@@ -218,7 +223,7 @@ describe('TONIGHT under one new defense a turn (v1.4)', () => {
   })
 
   it('says tonight\'s defense is in on the rule line from turn 2, once it is ordered', () => {
-    let s = newGame(DEFAULT_SCENARIO, 3, 'standard')
+    let s = newGame(DEFAULT_SCENARIO, SEED, 'standard')
     s = resolveTurn(s, { buyAssets: [], buyCounters: ['antiJam'], intelBrief: false }, turnRng(s.seed, s.turn))
     render(s)
     // The brief names the moves, so the rule line shows; ordered in

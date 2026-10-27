@@ -137,11 +137,19 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
     // answers a threat says its vectors by their player-facing names on its
     // stops line. The retainer answers none; its own test below pins its
     // line. It stays in the leak check through the full list.
+    // Since v1.6 R1 a card's blurb opens behind the key in its corner, and
+    // its stops line is the tags' accessible name; each blurb opened is
+    // read into the leak check below.
+    let blurbs = ''
     for (const cm of DEFAULT_SCENARIO.countermeasures) {
       expect(offeredText, `${cm.id} is not offered`).toContain(cm.name)
-      expect(offeredText, `${cm.id} has no blurb`).toContain(cm.blurb)
+      expect(offeredText, `${cm.id} shows its blurb before its key is tapped`).not.toContain(cm.blurb)
+      click(procure!.querySelector(`button[data-procure-about="${cm.id}"]`)!)
+      const blurb = procure!.querySelector(`[data-procure-blurb="${cm.id}"]`)?.textContent ?? ''
+      expect(blurb, `${cm.id} has no blurb behind its key`).toContain(cm.blurb)
+      blurbs += blurb
       if (cm.counters.length === 0) continue
-      const stops = defenseTile(cm.id)!.querySelector('[data-stops]')!.textContent ?? ''
+      const stops = defenseTile(cm.id)!.querySelector('[data-stops]')!.getAttribute('aria-label') ?? ''
       // The debris call's defense stops nothing: it answers the call.
       if (cm.id === 'ssaManeuver') {
         expect(stops).toBe('Makes the debris call: exact odds, free burn.')
@@ -163,7 +171,7 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
       }
       return out
     }
-    expect(leaked(text).join('\n'), 'the PROCURE sheet names the threats a defense answers').toBe('')
+    expect(leaked(text + blurbs).join('\n'), 'the PROCURE sheet names the threats a defense answers').toBe('')
     // The control on the guard: ordering the brief earns tonight's names,
     // and the same check sees them, so it is not blind to a name.
     click(procure!.querySelector('button[data-procure-intel]')!)
@@ -187,7 +195,7 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
     expect(tile, 'the retainer is not in DEFENSES').not.toBeNull()
     // Since v1.5 R1 it names the meters it speeds and says the assets' own
     // healing is the same either way (R6b's fresh eyes, item 3).
-    expect(tile!.querySelector('[data-stops]')!.textContent).toBe(
+    expect(tile!.querySelector('[data-stops]')!.getAttribute('aria-label')).toBe(
       `Link, data and sensor health recover ${withIrRetainer} a turn instead of ${base}; damaged assets heal ${ASSET_HEAL_PER_TURN} a turn with or without it. Stops no move, and counts as the turn's new defense.`,
     )
     click(tile!)
@@ -227,7 +235,9 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
         />,
       )
     })
-    expect(defenseTile('irRetainer')!.textContent).toContain('Link, data and sensor health recover 9 a turn instead of 3;')
+    // The line is the tags' accessible name, and the tag reads the rate.
+    expect(defenseTile('irRetainer')!.querySelector('[data-stops]')!.getAttribute('aria-label')).toContain('Link, data and sensor health recover 9 a turn instead of 3;')
+    expect(defenseTile('irRetainer')!.textContent).toContain('Recovery 9 a turn')
   })
 
   it('renders one tile per asset in its column of the strip, with the call sign and the exact integrity in its name', async () => {
@@ -274,9 +284,14 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
   })
 
   it('shows condition chips on the column head with the exact turns left', () => {
-    // Find a turn with a live condition on this seed.
+    // Find a turn with a live condition, over seeds since v1.6 R1: the
+    // seed's order decides which nights leave one.
     let state = gameAt(1)
-    while (state.status === 'playing' && state.conditions.length === 0) state = gameAt(state.turn + 1)
+    for (let seed = 20260712; seed < 20260712 + 40 && state.conditions.length === 0; seed += 1)
+      for (let turn = 2; turn <= DEFAULT_SCENARIO.totalTurns && state.conditions.length === 0; turn += 1) {
+        const s = gameAt(turn, seed)
+        if (s.status === 'playing' && s.turn === turn) state = s
+      }
     expect(state.conditions.length, 'no condition reachable on this seed').toBeGreaterThan(0)
     render(state, 'brief')
     for (const c of state.conditions) {
@@ -319,14 +334,16 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
     expect(briefFree(state)).toBe(false)
     const intel = procure.querySelector('button[data-procure-intel]')
     expect(intel?.textContent, 'PROCURE has no INTEL order').toContain('Intel brief')
-    expect(intel!.textContent).toContain(`+ ADD · ${DEFAULT_SCENARIO.prices.intelBrief} CR`)
+    // A cost chip, the whole card the tap (v1.6 R1: no link-style "+ ADD").
+    expect(intel!.querySelector('[data-cost]')!.textContent).toBe(`${DEFAULT_SCENARIO.prices.intelBrief} CR`)
+    expect(procure.textContent).not.toContain('+ ADD')
     // The drone: one tap orders it at its one price, and the sheet stays.
     const drone = procure.querySelector('[data-procure-kind="drone"]')!
-    expect(drone.textContent).toContain(`+ ADD · ${assetPrice(DEFAULT_SCENARIO, 'drone')} CR`)
+    expect(drone.querySelector('[data-cost]')!.textContent).toBe(`${assetPrice(DEFAULT_SCENARIO, 'drone')} CR`)
     click(drone)
     expect(sheet('procure'), 'the sheet closed on a tap').toBe(procure)
     expect(drone.getAttribute('aria-pressed')).toBe('true')
-    expect(drone.textContent).toContain(`${assetPrice(DEFAULT_SCENARIO, 'drone')} CR · ORDERED`)
+    expect(drone.querySelector('[data-cost]')!.textContent).toBe(`${assetPrice(DEFAULT_SCENARIO, 'drone')} CR · ORDERED`)
     click(procure.querySelector('button[data-confirm]')!)
     // The sheet closes and the queued tile is on AIR, with its call sign:
     // the next drone ordinal, read off the fixture (v1.3's WIN_SCRIPT

@@ -37,7 +37,17 @@ import type { GameState } from '../engine/types'
 // not know (a slot's `name` rides the same way), so a build that predates
 // it loads a Daily Op as free play, which is also the safe reading. A
 // bump would buy nothing and make every older build refuse the new codes.
-export const SAVE_VERSION = 4
+// v5 (v1.6 R1, Ken's ruling of 26 October 2026): the shape is unchanged,
+// but each seed now plays its own order of COLDVEIL's campaign
+// (campaignFor, src/engine/campaign.ts), drawn from the seed. A v4 save LOADS
+// and resumes under the new order: the turns already played keep their
+// history, and every turn after the save draws from its seed's order, so
+// a v4 save may meet different moves ahead than it would have met on the
+// build that wrote it (as a v2 save did under v3's deck stream). v1 to v3
+// stay refused.
+export const SAVE_VERSION = 5
+// The oldest version a load resumes.
+export const OLDEST_RESUMABLE = 4
 
 // HARDEN merged into PROCURE in v1.3 Round 0, so 'harden' is not a phase.
 export type SavePhase = 'brief' | 'procure' | 'aftermath'
@@ -155,7 +165,7 @@ export function restoreGame(p: unknown): RestoredRecord {
   if (!p || typeof p !== 'object') throw new SaveError('This is not a valid save.')
   const rec = p as Partial<PersistedGame>
   if (typeof rec.version !== 'number') throw new SaveError('This save is missing its version.')
-  if (rec.version < SAVE_VERSION) throw new StaleSaveError()
+  if (rec.version < OLDEST_RESUMABLE) throw new StaleSaveError()
   if (rec.version > SAVE_VERSION) {
     throw new SaveError('This save comes from a newer version of the game and cannot be loaded here.')
   }

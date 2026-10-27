@@ -34,6 +34,13 @@ export interface DockProps {
   onWorst: () => void
   // A nonce: the FIRST ORDERS line pulses the WORST CASE line.
   pulseWorst: number
+  // PROCURE is open over the board on a phone, with CONFIRM N ORDERS its
+  // green primary: EXECUTE and PROCURE step back to their outline until
+  // the sheet closes, so at most one green primary shows (v1.6 R1; with
+  // nothing queued, none: the dock's PROCURE would open what is open).
+  // Both still act, and the money line stays, so WORST CASE reads while
+  // ordering.
+  quiet?: boolean
 }
 
 export default function Dock(p: DockProps) {
@@ -64,7 +71,7 @@ export default function Dock(p: DockProps) {
         <div className="mt-1.5 flex gap-2">
           {ACTIONS.map((a) =>
             a.sheet ? (
-              <button key={a.id} type="button" data-action={a.id} aria-expanded={p.procureOpen} onClick={p.onProcure} className={p.orders > 0 ? OUTLINE : SOLID}>
+              <button key={a.id} type="button" data-action={a.id} aria-expanded={p.procureOpen} onClick={p.onProcure} className={p.orders > 0 || p.quiet ? OUTLINE : SOLID}>
                 {a.label}
                 {p.orders > 0 && (
                   <span
@@ -86,7 +93,7 @@ export default function Dock(p: DockProps) {
                 aria-label={p.executeName}
                 disabled={over}
                 onClick={p.onExecute}
-                className={p.orders > 0 ? SOLID : OUTLINE}
+                className={p.orders > 0 && !p.quiet ? SOLID : OUTLINE}
               >
                 {a.label}
               </button>

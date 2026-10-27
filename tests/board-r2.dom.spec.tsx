@@ -34,7 +34,7 @@ import type { GameState } from '../src/engine/types'
 import { STATUS } from '../src/ui/board/boardModel'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
-import { NO_OP, WIN_SCRIPT } from './scripts'
+import { NO_OP, WIN_SCRIPT, debrisTurnOf } from './scripts'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -204,9 +204,12 @@ describe('GUARD R2 (c): every status is an icon and a word, and none is a contro
 // free; never BLOCKED or "is safe", since HOLD can still lose the
 // satellite (src/engine/reducer.ts, the debris strike).
 describe('GUARD R7 (a): the debris tile with SSA owned reads ANSWERED, never BLOCKED', () => {
+  // The night of the call: turn 5 on this seed, which trades turns 4 and
+  // 5 (v1.6 R1); turn 4 as written.
   const debrisTurn = () => {
-    const state = gameAt(4)
-    expect(state.turn, 'the run did not reach the debris turn').toBe(4)
+    const at = debrisTurnOf(20260712)
+    const state = gameAt(at)
+    expect(state.turn, 'the run did not reach the debris turn').toBe(at)
     return state
   }
   const tile = () => q('[data-move="debris-conjunction"]')
@@ -266,7 +269,7 @@ describe('the hidden moves (R6 question 14)', () => {
     // asking for it or promising its cancel (the R2 review, finding 29).
     click(q('[data-sheet="procure"] button[data-procure-intel]')!)
     expect(q('[data-sheet="procure"] [data-match-note]'), 'the note still asks for the brief it locked').toBeNull()
-    expect(q('[data-confirm] + p')!.textContent).toBe(`${second.scenario.prices.intelBrief} CR committed. The intel brief stays ordered; tap any other order again to cancel it until you EXECUTE.`)
+    expect(q('[data-confirm] + p')!.textContent).toBe(`${second.scenario.prices.intelBrief} CR committed. The intel brief stays ordered.`)
     // A tap on a hidden move does the same.
     render(gameAt(3))
     click(q('[data-move-unknown]')!)

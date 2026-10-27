@@ -152,11 +152,30 @@ export interface EventSlot {
 
 export interface TurnPlan {
   turn: number
-  // The watch officer's line for the turn (brief 6.2).
+  // The watch officer's line for the turn (brief 6.2), and its words for
+  // a seed whose opening trades moves (CampaignOrder), where `intro` would
+  // name a move the turn no longer draws.
   intro: string
+  introTraded?: string
   slots: EventSlot[]
   // Rare beneficial draw, rolled after the threat slots resolve.
   opportunity?: { chance: number; drawFrom: string[] }
+}
+
+// THE SEED'S ORDER (v1.6 R1, Ken's ruling of 26 October 2026). Each seed
+// plays one variant of the campaign, drawn from its deck stream. A
+// variant may trade event ids for each other on the turns it names (the
+// opening), and may play the campaign's plans in another order: `turns`
+// lists, for turns 1 to N, the plan each one plays, which moves whole,
+// intro, slots and opportunity together. The moves, their strengths and
+// their counters are never touched.
+export interface CampaignVariant {
+  trade?: { ids: Record<string, string>; turns: number[] }
+  turns?: number[]
+}
+
+export interface CampaignOrder {
+  variants: CampaignVariant[]
 }
 
 export interface Scenario {
@@ -186,6 +205,10 @@ export interface Scenario {
   recovery: { base: number; withIrRetainer: number }
   starterAssets: { kind: AssetKind }[]
   campaign: TurnPlan[]
+  // How COLDVEIL varies the campaign between seeds (v1.6 R1): see
+  // campaignFor in src/engine/campaign.ts. Without it every seed plays the
+  // campaign as written.
+  order?: CampaignOrder
   briefIntro: string
   // Self-contained content: the engine reads events and countermeasures
   // only through the scenario, never from module-level imports.

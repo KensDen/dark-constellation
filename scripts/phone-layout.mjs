@@ -72,6 +72,10 @@
 // night's log in the side panel, with the playfield no wider or narrower
 // than it was (the fresh-eyes review: it jumped wider as the night began).
 //
+// THE v1.6 R1 GUARDS, (a) to (f): the score's stills, its one colour, the
+// phone night's strike card, PROCURE's cards, the turn-1 board on both
+// openings and one debrief shape (see v16Guards below).
+//
 // Exit codes: 0 pass, 1 fail, 2 skipped (no Chrome on this machine). The
 // battery runs it after the build. GitHub's ubuntu-24.04 runner has
 // google-chrome on its path; CHROME_PATH names another.
@@ -377,12 +381,14 @@ async function checkBoard(b, url, [w, h], reduced, wideFonts) {
 
 // THE NIGHT, DRIVEN (GUARD R3 (fit), and the R3 captures): a seeded
 // operation on STANDARD, replayed through SYSTEM's Replay a seed, with the
-// orders each turn gives. Seed 1 with NIGHT_PLAN meets every card: a hit
-// and its intel card on turn 1, two blocks on turn 3, the debris call, a
-// hit and an opportunity on turn 4, two partials on turn 6, and a won
-// operation into DEBRIEF. One new defense a night since v1.4: until then
-// it was seed 24, with three defenses ordered on turn 2.
-export const NIGHT_SEED = 1
+// orders each turn gives. Seed 32 with NIGHT_PLAN meets every card (a hit
+// and its intel card, a block, a partial, the debris call and its result,
+// an opportunity) and a won operation into DEBRIEF, on the campaign's
+// other order (v1.6 R1: COLDVEIL opens on the other layers and works the
+// ground before the conjunction). Seed 1 until v1.6 R1, when each seed
+// began to play its own order; seed 24, with three defenses ordered on
+// turn 2, until v1.4's one new defense a night.
+export const NIGHT_SEED = 32
 export const NIGHT_PLAN = { 1: ['antiJam'], 2: ['encryptedBackhaul'], 3: ['linkAuth'], 4: ['pntAuth'], 5: ['sensorFusion'], 6: ['groundZeroTrust'] }
 
 const click = (sel) => `(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return false; e.click(); return true })()`
@@ -516,8 +522,19 @@ const FIRST_SCREEN = `(() => {
   window.scrollTo(0, 0)
   const first = document.querySelector('[data-debrief-first]').getBoundingClientRect()
   const bar = document.querySelector('[data-debrief-bar]').getBoundingClientRect()
-  return { bottom: first.bottom, top: first.top, vh: Math.min(innerHeight, bar.top), barBottom: bar.bottom, lead: !!document.querySelector('[data-loss-lead]'), filed: document.querySelectorAll('[data-filed-card]').length }
+  const hero = document.querySelector('[data-hero]')
+  const lead = document.querySelector('[data-loss-lead]')
+  return {
+    bottom: first.bottom, top: first.top, vh: Math.min(innerHeight, bar.top), barBottom: bar.bottom, lead: !!lead, filed: document.querySelectorAll('[data-filed-card]').length,
+    // One shape (v1.6 R1): where the hero stands, the tiles' order, and a
+    // loss's lead under the hero.
+    heroTop: hero ? Math.round(hero.getBoundingClientRect().top) : null,
+    tiles: [...document.querySelectorAll('[data-stats] [data-stat]')].map((t) => t.getAttribute('data-stat')).join(','),
+    leadUnder: !lead || (hero && lead.getBoundingClientRect().top >= hero.getBoundingClientRect().bottom - 0.5),
+  }
 })()`
+// The won and lost debriefs' shapes, compared once both are measured.
+const debriefShapes = {}
 
 async function checkDebrief(b, url, [w, h], plan, what) {
   const where = `${w}x${h}, ${what}`
@@ -533,6 +550,9 @@ async function checkDebrief(b, url, [w, h], plan, what) {
     if (m.bottom > m.vh + 0.5) failures.push(`${where}${as}: the first screen ends at ${Math.round(m.bottom)}, under the bar at ${Math.round(m.vh)}`)
     if (m.barBottom > h + 0.5) failures.push(`${where}${as}: PLAY AGAIN's bar ends at ${Math.round(m.barBottom)} of ${h}, off the screen`)
     if (what === 'lost' && !m.lead) failures.push(`${where}: a loss shows no lead line`)
+    if (m.heroTop === null) failures.push(`${where}: no hero`)
+    if (!m.leadUnder) failures.push(`${where}: BIGGEST DROP stands above the hero`)
+    if (!wide) debriefShapes[what] = { heroTop: m.heroTop, tiles: m.tiles }
     if (m.filed === 0) failures.push(`${where}: a first game filed no card, so the list is not measured`)
     for (const x of await b.evaluate(`${LABELS_FIT}(document.querySelector('[data-debrief-screen]'))`)) failures.push(`${where}${as}: ${x}`)
   }
@@ -832,20 +852,297 @@ async function checkDesktop(b, url) {
   return failures
 }
 
+// THE v1.6 R1 GUARDS (Ken's rulings of 26 October 2026).
+//
+// (a) THE SCORE NEVER PAINTS HALF A DIGIT: stills of the HUD every 25ms
+// through a seeded night's strikes, motion on, at 375x667; in none does a
+// digit of the score sit off its line, moved by a transform or faded, and
+// some stills are taken mid-count, so the guard watched the roll.
+// (b) ONE NEUTRAL COLOUR: through the same stills, and through the night
+// again with motion off, the score's digits keep one colour, the budget's
+// is that colour unless the budget is below zero, and only the delta chip
+// beside the score is red (a fall) or green (NO LOSS).
+// (c) THE STRIKE'S CARD: at 375x667 and 390x844, motion on, each strike
+// shows its card under the close-up and its banner, wholly on screen with
+// no page scroll, naming the move that strikes in the ink (a colour token
+// once painted it near-black), with nothing in it moving,
+// so a still reads it; at 1440x900 the night's log says it and the card
+// is not shown.
+// (d) PROCURE: at 375x667 and 390x844, as served and in wide fonts, empty
+// and with tonight's order in, at least two whole cards show between the
+// pinned rule and the footer, one green primary shows at most (none with
+// nothing queued, CONFIRM N ORDERS with an order in), and no link-style
+// "+ ADD", "defend ›" or "Expand full brief" is in the sheet.
+// (e) THE TURN-1 BOARD ON BOTH OPENINGS: a seed that plays the campaign as
+// written and one that opens on the other layers both fit 375x667 and
+// 390x844 with no scroll, as served and in wide fonts.
+// (f) ONE DEBRIEF SHAPE is held in checkDebrief: the hero at the same top,
+// the tiles in one order, won and lost.
+const SCORE_STILL = `(() => {
+  const box = document.querySelector('[data-hud] [data-score] .tabular-nums')
+  if (!box) return null
+  const digits = [...box.querySelectorAll('[data-odo]')]
+  const bad = []
+  const tops = digits.map((d) => d.getBoundingClientRect().top)
+  for (const d of digits) {
+    const s = getComputedStyle(d)
+    if (s.transform !== 'none' && s.transform !== 'matrix(1, 0, 0, 1, 0, 0)') bad.push('"' + d.textContent + '" moved (' + s.transform + ')')
+    if (parseFloat(s.opacity) < 1) bad.push('"' + d.textContent + '" faded to ' + s.opacity)
+    if (Math.abs(d.getBoundingClientRect().top - Math.min(...tops)) > 0.5) bad.push('"' + d.textContent + '" off its line')
+  }
+  const box2 = getComputedStyle(box)
+  if (parseFloat(box2.opacity) < 1) bad.push('the score faded to ' + box2.opacity)
+  const budget = document.querySelector('[data-hud] [aria-label^="BUDGET"]')
+  const chip = document.querySelector('[data-mai-drop]')
+  return {
+    bad,
+    text: box.textContent,
+    target: box.getAttribute('aria-label'),
+    color: box2.color,
+    budget: budget ? { color: getComputedStyle(budget).color, value: Number(/BUDGET (-?\\d+)/.exec(budget.getAttribute('aria-label'))?.[1]) } : null,
+    chip: chip ? { kind: chip.getAttribute('data-mai-drop'), color: getComputedStyle(chip).color } : null,
+  }
+})()`
+const TOKEN_COLOR = (token) => `(() => { const e = document.createElement('i'); e.style.color = 'var(--dc-${token})'; document.body.appendChild(e); const c = getComputedStyle(e).color; e.remove(); return c })()`
+
+async function scoreStills(b, url, reduced) {
+  const where = `375x667, motion ${reduced ? 'off' : 'on'}`
+  if (!(await startSeed(b, url, [375, 667], reduced, NIGHT_SEED))) return { failures: [`${where}: could not replay seed ${NIGHT_SEED}`] }
+  const failures = []
+  const colors = new Set()
+  const chips = new Map()
+  let stills = 0
+  let midCount = 0
+  const ink = await b.evaluate(TOKEN_COLOR('ink'))
+  const hostile = await b.evaluate(TOKEN_COLOR('hostile'))
+  const go = await b.evaluate(TOKEN_COLOR('go'))
+  const sample = async (at) => {
+    const m = await b.evaluate(SCORE_STILL)
+    if (!m) return
+    stills += 1
+    if (m.text !== m.target.replace(/^[A-Z ]+ /, '')) midCount += 1
+    for (const x of m.bad) failures.push(`${where}, ${at}: ${x}`)
+    colors.add(m.color)
+    if (m.budget && m.budget.color !== (m.budget.value < 0 ? hostile : ink)) failures.push(`${where}, ${at}: the budget is ${m.budget.color} at ${m.budget.value} CR`)
+    if (m.chip) chips.set(m.chip.kind, m.chip.color)
+  }
+  for (let turn = 1; turn <= 3; turn += 1) {
+    await orderDefenses(b, NIGHT_PLAN[turn])
+    await b.evaluate(click('[data-execute]'))
+    for (let steps = 0; steps < 30; steps += 1) {
+      // Stills every 25ms while the night runs on its own.
+      for (let t = 0; t < 120 && (await b.evaluate(NIGHT_STAGE)) === 'busy'; t += 1) {
+        await sample(`turn ${turn}`)
+        await sleep(25)
+      }
+      const stage = await b.evaluate(NIGHT_STAGE)
+      if (stage === 'board') break
+      await sample(`turn ${turn}, ${stage}`)
+      await b.evaluate(NIGHT_TAP)
+      await sleep(60)
+    }
+  }
+  if (colors.size !== 1 || ![...colors][0] || [...colors][0] !== ink) failures.push(`${where}: the score's digits took ${[...colors].join(', ')}, not the ink ${ink} alone`)
+  if (chips.get('fall') !== hostile) failures.push(`${where}: the delta chip on a fall is ${chips.get('fall') ?? 'never shown'}, not ${hostile}`)
+  if (chips.get('held') !== go) failures.push(`${where}: the delta chip on a block is ${chips.get('held') ?? 'never shown'}, not ${go}`)
+  return { failures, stills, midCount }
+}
+
+const STRIKE_CARD = `(() => {
+  const banner = document.querySelector('[data-strike-banner]')
+  if (!banner) return null
+  const card = banner.querySelector('[data-strike-card]')
+  const name = banner.querySelector('[data-strike-name]')
+  const close = banner.firstElementChild?.getBoundingClientRect()
+  const shown = card && getComputedStyle(card).display !== 'none'
+  const r = card?.getBoundingClientRect()
+  const moving = card ? [card, ...card.querySelectorAll('*')].filter((e) => getComputedStyle(e).animationName !== 'none').length : 0
+  return {
+    shown,
+    nameShown: !!name && getComputedStyle(name).display !== 'none',
+    id: card?.getAttribute('data-strike-card') ?? null,
+    move: card?.querySelector('[data-move-name]')?.textContent ?? '',
+    moveColor: card?.querySelector('[data-move-name]') ? getComputedStyle(card.querySelector('[data-move-name]')).color : null,
+    defense: card?.querySelector('[data-strike-defense]')?.textContent ?? '',
+    verdict: card?.querySelector('[data-verdict]')?.textContent ?? '',
+    top: r?.top ?? 0, bottom: r?.bottom ?? 0, closeBottom: close?.bottom ?? 0, vh: innerHeight,
+    page: document.documentElement.scrollHeight > innerHeight + 1,
+    moving,
+    bad: card && shown ? ${OUT_OF_BOUNDS}(card) : [],
+  }
+})()`
+
+async function strikeCards(b, url, [w, h]) {
+  const where = `${w}x${h}`
+  const desktop = w >= 1100
+  if (desktop) {
+    await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false })
+    await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] })
+  }
+  if (!(await startSeedAt(b, url, [w, h], false, NIGHT_SEED, desktop))) return [`${where}: could not replay seed ${NIGHT_SEED}`]
+  const failures = []
+  const seen = []
+  const ink = await b.evaluate(TOKEN_COLOR('ink'))
+  for (let turn = 1; turn <= 3; turn += 1) {
+    await orderDefenses(b, NIGHT_PLAN[turn])
+    await b.evaluate(click('[data-execute]'))
+    for (let steps = 0; steps < 30; steps += 1) {
+      for (let t = 0; t < 120 && (await b.evaluate(NIGHT_STAGE)) === 'busy'; t += 1) {
+        const m = await b.evaluate(STRIKE_CARD)
+        if (m) {
+          const at = `${where}, turn ${turn}, ${m.move || 'a strike'}`
+          if (desktop) {
+            if (m.shown) failures.push(`${at}: the strike's card shows beside the night's log`)
+            if (!m.nameShown) failures.push(`${at}: the banner names no move`)
+          } else {
+            if (!m.shown) failures.push(`${at}: no strike card under the close-up`)
+            else {
+              if (m.top < m.closeBottom - 0.5) failures.push(`${at}: the card (top ${Math.round(m.top)}) is over the close-up (bottom ${Math.round(m.closeBottom)})`)
+              if (m.bottom > m.vh + 0.5) failures.push(`${at}: the card ends at ${Math.round(m.bottom)} of ${m.vh}`)
+              if (!/BLOCKED|PARTIAL|HIT/.test(m.verdict)) failures.push(`${at}: the card says no result`)
+              if (!m.defense) failures.push(`${at}: the card names no defense`)
+              if (m.moveColor !== ink) failures.push(`${at}: the move's name is ${m.moveColor}, not the ink ${ink}`)
+              if (m.moving) failures.push(`${at}: ${m.moving} part(s) of the card move, so a still cannot read it`)
+              for (const x of m.bad) failures.push(`${at}: ${x}`)
+            }
+            if (m.nameShown && m.shown) failures.push(`${at}: the move is named twice, on the banner and the card`)
+          }
+          if (m.page) failures.push(`${at}: the page scrolls`)
+          if (m.id && seen.at(-1) !== m.id) seen.push(m.id)
+        }
+        await sleep(25)
+      }
+      const stage = await b.evaluate(NIGHT_STAGE)
+      if (stage === 'board') break
+      await b.evaluate(NIGHT_TAP)
+      await sleep(60)
+    }
+  }
+  if (!desktop && seen.length < 3) failures.push(`${where}: only ${seen.length} strike card(s) seen in three nights, so the card did not change per strike`)
+  return failures
+}
+
+async function startSeedAt(b, url, [w, h], reduced, seed, desktop) {
+  if (!desktop) return startSeed(b, url, [w, h], reduced, seed)
+  if (!(await cleanLoad(b, url, { 'dc-intro-seen': '1', 'dc-difficulty': 'standard' }))) return false
+  await b.evaluate(click('[data-title-system]'))
+  if (!(await waitFor(b, 'document.querySelector(\'[data-system-control="replay"] input\')'))) return false
+  await b.evaluate(`(() => {
+    const i = document.querySelector('[data-system-control="replay"] input')
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ${JSON.stringify(String(seed))})
+    i.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+  await sleep(100)
+  await b.evaluate(click('[data-system-control="replay"] button'))
+  return waitFor(b, 'document.querySelector("[data-dock]")')
+}
+
+const PROCURE_FIT = `(() => {
+  const sheet = document.querySelector('[data-sheet=procure]')
+  const body = sheet.querySelector('[data-procure-body]').getBoundingClientRect()
+  const cards = [...sheet.querySelectorAll('[data-procure-body] li > button')]
+  const whole = cards.filter((c) => { const r = c.getBoundingClientRect(); return r.height > 1 && r.top >= body.top - 0.5 && r.bottom <= body.bottom + 0.5 }).length
+  const probe = document.createElement('i'); probe.className = 'bg-dc-go'; document.body.appendChild(probe)
+  const go = getComputedStyle(probe).backgroundColor; probe.remove()
+  const greens = [...document.querySelectorAll('button')].filter((x) => { const r = x.getBoundingClientRect(); return r.width > 40 && r.height > 30 && r.bottom > 0 && r.top < innerHeight && getComputedStyle(x).backgroundColor === go }).map((x) => x.innerText.trim())
+  const text = sheet.innerText
+  return { whole, greens, links: ['+ ADD', 'defend ›', 'Expand full brief'].filter((l) => text.includes(l)), page: document.documentElement.scrollHeight > innerHeight + 1, bad: ${OUT_OF_BOUNDS}(sheet) }
+})()`
+
+async function procureCards(b, url, [w, h], wideFonts) {
+  const where = `${w}x${h}${wideFonts ? ', wide fonts' : ''}`
+  if (!(await startSeed(b, url, [w, h], true, NIGHT_SEED))) return [`${where}: could not replay seed ${NIGHT_SEED}`]
+  if (wideFonts) await wideFontsOn(b)
+  const failures = []
+  for (const state of ['empty', "with tonight's order"]) {
+    await b.evaluate(click('[data-action="procure"]'))
+    if (!(await waitFor(b, 'document.querySelector("[data-sheet=procure]")'))) return [`${where}: PROCURE did not open`]
+    if (state !== 'empty') await b.evaluate(click('[data-procure-defense="antiJam"]'))
+    await sleep(250)
+    const m = await b.evaluate(PROCURE_FIT)
+    const at = `${where}, PROCURE ${state}`
+    if (m.whole < 2) failures.push(`${at}: ${m.whole} whole card(s) under the pinned rule and over the footer`)
+    // At most one: with nothing queued, none (the dock's PROCURE would open
+    // what is open); with an order in, CONFIRM N ORDERS alone.
+    if (m.greens.length > 1 || (state !== 'empty' && m.greens.length !== 1)) failures.push(`${at}: ${m.greens.length} green primaries (${m.greens.join(', ')})`)
+    for (const l of m.links) failures.push(`${at}: link-style "${l}"`)
+    if (m.page) failures.push(`${at}: the page scrolls`)
+    for (const x of m.bad) failures.push(`${at}: ${x}`)
+    await b.evaluate(click('[data-confirm]'))
+    await sleep(150)
+  }
+  await wideFontsOff(b)
+  return failures
+}
+
+const BOARD_FIT = `(() => {
+  const body = document.querySelector('[data-board-body]')
+  const dock = document.querySelector('[data-dock]').getBoundingClientRect()
+  return { page: document.documentElement.scrollHeight > innerHeight + 1, body: [body.scrollHeight, body.clientHeight], dockBottom: dock.bottom, vh: innerHeight, opening: [...document.querySelectorAll('[data-move]')].map((m) => m.getAttribute('data-move')).join(' ') }
+})()`
+
+async function openingBoards(b, url, [w, h], wideFonts) {
+  const failures = []
+  // Seed 2 plays the campaign as written; seed 1 opens on the other
+  // layers (src/engine/campaign.ts).
+  for (const [seed, want] of [[2, 'uplink-jamming gnss-spoofing'], [1, 'pnt-jamming time-spoof']]) {
+    const where = `${w}x${h}, seed ${seed}${wideFonts ? ', wide fonts' : ''}`
+    if (!(await startSeed(b, url, [w, h], true, seed))) return [`${where}: could not replay the seed`]
+    if (wideFonts) await wideFontsOn(b)
+    await sleep(300)
+    const m = await b.evaluate(BOARD_FIT)
+    if (m.opening !== want) failures.push(`${where}: turn 1 opens on ${m.opening}, not ${want}`)
+    if (m.page) failures.push(`${where}: the page scrolls`)
+    if (m.body[0] > m.body[1] + 1) failures.push(`${where}: the turn-1 board scrolls (${m.body[0]} of ${m.body[1]}px)`)
+    if (m.dockBottom > m.vh + 0.5) failures.push(`${where}: the dock ends at ${Math.round(m.dockBottom)} of ${m.vh}`)
+    await wideFontsOff(b)
+  }
+  return failures
+}
+
+export async function v16Guards(b, url) {
+  const failures = []
+  const on = await scoreStills(b, url, false)
+  failures.push(...on.failures)
+  if ((on.stills ?? 0) < 40 || (on.midCount ?? 0) < 3) failures.push(`375x667: ${on.stills} stills, ${on.midCount} mid-count, so the roll was not watched`)
+  failures.push(...(await scoreStills(b, url, true)).failures)
+  for (const vp of VIEWPORTS) failures.push(...(await strikeCards(b, url, vp)))
+  failures.push(...(await strikeCards(b, url, [1440, 900])))
+  for (const vp of VIEWPORTS) for (const wide of [false, true]) failures.push(...(await procureCards(b, url, vp, wide)), ...(await openingBoards(b, url, vp, wide)))
+  return failures
+}
+
 export async function phoneLayout(chrome) {
   const server = await serve()
   const url = `http://127.0.0.1:${server.address().port}${BASE}`
   const b = await browser(chrome)
   try {
     const failures = []
+    // PHONE_LAYOUT_ONLY=v16 runs the v1.6 R1 guards alone (with the
+    // debrief's, which hold its shape), for a mutation run.
+    if (process.env.PHONE_LAYOUT_ONLY === 'v16') {
+      failures.push(...(await v16Guards(b, url)))
+      failures.push(...(await checkDebrief(b, url, VIEWPORTS[0], NIGHT_PLAN, 'won')), ...(await checkDebrief(b, url, VIEWPORTS[0], {}, 'lost')))
+      const { won, lost } = debriefShapes
+      if (!won || !lost || won.heroTop !== lost.heroTop) failures.push(`375x667: the won hero stands at ${won?.heroTop}, the lost at ${lost?.heroTop}`)
+      if (!won || !lost || won.tiles !== lost.tiles) failures.push(`375x667: the tiles run ${won?.tiles} won and ${lost?.tiles} lost`)
+      return failures
+    }
     for (const vp of VIEWPORTS) for (const reduced of [false, true]) failures.push(...(await check(b, url, vp, reduced)))
     for (const vp of VIEWPORTS) failures.push(...(await checkTitle(b, url, vp)), ...(await checkBoardSystem(b, url, vp)))
     for (const vp of VIEWPORTS) for (const reduced of [false, true]) for (const wide of [false, true]) failures.push(...(await checkBoard(b, url, vp, reduced, wide)))
     for (const wide of [false, true]) failures.push(...(await checkNight(b, url, VIEWPORTS[0], wide)))
     // A first game, won on NIGHT_PLAN and lost on no orders at all.
     failures.push(...(await checkDebrief(b, url, VIEWPORTS[0], NIGHT_PLAN, 'won')), ...(await checkDebrief(b, url, VIEWPORTS[0], {}, 'lost')))
+    // GUARD v1.6 (f): one debrief shape, the hero in the same place and
+    // the tiles in one order, won and lost.
+    const { won, lost } = debriefShapes
+    if (!won || !lost || won.heroTop !== lost.heroTop) failures.push(`375x667: the won hero stands at ${won?.heroTop}, the lost at ${lost?.heroTop}`)
+    if (!won || !lost || won.tiles !== lost.tiles) failures.push(`375x667: the tiles run ${won?.tiles} won and ${lost?.tiles} lost`)
     failures.push(...(await checkReadingRooms(b, url, VIEWPORTS[0])))
     failures.push(...(await checkDesktop(b, url)))
+    failures.push(...(await v16Guards(b, url)))
     failures.push(...(await checkEveryScreen(b, url)))
     return failures
   } finally {
@@ -870,7 +1167,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
         console.log(failures.join('\n'))
         process.exit(1)
       }
-      console.log(`briefing fits, board fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}; the night's cards fit 375, the debrief's first screen fits 375x667, and the R4 screens' labels fit 375, as served and in wide fonts; the desktop board is three columns, the night too, with its log; every screen is still under reduced motion, with no small input and no retired word`)
+      console.log(`briefing fits, board fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}; the night's cards fit 375, the debrief's first screen fits 375x667, one shape won and lost, and the R4 screens' labels fit 375, as served and in wide fonts; the desktop board is three columns, the night too, with its log; the score paints whole digits in one colour, each phone strike shows its card, PROCURE shows two whole cards and one green primary, and both openings' boards fit; every screen is still under reduced motion, with no small input and no retired word`)
       process.exit(0)
     })
     .catch((e) => {

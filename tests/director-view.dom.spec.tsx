@@ -40,7 +40,7 @@ import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { LOCK_SHARE, STRIKE_MS } from '../src/ui/board/strike'
 import { nightOf } from '../src/ui/night/nightModel'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
-import { NO_OP, WIN_SCRIPT } from './scripts'
+import { NO_OP, WIN_SCRIPT, debrisTurnOf } from './scripts'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -290,10 +290,15 @@ describe('the declared spend through the night', () => {
   // no SSA service, so BURN costs fuel. The order is ground zero trust,
   // which costs more than the fuel, so the two cannot be told apart by
   // sign alone.
-  const callNight = () => gameAt(4, 20260712, {})
+  // The night of the call: turn 5 on this seed, which trades turns 4 and 5
+  // (v1.6 R1).
+  const callNight = () => gameAt(debrisTurnOf(20260712), 20260712, {})
   const budget = () => q('span[aria-label^="BUDGET"]') as HTMLElement
   const value = () => Number(/BUDGET (-?\d+)/.exec(budget().getAttribute('aria-label') ?? '')?.[1] ?? NaN)
-  const tone = () => (/dc-flash-bad/.test(budget().className) ? 'bad' : /dc-flash-good/.test(budget().className) ? 'good' : 'neutral')
+  // The readout's valence, which its tick sounds: since v1.6 R1 the budget
+  // is painted red only below zero, so the change is read off the readout,
+  // not its colour.
+  const tone = () => budget().getAttribute('data-tone')
 
   async function burnNight(orders: string[]) {
     callChoice = 'burn'
@@ -302,7 +307,7 @@ describe('the declared spend through the night', () => {
       await order(orders)
       const before = value()
       await tap(q('[data-execute]'))
-      expect(stage(), 'turn 4 did not open on the call').toBe('call')
+      expect(stage(), 'the night did not open on the call').toBe('call')
       const opened = { delta: value() - before, tone: tone() }
       await tap(q('[data-call="burn"]'))
       expect(stage(), 'BURN did not show the result').toBe('debris')

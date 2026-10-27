@@ -8,12 +8,19 @@
 // is the one number the player steers by (section 4 rule 9), and each
 // meter's story is told by the move that hits it.
 //
-// Both numbers are Readouts, so the count, the tones and the ticks are the
-// ones the board has had since v1.2.
+// Both numbers are Readouts, so the count and the ticks are the ones the
+// board has had since v1.2. ONE NEUTRAL COLOUR (v1.6 R1, Ken's ruling of
+// 26 October 2026): the score's digits stay ink in every state, motion on
+// or off, and red or green shows only on the change beside them, the
+// delta chip; the budget turns red only below zero. Until v1.6 the score
+// went red on a hit, green on a block (and stayed so on the card with
+// motion off), blue at END OF TURN, and the budget red on any repair bill.
 
+import { useEffect, useRef, useState } from 'react'
 import type { GameState } from '../../engine/types'
 import { maiScore } from '../../engine/scoring'
 import Readout from '../cues/Meter'
+import { CUE_MS, useReducedMotion } from '../cues/motion'
 import PixelSprite from '../sprites/PixelSprite'
 import { ICON_CHECK, ICON_UP, tinted } from '../sprites/icons'
 import { BUDGET_LABEL, SCORE_LABEL, marginChip, streakChip, winLineLabel } from './boardModel'
@@ -28,24 +35,41 @@ export interface BoardHudProps {
   dailyNumber?: number
   onSystem: () => void
   systemOpen: boolean
-  // A hit that just landed: how far the score fell, floated off it.
+  // A move that just landed: how far the score fell, or NO LOSS on a
+  // block (delta 0). With motion off it stays while the move's card is up.
   drop?: { id: string; delta: number; label?: string } | null
-  // A block's card under reduced motion (no strike, so no float).
-  held?: boolean
   countMs?: number
 }
 
-export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSystem, systemOpen, drop, held: heldCard, countMs }: BoardHudProps) {
+// The change no move explains (END OF TURN's recovery, a reload's close):
+// the score's step to one decimal, shown beside it for the cue's length.
+function useScoreChange(score: number, explained: boolean): { id: number; delta: number } | null {
+  const prev = useRef(score)
+  const [chip, setChip] = useState<{ id: number; delta: number } | null>(null)
+  useEffect(() => {
+    const delta = Math.round((score - prev.current) * 10) / 10
+    prev.current = score
+    if (delta === 0 || explained) return
+    setChip((c) => ({ id: (c?.id ?? 0) + 1, delta }))
+  }, [score, explained])
+  useEffect(() => {
+    if (!chip) return
+    const id = window.setTimeout(() => setChip(null), CUE_MS)
+    return () => window.clearTimeout(id)
+  }, [chip])
+  return chip
+}
+
+export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSystem, systemOpen, drop, countMs }: BoardHudProps) {
   const scenario = shown.scenario
   const score = maiScore(shown)
   const winAt = scenario.winThreshold
   const margin = marginChip(score, winAt)
   const fill = Math.max(0, Math.min(100, score))
-  // A block lands: the score and its bar go green while NO LOSS floats
-  // (v1.3 R7, R5's question 6: "nothing in the game state reacts"). The
-  // colour is meaning, so with motion off, where no strike floats, it
-  // shows while the block's card is up; only the glow moves.
-  const held = (!!drop && drop.delta <= 0) || !!heldCard
+  const reduced = useReducedMotion()
+  const change = useScoreChange(score, !!drop)
+  // The delta chip: the move's, or else the change no move explains.
+  const chip = drop ? { key: drop.id, fall: drop.delta > 0, text: drop.delta > 0 ? `-${drop.delta.toFixed(1)}` : 'NO LOSS', label: drop.delta > 0 ? drop.label : undefined } : change ? { key: `change-${change.id}`, fall: change.delta < 0, text: `${change.delta > 0 ? '+' : ''}${change.delta.toFixed(1)}`, label: undefined } : null
   return (
     <header data-hud className="relative flex-none border-b-2 border-dc-line bg-dc-chrome px-safe pt-safe">
       <div className="flex items-center justify-between gap-2 px-3 pt-1 pb-0.5 font-mono text-[11px] tracking-widest text-dc-muted">
@@ -79,39 +103,42 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
       </p>
       <div className="flex items-end justify-between gap-2 px-3">
         <div className="relative flex min-w-0 items-end gap-x-1.5">
-          {/* A wrapper, not a key: remounting the readout would restart its count. */}
-          <span data-score-held={held || undefined} className={`contents ${held ? 'dc-score-held' : ''}`}>
-          <Readout
-            label={SCORE_LABEL}
-            value={score}
-            warnBelow={winAt}
-            strobeOnWarn
-            bare
-            odometer
-            // One decimal always (v1.3 R5, R3's question 6), as every card,
-            // the debrief and the share text print it.
-            decimals={1}
-            countMs={countMs}
-            valueClassName="whitespace-nowrap font-display text-[22px] leading-none"
-          />
+          <span data-score className="contents">
+            <Readout
+              label={SCORE_LABEL}
+              value={score}
+              warnBelow={winAt}
+              strobeOnWarn
+              bare
+              odometer
+              toneless
+              // One decimal always (v1.3 R5, R3's question 6), as every card,
+              // the debrief and the share text print it.
+              decimals={1}
+              countMs={countMs}
+              valueClassName="whitespace-nowrap font-display text-[22px] leading-none text-dc-ink"
+            />
           </span>
           <span className="whitespace-nowrap pb-0.5 font-mono text-[11px] text-dc-muted">/ 100</span>
           <span className="relative flex min-w-0 flex-col pb-0.5 font-mono text-[10px] leading-tight">
-            {/* The strike's float takes the margin line's place while it
+            {/* The delta chip takes the margin line's place while it
                 shows, never over the score's digits or layered on the line
-                (fresh-eyes review, v1.3 R3): the fall in red, to one
-                decimal as the card says it, or NO LOSS in green on a block. */}
-            {drop ? (
+                (fresh-eyes review, v1.3 R3): a fall in red, to one decimal
+                as the card says it, NO LOSS in green on a block, and any
+                other change in its own colour. The one place the score's
+                red and green show (v1.6 R1). It floats off with motion
+                on, and stands still with motion off. */}
+            {chip ? (
               <span
-                key={drop.id}
+                key={chip.key}
                 aria-hidden="true"
-                data-mai-drop={drop.delta > 0 ? 'fall' : 'held'}
-                className={`dc-mai-float pointer-events-none whitespace-nowrap font-display text-sm leading-none ${drop.delta > 0 ? 'text-dc-hostile' : 'text-dc-go'}`}
+                data-mai-drop={chip.fall ? 'fall' : drop ? 'held' : 'rise'}
+                className={`${reduced ? '' : 'dc-mai-float'} pointer-events-none whitespace-nowrap font-display text-sm leading-none ${chip.fall ? 'text-dc-hostile' : 'text-dc-go'}`}
               >
-                {drop.delta > 0 ? `-${drop.delta.toFixed(1)}` : 'NO LOSS'}
+                {chip.text}
                 {/* What caused a fall nothing struck: the live conditions,
                     by name (v1.3 R5, R3's question 8). */}
-                {drop.delta > 0 && drop.label && <span data-drop-label className="ml-1 font-mono text-[10px] tracking-widest">{drop.label}</span>}
+                {chip.label && <span data-drop-label className="ml-1 font-mono text-[10px] tracking-widest">{chip.label}</span>}
               </span>
             ) : (
               <span data-margin={margin.tone} className={`whitespace-nowrap ${TONE_TEXT[margin.tone]}`}>
@@ -134,14 +161,14 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
           chosenDelta={budget.chosenDelta}
           suffix=" CR"
           bare
-          valueClassName="whitespace-nowrap font-display text-sm leading-none"
+          toneless
+          valueClassName={`whitespace-nowrap font-display text-sm leading-none ${budget.value < 0 ? 'text-dc-hostile' : 'text-dc-ink'}`}
         />
       </div>
       <div className="px-3 pb-1 pt-1">
         <div className="relative h-1.5 bg-dc-line" aria-hidden="true">
           <i
-            data-bar-held={held || undefined}
-            className={`absolute inset-y-0 left-0 ${held ? 'dc-score-held bg-dc-go' : score < winAt ? 'bg-dc-hostile' : 'bg-dc-friendly'}`}
+            className={`absolute inset-y-0 left-0 ${score < winAt ? 'bg-dc-hostile' : 'bg-dc-friendly'}`}
             style={{ width: `${fill}%` }}
           />
           <b className="absolute -inset-y-0.5 w-0.5 bg-dc-go" style={{ left: `${winAt}%` }} />

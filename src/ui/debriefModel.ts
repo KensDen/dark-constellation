@@ -127,6 +127,7 @@ export function lossLead(state: GameState): LossLead | null {
   })
   if (at < 0) return null
   const rec = state.history[at]
+  const net = `-${drops[at].toFixed(1)} net this turn`
   const landed = rec.events.filter((ev) => ev.effectiveSeverity > 0)
   const worst = landed.reduce<(typeof landed)[number] | null>((w, ev) => (!w || ev.effectiveSeverity > w.effectiveSeverity ? ev : w), null)
   let line: string
@@ -139,20 +140,29 @@ export function lossLead(state: GameState): LossLead | null {
     // Its own drop beside the turn's net (R6b's fresh eyes, item 7: the
     // header's -7.5 sat under a move whose card said -7.7).
     const own = worst.scoreBefore !== undefined && worst.scoreAfter !== undefined ? one(worst.scoreBefore - worst.scoreAfter) : null
-    // Said as its share of the net (the R1 re-review: "(-7.7)" under
-    // "-9.8 NET" did not say how the two relate).
-    const cost = own !== null && own > 0 ? `: -${own.toFixed(1)} of it` : ''
-    line = sign ? `${threatName(state, worst.eventId)} hit the ${kind} ${sign}${cost}.` : `${threatName(state, worst.eventId)} got through${cost}.`
+    // Said as its share of the turn's net, in one sentence that says how
+    // the two numbers relate (v1.6 R1, Ken's ruling of 26 October 2026:
+    // "-9.8 NET" over "-7.7 of it" did not).
+    const what = sign ? `${threatName(state, worst.eventId)} hit the ${kind} ${sign}` : `${threatName(state, worst.eventId)} got through`
+    // A strike can cost more than the turn's net when the close won some
+    // back, so "of it" is said only of a share.
+    line =
+      own === null || own <= 0
+        ? `${net}: ${what}.`
+        : own <= drops[at]
+          ? `${net}, -${own.toFixed(1)} of it from one strike: ${what}.`
+          : `${net}: ${what} for -${own.toFixed(1)}, and recovery at the turn close won back ${one(own - drops[at]).toFixed(1)}.`
   } else {
-    line = rec.conditionsActive.length ? `Ongoing conditions: ${rec.conditionsActive.join(', ')}.` : 'Damage from earlier turns kept pulling the score down.'
+    line = rec.conditionsActive.length ? `${net}, from ongoing conditions: ${rec.conditionsActive.join(', ')}.` : `${net}: damage from earlier turns kept pulling the score down.`
   }
   return { turn: rec.turn, drop: drops[at], line }
 }
 
 // The cards the first screen lists before "and n more", so a first game
 // that files many still fits 375x667 beside a loss's lead
-// (scripts/phone-layout.mjs holds it there).
-export const FILED_SHOWN = 3
+// (scripts/phone-layout.mjs holds it there). 2 since v1.6 R1 (3 before),
+// when a loss took the win's hero as well as its lead.
+export const FILED_SHOWN = 2
 
 // FILED THIS GAME: the threats this game met whose card is in the Dossier
 // now and was not at turn 1, in the order the game met them. Null when the

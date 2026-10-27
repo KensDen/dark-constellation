@@ -50,6 +50,13 @@
 // randomPolicy(1) orders at most one, and goes insolvent at turn 5 (turn 4
 // before), five squares. LOSS_SCRIPT orders nothing, so its pins stay.
 //
+// v1.6 R1 (Ken's ruling of 26 October 2026: each seed plays its own order
+// of COLDVEIL's campaign): the share text's form did not change; the games
+// did. The Daily seed and 20260712 both play the other order, the opening
+// on the other layers and turns 4 and 5 traded: WIN_SCRIPT wins the Daily
+// seed at S (a C before) and 20260712 at B; LOSS_SCRIPT loses both under
+// the line; randomPolicy(1) still goes insolvent at turn 5, at 79.1.
+//
 // v1.3 Round 4 (M37; QC G-056 and G-057): free play takes the Daily Op's
 // four lines. Its longer text said "survived 6 of 6 turns" on a loss, put
 // one technique in both its lists and seven beside eight hits; the four
@@ -94,8 +101,8 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: op.daily!.n, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade C · won T6 · score 71.9, win line 70',
-        '\u{1F7E9}\u{1F7E8}\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
+        'Grade S · won T6 · score 76.0, win line 70',
+        '\u{1F7E8}\u{1F7E9}\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E8}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )
@@ -106,8 +113,8 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: 1, official: false })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1 (practice)',
-        'Grade D · lost T6 · score 49.6, win line 70',
-        '\u{1F7E8}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
+        'Grade D · lost T6 · score 54.1, win line 70',
+        '\u{1F7E8}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E8}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )
@@ -122,7 +129,7 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: 1, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade F · lost T5 · budget below zero · score 76.8, win line 70',
+        'Grade F · lost T5 · budget below zero · score 79.1, win line 70',
         '\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -175,8 +182,8 @@ describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
     expect(shareText(end)).toBe(
       [
         'DARK CONSTELLATION · Practice · Standard',
-        'Grade B · won T6 · score 73.1, win line 70',
-        '\u{1F7E9}\u{1F7E8}\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E8}',
+        'Grade B · won T6 · score 72.7, win line 70',
+        '\u{1F7E8}\u{1F7E9}\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E8}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )
@@ -188,8 +195,8 @@ describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
     expect(shareText(end)).toBe(
       [
         'DARK CONSTELLATION · Practice · Easy',
-        'Grade D · lost T6 · score 58.6, win line 70',
-        '\u{1F7E8}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
+        'Grade D · lost T6 · score 62.2, win line 70',
+        '\u{1F7E5}\u{1F7E8}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )

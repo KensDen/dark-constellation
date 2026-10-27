@@ -11,9 +11,11 @@
 import { memo } from 'react'
 import { spriteRects, type Sprite } from './sprite'
 
-// 6 and 8 are the cold open's alone (v1.2 R4): the watch officer, and the
+// 6 and 8 are the cold open's (v1.2 R4): the watch officer, and the
 // COLDVEIL emblem as the whole of a slide rather than a mark on a banner.
-export type Scale = 1 | 2 | 3 | 4 | 6 | 8
+// 5 is the debrief's shield (v1.6 R1), one step under the 6 it had, so
+// both debriefs' first screens fit 375x667 in one shape.
+export type Scale = 1 | 2 | 3 | 4 | 5 | 6 | 8
 
 export interface PixelSpriteProps {
   sprite: Sprite

@@ -18,7 +18,6 @@ import type {
   Scenario,
   ThreatEvent,
   TurnActions,
-  TurnPlan,
 } from './types'
 
 // Difficulty (brief 6.1): EASY scales damage and repair bills by 0.75 and
@@ -87,18 +86,6 @@ export function eventById(scenario: Scenario, id: string): ThreatEvent {
   const ev = scenario.events.find((e) => e.id === id)
   if (!ev) throw new Error(`unknown event id in campaign: ${id}`)
   return ev
-}
-
-export const planFor = (scenario: Scenario, turn: number): TurnPlan | undefined => scenario.campaign.find((p) => p.turn === turn)
-
-// Every candidate tonight's slots could play, fixed and drawn, in slot
-// order and without repeats: what the intel brief names (brief 6.9).
-export function candidatesTonight(state: Pick<GameState, 'scenario' | 'turn'>): string[] {
-  const out: string[] = []
-  for (const slot of planFor(state.scenario, state.turn)?.slots ?? []) {
-    for (const id of slot.fixed ? [slot.fixed] : (slot.drawFrom ?? [])) if (!out.includes(id)) out.push(id)
-  }
-  return out
 }
 
 // How much the given defenses take off a threat (brief 6.1). The debris

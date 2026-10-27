@@ -5,7 +5,8 @@
 
 import { ADVERSARY } from '../config'
 import { briefFree, gnssDenied } from '../engine/reducer'
-import { defenseOpen, planFor } from '../engine/rules'
+import { planFor } from '../engine/campaign'
+import { defenseOpen } from '../engine/rules'
 import { coverage, maiScore } from '../engine/scoring'
 import type { GameState, ThreatEvent, TurnActions } from '../engine/types'
 import { coverageFigure, kindLabels, techniqueLabel, vectorLabels } from './labels'
@@ -97,7 +98,9 @@ import {
 // worst board reads 139 (prepared, turn 5, with a STREAK chip); 138 since
 // v1.4's one new defense a night, which ends that streak (lazy, turn 5),
 // 144 once FIRST ORDERS says the cap on turn 1 (v1.4 fresh eyes), and 145
-// once it says the other door, in turns and in 2 lines (v1.5 R1). The
+// once it says the other door, in turns and in 2 lines (v1.5 R1), and 144
+// since v1.6 R1 (turn 1's watch officer in one sentence; the worst board
+// is a turn-4 one). The
 // chrome bound stays 40: the board's labels and controls measure 29 at
 // worst. The headline cap stays for the full brief's own lines.
 export const HEADLINE_WORD_MAX = 8
@@ -142,7 +145,7 @@ export interface BriefCopy {
 
 
 function plannedEvents(state: GameState, turn: number): ThreatEvent[][] {
-  const plan = state.scenario.campaign.find((p) => p.turn === turn)
+  const plan = planFor(state, turn)
   if (!plan) return []
   return plan.slots.map((slot) => {
     const ids = slot.fixed ? [slot.fixed] : (slot.drawFrom ?? [])
@@ -440,7 +443,7 @@ export function firstInputCopy(state: GameState, actions: TurnActions = NO_ORDER
     winLineLabel(scenario.winThreshold),
     '100',
     `TONIGHT${free ? ' · INTEL BRIEF FREE' : ''}`,
-    planFor(scenario, state.turn)?.intro ?? '',
+    planFor(state, state.turn)?.intro ?? '',
     ...(gnssDenied(state.conditions, scenario) ? [chainLine()] : []),
   ]
   const slots = tonightSlots(state, actions)

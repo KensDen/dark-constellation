@@ -97,6 +97,20 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     }
   })
 
+  it('holds the prepared script to no more wins than Prepared, on each difficulty (v1.6 R1)', () => {
+    // Ken's ruling of 26 October 2026: one scripted order of defenses can
+    // no longer answer every night. The script won all 500 seeds on
+    // STANDARD through v1.5, above Prepared's 79.6; each seed now plays
+    // its own order of the campaign (campaignFor, src/engine/campaign.ts).
+    for (const difficulty of ['standard', 'easy'] as const) {
+      const script = reported.get(`preparedScript:${difficulty}`)!.wins
+      const prepared = runs.get(key('prepared', difficulty))!.wins
+      expect(script, `${difficulty}: the prepared script won ${pct(script, SEEDS).toFixed(1)} percent, Prepared ${pct(prepared, SEEDS).toFixed(1)}`).toBeLessThanOrEqual(prepared)
+    }
+    // Not vacuous: on STANDARD the script loses some seeds.
+    expect(reported.get('preparedScript:standard')!.wins, 'the prepared script still wins every seed').toBeLessThan(SEEDS)
+  })
+
   it('never lets the prepared player go insolvent, on either difficulty', () => {
     for (const difficulty of ['standard', 'easy'] as const) expect(runs.get(key('prepared', difficulty))!.insolvencies, difficulty).toBe(0)
   })

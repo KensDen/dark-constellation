@@ -24,9 +24,12 @@ Each turn you read what COLDVEIL could hit tonight, order fleet and one new defe
 and see what your posture absorbed. The adversary reacts: it takes the move you have covered least.
 Finish turn 6 with the mission assurance score at 70 or higher to win; let it collapse, or run the budget
 below zero at a turn close, and the operation ends early. Every defense carries upkeep, repairs
-come due at the turn close, and coverage, trust, and redundancy trade off against each other. The
-adversary punishes a fixed plan only partly so far: one hand-written order of six defenses won
-all 500 seeds it was measured on, and the next version works on it.
+come due at the turn close, and coverage, trust, and redundancy trade off against each other. Each
+seed plays one of two campaigns: COLDVEIL opens as the briefing expects and works the ground last,
+or opens on the other layers and works the ground before the debris night. The hand-written order
+of six defenses that won all 500 measured seeds in v1.5 now wins 78 percent of them, below play
+that reads each night (83). The adversary still punishes a fixed plan only partly: the same six
+defenses in another order win every one of those seeds, and that is the next thing to fix.
 
 ## Daily Op and the debrief
 

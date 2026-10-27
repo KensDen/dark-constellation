@@ -12,7 +12,8 @@
 import { adversaryPicks } from '../../engine/adversary'
 import { worstCase } from '../../engine/worstCase'
 import { COVERAGE_PER_KIND, coverage } from '../../engine/scoring'
-import { ASSET_HEAL_PER_TURN, CHAIN_BONUS, NEW_DEFENSES_PER_NIGHT, PRIMARY_MITIGATION, SECONDARY_MITIGATION, briefActive, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, planFor } from '../../engine/rules'
+import { ASSET_HEAL_PER_TURN, CHAIN_BONUS, NEW_DEFENSES_PER_NIGHT, PRIMARY_MITIGATION, SECONDARY_MITIGATION, briefActive, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf } from '../../engine/rules'
+import { planFor } from '../../engine/campaign'
 import { answerKey } from '../../engine/learning'
 import type { ActiveCondition, AssetKind, Countermeasure, CountermeasureId, GameState, ThreatEvent, TurnActions } from '../../engine/types'
 import type { WorstCase } from '../../engine/worstCase'
@@ -202,7 +203,7 @@ export interface OrderLine {
 export function firstOrders(state: GameState, actions: TurnActions): OrderLine[] {
   const { scenario } = state
   const counters = countersAfter(state, actions)
-  const ids = (planFor(scenario, state.turn)?.slots ?? []).flatMap((s) => (s.fixed ? [s.fixed] : (s.drawFrom ?? [])))
+  const ids = (planFor(state, state.turn)?.slots ?? []).flatMap((s) => (s.fixed ? [s.fixed] : (s.drawFrom ?? [])))
   // Done only when a move reads BLOCKED (R6 question 2): a defense that
   // only blunts it has not done what the line asks.
   const defended = ids.some((id) => moveStatus(state, eventById(scenario, id), counters) === 'blocked')
@@ -300,10 +301,14 @@ const newDefense = (n: number) => `${n} new defense${n === 1 ? '' : 's'}`
 // turn", and the last turn has no next one to be booked until.
 export const defenseRule = (n: number) =>
   `${newDefense(n)} a turn: the integration team can bring only ${n} online. Assets skip integration, so the limit does not apply to them.`
+// Since v1.6 R1 it leads with the reason Ken's ruling of 26 October 2026
+// names, "Tonight's order is in", and the rule as a rate in turns (v1.5
+// R1: every count and rate says turn).
+export const ORDER_IN = "Tonight's order is in"
 export const defenseOrderIn = (name: string, last = false) =>
   last
-    ? `${name} is the operation's last new defense. To swap, cancel it first.`
-    : `${name} is this turn's new defense, and the integration team is booked until next turn. To swap, cancel it first.`
+    ? `${ORDER_IN}: ${name}, the operation's last new defense. To swap, cancel it first.`
+    : `${ORDER_IN}: ${name}. 1 new defense a turn. To swap, cancel it first.`
 // What a defense reads where its price was, once the turn's defense is in
 // (v1.4 finding 7: NOT TONIGHT read as "this move is not on tonight"): the
 // rule, one label on every turn (the R1 re-review: NEXT TURN and 1 A TURN
@@ -318,10 +323,13 @@ export const defensesPerTurn = (n: number) => `${n} a turn`
 // 3: "Ordered: 0 of 100 CR" read as a budget to fill).
 export const defenseCount = (ordered: number, n: number) => `New defense this turn: ${ordered} of ${n}.`
 // Under CONFIRM N ORDERS (v1.4 finding 6: CONFIRM read as locking them in).
+// One line since v1.6 R1, so two whole cards show over it at 375; how to
+// cancel is PROCURE_HOW's, at the top of the list.
 export const confirmNote = (cost: number, briefLocked = false) =>
-  briefLocked
-    ? `${cost} CR committed. The intel brief stays ordered; tap any other order again to cancel it until you EXECUTE.`
-    : `${cost} CR committed. Tap an order again to cancel it; nothing is final until you EXECUTE.`
+  briefLocked ? `${cost} CR committed. The intel brief stays ordered.` : `${cost} CR committed. Nothing is final until you EXECUTE.`
+// PROCURE's one line on how its cards work (v1.6 R1: the whole card is the
+// tap, where "+ ADD" was).
+export const PROCURE_HOW = 'Tap a card to order it, again to cancel.'
 
 export const PROCURE_KINDS: AssetKind[] = ['drone', 'sat', 'groundStation']
 export const PROCURE_LABEL: Record<AssetKind, string> = { drone: 'ISR DRONE', sat: 'SMALLSAT', groundStation: 'GROUND STATION', rpoSat: 'RPO SAT' }
@@ -339,6 +347,22 @@ export const retainerLine = (state: Pick<GameState, 'scenario'>) =>
 // the board before that night, where the stored 1 read "1T" on turn 6 of 6
 // as if it ran past the end (the R1 re-review).
 export const chipTurns = (stored: number, left: number) => (stored <= 1 ? 'LAST' : `${left}T`)
+
+// The same answer key as a PROCURE card's tags (v1.6 R1): one a move it
+// stops alone, then one a move it blunts, then the moves not met yet; the
+// retainer and the SSA service say what they do instead.
+export function stopsTags(cm: Countermeasure, state: GameState, named: ReadonlySet<string>, met: ReadonlySet<string>): { text: string; verb: StopVerb | 'other' }[] {
+  if (cm.counters.length === 0) return [{ text: `Recovery ${state.scenario.recovery.withIrRetainer} a turn`, verb: 'other' }]
+  if (cm.id === SSA) return [{ text: 'Makes the debris call', verb: 'answers' }]
+  const key = answerKey(cm, met, named)
+  if (key.known.length === 0) return [{ text: `Answers ${key.unmet} threat${key.unmet === 1 ? '' : 's'} not met yet`, verb: 'other' }]
+  const tags = (['stops', 'blunts'] as const).flatMap((verb) =>
+    key.known
+      .filter((k) => stopVerb(cm.id, eventById(state.scenario, k.id)) === verb)
+      .map((k) => ({ text: `${verb === 'stops' ? 'Stops' : 'Blunts'} ${shortName(eventById(state.scenario, k.id))}${k.tonight ? ' · tonight' : ''}`, verb })),
+  )
+  return key.unmet ? [...tags, { text: `+${key.unmet} threat${key.unmet === 1 ? '' : 's'} not met yet`, verb: 'other' as const }] : tags
+}
 
 // The earned answer key as a line: what it stops alone, then what it
 // blunts (the stops rule above), then how many it answers unmet.

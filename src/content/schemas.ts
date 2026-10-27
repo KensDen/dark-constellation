@@ -156,8 +156,21 @@ export const scenarioSchema = z
         opportunity: z
           .object({ chance: z.number().gt(0).lte(1), drawFrom: z.array(z.string()).min(1) })
           .optional(),
+        introTraded: z.string().min(1).optional(),
       }),
     ),
+    order: z
+      .object({
+        variants: z
+          .array(
+            z.object({
+              trade: z.object({ ids: z.record(z.string(), z.string()), turns: z.array(z.number().int().min(1)).min(1) }).optional(),
+              turns: z.array(z.number().int().min(1)).optional(),
+            }),
+          )
+          .min(1),
+      })
+      .optional(),
     briefIntro: z.string().min(1),
     events: z.array(threatEventSchema).min(1),
     countermeasures: z.array(countermeasureSchema).min(1),
@@ -188,6 +201,18 @@ export const scenarioSchema = z
         } else if ((ev.kind ?? 'threat') !== 'opportunity') {
           ctx.addIssue({ code: 'custom', message: `opportunity roll on turn ${plan.turn} draws non-opportunity ${id}` })
         }
+      }
+    }
+    // The seed's order (v1.6 R1): a variant plays every plan once, and an
+    // opening trades known events in pairs, so a trade cannot turn one move
+    // into two or drop a move from the deck.
+    for (const [i, v] of (s.order?.variants ?? []).entries()) {
+      if (v.turns && [...v.turns].sort((x, y) => x - y).join() !== s.campaign.map((p) => p.turn).sort((x, y) => x - y).join()) {
+        ctx.addIssue({ code: 'custom', message: `order variant ${i} does not play every campaign turn once` })
+      }
+      for (const [from, to] of Object.entries(v.trade?.ids ?? {})) {
+        if (!eventIds.has(from) || !eventIds.has(to)) ctx.addIssue({ code: 'custom', message: `order variant ${i} trades unknown event ${from} or ${to}` })
+        if (v.trade?.ids[to] !== from) ctx.addIssue({ code: 'custom', message: `order variant ${i} trades ${from} for ${to} but not back` })
       }
     }
     for (const ev of s.events) {

@@ -146,9 +146,18 @@ export interface ReadoutProps {
   // The count's duration (v1.2 R3): the board sets it from the playback
   // speed, so a hit's number runs as fast as the rest of the hit.
   countMs?: number
-  // Each digit rolls in as the count passes through it, like an odometer
-  // (v1.2 R3, MAI only). The stylesheet decides whether a digit moves.
+  // The count rolls through every value on its way, like an odometer
+  // (v1.2 R3, MAI only), one span a character. Since v1.6 R1 (Ken's ruling
+  // of 26 October 2026) no digit moves inside its box: each slid in from
+  // 45 percent above its line, clipped, and a still caught mid-roll showed
+  // the digits and the decimal half drawn. Every frame now paints whole
+  // characters (scripts/phone-layout.mjs, GUARD v1.6 (a)).
   odometer?: boolean
+  // One neutral colour whatever the number does (v1.6 R1, Ken's ruling of
+  // 26 October 2026: the HUD's score and budget). The tone still decides
+  // the ticks; the reader shows the change beside the number instead, and
+  // passes any colour the number itself needs in valueClassName.
+  toneless?: boolean
   // Always this many decimals (the score: one, v1.3 R5).
   decimals?: number
 }
@@ -168,6 +177,7 @@ export default function Readout({
   countMs,
   odometer,
   decimals,
+  toneless,
 }: ReadoutProps) {
   const reduced = useReducedMotion()
   const shown = useCountUp(value, reduced, countMs)
@@ -182,9 +192,9 @@ export default function Readout({
   const { tone, nonce } = useValueChange(value, basis, chosen, chosenDelta)
   // The colour half of the flash is meaning, not motion, so it plays in
   // both modes; the stylesheet drops only the animation under reduce.
-  const flash = useCueClass(nonce, FLASH_CLASS[tone], false)
+  const flash = useCueClass(nonce, toneless ? '' : FLASH_CLASS[tone], false)
   const warning = warnBelow !== undefined && value < warnBelow
-  const strobe = warning && strobeOnWarn && !reduced ? 'dc-strobe' : ''
+  const strobe = warning && strobeOnWarn && !reduced && !toneless ? 'dc-strobe' : ''
   const play = useSound()
 
   // The tick rides the same nonce the flash does, so a repeat of the same
@@ -221,15 +231,15 @@ export default function Readout({
       <div className={bare ? 'flex' : 'flex items-baseline justify-between gap-2'}>
         {!bare && <span className="uppercase tracking-widest text-ink-dim text-xs">{label}</span>}
         <span
-          // An odometer's digits roll in from above their line, so the line
-          // clips them (v1.3 R3 fresh-eyes review: they drew into the label
-          // above).
-          className={`tabular-nums ${odometer ? 'inline-block overflow-hidden' : ''} ${valueClassName ?? 'text-sm'} ${flash ? '' : warning ? 'text-alert-amber' : TONE_TEXT[tone]} ${flash}`}
+          className={`tabular-nums ${valueClassName ?? 'text-sm'} ${toneless ? '' : flash ? '' : warning ? 'text-alert-amber' : TONE_TEXT[tone]} ${flash}`}
           aria-label={`${label} ${decimals === undefined ? value : value.toFixed(decimals)}${suffix ?? ''}`}
+          // The change's valence while its cue lasts, painted or not: a
+          // toneless readout still ticks it (v1.6 R1).
+          data-tone={tone}
         >
           {odometer
             ? [...format(shown, value, countFrom, decimals)].map((ch, i) => (
-                <span key={`${i}:${ch}`} className="dc-odo inline-block">
+                <span key={i} data-odo className="inline-block">
                   {ch}
                 </span>
               ))

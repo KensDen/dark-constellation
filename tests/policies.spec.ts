@@ -13,7 +13,8 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { adversaryPicks } from '../src/engine/adversary'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
-import { NEW_DEFENSES_PER_NIGHT, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, orderCost, planFor } from '../src/engine/rules'
+import { NEW_DEFENSES_PER_NIGHT, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, orderCost } from '../src/engine/rules'
+import { planFor } from '../src/engine/campaign'
 import type { CountermeasureId, GameState, TurnActions } from '../src/engine/types'
 import { worstCase } from '../src/engine/worstCase'
 import { prepared, preparedFollow, type Policy } from './policies'
@@ -89,7 +90,7 @@ describe('the sweep policies do what their comments say (R0b)', () => {
       // threat, so turn 4's fixed conjunction does not count (the R0b
       // review: counting it let a second order on turn 4's drawn slot
       // through).
-      const answerable = (planFor(state.scenario, state.turn)?.slots ?? []).filter(
+      const answerable = (planFor(state, state.turn)?.slots ?? []).filter(
         (slot) => !(slot.fixed && eventById(state.scenario, slot.fixed).effect.special === 'debrisStrike'),
       ).length
       expect(bought(state, actions).length, `${where}: more than one defense a slot`).toBeLessThanOrEqual(answerable)

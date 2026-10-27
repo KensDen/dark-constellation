@@ -19,6 +19,7 @@
 //      conditions' clocks. Then the win and loss checks.
 
 import { adversaryPicks } from './adversary'
+import { candidatesTonight, planFor } from './campaign'
 import { turnRng, type Rng } from './rng'
 import {
   ASSET_DAMAGE_PER_SEVERITY,
@@ -34,7 +35,6 @@ import {
   briefLocked,
   briefOrdered,
   burnFuel,
-  candidatesTonight,
   chainBonusOf,
   debrisTarget,
   eventById,
@@ -43,7 +43,6 @@ import {
   lossReviewBill,
   mitigationOf,
   newDefenses,
-  planFor,
   repairBill,
   scaled,
 } from './rules'
@@ -63,8 +62,10 @@ import type {
   TurnRecord,
 } from './types'
 
-// The rules and numbers live in ./rules; re-exported here, where the
-// presentation has always imported them from.
+// The rules and numbers live in ./rules, and tonight's candidates in
+// ./campaign; re-exported here, where the presentation has always imported
+// them from.
+export { candidatesTonight } from './campaign'
 export {
   ASSET_DAMAGE_PER_SEVERITY,
   ASSET_HEAL_PER_TURN,
@@ -84,7 +85,6 @@ export {
   briefFree,
   briefLocked,
   briefOrdered,
-  candidatesTonight,
   countersAfter,
   debrisTarget,
   defenseOpen,
@@ -452,7 +452,7 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
   const fuel = resolved.reduce((n, r) => n + (r.debris?.fuel ?? 0), 0)
 
   // 4. The rare opportunity, from the deck stream.
-  const plan = planFor(scenario, next.turn)
+  const plan = planFor(next, next.turn)
   let windfall = 0
   if (plan?.opportunity && plan.opportunity.drawFrom.length > 0 && deck.chance(plan.opportunity.chance)) {
     const before = next.credits

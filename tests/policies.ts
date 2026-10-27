@@ -48,8 +48,10 @@
 
 import { adversaryPicks } from '../src/engine/adversary'
 import { mulberry32, type Rng } from '../src/engine/rng'
-import { briefFree, chainBonusOf, countersAfter, defenseOpen, eventById, gnssDenied, mitigationOf, orderCost, planFor } from '../src/engine/rules'
+import { briefFree, chainBonusOf, countersAfter, defenseOpen, eventById, gnssDenied, mitigationOf, orderCost } from '../src/engine/rules'
+import { planFor } from '../src/engine/campaign'
 import { worstCase } from '../src/engine/worstCase'
+import { WIN_SCRIPT } from './scripts'
 import type { AssetKind, CountermeasureId, GameState, TurnActions } from '../src/engine/types'
 
 export type Policy = (state: GameState) => TurnActions
@@ -69,7 +71,7 @@ const safe = (state: GameState, actions: TurnActions) => fits(state, actions) &&
 const withCounter = (actions: TurnActions, id: CountermeasureId): TurnActions => ({ ...actions, buyCounters: [...actions.buyCounters, id] })
 const withAsset = (actions: TurnActions, kind: AssetKind): TurnActions => ({ ...actions, buyAssets: [...actions.buyAssets, { kind }] })
 const debrisTonight = (state: GameState) =>
-  (planFor(state.scenario, state.turn)?.slots ?? []).some((s) => s.fixed && eventById(state.scenario, s.fixed).effect.special === 'debrisStrike')
+  (planFor(state, state.turn)?.slots ?? []).some((s) => s.fixed && eventById(state.scenario, s.fixed).effect.special === 'debrisStrike')
 
 export const nothing: Policy = () => NO_ORDERS
 
@@ -218,4 +220,10 @@ export const POLICIES: readonly { name: PolicyName; label: string; policy: Polic
 // part of the balance yet.
 export const REPORTED: readonly { name: string; label: string; policy: Policy }[] = [
   { name: 'preparedFollow', label: 'Prepared, following the flag (R0b)', policy: preparedFollow },
+  // THE PREPARED SCRIPT (tests/scripts.ts WIN_SCRIPT), one written order of
+  // six defenses played on every seed whatever TONIGHT says. It won all
+  // 500 seeds on STANDARD through v1.5; since v1.6 R1 (Ken's ruling of 26
+  // October 2026, each seed plays its own order of the campaign) the
+  // sweep holds it to no more wins than Prepared (tests/sweep.spec.ts).
+  { name: 'preparedScript', label: 'Prepared script (one written order)', policy: (state) => WIN_SCRIPT[state.turn] ?? NO_ORDERS },
 ]

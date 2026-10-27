@@ -18,7 +18,7 @@ import { shortName, turnsLeft } from '../board/boardModel'
 import { techniqueLabel } from '../labels'
 import { LearnMore } from '../learnMore'
 import { assetSprite } from '../sprites/assets'
-import { ICON_CHECK, ICON_CROSS, ICON_SPARK, tinted } from '../sprites/icons'
+import { ICON_CHECK, ICON_CROSS, ICON_HALF, ICON_SPARK, tinted } from '../sprites/icons'
 import PixelSprite from '../sprites/PixelSprite'
 import { EMBLEMS } from '../sprites/emblems'
 import DotField from './DotField'
@@ -135,7 +135,7 @@ export function Named({ parts }: { parts: readonly string[] }) {
 // blocked first, then the verdict, "x of y blocked" and the streak, and
 // what it cost on the right.
 const RESULT_TONE = { BLOCKED: 'go', PARTIAL: 'warn', HIT: 'hostile' } as const
-function ResultPanel({ step, reduced }: { step: NightStep; reduced: boolean }) {
+function ResultPanel({ step, reduced, compact = false }: { step: NightStep; reduced: boolean; compact?: boolean }) {
   const r = resultOf(step.ev)
   const tone = RESULT_TONE[r.verdict]
   const d = scoreDelta(step)
@@ -171,7 +171,7 @@ function ResultPanel({ step, reduced }: { step: NightStep; reduced: boolean }) {
       </div>
       </div>
       <div className="flex min-w-0 flex-col gap-0.5">
-        <b data-verdict className={`font-display text-[15px] leading-tight ${HEAD_TONE[tone]}`}>
+        <b data-verdict className={`font-display ${compact ? 'text-[12px]' : 'text-[15px]'} leading-tight ${HEAD_TONE[tone]}`}>
           {r.verdict}
         </b>
         <span data-blocked-of className="font-mono text-[11px]">
@@ -179,7 +179,7 @@ function ResultPanel({ step, reduced }: { step: NightStep; reduced: boolean }) {
         </span>
       </div>
       <div className="flex flex-col items-end gap-0.5 text-right">
-        <b data-result-score className={`whitespace-nowrap font-display leading-none ${r.through === 0 ? 'text-[18px] text-dc-go' : 'text-[20px] text-dc-hostile'}`}>
+        <b data-result-score className={`whitespace-nowrap font-display leading-none ${compact ? 'text-[14px]' : r.through === 0 ? 'text-[18px]' : 'text-[20px]'} ${r.through === 0 ? 'text-dc-go' : 'text-dc-hostile'}`}>
           {big}
         </b>
         {small && <span className={`${LABEL} ${r.through === 0 || r.blocked > 0 ? 'text-dc-go' : 'text-dc-muted'}`}>{small}</span>}
@@ -196,6 +196,40 @@ function StreakLine({ step, reduced }: { step: NightStep; reduced: boolean }) {
       <PixelSprite sprite={tinted(ICON_CHECK, 'go')} scale={1} name="streak-check" />
       {copy.streakLine(step.streak)}
     </p>
+  )
+}
+
+// THE STRIKE'S CARD (v1.6 R1, Ken's ruling of 26 October 2026): on a
+// phone, under the close-up and its banner while a move strikes, where
+// the screen stood empty. The hit card's own parts, still: the result
+// panel without its tiles' motion, so a still reads it, the move with the
+// tile it struck, and the defense that answers it, or that none is owned.
+// It is the strike's, so it changes with each move; the desktop's night
+// log says the same beside the playfield, and the stylesheet hides this
+// there.
+export function StrikeCard({ step, signs }: { step: NightStep; signs: Map<string, string> }) {
+  const { ev, def } = step
+  const asset = ev.targetAssetId === undefined ? undefined : step.before.assets.find((a) => a.id === ev.targetAssetId)
+  const { held } = defensesFor(def, step.after.counters, step.after.scenario)
+  const tone = ev.effectiveSeverity === 0 ? 'go' : 'warn'
+  return (
+    <div data-strike-card={ev.eventId} className="flex w-full max-w-[420px] flex-col gap-2 border-t-2 border-dc-line bg-dc-panel/95 p-2.5 text-dc-ink">
+      {/* Compact: at 375 the full card's sizes ran BLOCKED into NO LOSS
+          (v1.6 R1's fresh eyes, F1). */}
+      <ResultPanel step={step} reduced compact />
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <b data-move-name className="text-[16px] font-bold leading-tight text-dc-ink">
+          {shortName(def)}
+        </b>
+        <Tag tone="muted">{copy.aimedTag(ev.effectiveSeverity > 0, asset?.layer ?? def.layers[0])}</Tag>
+        {asset && <Tag tone="muted">{signs.get(asset.id) ?? asset.id}</Tag>}
+      </p>
+      <p data-strike-defense={held ? tone : 'none'} className="flex items-center gap-1.5 text-[13px] leading-snug">
+        <span className={`${LABEL} text-dc-muted`}>{copy.DEFENSE_WORD}</span>
+        <PixelSprite sprite={tinted(held ? (tone === 'go' ? ICON_CHECK : ICON_HALF) : ICON_CROSS, held ? tone : 'hostile')} scale={1} name="strike-defense" className="flex-none" />
+        <span className={held ? (tone === 'go' ? 'text-dc-go' : 'text-dc-warn') : 'text-dc-hostile'}>{held ? held.name : copy.NO_DEFENSE_OWNED}</span>
+      </p>
+    </div>
   )
 }
 

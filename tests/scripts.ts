@@ -7,7 +7,9 @@
 // which read TONIGHT and WORST CASE rather than following a script, live
 // in tests/policies.ts.
 
+import { DEFAULT_SCENARIO } from '../src/content'
 import { NEW_DEFENSES_PER_NIGHT, resolveTurn } from '../src/engine/reducer'
+import { campaignFor, variantFor } from '../src/engine/campaign'
 import { mulberry32, turnRng } from '../src/engine/rng'
 import type { AssetKind, GameState, TurnActions } from '../src/engine/types'
 
@@ -26,10 +28,13 @@ export const a = (partial: Partial<TurnActions>): TurnActions => ({ ...NO_OP, ..
 // tests/sweep.spec.ts), then PNT authentication and a burn on the
 // conjunction, the sensor stack before the LiDAR moves and the chain, and
 // ground zero trust last. Before the cap it ordered both turn-1 primaries
-// at once and two defenses on three later nights. It wins every one of
-// seeds 1 to 500 on Standard: 67 of them at S on v1.4.0's thresholds, 247
-// on v1.5 R1's (S 77.9). It orders no IR retainer, so R1's recovery change
-// does not reach it.
+// at once and two defenses on three later nights. Through v1.5 it won
+// every one of seeds 1 to 500 on Standard (247 at S on v1.5 R1's
+// thresholds), one written order answering every night; since v1.6 R1,
+// where each seed plays its own order of the campaign, it wins 78.2
+// percent on Standard (S 139, A 54, B 95, C 103, D 109), under the
+// Prepared line's 83.0, and all 500 on EASY (tests/sweep.spec.ts holds
+// it). It orders no IR retainer, so R1's recovery change does not reach it.
 export const WIN_SCRIPT: Record<number, TurnActions> = {
   1: a({ buyAssets: [{ kind: 'drone' }], buyCounters: ['antiJam'] }),
   2: a({ buyCounters: ['encryptedBackhaul'] }),
@@ -105,3 +110,23 @@ export function randomPolicy(policySeed: number): (state: GameState) => TurnActi
     return { ...NO_OP, debris }
   }
 }
+
+// THE SEED'S ORDER (v1.6 R1): each seed plays one variant of FIRST LIGHT's
+// campaign (campaignFor, src/engine/campaign.ts). A fixture that needs the
+// campaign as written (the debris on turn 4, uplink jamming against GNSS
+// spoofing on turn 1) takes a seed that plays it; one that needs the other
+// variant takes one that does not.
+export const playsAsWritten = (seed: number): boolean => variantFor(DEFAULT_SCENARIO, seed) === 0
+export const writtenSeeds = (n: number, from = 1): number[] => {
+  const out: number[] = []
+  for (let seed = from; out.length < n; seed += 1) if (playsAsWritten(seed)) out.push(seed)
+  return out
+}
+export const tradedSeeds = (n: number, from = 1): number[] => {
+  const out: number[] = []
+  for (let seed = from; out.length < n; seed += 1) if (!playsAsWritten(seed)) out.push(seed)
+  return out
+}
+// The turn a seed meets the debris call on.
+export const debrisTurnOf = (seed: number): number =>
+  campaignFor(DEFAULT_SCENARIO, seed).find((p) => p.slots.some((s) => s.fixed === 'debris-conjunction'))!.turn

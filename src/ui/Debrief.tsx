@@ -10,14 +10,16 @@
 // the win line, the bonus a win is graded with, the difficulty and the
 // time played), the six stats, and FILED THIS GAME.
 //
-// A WIN FEELS LIKE A WIN (v1.3 R5, Ken's first priority): a won debrief
-// opens on a layout of its own, not the loss's in green. A filled pixel
+// A WIN FEELS LIKE A WIN (v1.3 R5, Ken's first priority): a filled pixel
 // shield carries the grade, MISSION HELD is stamped beside it, rays stand
 // behind them, and a burst flies out, all scaled by the grade, so a C
-// still reads as a win and an S feels earned. A loss stays sober: it
-// leads with what went wrong (the turn of its biggest drop, M14), then a
-// plain grade row. With motion off the win still reads from its shape:
-// the shield, the stamp and the rays are there, only nothing moves. Below the fold: WHAT YOU CAN NOW SAY, NEXT
+// still reads as a win and an S feels earned. ONE SHAPE (v1.6 R1, Ken's
+// ruling of 26 October 2026): a loss has the same hero in the same place,
+// the shield cracked and the stamp, the rays and the grade in hostile red,
+// with no burst; the same tiles in the same order; and its biggest drop
+// (M14) under the hero, where until v1.6 it stood above a plain grade row.
+// With motion off both read from their shape: the shield, the stamp and
+// the rays are there, only nothing moves. Below the fold: WHAT YOU CAN NOW SAY, NEXT
 // TIME, DECISIONS, the grade ladder, the turn strip, SHARE, PLAY AGAIN,
 // DOSSIER n / 18, BACK TO TITLE and the countdown to the next Daily Op.
 // scripts/phone-layout.mjs holds the first screen to 375x667 unscrolled.
@@ -67,7 +69,7 @@ import { HOOK } from './night/nightCopy'
 import { PRIMARY } from './night/kit'
 import { shareText } from './reportCard'
 import { ICON_CHECK, ICON_CROSS, ICON_HALF, ICON_SPARK, tinted } from './sprites/icons'
-import { SHIELD_PLAIN } from './sprites/effects'
+import { SHIELD_BROKEN, SHIELD_PLAIN } from './sprites/effects'
 import PixelSprite from './sprites/PixelSprite'
 import { dailyStreak, dossierCount } from './titleStatus'
 import { shortName } from './board/boardModel'
@@ -154,8 +156,12 @@ const TIER: Record<'S' | 'A' | 'B' | 'C', { line: string; burst: number; sparks:
   B: { line: 'SOLID HOLD', burst: 12, sparks: 1 },
   C: { line: 'HELD THE LINE', burst: 8, sparks: 0 },
 }
-// The stats a win's grid opens on.
-const WIN_STATS_FIRST = ['MOVES BLOCKED', 'BEST STREAK', 'POINTS SAVED']
+// What each losing grade says under its stamp (v1.6 R1).
+const LOSS_LINE: Record<'D' | 'F', string> = { D: 'FELL SHORT', F: 'ENDED EARLY' }
+// How far the final score finished from the win line, as the HUD says it.
+const marginLine = (final: number, needed: number) => (final >= needed ? `${(final - needed).toFixed(1)} ABOVE WIN LINE` : `${(needed - final).toFixed(1)} BELOW WIN LINE`)
+// The stats the grid opens on, won or lost.
+const STATS_FIRST = ['MOVES BLOCKED', 'BEST STREAK', 'POINTS SAVED']
 // Where each spark sits round the shield, in the order they add.
 // Inside the hero's frame and clear of the lines beside the shield.
 const SPARK_AT = ['-right-1 -top-1', '-left-1 -top-1', '-left-1 bottom-4', '-right-1 bottom-4']
@@ -256,7 +262,7 @@ function Stat({ stat, index, active, reduced, moving }: { stat: DebriefStat; ind
     <li
       data-stat={stat.label}
       data-stat-index={index}
-      className={`flex min-w-0 flex-col gap-1 ${PANEL} ${active ? (moving ? 'dc-stat-in' : '') : 'dc-score-wait'}`}
+      className={`flex min-w-0 flex-col gap-1 bg-dc-panel px-3 py-1.5 ${active ? (moving ? 'dc-stat-in' : '') : 'dc-score-wait'}`}
     >
       <span className="flex items-baseline gap-1 font-mono leading-none">
         <span data-stat-value className="text-lg tabular-nums text-dc-ink">
@@ -328,12 +334,11 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
 
   const block = gradeBlock(state)
   const lead = lossLead(state)
-  // A win leads with what held (fresh-eyes review: a win that opened on
-  // HITS TAKEN read like a loss); a loss keeps the brief's order.
+  // One order, won or lost (v1.6 R1): what held first, as a win has led
+  // since a fresh-eyes review found HITS TAKEN first read like a loss.
   const stats = (() => {
     const all = debriefStats(state)
-    if (state.status !== 'won') return all
-    return WIN_STATS_FIRST.map((label) => all.find((s) => s.label === label)!).concat(all.filter((s) => !WIN_STATS_FIRST.includes(s.label)))
+    return STATS_FIRST.map((label) => all.find((s) => s.label === label)!).concat(all.filter((s) => !STATS_FIRST.includes(s.label)))
   })()
   const strip = turnStrip(state)
   const sayings = canSay(state)
@@ -412,90 +417,71 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
             {after}
           </p>
 
-          {block.won && tier ? (
-            <>
-              {/* THE WIN'S OWN LAYOUT: the shield with the grade in it,
-                  the stamp, the rays and the burst. */}
-              <div data-win-hero data-tier={block.grade} className={`relative z-10 bg-dc-panel px-3 pb-3 pt-4 ${block.grade === 'S' ? 'border-2 border-dc-go' : ''}`}>
-                {/* The rays are clipped to the hero; the burst is not, so
-                    it flies past the hero's edges (fresh-eyes review). */}
-                <div aria-hidden="true" className="absolute inset-0 overflow-hidden">
-                  <div className={`dc-rays absolute inset-0 ${stage < gradeStage ? 'dc-score-wait' : moving ? 'dc-rays-in' : ''}`} />
-                </div>
-                {moving && stage >= gradeStage && <Burst count={tier.burst} />}
-                <div className="relative flex items-center gap-4">
-                  <div data-shield className={`relative flex-none ${stage < gradeStage ? 'dc-score-wait' : moving ? 'dc-shield-pop' : ''}`}>
-                    <PixelSprite sprite={SHIELD_PLAIN} scale={6} name="win-shield" />
-                    {SPARK_AT.slice(0, tier.sparks).map((at) => (
-                      <span key={at} data-spark aria-hidden="true" className={`absolute ${at}`}>
-                        <PixelSprite sprite={tinted(ICON_SPARK, 'warn')} scale={2} name="win-spark" />
-                      </span>
-                    ))}
-                    {/* The win's grade, the largest thing on the screen. */}
-                    <span data-grade className="absolute inset-x-0 top-[16px] text-center font-display text-[44px] leading-none text-dc-ground">
-                      {block.grade}
-                    </span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h2
-                      id="debrief-head"
-                      data-mission
-                      data-stamp
-                      className={`mt-1 inline-block -rotate-6 border-[3px] border-dc-go bg-dc-ground/70 px-2 py-1 font-display text-[15px] leading-tight text-dc-go ${block.grade === 'S' ? 'shadow-[0_0_0_3px_var(--dc-ground),0_0_0_5px_var(--dc-go)]' : ''} ${stage < gradeStage ? 'dc-score-wait' : moving ? 'dc-stamp-in' : ''}`}
-                    >
-                      {block.head}
-                    </h2>
-                    {/* Clear of the stamp's tilt: the grade's word, and how far
-                        over the win line it finished, as the HUD says it
-                        (section 4 rule 9). */}
-                    <p data-tier-line className={`mt-5 font-mono text-[11px] tracking-widest text-dc-go ${stage < gradeStage ? 'dc-score-wait' : ''}`}>
-                      {tier.line}
-                    </p>
-                    <p data-margin className={`mt-1 font-mono text-[12px] text-dc-ink ${stage < gradeStage ? 'dc-score-wait' : ''}`}>
-                      {(block.final - block.needed).toFixed(1)} ABOVE WIN LINE
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div data-win-lines className={`${PANEL} ${stage < gradeStage ? 'dc-score-wait' : ''}`}>
-                <p data-reason className="text-[13px] leading-snug">
-                  {block.reason}
-                </p>
-                <p data-final className="mt-1 text-[12px] leading-snug text-dc-muted">
-                  <FinalLines block={block} difficulty={difficulty} played={filed.run ? clock(filed.run.ms) : null} />
-                </p>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* A LOSS leads with what went wrong (M14), then a plain row. */}
-              {lead && (
-                <div data-loss-lead className="border-l-4 border-dc-hostile bg-dc-hostile/10 px-3 py-2">
-                  <p className={`${HEAD} text-dc-hostile`}>
-                    {/* The turn's net, beside the move's own drop in the line
-                        below (R6b's fresh eyes, item 7). */}
-                    BIGGEST DROP · TURN {lead.turn} · -{lead.drop.toFixed(1)} NET
-                  </p>
-                  <p className="mt-0.5 text-[13px] leading-snug">{lead.line}</p>
-                </div>
-              )}
-              <div data-grade-block className={`grid grid-cols-[auto_1fr] items-center gap-4 border-l-4 border-dc-hostile ${PANEL}`}>
-                <span data-grade className={`dc-grade-letter w-14 text-center font-display ${GRADE_TONE[block.grade]} ${stage < gradeStage ? 'dc-score-wait' : ''}`}>
+          {/* ONE SHAPE, WON OR LOST (v1.6 R1, Ken's ruling of 26 October
+              2026): the hero with the grade, the result and the final
+              score, then why, then a loss's biggest drop, then the six
+              tiles in one order. A win keeps its shield, stamp, rays and
+              burst as decoration; a loss wears the same in hostile red,
+              the shield cracked, and nothing flies. */}
+          <div data-hero={block.won ? 'won' : 'lost'} data-tier={block.grade} className={`relative z-10 bg-dc-panel px-3 pb-2.5 pt-3 ${block.grade === 'S' ? 'border-2 border-dc-go' : ''}`}>
+            {/* The rays are clipped to the hero; the burst is not, so it
+                flies past the hero's edges (fresh-eyes review). */}
+            <div aria-hidden="true" className="absolute inset-0 overflow-hidden">
+              <div className={`dc-rays absolute inset-0 ${block.won ? '' : 'dc-rays-lost'} ${stage < gradeStage ? 'dc-score-wait' : moving ? 'dc-rays-in' : ''}`} />
+            </div>
+            {moving && tier && stage >= gradeStage && <Burst count={tier.burst} />}
+            <div className="relative flex items-center gap-4">
+              <div data-shield className={`relative flex-none ${stage < gradeStage ? 'dc-score-wait' : moving ? 'dc-shield-pop' : ''}`}>
+                <PixelSprite sprite={block.won ? SHIELD_PLAIN : SHIELD_BROKEN} scale={5} name={block.won ? 'win-shield' : 'loss-shield'} />
+                {SPARK_AT.slice(0, tier?.sparks ?? 0).map((at) => (
+                  <span key={at} data-spark aria-hidden="true" className={`absolute ${at}`}>
+                    <PixelSprite sprite={tinted(ICON_SPARK, 'warn')} scale={2} name="win-spark" />
+                  </span>
+                ))}
+                {/* The grade, the largest thing on the screen. */}
+                <span data-grade className="absolute inset-x-0 top-[13px] text-center font-display text-[36px] leading-none text-dc-ground">
                   {block.grade}
                 </span>
-                <div className="min-w-0">
-                  <h2 id="debrief-head" data-mission className="font-display text-sm leading-tight text-dc-hostile">
-                    {block.head}
-                  </h2>
-                  <p data-reason className="mt-1 text-[13px] leading-snug">
-                    {block.reason}
-                  </p>
-                  <p data-final className="mt-1 text-[12px] leading-snug text-dc-muted">
-                    <FinalLines block={block} difficulty={difficulty} played={filed.run ? clock(filed.run.ms) : null} />
-                  </p>
-                </div>
               </div>
-            </>
+              <div className="min-w-0 flex-1">
+                <h2
+                  id="debrief-head"
+                  data-mission
+                  data-stamp
+                  className={`mt-1 inline-block -rotate-6 border-[3px] bg-dc-ground/70 px-2 py-1 font-display text-[15px] leading-tight ${block.won ? 'border-dc-go text-dc-go' : 'border-dc-hostile text-dc-hostile'} ${block.grade === 'S' ? 'shadow-[0_0_0_3px_var(--dc-ground),0_0_0_5px_var(--dc-go)]' : ''} ${stage < gradeStage ? 'dc-score-wait' : moving ? 'dc-stamp-in' : ''}`}
+                >
+                  {block.head}
+                </h2>
+                {/* Clear of the stamp's tilt: the grade's word, the final
+                    score, and how far it finished from the win line, as
+                    the HUD says it (section 4 rule 9). */}
+                <p data-tier-line className={`mt-3 font-mono text-[11px] tracking-widest ${block.won ? 'text-dc-go' : 'text-dc-hostile'} ${stage < gradeStage ? 'dc-score-wait' : ''}`}>
+                  {tier ? tier.line : LOSS_LINE[block.grade as 'D' | 'F']}
+                </p>
+                <p data-margin className={`mt-1 whitespace-nowrap font-mono text-[11px] text-dc-ink ${stage < gradeStage ? 'dc-score-wait' : ''}`}>
+                  FINAL <b className="font-normal">{block.final.toFixed(1)}</b> · {marginLine(block.final, block.needed)}
+                </p>
+              </div>
+            </div>
+            {/* Why, and the final lines, in the hero itself. */}
+            <div data-hero-lines className={`relative mt-2.5 border-t border-dc-line/70 pt-2 ${stage < gradeStage ? 'dc-score-wait' : ''}`}>
+              <p data-reason className="text-[13px] leading-snug">
+                {block.reason}
+              </p>
+              <p data-final className="mt-0.5 text-[12px] leading-snug text-dc-muted">
+                <FinalLines block={block} difficulty={difficulty} played={filed.run ? clock(filed.run.ms) : null} />
+              </p>
+            </div>
+          </div>
+          {/* A loss's biggest drop, under the hero (M14), its two numbers
+              in one sentence. */}
+          {lead && (
+            <div data-loss-lead className="border-l-4 border-dc-hostile bg-dc-hostile/10 px-3 py-2">
+              <p className={`${HEAD} text-dc-hostile`}>
+                BIGGEST DROP · TURN {lead.turn}
+              </p>
+              <p className="mt-0.5 text-[13px] leading-snug">{lead.line}</p>
+            </div>
           )}
 
           <ul data-stats aria-label="This game" className="grid grid-cols-3 gap-1.5">

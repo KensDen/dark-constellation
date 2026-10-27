@@ -64,6 +64,16 @@ export const SHIELD_PLAIN = fx(`
   .....gggggg..... ......gggg...... .......gg....... ................
 `)
 
+// The lost debrief's shield (v1.6 R1): the same shield in the hostile ink,
+// cracked from its top edge and chipped at its foot, so a loss carries the
+// win's shape, not a bare letter on a flat panel.
+export const SHIELD_BROKEN = fx(`
+  ................ .hhhhhhhhhhhkhh. .hhhhhhhhhhhkhh. .hhhhhhhhhhhhkh.
+  .hhhhhhhhhhhhkh. .hhhhhhhhhhhhhk. .hhhhhhhhhhhhhk. .hhhhhhhhhhhhhh.
+  ..hhhhhhhhhhhh.. ..hkhhhhhhhhhh.. ...khhhhhhhhh... ....hkhhhhhh....
+  .....hhhhhh..... ......hhhh...... .......hh....... ................
+`)
+
 // The sparkle a bought part arrives with.
 export const PART_SPARKLE = fx(`
   ................ .g...........w.. gwg.........wgw. .g...........w..

@@ -17,7 +17,8 @@
 // screen, so playback never squeezes it; G-099: a cue says when it scrolls).
 
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
-import { gnssDenied, planFor } from '../../engine/rules'
+import { planFor } from '../../engine/campaign'
+import { gnssDenied } from '../../engine/rules'
 import type { GameState, ThreatEvent } from '../../engine/types'
 import { useCueClass, usePageVisible, useReducedMotion } from '../cues/motion'
 import PixelSprite from '../sprites/PixelSprite'
@@ -198,7 +199,7 @@ export interface TonightProps {
 
 export default function Tonight({ state, slots, brief, briefPrice, onMove, onOrderBrief, onIntel, onTag, pulseMoves, onReveal, defenseOpen, openBrief = false }: TonightProps) {
   const named = brief !== 'none'
-  const intro = planFor(state.scenario, state.turn)?.intro ?? ''
+  const intro = planFor(state, state.turn)?.intro ?? ''
   const reduced = useReducedMotion()
   const decode = useCueClass(named ? 'named' : null, 'dc-manifest-in', reduced)
   // The green noise over the names, for the decode's own length.

@@ -270,6 +270,12 @@ describe('the dock carries the one action array (v1.2 R1b, the Dock since v1.3 R
     expect(executeButton()!.className, 'opening PROCURE made EXECUTE solid').toMatch(/shadow-press/)
     click(procureButton())
     click(procureSheet()!.querySelector('button[data-procure-kind="drone"]')!)
+    // One green primary at a time (v1.6 R1): while PROCURE is open its
+    // CONFIRM is the green one, and EXECUTE keeps its outline until it
+    // closes.
+    expect(procureSheet()!.querySelector('button[data-confirm]')!.className).toMatch(/bg-dc-go /)
+    expect(executeButton()!.className, 'two green primaries at once').not.toMatch(/bg-dc-go /)
+    click(procureSheet()!.querySelector('button[data-confirm]')!)
     expect(executeButton()!.className).toMatch(/bg-dc-go /)
     expect(executeButton()!.className).toMatch(/shadow-hard/)
     expect(procureButton().className).toMatch(/shadow-press/)

@@ -56,12 +56,17 @@ export const FIRST_LIGHT: Scenario = {
   campaign: [
     {
       turn: 1,
-      intro: 'COLDVEIL is working 2 doors tonight. Which one they take depends on which one you leave open.',
+      // One sentence since v1.6 R1: its second ("Which one they take
+      // depends on which one you leave open.") said what TONIGHT's rule line
+      // and FIRST ORDERS say beneath it, and the line it took was the one
+      // the other opening's two-layer move needs at 375x667.
+      intro: 'COLDVEIL is working 2 doors tonight.',
       slots: [{ drawFrom: ['uplink-jamming', 'gnss-spoofing'] }],
     },
     {
       turn: 2,
       intro: 'The squadron flies the river crossing at dawn. Expect pressure on navigation, on timing, and on the people at the consoles.',
+      introTraded: 'The squadron flies the river crossing at dawn. Expect pressure on the uplink, on navigation, and on the people at the consoles.',
       slots: [{ drawFrom: ['ops-phishing', 'pnt-jamming', 'time-spoof'] }],
       opportunity: OPPORTUNITY_DRAW,
     },
@@ -92,6 +97,39 @@ export const FIRST_LIGHT: Scenario = {
       slots: [{ fixed: 'blackout-chain' }, { drawFrom: ['ops-phishing', 'ground-ransomware', 'uplink-jamming'] }],
     },
   ],
+  // THE SEED'S ORDER (v1.6 R1, Ken's ruling of 26 October 2026: vary
+  // COLDVEIL per seed, so one scripted order of defenses can no longer
+  // answer every night). Each seed plays one of two campaigns, drawn from
+  // its deck stream (campaignFor, src/engine/campaign.ts): as written above,
+  // or with COLDVEIL opening on the other layers and working the ground
+  // before the conjunction. The other opening trades turn 1's doors for
+  // turn 2's jam and spoof: PNT jamming in the AIR against a time spoof on
+  // ORBIT and GROUND, still a jam against a spoof, both strength 2, on
+  // different layers with different defenses (M2, M26); turn 2 then draws
+  // phishing, uplink jamming and GNSS spoofing. Turns 4 and 5 trade
+  // places whole. Every move keeps its strength and its counters.
+  //
+  // Measured over 500 seeds a policy (tests/sweep.spec.ts), STANDARD and
+  // EASY: Buy everything 74.8 and 100, Prepared 83.0 (never insolvent) and
+  // 100, Novice 42.2 and 85.8, Random legal 4.4 and 10.4, Nothing 0.0 and
+  // 2.6, and the prepared script (tests/scripts.ts WIN_SCRIPT), which won
+  // all 500 in v1.5, 78.2 and 100. Other designs measured and left: all
+  // 24 orders of turns 2 to 5 lift Prepared to 91.4 (above its band of 65
+  // to 85); the six orders of turns 3 to 5, played one at a time, average
+  // Buy everything 88.2 against Prepared's 82.5; the other opening on its
+  // own lifts Prepared
+  // to 88.6, since a time spoof leaves no condition; every design with
+  // three or more variants that varied the opening put A above 23 percent
+  // of wins (the grade's calibration band, tests/grade.spec.ts).
+  order: {
+    variants: [
+      {},
+      {
+        trade: { ids: { 'uplink-jamming': 'pnt-jamming', 'pnt-jamming': 'uplink-jamming', 'gnss-spoofing': 'time-spoof', 'time-spoof': 'gnss-spoofing' }, turns: [1, 2] },
+        turns: [1, 2, 3, 5, 4, 6],
+      },
+    ],
+  },
   briefIntro: `You are the mission assurance architect at ${PLAYER_ORG}, standing up ${CONSTELLATION} (nine planned smallsats, one with a docking LiDAR package) and ${SQUADRON} (an ISR drone squadron on LiDAR and GNSS navigation) for a disaster-response tasking. ${ADVERSARY}, a threat group with a taste for layered attacks, has taken an interest. Six turns. Keep the Mission Assurance Index at 70 or above and stay solvent.`,
   events: [...THREATS, ...OPPORTUNITIES],
   countermeasures: COUNTERMEASURES,

@@ -240,13 +240,6 @@ body {
   color: var(--color-hero-blue);
 }
 
-/* A block on the HUD (v1.3 R7): the score's digits in the go colour while
-   NO LOSS floats. Outside the layers, so it wins over the readout's own
-   tone; the glow is the motion half, below. */
-.dc-score-held .tabular-nums {
-  color: var(--color-dc-go);
-}
-
 /* The bar's width is driven frame by frame by the count-up in
    src/ui/cues/motion.ts, so it must not also transition here: a width
    transition on top of an eased value made the bar a damped follower that
@@ -300,11 +293,6 @@ body {
 
   .dc-flash-good {
     animation: dc-flash-good 520ms ease-out both;
-  }
-
-  .dc-score-held .tabular-nums,
-  i.dc-score-held {
-    animation: dc-score-held calc(var(--dc-beat, 1200ms) * 0.6) ease-out both;
   }
 
   .dc-badge-attach {
@@ -373,10 +361,6 @@ body {
     animation: dc-mai-float calc(var(--dc-beat, 1200ms) * 0.6) ease-out forwards;
   }
 
-  .dc-odo {
-    animation: dc-odo calc(var(--dc-beat, 1200ms) * 0.08) ease-out both;
-  }
-
   .dc-shield-flash {
     animation: dc-shield-flash calc(var(--dc-beat, 1200ms) * 0.5) steps(1, end) both;
   }
@@ -396,11 +380,6 @@ body {
 @keyframes dc-flash-bad {
   0% { color: var(--color-hero-magenta); text-shadow: 0 0 10px var(--color-hero-magenta); }
   100% { color: var(--color-hero-magenta); text-shadow: none; }
-}
-
-@keyframes dc-score-held {
-  0% { filter: drop-shadow(0 0 6px var(--color-dc-go)); }
-  100% { filter: none; }
 }
 
 @keyframes dc-flash-good {
@@ -480,11 +459,12 @@ body {
    above animate them in, so under reduced motion there is no strobe,
    burst, pip pop or falling "-n", and the tile, its pips and the score
    simply change. The lock-on brackets and HELD are not motion and stand
-   still in both modes. */
+   still in both modes. The delta chip's float left this list in v1.6 R1:
+   it holds its colour, and with motion off the chip stands without the
+   class. */
 .dc-hit-strobe,
 .dc-burst,
-.dc-pip-pop,
-.dc-mai-float {
+.dc-pip-pop {
   opacity: 0;
 }
 
@@ -538,28 +518,14 @@ body {
    then lifts a little as it fades (v1.3 R3 fresh-eyes review: a 20px rise
    carried it into the label row above). */
 @keyframes dc-mai-float {
+  /* Full colour for its whole life (v1.6 R1's fresh eyes, F4: a still
+     caught the fade at a third of its colour); it drifts up, and goes when
+     the move's card comes. */
   0% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  70% {
-    opacity: 1;
-    transform: translateY(-2px);
+    transform: translateY(3px);
   }
   100% {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-}
-
-@keyframes dc-odo {
-  from {
-    opacity: 0.3;
-    transform: translateY(-45%);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+    transform: translateY(-2px);
   }
 }
 
@@ -620,6 +586,12 @@ body {
    and the sections that explain the game run down the right, each a
    readable line; the way on spans both. In the stylesheet rather than the
    debrief's chunk, which sits near its 10,000-byte cap. */
+/* The strike's card names the move on a phone (v1.6 R1), so the banner's
+   own line steps aside there; the desktop shows the line, not the card. */
+[data-strike-banner]:has([data-strike-card]) [data-strike-name] {
+  display: none;
+}
+
 @media (min-width: 1100px) {
   [data-debrief-screen] {
     max-width: 1200px;
@@ -832,6 +804,14 @@ body {
      move plays out on the playfield beside it. */
   [data-board] [data-board-play] [data-strike-banner] {
     position: absolute;
+  }
+  /* The strike's card is the phone's (v1.6 R1): the night's log says it
+     here, so the banner keeps the move's name instead. */
+  [data-board] [data-strike-banner] [data-strike-card] {
+    display: none;
+  }
+  [data-board] [data-strike-banner] [data-strike-name] {
+    display: block;
   }
   /* The side panel: the sheets, in place, the board beside them live. */
   [data-board] [data-sheet] {

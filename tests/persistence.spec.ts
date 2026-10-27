@@ -15,6 +15,7 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import {
   LocalDailyLedger,
   LocalStorageStore,
+  OLDEST_RESUMABLE,
   SAVE_VERSION,
   STALE_SAVE_MESSAGE,
   SaveError,
@@ -126,14 +127,26 @@ describe('save robustness', () => {
     expect(() => resolveTurn(restored, NO_OP, turnRng(restored.seed, restored.turn))).not.toThrow()
   })
 
+  it('resumes a v4 save under the seed\'s order, and still refuses v1 to v3 (v1.6 R1)', () => {
+    // v5's shape is v4's: only the campaign's order is new, drawn from the
+    // seed, so a v4 save loads and plays on (src/persistence/codec.ts).
+    expect(SAVE_VERSION).toBe(5)
+    expect(OLDEST_RESUMABLE).toBe(4)
+    const mid = playTo(SEED, 3, WIN_SCRIPT)
+    const p = captureGame(mid, 'procure', '2026-10-26T00:00:00.000Z')
+    const v4 = restoreGame({ ...p, version: 4 }).state
+    expect(v4.history).toEqual(mid.history)
+    expect(() => resolveTurn(v4, NO_OP, turnRng(v4.seed, v4.turn))).not.toThrow()
+  })
+
   it('refuses v2 and v3 saves as stale too, though their shape once loaded as it was (v1.3 brief 6.10)', () => {
     // v1.2 loaded a v2 save unchanged and resumed it under the deck stream.
-    // Every version before this one is now refused, whatever its shape, and
-    // the store says so for its autosave, so the shell can offer PLAY.
+    // Every version before v4 is refused, whatever its shape, and the store
+    // says so for its autosave, so the shell can offer PLAY.
     expect(SAVE_VERSION).toBeGreaterThanOrEqual(4)
     const mid = playTo(SEED, 3, WIN_SCRIPT)
     const p = captureGame(mid, 'procure', '2026-09-27T00:00:00.000Z')
-    for (let version = 1; version < SAVE_VERSION; version += 1) {
+    for (let version = 1; version < OLDEST_RESUMABLE; version += 1) {
       expect(() => restoreGame({ ...p, version }), `version ${version}`).toThrow(StaleSaveError)
       expect(() => restoreGame({ ...p, version }), `version ${version}`).toThrow(STALE_SAVE_MESSAGE)
     }
@@ -143,7 +156,7 @@ describe('save robustness', () => {
       store.autosave(mid, 'procure')
       expect(store.autosaveIsStale(), 'a current autosave read as stale').toBe(false)
       expect(store.loadAutosave()?.state.seed).toBe(mid.seed)
-      localStorage.setItem('dc-autosave', JSON.stringify({ ...p, version: SAVE_VERSION - 1 }))
+      localStorage.setItem('dc-autosave', JSON.stringify({ ...p, version: OLDEST_RESUMABLE - 1 }))
       expect(store.autosaveIsStale(), 'a stale autosave was not reported').toBe(true)
       expect(store.loadAutosave()).toBeNull()
     } finally {

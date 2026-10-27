@@ -146,7 +146,9 @@ describe('the rest of the debrief reads the record too', () => {
       expect(lead!.turn).toBe(g.history[drops.indexOf(max)].turn)
       expect(lead!.drop).toBe(max)
       const worst = [...g.history[drops.indexOf(max)].events].filter((e) => e.effectiveSeverity > 0).sort((a, b) => b.effectiveSeverity - a.effectiveSeverity)[0]
-      if (worst) expect(lead!.line.startsWith(DEFAULT_SCENARIO.events.find((e) => e.id === worst.eventId)!.name.split(' (')[0])).toBe(true)
+      // The turn's net first, then the move, in one sentence (v1.6 R1).
+      expect(lead!.line.startsWith(`-${max.toFixed(1)} net this turn`), lead!.line).toBe(true)
+      if (worst) expect(lead!.line).toContain(`: ${DEFAULT_SCENARIO.events.find((e) => e.id === worst.eventId)!.name.split(' (')[0]} `)
     }
     expect(leads, 'no loss had a drop to lead with').toBeGreaterThan(0)
   })

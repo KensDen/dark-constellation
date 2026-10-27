@@ -14,7 +14,7 @@
 // The board under the cards is Game's: this tells it what to show
 // (onBoard), which tile the strike is on, and how far the score fell.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MOMENT_CUES, strikeSound } from '../../cues'
 import { strikeIntensity, useSilenceSound, useSound } from '../../audio'
 import type { DebrisChoice, GameState } from '../../engine/types'
@@ -58,9 +58,6 @@ export interface BoardView {
   // A view from before the night's close (every stage but END OF TURN):
   // a condition's turns left read as the close will leave them (G-103).
   preClose?: boolean
-  // A block's card under reduced motion, where no strike floats NO LOSS:
-  // the HUD's score still goes green, without the glow (v1.3 R7).
-  held?: boolean
   // Tonight's moves before the one on screen, all of them at END OF TURN,
   // which the playfield keeps on the board (v1.5 R2).
   traces?: Trace[]
@@ -204,9 +201,14 @@ export default function Night(p: NightProps) {
     // board says which tile the card is about, with motion or without
     // (fresh-eyes review: under reduced motion nothing marked it).
     const rest = step.kind === 'threat' ? strikeOf(`t${night.turn}-${stage.i}`, step.ev, step.def.layers, step.before, true) : null
-    const held = reduced && step.kind === 'threat' && step.ev.effectiveSeverity === 0
+    // With motion off no strike floats the move's change, so the HUD's
+    // delta chip stands while its card is up (v1.6 R1: the score's digits
+    // stay neutral, and the chip is where a hit's red and a block's green
+    // show).
+    const fell = Math.round((step.scoreBefore - step.scoreAfter) * 10) / 10
+    const drop = reduced && step.kind === 'threat' && (fell > 0 || step.ev.effectiveSeverity === 0) ? { id: `t${night.turn}-${stage.i}`, delta: Math.max(0, fell) } : null
     // The debris has no strike; its card keeps its trace on the board.
-    onBoard({ shown: step.after, strike: rest ? { ...rest, rest: true } : null, drop: null, preClose: true, held, traces: traces(step.kind === 'debris' ? stage.i + 1 : stage.i), log: traces(stage.i + 1) })
+    onBoard({ shown: step.after, strike: rest ? { ...rest, rest: true } : null, drop, preClose: true, traces: traces(step.kind === 'debris' ? stage.i + 1 : stage.i), log: traces(stage.i + 1) })
   }, [stage, night, after, onBoard, reduced, record, scenario])
 
   const onContinue = (i: number) => (collect: boolean) => {
@@ -234,7 +236,11 @@ export default function Night(p: NightProps) {
       hit: step.ev.effectiveSeverity > 0,
       landed: stage.landed,
     }
-    return <StrikeBanner key={`banner-${stage.i}`} held={step.ev.effectiveSeverity === 0} name={shortName(step.def)} view={view} />
+    return (
+      <StrikeBanner key={`banner-${stage.i}`} held={step.ev.effectiveSeverity === 0} name={shortName(step.def)} view={view}>
+        {cards && <cards.StrikeCard step={step} signs={signs} />}
+      </StrikeBanner>
+    )
   }
   if (!cards || !close) {
     if (!failed) return null
@@ -341,8 +347,9 @@ function Moving() {
 }
 
 // The strike's banner (brief 5.5 item 1): COLDVEIL MOVES or BLOCKED, with the
-// move's name.
-function StrikeBanner({ held, name, view }: { held: boolean; name: string; view: CloseUpProps }) {
+// move's name; on a phone the strike's card under it names the move
+// instead (v1.6 R1), and the stylesheet keeps one of the two.
+function StrikeBanner({ held, name, view, children }: { held: boolean; name: string; view: CloseUpProps; children?: ReactNode }) {
   return (
     <div data-strike-banner={held ? 'held' : 'hit'} aria-hidden="true" className="dc-banner-in pointer-events-none fixed inset-x-0 top-[30%] z-40 flex flex-col items-center gap-2 px-4">
       {/* The move on its target, close up (v1.5 R2). */}
@@ -351,7 +358,10 @@ function StrikeBanner({ held, name, view }: { held: boolean; name: string; view:
         {held && <PixelSprite sprite={SHIELD_STAMP} scale={3} name="banner-shield" className="dc-stamp-pop" />}
         {held ? copy.STRIKE_HELD : copy.STRIKE_HIT}
       </span>
-      <small className="max-w-full bg-dc-ground/90 px-2.5 py-1 text-center font-mono text-xs text-dc-ink">{name}</small>
+      <small data-strike-name className="max-w-full bg-dc-ground/90 px-2.5 py-1 text-center font-mono text-xs text-dc-ink">
+        {name}
+      </small>
+      {children}
     </div>
   )
 }
