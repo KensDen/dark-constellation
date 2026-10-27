@@ -599,42 +599,42 @@ body {
   [data-debrief] {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    /* Two columns that each flow from the top (v1.6 R2, R1's fresh eyes
+       F18: a won debrief left a band of about 100px under FILED THIS
+       GAME). The first screen takes its own height; the left column's
+       sections start right under it, and the right column's group spans
+       both rows, so neither column waits on the other. */
+    grid-template-rows: auto 1fr;
     column-gap: 28px;
     row-gap: 12px;
     align-items: start;
   }
-  /* Balanced (v1.5 R2's review: the left column ended half way down):
-     the result, the ladder and the turns on the left; what you can say,
-     NEXT TIME and the decisions on the right. */
   [data-debrief] > * {
-    grid-column: 2;
+    grid-column: 1 / -1;
   }
   [data-debrief] > [data-debrief-first] {
     grid-column: 1;
-    grid-row: 1 / span 2;
-  }
-  [data-debrief] > [data-can-say] {
     grid-row: 1;
   }
-  [data-debrief] > [data-next-time] {
+  [data-debrief] > [data-debrief-col] {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  /* Balanced (v1.5 R2's review: the left column ended half way down):
+     what you can say, NEXT TIME and the decisions on the right; the turn
+     strip right under the result (v1.5 R2's re-review: it was below the
+     fold), then the ladder, on the left. */
+  [data-debrief] > [data-debrief-col='right'] {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+  [data-debrief] > [data-debrief-col='left'] {
+    grid-column: 1;
     grid-row: 2;
   }
-  /* The turn strip right under the result (v1.5 R2's re-review: it was
-     below the fold), then the ladder. */
-  [data-debrief] > [data-turns] {
-    grid-column: 1;
-    grid-row: 3;
-  }
-  [data-debrief] > [data-decisions] {
-    grid-row: 3 / span 2;
-  }
-  [data-debrief] > [data-ladder] {
-    grid-column: 1;
-    grid-row: 4;
-  }
-  [data-debrief] > [data-debrief-bar],
-  [data-debrief] > [data-debrief-bar] ~ div {
-    grid-column: 1 / -1;
+  [data-debrief-col='left'] > [data-turns] {
+    order: -1;
   }
 }
 
@@ -791,6 +791,13 @@ body {
     grid-area: field;
     align-self: end;
     padding: 4px 12px 14px;
+  }
+  /* Desktop type (v1.6 R2, R1's fresh eyes F25 and the round's own G8):
+     the phone's 9 to 11px labels and tags read as phone sizes at 1440, so
+     in the HUD, the night's column, the dock and the side panel nothing
+     is set under 12px. */
+  [data-board] :is([data-hud], [data-board-play], [data-dock], [data-sheet]) :is(.text-\[9px\], .text-\[10px\], .text-\[11px\]) {
+    font-size: 12px;
   }
   /* The full brief, open with TONIGHT here, has the room to show more. */
   [data-board] [data-brief-scroll] {

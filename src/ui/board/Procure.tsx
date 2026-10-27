@@ -36,7 +36,8 @@ import { assetSprite } from '../sprites/assets'
 import { DEFENSE_ICONS } from '../sprites/defenses'
 import { EYE, ICON_CHECK, ICON_CROSS, ICON_LOCK, tinted } from '../sprites/icons'
 import { KIND_LAYER } from './board'
-import { BRIEF_LOCKED_LINE, BRIEF_RULE, MORE_BELOW, PROCURE_HOW, NOT_THIS_TURN, PROCURE_KINDS, briefLockedTag, PROCURE_LABEL, capLabel, confirmNote, defenseCount, defenseOrderIn, defenseRule, defensesPerTurn, hiddenOrder, matchNote, shortName, stopsLine, stopsTags, turns } from './boardModel'
+import ScrollCue from './ScrollCue'
+import { BRIEF_LOCKED_LINE, BRIEF_RULE, PROCURE_HOW, NOT_THIS_TURN, PROCURE_KINDS, briefLockedTag, PROCURE_LABEL, capLabel, confirmNote, defenseCount, defenseOrderIn, defenseRule, defensesPerTurn, hiddenOrder, matchNote, shortName, stopsLine, stopsTags, turns } from './boardModel'
 
 export interface ProcureProps {
   state: GameState
@@ -384,9 +385,7 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
         </div>
       </div>
       {more && (
-        <p data-scroll-cue aria-hidden="true" className="pointer-events-none relative z-10 -mt-7 flex-none bg-linear-to-t from-dc-panel from-40% to-transparent pt-3 text-center font-mono text-[10px] text-dc-muted">
-          {MORE_BELOW}
-        </p>
+        <ScrollCue data-scroll-cue className="relative -mt-9 flex-none" />
       )}
       <div className="flex-none border-t border-dc-line px-3 pt-2 pb-2">
         {orders > 0 ? (

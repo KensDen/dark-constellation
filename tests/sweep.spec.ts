@@ -15,6 +15,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import type { Difficulty } from '../src/engine/types'
+import { bestOrders } from './fixed-orders'
 import { POLICIES, REPORTED, type PolicyName } from './policies'
 import { GRADES, SEEDS, median, playPolicy, type PolicyRun } from './sweep-run'
 
@@ -110,6 +111,22 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     // Not vacuous: on STANDARD the script loses some seeds.
     expect(reported.get('preparedScript:standard')!.wins, 'the prepared script still wins every seed').toBeLessThan(SEEDS)
   })
+
+  // THE FIXED-ORDER SEARCH, on request (v1.6 R2): the best one-a-turn
+  // orders of the eight defenses that matter, reported beside Prepared.
+  // Ken's ruling of 27 October 2026 asked for none to win more often than
+  // Prepared on STANDARD; no campaign measured that keeps the targets
+  // above does it (brief 6.1), so this reports and does not gate. About 80
+  // seconds.
+  it.skipIf(!process.env.SWEEP_ORDERS)('reports the best fixed one-a-turn orders beside Prepared (v1.6 R2)', () => {
+    const best = bestOrders()
+    const prepared = runs.get(key('prepared', 'standard'))!.wins
+    process.stderr.write(
+      [`\nBest fixed one-a-turn orders on STANDARD (60 seeds screened, ${SEEDS} confirmed), Prepared ${pct(prepared, SEEDS).toFixed(1)}%:`, ...best.map(([order, wins]) => `${pct(wins, SEEDS).toFixed(1)}% ${order}`), ''].join('\n') + '\n',
+    )
+    // Not vacuous: the search found and played orders.
+    expect(best.length).toBe(8)
+  }, 600_000)
 
   it('never lets the prepared player go insolvent, on either difficulty', () => {
     for (const difficulty of ['standard', 'easy'] as const) expect(runs.get(key('prepared', difficulty))!.insolvencies, difficulty).toBe(0)

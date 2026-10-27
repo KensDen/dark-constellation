@@ -52,9 +52,10 @@ import Dock from './board/Dock'
 import Procure from './board/Procure'
 import type { SheetId } from './board/actions'
 import { ACTIONS, resolveLabel } from './board/actions'
-import { MORE_BELOW, WIDE_BOARD, callIndex, tonightSlots, turnsLeft } from './board/boardModel'
+import { WIDE_BOARD, callIndex, tonightSlots, turnsLeft } from './board/boardModel'
 import SystemSheet from './board/SystemSheet'
 import NightLog from './board/NightLog'
+import ScrollCue from './board/ScrollCue'
 import { callSigns, conditionsOn, tilesByLayer, turnBudget } from './board/board'
 import { COUNT_SHARE, STRIKE_MS } from './board/strike'
 import { DEFAULT_SCENARIO } from '../content'
@@ -994,9 +995,7 @@ export default function Game({
           </div>
         </div>
         {moreBelow && (
-          <p data-board-more aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 border-t border-dc-line/60 bg-dc-ground/90 py-0.5 text-center font-mono text-[10px] tracking-widest text-dc-ink">
-            {MORE_BELOW}
-          </p>
+          <ScrollCue data-board-more on="ground" className="absolute inset-x-0 bottom-0" />
         )}
         {/* THE SHEETS, over the dimmed board and under the dock, which
             stays live so EXECUTE is one tap away from inside PROCURE. The

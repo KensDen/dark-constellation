@@ -104,6 +104,12 @@ export const ICON_DOWN = mono(`
   iiiiiiii .iiiiii. .iiiiii. ..iiii..
   ..iiii.. ...ii... ...ii... ........
 `)
+// ◎ INCOMING: a move locking on, on the desktop's night log (v1.6 R2's
+// fresh eyes: the word stood without an icon), a reticle on its target.
+export const ICON_AIM = mono(`
+  ..iiii.. .i....i. i..ii..i i.i..i.i
+  i.i..i.i i..ii..i .i....i. ..iiii..
+`)
 // ✦ new intel, on COLLECT INTEL CARD (v1.3 R3).
 export const ICON_SPARK = mono(`
   ...ii... ...ii... ..iiii.. iiiiiiii

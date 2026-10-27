@@ -11,6 +11,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { GameState } from '../../engine/types'
 import { JOB_FRAMING_HEADING, briefCopy } from '../brief'
+import ScrollCue from './ScrollCue'
 
 export interface FullBriefProps {
   state: GameState
@@ -62,9 +63,7 @@ export default function FullBrief({ state, named, onIntel, onTag }: FullBriefPro
         )}
       </div>
       {more && (
-        <p data-scroll-cue aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 bg-dc-panel/90 text-center font-mono text-[10px] text-dc-muted">
-          ▼ more below
-        </p>
+        <ScrollCue data-scroll-cue className="absolute inset-x-0 bottom-0" />
       )}
     </div>
   )

@@ -59,8 +59,14 @@ describe("the desktop night's log (v1.5 R2)", () => {
       expect(container.querySelector('h2')!.textContent).toBe(`TONIGHT · TURN ${rec.turn}`)
     }
     expect(seen.size, 'the game met too few kinds of result to test').toBeGreaterThanOrEqual(2)
-    // The move on its way, while it strikes.
+    // The move on its way while its strike locks on, in the muted ink and
+    // with no result yet (v1.6 R2, R1's fresh eyes F6: a red COLDVEIL
+    // MOVES stood beside a BLOCKED banner). The name is in sentence case,
+    // as every move's is (F14).
     act(() => root.render(<NightLog turn={6} scenario={DEFAULT_SCENARIO} log={[]} moving="blackout-chain" signs={new Map()} />))
-    expect(container.querySelector('li[data-log="moving"]')!.textContent).toBe('COLDVEIL MOVES · BLACKOUT CHAIN')
+    const moving = container.querySelector('li[data-log="moving"]')!
+    expect(moving.textContent).toBe('INCOMING · Blackout chain')
+    expect(moving.className).toContain('text-dc-muted')
+    expect(moving.className).not.toContain('hostile')
   })
 })

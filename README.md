@@ -29,7 +29,9 @@ seed plays one of two campaigns: COLDVEIL opens as the briefing expects and work
 or opens on the other layers and works the ground before the debris night. The hand-written order
 of six defenses that won all 500 measured seeds in v1.5 now wins 78 percent of them, below play
 that reads each night (83). The adversary still punishes a fixed plan only partly: the same six
-defenses in another order win every one of those seeds, and that is the next thing to fix.
+defenses in another order win every one of those seeds. Varying which moves each night can draw
+does not close it: of 1,728 ways measured, the six that keep every balance target each leave an
+order that wins every seed, so closing the gap needs a change to the rules, which is the next decision.
 
 ## Daily Op and the debrief
 

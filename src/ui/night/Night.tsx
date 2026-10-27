@@ -20,7 +20,7 @@ import { strikeIntensity, useSilenceSound, useSound } from '../../audio'
 import type { DebrisChoice, GameState } from '../../engine/types'
 import { dossier, fileCard, knownThreats } from '../../persistence'
 import { callSigns } from '../board/board'
-import { shortName, stoppedByLine } from '../board/boardModel'
+import { WIDE_BOARD, shortName, stoppedByLine } from '../board/boardModel'
 import { LOCK_SHARE, STRIKE_MS, strikeOf, tracesOf, type Strike, type Trace } from '../board/strike'
 import { CloseUp, type CloseUpProps } from '../board/Playfield'
 import { useReducedMotion } from '../cues/motion'
@@ -193,8 +193,10 @@ export default function Night(p: NightProps) {
         drop: stage.landed && (fell > 0 || step.ev.effectiveSeverity === 0) ? { id: `t${night.turn}-${stage.i}`, delta: Math.max(0, fell) } : null,
         preClose: true,
         traces: traces(stage.i),
-        log: traces(stage.i),
-        moving: step.ev.eventId,
+        // The desktop's log writes the move's row as it lands (v1.6 R2,
+        // R1's fresh eyes F6); until then it is INCOMING.
+        log: traces(stage.landed ? stage.i + 1 : stage.i),
+        moving: stage.landed ? null : step.ev.eventId,
       })
     }
     // While a move's card is up, its tile keeps a still reticle, so the
@@ -238,7 +240,7 @@ export default function Night(p: NightProps) {
     }
     return (
       <StrikeBanner key={`banner-${stage.i}`} held={step.ev.effectiveSeverity === 0} name={shortName(step.def)} view={view}>
-        {cards && <cards.StrikeCard step={step} signs={signs} />}
+        {cards && <cards.StrikeCard step={step} signs={signs} earlier={tracesOf(turn, record.events, scenario, stage.i)} of={tracesOf(turn, record.events, scenario).length} />}
       </StrikeBanner>
     )
   }
@@ -350,8 +352,23 @@ function Moving() {
 // move's name; on a phone the strike's card under it names the move
 // instead (v1.6 R1), and the stylesheet keeps one of the two.
 function StrikeBanner({ held, name, view, children }: { held: boolean; name: string; view: CloseUpProps; children?: ReactNode }) {
+  // On a phone the banner stands under the asset strip, never over it
+  // (v1.6 R2's fresh eyes, G7: once a condition's chip or the streak's
+  // line made the strip taller, its foot ran under the close-up). Read as
+  // the strike starts, before the card under it measures its room, with
+  // 12px to spare for the streak's line, which can arrive as a move lands.
+  const [top] = useState(() => {
+    if (typeof window === 'undefined' || window.matchMedia?.(WIDE_BOARD).matches) return undefined
+    const strip = document.querySelector('[data-strip]')?.getBoundingClientRect().bottom ?? 0
+    return strip + 12 > window.innerHeight * 0.3 ? strip + 12 : undefined
+  })
   return (
-    <div data-strike-banner={held ? 'held' : 'hit'} aria-hidden="true" className="dc-banner-in pointer-events-none fixed inset-x-0 top-[30%] z-40 flex flex-col items-center gap-2 px-4">
+    <div
+      data-strike-banner={held ? 'held' : 'hit'}
+      aria-hidden="true"
+      style={top === undefined ? undefined : { top }}
+      className="dc-banner-in pointer-events-none fixed inset-x-0 top-[30%] z-40 flex flex-col items-center gap-2 px-4"
+    >
       {/* The move on its target, close up (v1.5 R2). */}
       <CloseUp {...view} />
       <span className={`flex items-center gap-2.5 font-display ${held ? 'text-[28px] text-dc-go' : 'text-[20px] text-dc-hostile'}`}>

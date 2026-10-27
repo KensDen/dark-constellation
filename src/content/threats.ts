@@ -729,7 +729,11 @@ export const THREATS: ThreatEvent[] = [
   // 16
   {
     id: 'blackout-chain',
-    name: 'BLACKOUT CHAIN (jam GNSS, then exploit the fallback)',
+    // Sentence case since v1.6 R2, as every other move's name is (R1's
+    // fresh eyes, F14: "BLACKOUT CHAIN" in capitals beside "Time spoof"
+    // read as a different kind of thing mid-sentence). The armed status
+    // line keeps its capitals, as a status (CHAIN_ARMED_LINE).
+    name: 'Blackout chain (jam GNSS, then exploit the fallback)',
     layers: ['AIR'],
     vector: 'optical',
     baseSeverity: 3,

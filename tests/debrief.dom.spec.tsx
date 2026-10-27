@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Debrief from '../src/ui/Debrief'
 import { DEBRIEF_MOTION } from '../src/ui/debriefMotion'
@@ -86,6 +86,14 @@ function flipReducedMotion(reduced: boolean) {
     for (const l of [...motionListeners]) l()
   })
 }
+
+// The debrief's lower sections arrive in a chunk of their own (v1.6 R2),
+// fetched as the debrief loads; here before the first mount, as they are
+// in the game long before a player scrolls to them.
+beforeAll(async () => {
+  await import('../src/ui/DebriefMore')
+  await new Promise((r) => setTimeout(r, 0))
+})
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -360,7 +368,7 @@ describe('NEXT TIME names an order of purchases and what it does to the game (v1
           expect(text, `seed ${seed}: "${text}"`).toContain(`on turn ${next.orderOn}`)
           expect(text, `seed ${seed}: "${text}"`).toContain(`Played again with every other order the same, this game ends at ${next.final.toFixed(1)}, not ${next.was.toFixed(1)}`)
           if (next.ahead) expect(text).toContain(next.aheadTo !== null ? `move ${next.ahead} to turn ${next.aheadTo}` : `in place of ${next.ahead}`)
-          else expect(text).toContain('a turn you ordered no defense')
+          else expect(text).toContain('when you ordered no defense')
           if (!next.won) expect(text).toContain('still under the win line of 70')
         }
         // The retired words a line about ordering could slip into (GUARD

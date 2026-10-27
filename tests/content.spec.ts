@@ -108,6 +108,19 @@ describe('content integrity', () => {
     }
   })
 
+  it("names every move in sentence case, as a proper noun (v1.6 R2, R1's fresh eyes F14)", () => {
+    // The name a sentence carries is the part before its parenthesis
+    // (shortName, src/ui/board/boardModel.ts): "Time spoof", "Blackout
+    // chain". One in capitals ("BLACKOUT CHAIN") read as a different kind
+    // of thing beside the rest, mid-sentence, on the debrief and the cards.
+    for (const e of DEFAULT_SCENARIO.events) {
+      const short = e.name.split(' (')[0]
+      expect(short[0], e.id).toBe(short[0].toUpperCase())
+      const words = short.split(' ').filter((w) => /^[A-Za-z]{4,}$/.test(w))
+      expect(words.every((w) => w === w.toUpperCase()) && words.length > 0, `${e.id}: "${short}" is in capitals`).toBe(false)
+    }
+  })
+
   it('the BLACKOUT CHAIN centerpiece is wired: jam trigger and exploit both present', () => {
     const jam = DEFAULT_SCENARIO.events.find((e) => e.effect.special === 'jamsGnss')
     const exploit = DEFAULT_SCENARIO.events.filter((e) => e.effect.special === 'chainExploit')

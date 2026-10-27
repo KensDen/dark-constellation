@@ -136,6 +136,8 @@ export const STRENGTH = 'STRENGTH'
 export const MORE = '▼ more below'
 export const savedLabel = (saved: number) => `SAVED ${saved.toFixed(1)}`
 export const SCORE_WORD = 'SCORE'
+// The night so far, over the strike card's list (v1.6 R2).
+export const moveOf = (n: number, of: number) => `TONIGHT · MOVE ${n} OF ${of}`
 export const aimedTag = (landed: boolean, layer: string) => `${landed ? 'HIT' : 'AIMED AT'} ${layer}`
 // The condition a hit leaves, in the one meaning of turns left (G-103,
 // brief 6.5): the nights it will still press after this one, the count

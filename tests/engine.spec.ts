@@ -38,6 +38,14 @@
 // traded. The rules and every number are unchanged, so the move is the
 // order the seeds now meet: win cf111d31..., loss b99db795..., file sha1
 // b5017102.
+//
+// AND ONCE IN v1.6 R2 (27 October 2026), for a name, not a rule: the
+// signature move's name went from "BLACKOUT CHAIN (...)" to "Blackout
+// chain (...)", sentence case like every other move's (R1's fresh eyes,
+// F14), and a turn's record carries the names of what it met. No rule,
+// draw or number moved: the same games, the same scores, one name
+// re-cased in the history: win 2ce7480c..., loss 37c25780..., file sha1
+// 112140af.
 
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -100,10 +108,10 @@ describe('determinism', () => {
     // The committed file, pinned, so a regenerated snapshot is an edit to
     // this line as well as to the file: the snapshot moves deliberately or
     // not at all. be6509e3 was the v1.3 Round 0 move; 2a5966f1 the Round
-    // 6b move; ab375fc0 the v1.4.0 move; b5017102 is the v1.6 R1 move (see
-    // the header).
+    // 6b move; ab375fc0 the v1.4.0 move; b5017102 the v1.6 R1 move;
+    // 112140af is the v1.6 R2 move (see the header).
     expect(createHash('sha1').update(readFileSync(SNAPSHOT_PATH, 'utf8')).digest('hex'), 'the committed snapshot file changed').toBe(
-      'b5017102765b652ddebc7581345748642d12e92f',
+      '112140afc7c3f5b2905d5852534f2ee660ca7979',
     )
   })
 

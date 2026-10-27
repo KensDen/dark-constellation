@@ -4,28 +4,27 @@
 // they land: each move, its target, what it came to as an icon and a word,
 // and the score's change. The playfield beside it keeps every one where it
 // landed. Desktop only: Game renders it from WIDE_BOARD up.
+//
+// Since v1.6 R2 (R1's fresh eyes, F6) a move's row is written as its
+// strike lands, not when its card comes up: while it locks on the row reads
+// ◎ INCOMING, in the muted ink, and the moment it lands it reads
+// HIT, PARTIAL or BLOCKED with its target and the score's change, as the
+// banner beside it does. The phone's strike card lists the night so far
+// with the same rows (LogRows, src/ui/night/cards.tsx).
 
 import type { Scenario } from '../../engine/types'
 import PixelSprite from '../sprites/PixelSprite'
-import { ICON_BURN, ICON_CHECK, ICON_CROSS, ICON_HALF, tinted } from '../sprites/icons'
-import type { Sprite, Token } from '../sprites/sprite'
+import { ICON_AIM, tinted } from '../sprites/icons'
 import { shortName } from './boardModel'
+import { LogRows } from './LogRows'
 import type { Trace } from './strike'
-
-const RESULT: Record<Trace['result'], { word: string; icon: Sprite; token: Token }> = {
-  blocked: { word: 'BLOCKED', icon: ICON_CHECK, token: 'go' },
-  partial: { word: 'PARTIAL', icon: ICON_HALF, token: 'warn' },
-  hit: { word: 'HIT', icon: ICON_CROSS, token: 'hostile' },
-  clear: { word: 'CLEAR', icon: ICON_BURN, token: 'friendly' },
-  lost: { word: 'LOST', icon: ICON_CROSS, token: 'hostile' },
-}
-const TEXT: Record<Token, string> = { go: 'text-dc-go', warn: 'text-dc-warn', hostile: 'text-dc-hostile', friendly: 'text-dc-friendly' } as Record<Token, string>
 
 export interface NightLogProps {
   turn: number
   scenario: Scenario
   log: readonly Trace[]
-  // The move on its way, while it strikes.
+  // The move on its way, while its strike locks on; once it lands it is
+  // a row of the log.
   moving?: string | null
   signs: ReadonlyMap<string, string>
 }
@@ -39,29 +38,15 @@ export default function NightLog({ turn, scenario, log, moving, signs }: NightLo
     <section aria-label={`Tonight, turn ${turn}`} data-sheet="log" className="flex flex-col overflow-y-auto bg-dc-panel text-dc-ink">
       <h2 className="flex-none border-b border-dc-line px-3 py-2.5 font-mono text-xs tracking-widest">TONIGHT · TURN {turn}</h2>
       <ol className="flex flex-col gap-1.5 px-3 py-3">
-        {log.map((t) => {
-          const r = RESULT[t.result]
-          return (
-            <li key={t.id} data-log={t.result} className="grid grid-cols-[auto_1fr_auto] items-baseline gap-x-2 border-b border-dc-line/60 pb-1.5 text-sm">
-              <span className={`flex items-center gap-1 font-mono text-[11px] tracking-wider ${TEXT[r.token]}`}>
-                <PixelSprite sprite={tinted(r.icon, r.token)} scale={1} name={`log-${t.result}`} />
-                {r.word}
-              </span>
-              <span className="min-w-0">
-                {name(t.eventId)}
-                {t.assetId && signs.get(t.assetId) && <span className="text-dc-muted"> · {signs.get(t.assetId)}</span>}
-              </span>
-              <span className={`font-mono text-xs ${t.delta < 0 ? 'text-dc-hostile' : 'text-dc-muted'}`}>{t.delta < 0 ? t.delta.toFixed(1) : 'NO LOSS'}</span>
-            </li>
-          )
-        })}
+        <LogRows scenario={scenario} log={log} signs={signs} />
         {moving && (
-          <li data-log="moving" className="font-mono text-[11px] tracking-wider text-dc-hostile">
-            COLDVEIL MOVES · <span className="font-sans text-sm text-dc-ink">{name(moving)}</span>
+          <li data-log="moving" className="flex items-center gap-1 font-mono text-[11px] tracking-wider text-dc-muted">
+            <PixelSprite sprite={tinted(ICON_AIM, 'muted')} scale={1} name="log-incoming" />
+            INCOMING · <span className="font-sans text-sm text-dc-ink">{name(moving)}</span>
           </li>
         )}
       </ol>
-      <p className="px-3 pb-3 text-xs text-dc-muted">Each move stays on the playfield, where it landed.</p>
+      <p className="px-3 pb-3 text-xs text-dc-muted">Each move stays on the board, where it landed.</p>
     </section>
   )
 }

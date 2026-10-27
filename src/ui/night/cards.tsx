@@ -10,11 +10,13 @@
 // Everything a card states is the engine's record of the night, read
 // through ./nightModel; its words are ./nightCopy's.
 
-import { useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { BLOCK_TONE, HEAD_TONE, LABEL, PRIMARY, TAG_TONE, useMore, useOnce, type Play } from './kit'
 import type { ThreatEvent } from '../../engine/types'
 import { CONDITION_CUES, MOMENT_CUES } from '../../cues'
 import { shortName, turnsLeft } from '../board/boardModel'
+import { LogRows } from '../board/LogRows'
+import type { Trace } from '../board/strike'
 import { techniqueLabel } from '../labels'
 import { LearnMore } from '../learnMore'
 import { assetSprite } from '../sprites/assets'
@@ -207,13 +209,37 @@ function StreakLine({ step, reduced }: { step: NightStep; reduced: boolean }) {
 // It is the strike's, so it changes with each move; the desktop's night
 // log says the same beside the playfield, and the stylesheet hides this
 // there.
-export function StrikeCard({ step, signs }: { step: NightStep; signs: Map<string, string> }) {
+//
+// v1.6 R2 (R1's fresh eyes, F5): from 390 wide the card adds one line from
+// the hit card's outcome block (what would have helped, or what the player
+// can now say), and under it the night so far: which move of tonight's
+// this is, and the moves before it as the desktop's log writes them. The
+// list stands only where it fits under the card: at 375x667 a night's
+// later move can leave it no room, and the card never scrolls.
+export function StrikeCard({ step, signs, earlier, of }: { step: NightStep; signs: Map<string, string>; earlier: readonly Trace[]; of: number }) {
   const { ev, def } = step
   const asset = ev.targetAssetId === undefined ? undefined : step.before.assets.find((a) => a.id === ev.targetAssetId)
-  const { held } = defensesFor(def, step.after.counters, step.after.scenario)
+  const scenario = step.after.scenario
+  const { held, missing, partner } = defensesFor(def, step.after.counters, scenario)
   const tone = ev.effectiveSeverity === 0 ? 'go' : 'warn'
+  const line = ev.outcome === 'held' && held
+    ? partner ? copy.canNowSayWith(held.name, shortName(def), partner.name) : copy.canNowSay(held.name, shortName(def))
+    : missing
+      ? ev.outcome === 'reduced' ? copy.finishedIt(missing.name, missing.cost) : copy.wouldHaveHelped(missing.name, missing.cost)
+      : null
+  const list = useRef<HTMLDivElement | null>(null)
+  const [room, setRoom] = useState(true)
+  useLayoutEffect(() => {
+    const el = list.current
+    if (!el) return
+    // Where the list will rest: the banner rises 10px into place as the
+    // strike starts (dc-banner-in), so its offset now is taken off.
+    const banner = el.closest('[data-strike-banner]')
+    const rise = banner && typeof DOMMatrixReadOnly !== 'undefined' ? new DOMMatrixReadOnly(getComputedStyle(banner).transform === 'none' ? undefined : getComputedStyle(banner).transform).m42 : 0
+    setRoom(el.getBoundingClientRect().bottom - rise <= window.innerHeight - 8)
+  }, [])
   return (
-    <div data-strike-card={ev.eventId} className="flex w-full max-w-[420px] flex-col gap-2 border-t-2 border-dc-line bg-dc-panel/95 p-2.5 text-dc-ink">
+    <div data-strike-card={ev.eventId} data-strike-moves={of} className="flex w-full max-w-[420px] flex-col gap-2 border-t-2 border-dc-line bg-dc-panel/95 p-2.5 text-dc-ink">
       {/* Compact: at 375 the full card's sizes ran BLOCKED into NO LOSS
           (v1.6 R1's fresh eyes, F1). */}
       <ResultPanel step={step} reduced compact />
@@ -229,6 +255,23 @@ export function StrikeCard({ step, signs }: { step: NightStep; signs: Map<string
         <PixelSprite sprite={tinted(held ? (tone === 'go' ? ICON_CHECK : ICON_HALF) : ICON_CROSS, held ? tone : 'hostile')} scale={1} name="strike-defense" className="flex-none" />
         <span className={held ? (tone === 'go' ? 'text-dc-go' : 'text-dc-warn') : 'text-dc-hostile'}>{held ? held.name : copy.NO_DEFENSE_OWNED}</span>
       </p>
+      {line && (
+        <p data-strike-outcome={ev.outcome} className="hidden text-[13px] leading-snug text-dc-ink/85 min-[390px]:block">
+          <Named parts={line} />
+        </p>
+      )}
+      {/* A night of one move has no "so far" to list (v1.6 R2's fresh
+          eyes, G9: its head stood over nothing). */}
+      {of > 1 && (
+        <div ref={list} data-strike-log={room ? 'shown' : 'no-room'} className={`border-t border-dc-line/70 pt-1.5 ${room ? '' : 'hidden'}`}>
+          <p className={`${LABEL} text-dc-muted`}>{copy.moveOf(earlier.length + 1, of)}</p>
+          {earlier.length > 0 && (
+            <ol className="mt-1 flex flex-col gap-1">
+              <LogRows scenario={scenario} log={earlier} signs={signs} size="text-[13px]" />
+            </ol>
+          )}
+        </div>
+      )}
     </div>
   )
 }

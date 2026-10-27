@@ -74,7 +74,10 @@
 //
 // THE v1.6 R1 GUARDS, (a) to (f): the score's stills, its one colour, the
 // phone night's strike card, PROCURE's cards, the turn-1 board on both
-// openings and one debrief shape (see v16Guards below).
+// openings and one debrief shape (see v16Guards below). THE v1.6 R2
+// GUARDS, (g) to (k): the strike card's outcome line and the night so far,
+// the desktop log during a strike, the desktop debrief's columns, desktop
+// type, and "more below" on a solid band (see desktopType below).
 //
 // Exit codes: 0 pass, 1 fail, 2 skipped (no Chrome on this machine). The
 // battery runs it after the build. GitHub's ubuntu-24.04 runner has
@@ -966,9 +969,21 @@ const STRIKE_CARD = `(() => {
     defense: card?.querySelector('[data-strike-defense]')?.textContent ?? '',
     verdict: card?.querySelector('[data-verdict]')?.textContent ?? '',
     top: r?.top ?? 0, bottom: r?.bottom ?? 0, closeBottom: close?.bottom ?? 0, vh: innerHeight,
+    closeTop: close?.top ?? 0, stripBottom: document.querySelector('[data-strip]')?.getBoundingClientRect().bottom ?? 0,
     page: document.documentElement.scrollHeight > innerHeight + 1,
     moving,
     bad: card && shown ? ${OUT_OF_BOUNDS}(card) : [],
+    // v1.6 R2: the outcome line, and the night so far under the card.
+    outcome: card?.querySelector('[data-strike-outcome]') ? getComputedStyle(card.querySelector('[data-strike-outcome]')).display !== 'none' : null,
+    list: card?.querySelector('[data-strike-log]')?.getAttribute('data-strike-log') ?? null,
+    moves: Number(card?.getAttribute('data-strike-moves') ?? 0),
+    listHead: card?.querySelector('[data-strike-log] p')?.textContent ?? '',
+    listRows: card ? card.querySelectorAll('[data-strike-log] li[data-log]').length : 0,
+    listBottom: card?.querySelector('[data-strike-log]')?.getBoundingClientRect().bottom ?? 0,
+    // The desktop's log: its rows, and the move on its way.
+    held: banner.getAttribute('data-strike-banner') === 'held',
+    logRows: [...document.querySelectorAll('[data-sheet="log"] li[data-log]:not([data-log="moving"])')].map((e) => e.getAttribute('data-log')),
+    logMoving: document.querySelector('[data-sheet="log"] li[data-log="moving"]') ? getComputedStyle(document.querySelector('[data-sheet="log"] li[data-log="moving"]')).color : null,
   }
 })()`
 
@@ -983,6 +998,12 @@ async function strikeCards(b, url, [w, h]) {
   const failures = []
   const seen = []
   const ink = await b.evaluate(TOKEN_COLOR('ink'))
+  const muted = await b.evaluate(TOKEN_COLOR('muted'))
+  // v1.6 R2: what the guard saw, so neither check is vacuous.
+  let listed = 0
+  let outcomes = 0
+  const landed = new Set()
+  const strikes = new Set()
   for (let turn = 1; turn <= 3; turn += 1) {
     await orderDefenses(b, NIGHT_PLAN[turn])
     await b.evaluate(click('[data-execute]'))
@@ -991,12 +1012,29 @@ async function strikeCards(b, url, [w, h]) {
         const m = await b.evaluate(STRIKE_CARD)
         if (m) {
           const at = `${where}, turn ${turn}, ${m.move || 'a strike'}`
+          const key = `${turn}:${m.id}:${m.listHead}`
+          strikes.add(key)
           if (desktop) {
             if (m.shown) failures.push(`${at}: the strike's card shows beside the night's log`)
             if (!m.nameShown) failures.push(`${at}: the banner names no move`)
+            // GUARD v1.6 R2 (h): the log writes the move as it lands; until
+            // then its row is INCOMING in the muted ink, never red.
+            const n = Number((m.listHead.match(/MOVE (\d+)/) ?? [])[1] ?? 1)
+            if (m.logMoving !== null) {
+              if (m.logMoving !== muted) failures.push(`${at}: the INCOMING row is ${m.logMoving}, not the muted ${muted}`)
+              if (m.logRows.length !== n - 1) failures.push(`${at}: ${m.logRows.length} row(s) written while move ${n} locks on`)
+            } else {
+              if (m.logRows.length !== n) failures.push(`${at}: ${m.logRows.length} row(s) once move ${n} landed`)
+              const last = m.logRows.at(-1)
+              if (m.held ? last !== 'blocked' : !['hit', 'partial'].includes(last)) failures.push(`${at}: the banner reads ${m.held ? 'BLOCKED' : 'a hit'}, the log's row ${last}`)
+              else landed.add(key)
+            }
           } else {
             if (!m.shown) failures.push(`${at}: no strike card under the close-up`)
             else {
+              // GUARD v1.6 R2 (g): the close-up stands under the asset
+              // strip, however tall its chips have made it.
+              if (m.closeTop < m.stripBottom - 0.5) failures.push(`${at}: the close-up (top ${Math.round(m.closeTop)}) is over the asset strip (bottom ${Math.round(m.stripBottom)})`)
               if (m.top < m.closeBottom - 0.5) failures.push(`${at}: the card (top ${Math.round(m.top)}) is over the close-up (bottom ${Math.round(m.closeBottom)})`)
               if (m.bottom > m.vh + 0.5) failures.push(`${at}: the card ends at ${Math.round(m.bottom)} of ${m.vh}`)
               if (!/BLOCKED|PARTIAL|HIT/.test(m.verdict)) failures.push(`${at}: the card says no result`)
@@ -1004,6 +1042,25 @@ async function strikeCards(b, url, [w, h]) {
               if (m.moveColor !== ink) failures.push(`${at}: the move's name is ${m.moveColor}, not the ink ${ink}`)
               if (m.moving) failures.push(`${at}: ${m.moving} part(s) of the card move, so a still cannot read it`)
               for (const x of m.bad) failures.push(`${at}: ${x}`)
+              // GUARD v1.6 R2 (g): from 390 wide, one outcome line; at 375
+              // none. The night so far under the card: on screen when shown,
+              // the moves before this one as rows, and at 390x844 always
+              // shown (at 375x667 it steps aside when there is no room).
+              if (m.outcome !== null) {
+                if (w >= 390 && !m.outcome) failures.push(`${at}: no outcome line at ${w} wide`)
+                if (w < 390 && m.outcome) failures.push(`${at}: an outcome line at ${w} wide`)
+                if (m.outcome) outcomes += 1
+              }
+              if (m.list === null) {
+                if (m.moves > 1) failures.push(`${at}: no night-so-far list under the card on a night of ${m.moves} moves`)
+              }
+              else if (m.list === 'shown') {
+                const n = Number((m.listHead.match(/^TONIGHT · MOVE (\d+) OF (\d+)$/) ?? [])[1] ?? 0)
+                if (!n) failures.push(`${at}: the list's head reads "${m.listHead}"`)
+                else if (m.listRows !== n - 1) failures.push(`${at}: move ${n} lists ${m.listRows} earlier move(s)`)
+                if (m.listBottom > m.vh + 0.5) failures.push(`${at}: the list ends at ${Math.round(m.listBottom)} of ${m.vh}`)
+                if (m.listRows > 0) listed += 1
+              } else if (h >= 844) failures.push(`${at}: the list stepped aside at ${where}`)
             }
             if (m.nameShown && m.shown) failures.push(`${at}: the move is named twice, on the banner and the card`)
           }
@@ -1019,6 +1076,9 @@ async function strikeCards(b, url, [w, h]) {
     }
   }
   if (!desktop && seen.length < 3) failures.push(`${where}: only ${seen.length} strike card(s) seen in three nights, so the card did not change per strike`)
+  if (!desktop && h >= 844 && listed === 0) failures.push(`${where}: no strike listed an earlier move, so the list was never tested with rows`)
+  if (!desktop && w >= 390 && outcomes === 0) failures.push(`${where}: no outcome line seen`)
+  if (desktop && landed.size < 3) failures.push(`${where}: the log wrote ${landed.size} landed move(s) during a strike, of ${strikes.size} strikes seen`)
   return failures
 }
 
@@ -1047,7 +1107,12 @@ const PROCURE_FIT = `(() => {
   const go = getComputedStyle(probe).backgroundColor; probe.remove()
   const greens = [...document.querySelectorAll('button')].filter((x) => { const r = x.getBoundingClientRect(); return r.width > 40 && r.height > 30 && r.bottom > 0 && r.top < innerHeight && getComputedStyle(x).backgroundColor === go }).map((x) => x.innerText.trim())
   const text = sheet.innerText
-  return { whole, greens, links: ['+ ADD', 'defend ›', 'Expand full brief'].filter((l) => text.includes(l)), page: document.documentElement.scrollHeight > innerHeight + 1, bad: ${OUT_OF_BOUNDS}(sheet) }
+  // The band must be the panel's own colour, solid: compared with a probe
+  // painted in it, so a see-through tint in any colour syntax differs.
+  const cue = sheet.querySelector('[data-scroll-cue] p')
+  const panel = document.createElement('i'); panel.className = 'bg-dc-panel'; document.body.appendChild(panel)
+  const solid = getComputedStyle(panel).backgroundColor; panel.remove()
+  return { whole, greens, links: ['+ ADD', 'defend ›', 'Expand full brief'].filter((l) => text.includes(l)), page: document.documentElement.scrollHeight > innerHeight + 1, bad: ${OUT_OF_BOUNDS}(sheet), cue: cue ? getComputedStyle(cue).backgroundColor : null, solid }
 })()`
 
 async function procureCards(b, url, [w, h], wideFonts) {
@@ -1055,6 +1120,7 @@ async function procureCards(b, url, [w, h], wideFonts) {
   if (!(await startSeed(b, url, [w, h], true, NIGHT_SEED))) return [`${where}: could not replay seed ${NIGHT_SEED}`]
   if (wideFonts) await wideFontsOn(b)
   const failures = []
+  let cues = 0
   for (const state of ['empty', "with tonight's order"]) {
     await b.evaluate(click('[data-action="procure"]'))
     if (!(await waitFor(b, 'document.querySelector("[data-sheet=procure]")'))) return [`${where}: PROCURE did not open`]
@@ -1069,10 +1135,17 @@ async function procureCards(b, url, [w, h], wideFonts) {
     for (const l of m.links) failures.push(`${at}: link-style "${l}"`)
     if (m.page) failures.push(`${at}: the page scrolls`)
     for (const x of m.bad) failures.push(`${at}: ${x}`)
+    // GUARD v1.6 R2 (k): "more below" stands on a solid band, so nothing
+    // half-faded shows through its words (R1's fresh eyes, F16).
+    if (m.cue !== null) {
+      cues += 1
+      if (m.cue !== m.solid) failures.push(`${at}: "more below" stands on ${m.cue}, not the panel's solid ${m.solid}`)
+    }
     await b.evaluate(click('[data-confirm]'))
     await sleep(150)
   }
   await wideFontsOff(b)
+  if (cues === 0 && h < 700) failures.push(`${where}: PROCURE never showed "more below", so its band was not tested`)
   return failures
 }
 
@@ -1101,6 +1174,77 @@ async function openingBoards(b, url, [w, h], wideFonts) {
   return failures
 }
 
+// THE v1.6 R2 GUARDS (R1's fresh eyes, the round's section 2).
+//
+// (g) THE NIGHT SO FAR, in strikeCards: from 390 wide the strike's card
+// has one outcome line, at 375 none; under it the night so far heads
+// "TONIGHT · MOVE n OF m" and lists the n-1 moves before it, on screen,
+// shown at 390x844 and stepping aside at 375x667 only when it would not
+// fit, and some strike lists at least one row.
+// (h) THE DESKTOP LOG DURING A STRIKE, in strikeCards: while a move locks
+// on, its row is INCOMING in the muted ink with the earlier moves written
+// above it; once it lands, its row is written with the banner's result.
+// (i) THE DESKTOP DEBRIEF'S COLUMNS: at 1440x900 the won debrief's left
+// column runs on under FILED THIS GAME with no hole (the gap is the
+// grid's 12px), and the right column starts level with the first screen.
+// (j) DESKTOP TYPE: at 1440x900, deciding with PROCURE open beside the
+// board and during the night, no text in the HUD, the middle column, the
+// dock or the side panel is set under 12px.
+// (k) "MORE BELOW" ON A SOLID BAND, in procureCards: when PROCURE shows
+// the cue, its band is opaque.
+const SMALL_TEXT = `(() => [...document.querySelectorAll('[data-hud] *, [data-board-play] *, [data-dock] *, [data-sheet] *')].filter((e) => {
+  const r = e.getBoundingClientRect()
+  if (r.width < 1 || r.height < 1) return false
+  const own = [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())
+  return own && parseFloat(getComputedStyle(e).fontSize) < 12
+}).map((e) => e.tagName.toLowerCase() + ' ' + getComputedStyle(e).fontSize + ' "' + e.textContent.trim().slice(0, 28) + '"'))()`
+
+const DEBRIEF_COLUMNS = `(() => {
+  const r = (sel) => document.querySelector(sel)?.getBoundingClientRect() ?? null
+  const first = r('[data-debrief-first]')
+  const turns = r('[data-turns]')
+  const right = r('[data-debrief-col="right"]')
+  return first && turns && right ? { firstBottom: first.bottom, firstTop: first.top, turnsTop: turns.top, rightTop: right.top, rightLeft: right.left, firstRight: first.right } : null
+})()`
+
+async function desktopType(b, url) {
+  const [w, h] = [1440, 900]
+  const where = `${w}x${h}`
+  await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false })
+  await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+  if (!(await startSeedAt(b, url, [w, h], true, NIGHT_SEED, true))) return [`${where}: could not replay seed ${NIGHT_SEED}`]
+  await sleep(300)
+  const failures = []
+  // Not vacuous: the desktop board is the three-column one.
+  if (!(await b.evaluate('matchMedia("(min-width: 1100px) and (min-height: 600px)").matches'))) return [`${where}: not the desktop board`]
+  for (const x of await b.evaluate(SMALL_TEXT)) failures.push(`${where}, deciding: ${x} is under 12px`)
+  await orderDefenses(b, NIGHT_PLAN[1])
+  await b.evaluate(click('[data-execute]'))
+  if (!(await waitFor(b, `${NIGHT_STAGE} !== 'busy' && !!document.querySelector('[data-night-card]')`, 9000))) return [...failures, `${where}: the night's first card never showed`]
+  await sleep(300)
+  for (const x of await b.evaluate(SMALL_TEXT)) failures.push(`${where}, the night: ${x} is under 12px`)
+  return failures
+}
+
+async function desktopDebrief(b, url) {
+  const [w, h] = [1440, 900]
+  const where = `${w}x${h}, won debrief`
+  await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false })
+  await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+  if (!(await startSeedAt(b, url, [w, h], true, NIGHT_SEED, true))) return [`${where}: could not replay seed ${NIGHT_SEED}`]
+  if (!(await playToDebrief(b, NIGHT_PLAN))) return [`${where}: the operation never reached its debrief`]
+  if (!(await waitFor(b, '!!document.querySelector("[data-turns]")', 8000))) return [`${where}: the lower sections never arrived`]
+  await sleep(300)
+  const m = await b.evaluate(DEBRIEF_COLUMNS)
+  if (!m) return [`${where}: the columns could not be measured`]
+  const failures = []
+  const gap = Math.round(m.turnsTop - m.firstBottom)
+  if (gap > 16 || gap < 0) failures.push(`${where}: TURN BY TURN starts ${gap}px under FILED THIS GAME, not the grid's 12px`)
+  if (Math.abs(m.rightTop - m.firstTop) > 2) failures.push(`${where}: the right column starts at ${Math.round(m.rightTop)}, the first screen at ${Math.round(m.firstTop)}`)
+  if (m.rightLeft < m.firstRight) failures.push(`${where}: the columns overlap`)
+  return failures
+}
+
 export async function v16Guards(b, url) {
   const failures = []
   const on = await scoreStills(b, url, false)
@@ -1110,6 +1254,7 @@ export async function v16Guards(b, url) {
   for (const vp of VIEWPORTS) failures.push(...(await strikeCards(b, url, vp)))
   failures.push(...(await strikeCards(b, url, [1440, 900])))
   for (const vp of VIEWPORTS) for (const wide of [false, true]) failures.push(...(await procureCards(b, url, vp, wide)), ...(await openingBoards(b, url, vp, wide)))
+  failures.push(...(await desktopType(b, url)), ...(await desktopDebrief(b, url)))
   return failures
 }
 
@@ -1119,8 +1264,8 @@ export async function phoneLayout(chrome) {
   const b = await browser(chrome)
   try {
     const failures = []
-    // PHONE_LAYOUT_ONLY=v16 runs the v1.6 R1 guards alone (with the
-    // debrief's, which hold its shape), for a mutation run.
+    // PHONE_LAYOUT_ONLY=v16 runs the v1.6 guards alone, R1's and R2's
+    // (with the debrief's, which hold its shape), for a mutation run.
     if (process.env.PHONE_LAYOUT_ONLY === 'v16') {
       failures.push(...(await v16Guards(b, url)))
       failures.push(...(await checkDebrief(b, url, VIEWPORTS[0], NIGHT_PLAN, 'won')), ...(await checkDebrief(b, url, VIEWPORTS[0], {}, 'lost')))
@@ -1167,7 +1312,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
         console.log(failures.join('\n'))
         process.exit(1)
       }
-      console.log(`briefing fits, board fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}; the night's cards fit 375, the debrief's first screen fits 375x667, one shape won and lost, and the R4 screens' labels fit 375, as served and in wide fonts; the desktop board is three columns, the night too, with its log; the score paints whole digits in one colour, each phone strike shows its card, PROCURE shows two whole cards and one green primary, and both openings' boards fit; every screen is still under reduced motion, with no small input and no retired word`)
+      console.log(`briefing fits, board fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}; the night's cards fit 375, the debrief's first screen fits 375x667, one shape won and lost, and the R4 screens' labels fit 375, as served and in wide fonts; the desktop board is three columns, the night too, with its log; the score paints whole digits in one colour, each phone strike shows its card, PROCURE shows two whole cards and one green primary, and both openings' boards fit; from 390 the strike card adds its outcome line and the night so far, the desktop log writes each move as it lands, the desktop debrief's columns run from the top, desktop text is 12px or more, and "more below" stands on a solid band; every screen is still under reduced motion, with no small input and no retired word`)
       process.exit(0)
     })
     .catch((e) => {

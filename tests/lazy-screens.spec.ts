@@ -303,6 +303,24 @@ describe('the debrief, the Dossier and LIBRARY carry their own weight (v1.3 R4)'
     }
   })
 
+  it("keeps the debrief's lower sections in a chunk of their own (v1.6 R2)", () => {
+    // The debrief's chunk stood at 9,831 of its 10,000-byte cap after v1.6
+    // R1 (brief 10). Its lower sections, WHAT YOU CAN NOW SAY to the turn
+    // strip, moved to ./DebriefMore, which the debrief fetches by dynamic
+    // import as it loads. A static import from the debrief, or from
+    // anything it reaches, would fold them back into its chunk.
+    const MORE = join(SRC, 'ui', 'DebriefMore.tsx')
+    expect(existsSync(MORE)).toBe(true)
+    expect(readFileSync(DEBRIEF, 'utf8'), 'the debrief no longer fetches its lower sections').toMatch(/import\(\s*['"]\.\/DebriefMore['"]\s*\)/)
+    for (const [name, graph] of [
+      ['main.tsx', staticGraphFrom(ENTRY)],
+      ['ui/Debrief.tsx', staticGraphFrom(DEBRIEF)],
+    ] as const) {
+      const trail = graph.get(MORE)
+      expect(trail && [...trail, MORE].map((f) => f.slice(SRC.length + 1)).join(' -> '), `ui/DebriefMore.tsx is static from ${name}`).toBeUndefined()
+    }
+  })
+
   it('keeps what only the debrief needs out of the first download', () => {
     // What the debrief reads to grade a run, read it back and share it:
     // the grade and the strip, its model, the share text, its timing and
