@@ -75,9 +75,10 @@
 // THE v1.6 R1 GUARDS, (a) to (f): the score's stills, its one colour, the
 // phone night's strike card, PROCURE's cards, the turn-1 board on both
 // openings and one debrief shape (see v16Guards below). THE v1.6 R2
-// GUARDS, (g) to (k): the strike card's outcome line and the night so far,
+// GUARDS, (g) to (m): the strike card's outcome line and the night so far,
 // the desktop log during a strike, the desktop debrief's columns, desktop
-// type, and "more below" on a solid band (see desktopType below).
+// type, "more below" on a solid band, one HUD height, and the desktop's
+// FIRST ORDERS above the dock (see desktopType below).
 //
 // Exit codes: 0 pass, 1 fail, 2 skipped (no Chrome on this machine). The
 // battery runs it after the build. GitHub's ubuntu-24.04 runner has
@@ -984,6 +985,8 @@ const STRIKE_CARD = `(() => {
     held: banner.getAttribute('data-strike-banner') === 'held',
     logRows: [...document.querySelectorAll('[data-sheet="log"] li[data-log]:not([data-log="moving"])')].map((e) => e.getAttribute('data-log')),
     logMoving: document.querySelector('[data-sheet="log"] li[data-log="moving"]') ? getComputedStyle(document.querySelector('[data-sheet="log"] li[data-log="moving"]')).color : null,
+    hud: document.querySelector('[data-hud]')?.getBoundingClientRect().height ?? 0,
+    streak: !!document.querySelector('[data-hud] [data-streak]'),
   }
 })()`
 
@@ -1004,6 +1007,8 @@ async function strikeCards(b, url, [w, h]) {
   let outcomes = 0
   const landed = new Set()
   const strikes = new Set()
+  const huds = new Set()
+  let streaks = 0
   for (let turn = 1; turn <= 3; turn += 1) {
     await orderDefenses(b, NIGHT_PLAN[turn])
     await b.evaluate(click('[data-execute]'))
@@ -1014,6 +1019,8 @@ async function strikeCards(b, url, [w, h]) {
           const at = `${where}, turn ${turn}, ${m.move || 'a strike'}`
           const key = `${turn}:${m.id}:${m.listHead}`
           strikes.add(key)
+          huds.add(Math.round(m.hud * 2) / 2)
+          if (m.streak) streaks += 1
           if (desktop) {
             if (m.shown) failures.push(`${at}: the strike's card shows beside the night's log`)
             if (!m.nameShown) failures.push(`${at}: the banner names no move`)
@@ -1078,6 +1085,11 @@ async function strikeCards(b, url, [w, h]) {
   if (!desktop && seen.length < 3) failures.push(`${where}: only ${seen.length} strike card(s) seen in three nights, so the card did not change per strike`)
   if (!desktop && h >= 844 && listed === 0) failures.push(`${where}: no strike listed an earlier move, so the list was never tested with rows`)
   if (!desktop && w >= 390 && outcomes === 0) failures.push(`${where}: no outcome line seen`)
+  // GUARD v1.6 R2 (l): the HUD keeps one height through the strikes, the
+  // defense streak's line arriving among them (the round's fresh eyes,
+  // G17: it grew about 7px, and the board under it moved).
+  if (huds.size > 1) failures.push(`${where}: the HUD took ${[...huds].sort((a, z) => a - z).join(', ')}px through three nights' strikes`)
+  if (streaks === 0) failures.push(`${where}: no strike showed the defense streak, so the HUD's height was not tested with it`)
   if (desktop && landed.size < 3) failures.push(`${where}: the log wrote ${landed.size} landed move(s) during a strike, of ${strikes.size} strikes seen`)
   return failures
 }
@@ -1192,6 +1204,9 @@ async function openingBoards(b, url, [w, h], wideFonts) {
 // dock or the side panel is set under 12px.
 // (k) "MORE BELOW" ON A SOLID BAND, in procureCards: when PROCURE shows
 // the cue, its band is opaque.
+// (l) ONE HUD HEIGHT, in strikeCards: through every strike of three nights,
+// phone and desktop, the streak's line among them, the HUD keeps one
+// height. (m) FIRST ORDERS WHOLE ON THE DESKTOP: see desktopOrders.
 const SMALL_TEXT = `(() => [...document.querySelectorAll('[data-hud] *, [data-board-play] *, [data-dock] *, [data-sheet] *')].filter((e) => {
   const r = e.getBoundingClientRect()
   if (r.width < 1 || r.height < 1) return false
@@ -1226,6 +1241,34 @@ async function desktopType(b, url) {
   return failures
 }
 
+// (m) FIRST ORDERS WHOLE ON THE DESKTOP: at 1440x900, turn 1 on both
+// openings, with the full brief open, the middle column does not scroll
+// and FIRST ORDERS ends above the dock (the round's fresh eyes, G13).
+const DESKTOP_ORDERS = `(() => {
+  const col = document.querySelector('[data-board-play]')
+  const orders = document.querySelector('[data-orders]')?.getBoundingClientRect()
+  const dock = document.querySelector('[data-dock]')?.getBoundingClientRect()
+  return { over: col.scrollHeight - col.clientHeight, ordersBottom: orders?.bottom ?? null, dockTop: dock?.top ?? 0, colBottom: col.getBoundingClientRect().bottom, brief: !!document.querySelector('[data-brief-scroll]') }
+})()`
+
+async function desktopOrders(b, url) {
+  const [w, h] = [1440, 900]
+  const failures = []
+  await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false })
+  await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+  for (const seed of [2, 32]) {
+    const where = `${w}x${h}, seed ${seed}, turn 1`
+    if (!(await startSeedAt(b, url, [w, h], true, seed, true))) return [`${where}: could not replay the seed`]
+    if (!(await waitFor(b, '!!document.querySelector("[data-brief-scroll]")'))) return [`${where}: the full brief never opened`]
+    await sleep(400)
+    const m = await b.evaluate(DESKTOP_ORDERS)
+    if (m.ordersBottom === null) failures.push(`${where}: no FIRST ORDERS`)
+    else if (m.ordersBottom > Math.min(m.dockTop, m.colBottom) + 0.5) failures.push(`${where}: FIRST ORDERS ends at ${Math.round(m.ordersBottom)}, under the dock at ${Math.round(m.dockTop)}`)
+    if (m.over > 1) failures.push(`${where}: the middle column scrolls (${m.over}px over)`)
+  }
+  return failures
+}
+
 async function desktopDebrief(b, url) {
   const [w, h] = [1440, 900]
   const where = `${w}x${h}, won debrief`
@@ -1254,7 +1297,7 @@ export async function v16Guards(b, url) {
   for (const vp of VIEWPORTS) failures.push(...(await strikeCards(b, url, vp)))
   failures.push(...(await strikeCards(b, url, [1440, 900])))
   for (const vp of VIEWPORTS) for (const wide of [false, true]) failures.push(...(await procureCards(b, url, vp, wide)), ...(await openingBoards(b, url, vp, wide)))
-  failures.push(...(await desktopType(b, url)), ...(await desktopDebrief(b, url)))
+  failures.push(...(await desktopType(b, url)), ...(await desktopDebrief(b, url)), ...(await desktopOrders(b, url)))
   return failures
 }
 
@@ -1312,7 +1355,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
         console.log(failures.join('\n'))
         process.exit(1)
       }
-      console.log(`briefing fits, board fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}; the night's cards fit 375, the debrief's first screen fits 375x667, one shape won and lost, and the R4 screens' labels fit 375, as served and in wide fonts; the desktop board is three columns, the night too, with its log; the score paints whole digits in one colour, each phone strike shows its card, PROCURE shows two whole cards and one green primary, and both openings' boards fit; from 390 the strike card adds its outcome line and the night so far, the desktop log writes each move as it lands, the desktop debrief's columns run from the top, desktop text is 12px or more, and "more below" stands on a solid band; every screen is still under reduced motion, with no small input and no retired word`)
+      console.log(`briefing fits, board fits, SYSTEM in bounds, screens open at the top, tagline on one line, at ${VIEWPORTS.map(([w, h]) => `${w}x${h}`).join(' and ')}; the night's cards fit 375, the debrief's first screen fits 375x667, one shape won and lost, and the R4 screens' labels fit 375, as served and in wide fonts; the desktop board is three columns, the night too, with its log; the score paints whole digits in one colour, each phone strike shows its card, PROCURE shows two whole cards and one green primary, and both openings' boards fit; from 390 the strike card adds its outcome line and the night so far, the desktop log writes each move as it lands, the desktop debrief's columns run from the top, desktop text is 12px or more, "more below" stands on a solid band, the HUD keeps one height through a streak, and the desktop's FIRST ORDERS stays whole above the dock; every screen is still under reduced motion, with no small input and no retired word`)
       process.exit(0)
     })
     .catch((e) => {

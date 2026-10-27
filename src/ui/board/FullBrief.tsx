@@ -6,11 +6,16 @@
 //
 // It scrolls in its own area capped at a share of the viewport, so on a
 // short phone it ends above the dock (QC Q29, G-097), and a cue says so
-// while there is more below (G-099).
+// while there is more below (G-099). On the desktop board it shares the
+// middle column with FIRST ORDERS, which stood cut under the dock on a
+// turn-1 board (v1.6 R2's fresh eyes, G13): there the area gives up the
+// height the column lacks, down to 120px, so the orders stay whole and
+// the brief scrolls in its own area instead.
 
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { GameState } from '../../engine/types'
 import { JOB_FRAMING_HEADING, briefCopy } from '../brief'
+import { WIDE_BOARD } from './boardModel'
 import ScrollCue from './ScrollCue'
 
 export interface FullBriefProps {
@@ -28,9 +33,26 @@ export default function FullBrief({ state, named, onIntel, onTag }: FullBriefPro
     const el = scroller.current
     if (!el) return
     const check = () => setMore(el.scrollHeight - el.scrollTop - el.clientHeight > 2)
-    check()
+    const column = el.closest('[data-board-play]')
+    const fit = () => {
+      el.style.maxHeight = ''
+      if (column && window.matchMedia?.(WIDE_BOARD).matches) {
+        const over = column.scrollHeight - column.clientHeight
+        if (over > 0) el.style.maxHeight = `${Math.max(120, el.clientHeight - over)}px`
+      }
+      check()
+    }
+    fit()
     el.addEventListener('scroll', check)
-    return () => el.removeEventListener('scroll', check)
+    window.addEventListener('resize', fit)
+    // The orders under it change height as they tick.
+    const watch = typeof ResizeObserver === 'undefined' || !column ? null : new ResizeObserver(fit)
+    for (const o of column?.querySelectorAll('[data-orders]') ?? []) watch?.observe(o)
+    return () => {
+      el.removeEventListener('scroll', check)
+      window.removeEventListener('resize', fit)
+      watch?.disconnect()
+    }
   }, [])
   return (
     <div className="relative">

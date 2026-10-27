@@ -28,10 +28,11 @@ come due at the turn close, and coverage, trust, and redundancy trade off agains
 seed plays one of two campaigns: COLDVEIL opens as the briefing expects and works the ground last,
 or opens on the other layers and works the ground before the debris night. The hand-written order
 of six defenses that won all 500 measured seeds in v1.5 now wins 78 percent of them, below play
-that reads each night (83). The adversary still punishes a fixed plan only partly: the same six
-defenses in another order win every one of those seeds. Varying which moves each night can draw
-does not close it: of 1,728 ways measured, the six that keep every balance target each leave an
-order that wins every seed, so closing the gap needs a change to the rules, which is the next decision.
+that reads each night and answers the one move it flags (83): the adversary punishes the written
+script and narrow plans. A broad early core of defenses wins: the same six in another order win
+every one of those seeds, and no way of varying COLDVEIL's moves that keeps the game's balance
+changes that (1,728 measured). That is the game teaching layered defense, and it is the design on
+record (Ken, 27 October 2026).
 
 ## Daily Op and the debrief
 

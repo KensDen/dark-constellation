@@ -1,7 +1,8 @@
 // THE HUD (v1.3 brief 5.3 item 1). OP FIRST LIGHT, the turn and SYSTEM on
 // one line; the MISSION ASSURANCE SCORE at display size with "/ 100", the
 // margin to the win line (amber under 6 above it, red below it), the
-// defense streak from 2, and the floating delta of a hit; the BUDGET in CR
+// defense streak from 2 (on the label line since v1.6 R2), and the
+// floating delta of a hit; the BUDGET in CR
 // on the right; a bar with the win line marked and the scale
 // "0 · ▲ 70 WIN LINE · 100". On a Daily Op the line carries DAILY OP #n
 // (QC G-104). The four meters left the HUD with the v1.2 board: the score
@@ -97,9 +98,19 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
           <span className="border-2 border-dc-line bg-dc-panel px-2 py-1 uppercase">System</span>
         </button>
       </div>
-      <p className="flex justify-between px-3 font-mono text-[10px] tracking-widest text-dc-muted">
+      <p className="flex items-center gap-3 px-3 font-mono text-[10px] tracking-widest text-dc-muted">
         <span>{SCORE_LABEL}</span>
-        <span>{BUDGET_LABEL}</span>
+        {/* The defense streak, on the label line beside the score's name
+            (v1.6 R2's fresh eyes, G17: stacked under the margin line it
+            made the HUD about 7px taller the moment it appeared, and the
+            whole board moved down mid-strike). */}
+        {shown.streak >= 2 && (
+          <span data-streak className="inline-flex items-center gap-1 whitespace-nowrap tracking-wider text-dc-go">
+            <PixelSprite sprite={tinted(ICON_CHECK, 'go')} scale={1} name="status-blocked" />
+            {streakChip(shown.streak)}
+          </span>
+        )}
+        <span className="ml-auto">{BUDGET_LABEL}</span>
       </p>
       <div className="flex items-end justify-between gap-2 px-3">
         <div className="relative flex min-w-0 items-end gap-x-1.5">
@@ -143,12 +154,6 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
             ) : (
               <span data-margin={margin.tone} className={`whitespace-nowrap ${TONE_TEXT[margin.tone]}`}>
                 {margin.text}
-              </span>
-            )}
-            {shown.streak >= 2 && (
-              <span data-streak className="inline-flex items-center gap-1 whitespace-nowrap text-dc-go">
-                <PixelSprite sprite={tinted(ICON_CHECK, 'go')} scale={1} name="status-blocked" />
-                {streakChip(shown.streak)}
               </span>
             )}
           </span>
