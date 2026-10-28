@@ -58,7 +58,7 @@ export interface ProcureProps {
 // changes the money).
 const ASSET_ICON = Object.fromEntries(PROCURE_KINDS.map((kind) => [kind, { ...assetSprite(kind, 100, 'live', 'icon') }])) as Record<AssetKind, ReturnType<typeof assetSprite>>
 
-const SECTION = 'mt-1.5 flex items-baseline justify-between border-b border-dc-line pb-0.5 font-mono text-[10px] tracking-widest text-dc-muted'
+const SECTION = 'mt-1 flex items-baseline justify-between border-b border-dc-line pb-0.5 font-mono text-[10px] tracking-widest text-dc-muted'
 
 // A chip or a tag: status, tinted and borderless (section 4 rule 2).
 const CHIP = 'inline-flex items-center gap-1 whitespace-nowrap px-1 py-0.5 text-[10px] leading-none'
@@ -103,7 +103,7 @@ function Tile({
       <button
         type="button"
         {...button}
-        className={`dc-tile flex h-full w-full flex-col items-center gap-0.5 border-2 px-0.5 py-1 text-center shadow-press disabled:cursor-not-allowed ${tone === 'ordered' ? 'border-dc-go bg-dc-go/10' : tone === 'match' ? 'border-dc-friendly bg-dc-friendly/10' : 'border-dc-line bg-dc-chrome'} ${dim ? 'opacity-70' : ''}`}
+        className={`dc-tile flex h-full w-full flex-col items-center gap-0.5 border-2 px-0.5 py-0.5 text-center shadow-press disabled:cursor-not-allowed ${tone === 'ordered' ? 'border-dc-go bg-dc-go/10' : tone === 'match' ? 'border-dc-friendly bg-dc-friendly/10' : 'border-dc-line bg-dc-chrome'} ${dim ? 'opacity-70' : ''}`}
       >
         <span aria-hidden="true">{icon}</span>
         <span aria-hidden="true" data-card-name className="font-display text-[8px] uppercase leading-tight">
@@ -241,11 +241,11 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
           )}
         </p>
       )}
-      <div ref={body} data-procure-body className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-2">
+      <div ref={body} data-procure-body className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-1">
         {/* THE LOADOUT (v1.6 R4, Ken's ruling of 27 October 2026: a shop,
             not a form). The three assets and the intel brief in one row of
             tiles, then the defenses as a grid, each a whole-card tap. */}
-        <ul data-procure-assets className="mt-1.5 grid grid-cols-4 gap-1">
+        <ul data-procure-assets className="mt-1 grid grid-cols-4 gap-1">
           {PROCURE_KINDS.map((kind) => {
             const price = assetPrice(scenario, kind)
             const ordered = actions.buyAssets.some((b) => b.kind === kind)
@@ -271,7 +271,7 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
             )
           })}
           {briefFree(state) ? (
-            <li data-procure-intel data-free className="flex flex-col items-center gap-1 border-2 border-dc-go/60 bg-dc-go/10 p-1 text-center">
+            <li data-procure-intel data-free className="flex flex-col items-center gap-0.5 border-2 border-dc-go/60 bg-dc-go/10 p-0.5 text-center">
               <PixelSprite sprite={EYE} scale={2} name="procure-brief" />
               <span data-card-name className="font-display text-[8px] uppercase leading-tight">INTEL BRIEF</span>
               <span className={`${CHIP} bg-dc-go/20 font-semibold text-dc-go`}>FREE</span>
@@ -280,7 +280,7 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
           ) : actions.intelBrief ? (
             // Ordered, it has named the moves, and the order is locked for
             // the turn (v1.5 R2): a status with its padlock, not a control.
-            <li data-procure-intel data-locked aria-label={`Intel brief, ${briefLockedTag(intelPrice)}. ${BRIEF_LOCKED_LINE}`} className="flex flex-col items-center gap-1 border-2 border-dc-go/60 bg-dc-go/10 p-1 text-center">
+            <li data-procure-intel data-locked aria-label={`Intel brief, ${briefLockedTag(intelPrice)}. ${BRIEF_LOCKED_LINE}`} className="flex flex-col items-center gap-0.5 border-2 border-dc-go/60 bg-dc-go/10 p-0.5 text-center">
               <PixelSprite sprite={EYE} scale={2} name="procure-brief" />
               <span data-card-name className="font-display text-[8px] uppercase leading-tight">INTEL BRIEF</span>
               <span className={`${CHIP} bg-dc-go/20 font-semibold text-dc-go`}>
@@ -311,7 +311,7 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
           <span>DEFENSES</span>
           <span>+{upkeep} CR a turn each to keep</span>
         </p>
-        <ul className="mt-1 grid grid-cols-2 gap-1" data-procure-defenses>
+        <ul className="mt-0.5 grid grid-cols-2 gap-x-1 gap-y-0.5" data-procure-defenses>
           {scenario.countermeasures.map((cm) => {
             const owned = state.counters.includes(cm.id)
             const ordered = actions.buyCounters.includes(cm.id)
@@ -331,7 +331,7 @@ export default function Procure({ state, actions, focus, onToggleAsset, onToggle
                   aria-describedby={capped ? 'procure-defense-rule' : undefined}
                   disabled={off}
                   onClick={() => onToggleCounter(cm.id)}
-                  className={`dc-tile grid h-full w-full grid-cols-[18px_1fr] items-start gap-x-1.5 gap-y-0.5 border-2 px-1.5 pt-1 pb-0.5 text-left shadow-press disabled:cursor-not-allowed ${ordered ? 'border-dc-go bg-dc-go/10' : match ? 'border-dc-friendly bg-dc-friendly/10' : 'border-dc-line bg-dc-chrome'} ${!owned && off ? 'opacity-70' : ''}`}
+                  className={`dc-tile grid h-full w-full grid-cols-[18px_1fr] items-start gap-x-1.5 gap-y-0.5 border-2 px-1.5 pt-0.5 pb-0.5 text-left shadow-press disabled:cursor-not-allowed ${ordered ? 'border-dc-go bg-dc-go/10' : match ? 'border-dc-friendly bg-dc-friendly/10' : 'border-dc-line bg-dc-chrome'} ${!owned && off ? 'opacity-70' : ''}`}
                 >
                   <span aria-hidden="true" className="flex justify-center pt-0.5">
                     <PixelSprite sprite={DEFENSE_ICONS[cm.id]} scale={2} name={`defense-${cm.id}`} />

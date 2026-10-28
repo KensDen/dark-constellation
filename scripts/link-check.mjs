@@ -91,6 +91,14 @@ export const RUNNER_BLOCKED = [
     verified: 'verified reachable by Ken 2026-09-29',
     date: '2026-09-29',
   },
+  // The v1.6.0 deploy (27 October 2026): unreachable from the runner, while
+  // it answered 200 from Ken's machine the same night (v1.6.1).
+  {
+    url: 'https://satcom.sysnet.ucsd.edu/',
+    reason: 'host blocks CI runners; 403 or unreachable from GitHub Actions',
+    verified: 'verified reachable by Ken 2026-10-27',
+    date: '2026-10-27',
+  },
 ]
 
 // The one status a runner-blocking host answers with. A timeout or a

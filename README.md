@@ -161,6 +161,7 @@ scenes were drawn in code for this project.
 
 ## Releases
 
+- v1.6.1, 27 October 2026: the v1.6.0 deploy fix (size trim, link entry).
 - v1.6.0, 27 October 2026: COLDVEIL per seed, the phone night and the playtest passes.
 - v1.5.0, 24 October 2026: balance, the leftovers and the art.
 - v1.4.0, 24 October 2026: one new defense a night.
