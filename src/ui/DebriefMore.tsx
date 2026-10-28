@@ -91,6 +91,9 @@ function useRiseIn(moving: boolean): [(el: HTMLElement | null) => void, string] 
   return [setEl, seen ? (moving ? 'dc-section-in' : '') : 'dc-score-wait']
 }
 
+type DebriefTab = 'say' | 'decisions' | 'grades'
+const tabLabel = (word: string, n: number) => (n > 0 ? `${word} ${n}` : word)
+
 export interface DebriefMoreProps {
   state: GameState
   block: ReturnType<typeof gradeBlock>
@@ -114,45 +117,19 @@ export default function DebriefMore({ state, block, anyBlocked, stage, restStage
   const [decisionsRef, decisionsIn] = useRiseIn(moving)
   const [ladderRef, ladderIn] = useRiseIn(moving)
   const [turnsRef, turnsIn] = useRiseIn(moving)
+  const [tab, setTab] = useState<DebriefTab | null>(null)
+  // THE END SCREEN'S LOWER HALF (v1.6 R4, Ken's ruling of 27 October 2026:
+  // long lists behind taps). NEXT TIME, the one lesson, and the turn strip
+  // stand open; what the player can now say, the decisions and the grade
+  // ladder are three tabs, one open at a time, none at first.
+  const tabs: { id: DebriefTab; label: string }[] = [
+    { id: 'say', label: tabLabel('YOU CAN SAY', sayings.length) },
+    { id: 'decisions', label: tabLabel('DECISIONS', turns.length) },
+    { id: 'grades', label: 'GRADES' },
+  ]
   return (
     <>
       <div data-debrief-col="right" className="contents">
-          <section ref={canSayRef} data-can-say aria-labelledby="can-say-head" className={`${PANEL} ${canSayIn}`}>
-            <h3 id="can-say-head" className={`${HEAD} text-dc-muted`}>
-              WHAT YOU CAN NOW SAY
-            </h3>
-            {sayings.length > 0 ? (
-              <ul className="mt-1.5 flex flex-col gap-1">
-                {sayings.map((s, n) => (
-                  <Fragment key={`${s.defense}-${s.verb}`}>
-                    {/* Above the first defense not owned, what the list is
-                        (v1.4's fresh eyes, finding 13). */}
-                    {s.how === 'missed' && sayings[n - 1]?.how !== 'missed' && (
-                      <li data-saying-lead className="px-2 pt-1 text-[12px] leading-snug text-dc-muted">
-                        {missedLead(state)}
-                      </li>
-                    )}
-                    <li data-saying={s.how} className="flex items-start gap-2 bg-dc-chrome px-2 py-1.5 text-[13px] leading-snug">
-                      <PixelSprite sprite={tinted(SAY_ICON[s.how].icon, SAY_ICON[s.how].tone)} scale={1} className="mt-1 flex-none" name={`say-${s.how}`} />
-                      <span>
-                        <b>{s.defense}</b> <span className={s.how === 'missed' ? 'text-dc-hostile' : ''}>{s.verb}</span> <Names list={s.threats} />
-                        {s.more?.map((m) => (
-                          <span key={m.verb}>
-                            {' '}
-                            and <span className="text-dc-hostile">{m.verb}</span> <Names list={m.threats} />
-                          </span>
-                        ))}
-                        {s.orderedOn !== undefined && <span className="text-dc-muted"> (ordered on turn {s.orderedOn}, too late)</span>}
-                      </span>
-                    </li>
-                  </Fragment>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-1.5 text-[13px] text-dc-muted">Nothing landed and nothing was tested.</p>
-            )}
-          </section>
-
           <section ref={nextRef} data-next-time aria-labelledby="next-time-head" className={`border-l-4 border-dc-warn bg-dc-warn/10 px-3 py-2.5 ${nextIn}`}>
             <h3 id="next-time-head" className={`${HEAD} text-dc-warn`}>
               NEXT TIME
@@ -203,6 +180,58 @@ export default function DebriefMore({ state, block, anyBlocked, stage, restStage
             )}
           </section>
 
+          <nav data-debrief-tabs aria-label="More from this game" className="grid grid-cols-3 gap-1.5">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                data-debrief-tab={t.id}
+                aria-expanded={tab === t.id}
+                onClick={() => setTab((o) => (o === t.id ? null : t.id))}
+                className={`dc-tile min-h-11 border-2 px-1 font-mono text-[10px] tracking-wider shadow-press active:shadow-none ${tab === t.id ? 'border-dc-friendly bg-dc-friendly/15 text-dc-ink' : 'border-dc-line bg-dc-panel text-dc-muted'}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
+          {tab === 'say' && (
+          <section ref={canSayRef} data-can-say aria-labelledby="can-say-head" className={`${PANEL} ${canSayIn}`}>
+            <h3 id="can-say-head" className={`${HEAD} text-dc-muted`}>
+              WHAT YOU CAN NOW SAY
+            </h3>
+            {sayings.length > 0 ? (
+              <ul className="mt-1.5 flex flex-col gap-1">
+                {sayings.map((s, n) => (
+                  <Fragment key={`${s.defense}-${s.verb}`}>
+                    {/* Above the first defense not owned, what the list is
+                        (v1.4's fresh eyes, finding 13). */}
+                    {s.how === 'missed' && sayings[n - 1]?.how !== 'missed' && (
+                      <li data-saying-lead className="px-2 pt-1 text-[12px] leading-snug text-dc-muted">
+                        {missedLead(state)}
+                      </li>
+                    )}
+                    <li data-saying={s.how} className="flex items-start gap-2 bg-dc-chrome px-2 py-1.5 text-[13px] leading-snug">
+                      <PixelSprite sprite={tinted(SAY_ICON[s.how].icon, SAY_ICON[s.how].tone)} scale={1} className="mt-1 flex-none" name={`say-${s.how}`} />
+                      <span>
+                        <b>{s.defense}</b> <span className={s.how === 'missed' ? 'text-dc-hostile' : ''}>{s.verb}</span> <Names list={s.threats} />
+                        {s.more?.map((m) => (
+                          <span key={m.verb}>
+                            {' '}
+                            and <span className="text-dc-hostile">{m.verb}</span> <Names list={m.threats} />
+                          </span>
+                        ))}
+                        {s.orderedOn !== undefined && <span className="text-dc-muted"> (ordered on turn {s.orderedOn}, too late)</span>}
+                      </span>
+                    </li>
+                  </Fragment>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1.5 text-[13px] text-dc-muted">Nothing landed and nothing was tested.</p>
+            )}
+          </section>
+          )}
+          {tab === 'decisions' && (
           <section ref={decisionsRef} data-decisions aria-labelledby="decisions-head" className={`${PANEL} ${decisionsIn}`}>
             <h3 id="decisions-head" className={`${HEAD} text-dc-muted`}>
               DECISIONS
@@ -220,8 +249,8 @@ export default function DebriefMore({ state, block, anyBlocked, stage, restStage
               ))}
             </ol>
           </section>
-      </div>
-      <div data-debrief-col="left" className="contents">
+          )}
+          {tab === 'grades' && (
           <section ref={ladderRef} data-ladder aria-labelledby="ladder-head" className={`${PANEL} ${ladderIn}`}>
             <h3 id="ladder-head" className={`${HEAD} text-dc-muted`}>
               GRADE LADDER
@@ -258,7 +287,9 @@ export default function DebriefMore({ state, block, anyBlocked, stage, restStage
               {toNextGrade(state)}
             </p>
           </section>
-
+          )}
+      </div>
+      <div data-debrief-col="left" className="contents">
           <section ref={turnsRef} data-turns aria-labelledby="turns-head" className={`${PANEL} ${turnsIn}`}>
             <h3 id="turns-head" className={`${HEAD} text-dc-muted`}>
               TURN BY TURN
@@ -286,7 +317,7 @@ export default function DebriefMore({ state, block, anyBlocked, stage, restStage
                 </li>
               ))}
             </ol>
-            <p data-strip-legend className="mt-2 flex flex-col gap-0.5 font-mono text-[10px] text-dc-muted">
+            <p data-strip-legend className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10px] text-dc-muted">
               {(['green', 'amber', 'magenta'] as const).map((c) => (
                 <span key={c}>
                   <span className={`dc-strip-key dc-strip-${c}`} />

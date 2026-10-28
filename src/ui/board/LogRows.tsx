@@ -25,7 +25,9 @@ const logName = (scenario: Scenario, id: string) => {
 
 // A row a move: its result as an icon and a word (section 4 rule 8), the
 // move and its target, and the score's change.
-export function LogRows({ scenario, log, signs, size = 'text-sm' }: { scenario: Scenario; log: readonly Trace[]; signs: ReadonlyMap<string, string>; size?: string }) {
+// END OF TURN leaves the change off (`delta` false, v1.6 R4): its SCORE panel
+// carries the night's total beside it.
+export function LogRows({ scenario, log, signs, size = 'text-sm', delta = true }: { scenario: Scenario; log: readonly Trace[]; signs: ReadonlyMap<string, string>; size?: string; delta?: boolean }) {
   return (
     <>
       {log.map((t) => {
@@ -40,7 +42,7 @@ export function LogRows({ scenario, log, signs, size = 'text-sm' }: { scenario: 
               {logName(scenario, t.eventId)}
               {t.assetId && signs.get(t.assetId) && <span className="text-dc-muted"> · {signs.get(t.assetId)}</span>}
             </span>
-            <span className={`font-mono text-xs ${t.delta < 0 ? 'text-dc-hostile' : 'text-dc-muted'}`}>{t.delta < 0 ? t.delta.toFixed(1) : 'NO LOSS'}</span>
+            {delta && <span className={`font-mono text-xs ${t.delta < 0 ? 'text-dc-hostile' : 'text-dc-muted'}`}>{t.delta < 0 ? t.delta.toFixed(1) : 'NO LOSS'}</span>}
           </li>
         )
       })}

@@ -81,7 +81,9 @@
 // FIRST ORDERS above the dock (see desktopType below). THE v1.6 R3
 // GUARDS, (n) to (q), from Ken's phone playtest: no text-link controls, no
 // nested scroll, the hit card on one 390x844 screen, and a strike's hold
-// (see r3Guards below).
+// (see r3Guards below). THE v1.6 R4 GUARDS, (t) to (w): PROCURE fits
+// 390x844 with no cue, one way out of PROCURE, no cut-off card text, and
+// END OF TURN fits 390x844 (see r4Guards below).
 //
 // Exit codes: 0 pass, 1 fail, 2 skipped (no Chrome on this machine). The
 // battery runs it after the build. GitHub's ubuntu-24.04 runner has
@@ -1552,6 +1554,177 @@ export async function r3Guards(b, url) {
   return failures
 }
 
+
+// THE v1.6 R4 GUARDS (Ken's rulings of 27 October 2026 on R3), (t) to (w).
+// (t) PROCURE FITS 390x844 WITH NO CUE: empty (its first opening, its "?"
+// open, and after), with an order, capped, and on a later night, as
+// served and in the wide fonts. (u) ONE WAY OUT OF PROCURE: on a phone the
+// one control that leaves it is the dock's BACK TO BOARD (hit-tested, so
+// the covered backdrop does not count), and no button inside it reads
+// PROCURE; on the desktop, where it stands open, none. (v) NO CUT-OFF CARD
+// TEXT: every line of PROCURE's tiles, END OF TURN's panels and the
+// debrief's tiles inside its card. (w) END OF TURN FITS 390x844 on every
+// turn of two games. The coach once per device is (x), in
+// tests/playtest-r4.dom.spec.tsx.
+const LOADOUT_FIT = `(() => {
+  const body = document.querySelector('[data-procure-body]')
+  if (!body) return null
+  return { over: body.scrollHeight - body.clientHeight, cue: !!document.querySelector('[data-sheet=procure] [data-scroll-cue]'), page: document.documentElement.scrollHeight > innerHeight + 1 }
+})()`
+const PROCURE_EXITS = `(() => {
+  const hit = (e) => { const r = e.getBoundingClientRect(); if (r.width < 1 || r.height < 1) return false; const x = r.left + r.width / 2, y = r.top + r.height / 2; const at = document.elementFromPoint(x, y); return !!at && (at === e || e.contains(at)) }
+  const words = (e) => ((e.innerText || '').trim() || (e.getAttribute('aria-label') || '')).replace(/\\s+/g, ' ')
+  // A control's words or its accessible name: a key drawn as an X says
+  // what it does to a screen reader alone.
+  const says = (e, re) => re.test(words(e)) || re.test((e.getAttribute('aria-label') || '').trim())
+  const all = [...document.querySelectorAll('button')].filter(hit)
+  return {
+    exits: all.filter((e) => says(e, /^(back to board|close|done|confirm|✕|x$)/i)).map(words),
+    procure: all.filter((e) => says(e, /^procure$|^procure\\b(?! works)/i)).map(words),
+  }
+})()`
+const CARD_CUT = `((sel) => {
+  const out = []
+  for (const card of document.querySelectorAll(sel)) {
+    const c = card.getBoundingClientRect()
+    if (c.width < 1 || c.height < 1) continue
+    for (const e of card.querySelectorAll('*')) {
+      if (![...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue
+      if (getComputedStyle(e).position === 'absolute' && e.classList.contains('sr-only')) continue
+      const rg = document.createRange(); rg.selectNodeContents(e)
+      for (const r of rg.getClientRects()) {
+        if (r.width < 1) continue
+        if (r.left < c.left - 0.5 || r.right > c.right + 0.5 || r.top < c.top - 0.5 || r.bottom > c.bottom + 0.5) { out.push(e.textContent.trim().slice(0, 40)); break }
+      }
+    }
+    // A card the screen cuts: past the bottom of its scroll area or the viewport.
+    let box = card.parentElement
+    while (box && !['auto', 'scroll'].includes(getComputedStyle(box).overflowY)) box = box.parentElement
+    const limit = box ? Math.min(box.getBoundingClientRect().bottom, innerHeight) : innerHeight
+    if (c.bottom > limit + 0.5 && c.top < limit) out.push('card cut at the edge: ' + card.textContent.trim().slice(0, 40))
+  }
+  return [...new Set(out)]
+})`
+const R4_CARDS = '[data-sheet=procure] li > button, [data-sheet=procure] li[data-procure-intel], [data-score-lines], [data-ledger], [data-stat]'
+async function procureLoadout(b, url) {
+  const failures = []
+  const closeIt = `(() => { if (document.querySelector('[data-sheet=procure]') && innerWidth < 1100) document.querySelector('[data-action="procure"]').click(); return true })()`
+  for (const [w, h] of [[390, 844], [375, 667], [1440, 900]]) {
+    const desktop = w >= 1100
+    for (const wideFonts of desktop ? [false] : [false, true]) {
+      for (const seed of [32, 2]) {
+        const tag = `${w}x${h}${wideFonts ? ' wide fonts' : ''}, seed ${seed}`
+        // The desktop's replay sets no size of its own.
+        if (desktop) {
+          await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false })
+          await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+        }
+        if (!(await startSeedAt(b, url, [w, h], true, seed, desktop))) return [`${tag}: could not replay the seed`]
+        if (wideFonts) await b.evaluate(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(WIDE_FONTS)}; document.head.appendChild(s); return document.fonts.ready.then(() => true) })()`)
+        const look = async (where) => {
+          await sleep(150)
+          const at = `${tag}, ${where}`
+          if (w === 390) {
+            const m = await b.evaluate(LOADOUT_FIT)
+            if (!m) failures.push(`${at}: PROCURE is not open`)
+            else {
+              if (m.over > 1) failures.push(`${at}: PROCURE scrolls ${m.over}px`)
+              if (m.cue) failures.push(`${at}: PROCURE says "more below"`)
+            }
+            for (const c of await b.evaluate(`${CARD_CUT}(${JSON.stringify(R4_CARDS)})`)) failures.push(`${at}: text cut in its card (${c})`)
+          }
+          const x = await b.evaluate(PROCURE_EXITS)
+          if (desktop) {
+            if (x.exits.length) failures.push(`${at}: the open PROCURE has a way out on the desktop: ${x.exits.join(', ')}`)
+          } else if (x.exits.length !== 1 || !/^BACK TO BOARD/.test(x.exits[0])) failures.push(`${at}: PROCURE's ways out are ${JSON.stringify(x.exits)}, not the dock's BACK TO BOARD alone`)
+          if (x.procure.length) failures.push(`${at}: a PROCURE button inside PROCURE (${x.procure.join(', ')})`)
+        }
+        const open = async () => {
+          if (!desktop) await b.evaluate(`(() => { if (!document.querySelector('[data-sheet=procure]')) document.querySelector('[data-action="procure"]').click(); return true })()`)
+          await waitFor(b, '!!document.querySelector("[data-sheet=procure]")')
+        }
+        await open()
+        await look('turn 1, its first opening')
+        await b.evaluate(`(() => { const h = document.querySelector('[data-procure-help="open"]'); if (h) h.click(); return true })()`)
+        await look('turn 1, empty')
+        await b.evaluate(click('[data-procure-kind="drone"]'))
+        await look('turn 1, with an order')
+        await b.evaluate(click('[data-procure-defense="antiJam"]'))
+        await look('turn 1, capped')
+        // On to turn 4: three nights with a defense each.
+        await b.evaluate(closeIt)
+        for (const [turn, ids] of [[1, []], [2, ['encryptedBackhaul']], [3, ['linkAuth']]]) {
+          if (turn > 1) await orderDefenses(b, ids)
+          await b.evaluate(closeIt)
+          await b.evaluate(click('[data-execute]'))
+          for (let k = 0; k < 40; k += 1) {
+            if (!(await waitFor(b, `${NIGHT_STAGE} !== 'busy'`, 8000))) break
+            const stage = await b.evaluate(NIGHT_STAGE)
+            if (stage === 'board') break
+            await b.evaluate(NIGHT_TAP)
+            await sleep(50)
+          }
+        }
+        if (!(await waitFor(b, '!!document.querySelector("[data-execute]")', 8000))) {
+          failures.push(`${tag}: never reached turn 4`)
+          continue
+        }
+        await open()
+        await look('turn 4, empty')
+        await b.evaluate(`(() => { const e = [...document.querySelectorAll('[data-procure-defense]')].find((x) => !x.disabled); if (e) e.click(); return true })()`)
+        await look('turn 4, capped')
+      }
+    }
+  }
+  return failures
+}
+
+// (w) END OF TURN at 390x844: its body neither scrolls nor says "more
+// below", and its panels' text is whole, on every turn of a won and a
+// lost game, as served and in the wide fonts.
+async function endOfTurnFits(b, url) {
+  const [w, h] = [390, 844]
+  const failures = []
+  let cards = 0
+  for (const [seed, plan] of [[32, NIGHT_PLAN], [2, {}]]) {
+    for (const wideFonts of [false, true]) {
+      if (!(await startSeed(b, url, [w, h], true, seed))) return [`${w}x${h}, seed ${seed}: could not replay the seed`]
+      if (wideFonts) await b.evaluate(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(WIDE_FONTS)}; document.head.appendChild(s); return document.fonts.ready.then(() => true) })()`)
+      for (let turn = 1; turn <= 6; turn += 1) {
+        await orderDefenses(b, plan[turn] ?? [])
+        await b.evaluate(`(() => { if (document.querySelector('[data-sheet=procure]')) document.querySelector('[data-action="procure"]').click(); return true })()`)
+        await b.evaluate(click('[data-execute]'))
+        let last = false
+        for (let k = 0; k < 40; k += 1) {
+          if (!(await waitFor(b, `${NIGHT_STAGE} !== 'busy'`, 8000))) break
+          const stage = await b.evaluate(NIGHT_STAGE)
+          if (stage === 'board') break
+          if (stage === 'end') {
+            await sleep(120)
+            cards += 1
+            const at = `${w}x${h}${wideFonts ? ' wide fonts' : ''}, seed ${seed}, END OF TURN ${turn}`
+            const m = await b.evaluate(`(() => { const body = document.querySelector('[data-night-card="end"] [data-card-body]'); return { over: body.scrollHeight - body.clientHeight, more: !!document.querySelector('[data-night-card="end"] [data-more]') } })()`)
+            if (m.over > 1) failures.push(`${at}: scrolls ${m.over}px`)
+            if (m.more) failures.push(`${at}: says "more below"`)
+            for (const c of await b.evaluate(`${CARD_CUT}(${JSON.stringify('[data-score-lines], [data-ledger]')})`)) failures.push(`${at}: text cut in its panel (${c})`)
+            last = (await b.evaluate('document.querySelector("[data-begin]").innerText.trim()')) === 'DEBRIEF'
+          }
+          await b.evaluate(NIGHT_TAP)
+          await sleep(60)
+          if (last) break
+        }
+        if (last) break
+      }
+    }
+  }
+  if (cards < 20) failures.push(`${w}x${h}: only ${cards} END OF TURN cards were measured`)
+  return failures
+}
+
+export async function r4Guards(b, url) {
+  return [...(await procureLoadout(b, url)), ...(await endOfTurnFits(b, url))]
+}
+
 export async function v16Guards(b, url) {
   const failures = []
   const on = await scoreStills(b, url, false)
@@ -1575,6 +1748,8 @@ export async function phoneLayout(chrome) {
     // (with the debrief's, which hold its shape), for a mutation run.
     // PHONE_LAYOUT_ONLY=r3 runs the v1.6 R3 guards alone, for a mutation run.
     if (process.env.PHONE_LAYOUT_ONLY === 'r3') return await r3Guards(b, url)
+    // PHONE_LAYOUT_ONLY=r4 runs the v1.6 R4 guards alone, for a mutation run.
+    if (process.env.PHONE_LAYOUT_ONLY === 'r4') return await r4Guards(b, url)
     if (process.env.PHONE_LAYOUT_ONLY === 'v16') {
       failures.push(...(await v16Guards(b, url)))
       failures.push(...(await checkDebrief(b, url, VIEWPORTS[0], NIGHT_PLAN, 'won')), ...(await checkDebrief(b, url, VIEWPORTS[0], {}, 'lost')))
@@ -1598,6 +1773,7 @@ export async function phoneLayout(chrome) {
     failures.push(...(await checkDesktop(b, url)))
     failures.push(...(await v16Guards(b, url)))
     failures.push(...(await r3Guards(b, url)))
+    failures.push(...(await r4Guards(b, url)))
     failures.push(...(await checkEveryScreen(b, url)))
     return failures
   } finally {

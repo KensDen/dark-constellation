@@ -14,6 +14,7 @@
 // Every number is the scenario's or the engine's: the drone's price, the
 // coverage it adds and whether that crosses the coverage bonus's line.
 
+import { useState } from 'react'
 import type { GameState, TurnActions } from '../../engine/types'
 import PixelSprite from '../sprites/PixelSprite'
 import { ICON_CHECK, tinted } from '../sprites/icons'
@@ -52,7 +53,27 @@ export interface OrdersProps {
   onOrder: (id: OrderId) => void
 }
 
+// ONCE PER DEVICE (v1.6 R4, Ken's ruling of 27 October 2026), like TONIGHT's
+// "?": the coach walks a device's first operation, its turn-1 steps and its
+// turn-2 step, and no operation after it. The operation is known by its
+// seed, stored the first time the coach shows; SYSTEM's HOW TO PLAY keeps
+// the job for a returning player.
+export const COACH_SEEN_KEY = 'dc-coach-operation'
+function coachFor(seed: number): boolean {
+  try {
+    const seen = localStorage.getItem(COACH_SEEN_KEY)
+    if (seen === null) localStorage.setItem(COACH_SEEN_KEY, String(seed))
+    return seen === null || seen === String(seed)
+  } catch {
+    return true
+  }
+}
+
 export default function Orders({ state, actions, onOrder }: OrdersProps) {
+  // Read once, as the board mounts: a coach that has shown stays for the
+  // turn it is on.
+  const [coach] = useState(() => state.turn > 2 || coachFor(state.seed))
+  if (!coach) return null
   if (state.turn === 1) {
     const lines = firstOrders(state, actions)
     const next = lines.findIndex((l) => !l.done)

@@ -119,7 +119,9 @@ const TIER: Record<'S' | 'A' | 'B' | 'C', { line: string; burst: number; sparks:
 // What each losing grade says under its stamp (v1.6 R1).
 const LOSS_LINE: Record<'D' | 'F', string> = { D: 'FELL SHORT', F: 'ENDED EARLY' }
 // How far the final score finished from the win line, as the HUD says it.
-const marginLine = (final: number, needed: number) => (final >= needed ? `${(final - needed).toFixed(1)} ABOVE WIN LINE` : `${(needed - final).toFixed(1)} BELOW WIN LINE`)
+// The final score beside what it needed (v1.6 R4: "1.1 ABOVE WIN LINE" said
+// the margin in words, which the board's bar retired in R3).
+const neededLine = (needed: number) => `NEEDED ${needed}`
 // The stats the grid opens on, won or lost.
 const STATS_FIRST = ['MOVES BLOCKED', 'BEST STREAK', 'POINTS SAVED']
 // Where each spark sits round the shield, in the order they add.
@@ -213,20 +215,21 @@ function Stat({ stat, index, active, reduced, moving }: { stat: DebriefStat; ind
 
 // The final score against the win line, the bonus a win is graded with,
 // the difficulty and the time played.
+// Under the hero's reason: the grade score where a defense bonus made it,
+// then the difficulty and the time. The final score and what it needed are
+// the hero's own line (v1.6 R4: they stood here a second time).
 function FinalLines({ block, difficulty, played }: { block: ReturnType<typeof gradeBlock>; difficulty: string; played: string | null }) {
   return (
     <>
-      Final mission assurance <b className="font-mono font-normal text-dc-ink">{block.final.toFixed(1)}</b>,{' '}
-      <span className="whitespace-nowrap">needed {block.needed}</span>
       {block.bonus && (
         <>
-          <br />+ defense bonus <span className="font-mono">{block.bonus.bonus.toFixed(1)}</span> →{' '}
+          Defense bonus <span className="font-mono">+{block.bonus.bonus.toFixed(1)}</span> →{' '}
           <span className="whitespace-nowrap">
             grade score <b className="font-mono font-normal text-dc-ink">{block.bonus.graded.toFixed(1)}</b>
           </span>
+          <br />
         </>
       )}
-      <br />
       {difficulty}
       {played && ` · played in ${played}`}
     </>
@@ -390,7 +393,7 @@ export default function Debrief({ state, daily, standing, onPlayAgain, onTitle }
                   {tier ? tier.line : LOSS_LINE[block.grade as 'D' | 'F']}
                 </p>
                 <p data-margin className={`mt-1 whitespace-nowrap font-mono text-[11px] text-dc-ink ${stage < gradeStage ? 'dc-score-wait' : ''}`}>
-                  FINAL <b className="font-normal">{block.final.toFixed(1)}</b> · {marginLine(block.final, block.needed)}
+                  FINAL <b className="font-normal">{block.final.toFixed(1)}</b> · {neededLine(block.needed)}
                 </p>
               </div>
             </div>

@@ -224,7 +224,10 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
       })
       // One order, won or lost (v1.6 R1): what held first (v1.3 R5).
       expect(tiles().map((t) => t.getAttribute('data-stat'))).toEqual(['MOVES BLOCKED', 'BEST STREAK', 'POINTS SAVED', 'HITS TAKEN', 'BUDGET LEFT', 'DEFENSES KEPT'])
-      expect(container.querySelector('[data-final]')!.textContent).toContain(`Final mission assurance ${last.maiScore.toFixed(1)}, needed ${DEFAULT_SCENARIO.winThreshold}`)
+      // The final score and what it needed, said once, on the hero's line
+      // (v1.6 R4: the final lines said them a second time).
+      expect(container.querySelector('[data-margin]')!.textContent).toBe(`FINAL ${last.maiScore.toFixed(1)} · NEEDED ${DEFAULT_SCENARIO.winThreshold}`)
+      expect(container.querySelector('[data-final]')!.textContent).not.toContain('Final mission assurance')
     }
   })
 
@@ -312,6 +315,10 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
       const word = { green: 'score held or rose', amber: 'dropped less than 3', magenta: 'dropped 3 or more, or lost an asset' }
       expect(cells().map((c) => c.getAttribute('aria-label'))).toEqual(turnStrip(state).map((c, i) => `Turn ${i + 1}: ${word[c]}`))
       expect(container.querySelector('[data-strip-legend]')!.textContent).toBe('score held or rosedropped less than 3dropped 3 or more, or lost an asset')
+      // The ladder stands behind its tab since v1.6 R4 (Ken's ruling of 27
+      // October 2026: long lists behind taps), closed until tapped.
+      expect(container.querySelector('[data-ladder]'), 'the ladder is open before its tab').toBeNull()
+      act(() => void container.querySelector('[data-debrief-tab="grades"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
       expect([...container.querySelectorAll('[data-rung]')].map((r) => r.getAttribute('data-rung'))).toEqual(['S', 'A', 'B', 'C', 'D', 'F'])
       expect(container.querySelector('[data-rung][data-mine]')!.getAttribute('data-rung')).toBe(gradeOf(state))
       // The win line sits between C and D (R5, question 7).
@@ -450,7 +457,7 @@ describe('GUARD R5 (a): a won debrief and a lost one differ in layout, not only 
     expect(container.querySelector('[data-hero]')!.getAttribute('data-tier')).toBe('C')
     expect(container.querySelector('[data-tier-line]')!.textContent).toBe('HELD THE LINE')
     expect(container.querySelector('[data-hero] [data-grade]')!.textContent).toBe('C')
-    expect(container.querySelector('[data-hero] [data-margin]')!.textContent).toMatch(/^FINAL \d+\.\d · \d+\.\d ABOVE WIN LINE$/)
+    expect(container.querySelector('[data-hero] [data-margin]')!.textContent).toMatch(/^FINAL \d+\.\d · NEEDED \d+$/)
     const winTiles = tileOrder()
 
     show(LOST())
@@ -460,7 +467,7 @@ describe('GUARD R5 (a): a won debrief and a lost one differ in layout, not only 
     expect(shapes()).toEqual({ shield: 'loss-shield', stamp: true, rays: 'lost', sparks: 0 })
     expect(container.querySelector('[data-hero] [data-grade]')!.textContent).toBe('D')
     expect(container.querySelector('[data-hero] [data-stamp]')!.className).toContain('text-dc-hostile')
-    expect(container.querySelector('[data-hero] [data-margin]')!.textContent).toMatch(/^FINAL \d+\.\d · \d+\.\d BELOW WIN LINE$/)
+    expect(container.querySelector('[data-hero] [data-margin]')!.textContent).toMatch(/^FINAL \d+\.\d · NEEDED \d+$/)
     expect(tileOrder(), 'a loss orders its tiles another way').toEqual(winTiles)
   })
 

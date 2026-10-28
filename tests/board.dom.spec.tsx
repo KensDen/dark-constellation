@@ -203,13 +203,13 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
     // One order, the retainer's: it does not order the intel brief beside
     // it on the same sheet. (The dock's badge has its own guard, R2 (e) in
     // tests/board-r2.dom.spec.tsx.)
-    expect(sheet('procure')!.querySelector('button[data-confirm]')!.textContent, 'PROCURE does not count the queued retainer').toBe('CONFIRM 1 ORDER')
+    expect(defenseTile('irRetainer')!.querySelector('[data-cost]')!.textContent, 'the retainer does not read ORDERED').toBe('ORDERED')
     const intel = sheet('procure')!.querySelector('button[data-procure-intel]')
     expect(intel, 'PROCURE has no INTEL order').not.toBeNull()
     expect(intel!.getAttribute('aria-pressed'), 'the retainer ordered the intel brief').toBe('false')
     // EXECUTE is a tap; the turn resolves on the click and the autosave
     // carries the next turn before any of the playback is seen.
-    click(sheet('procure')!.querySelector('button[data-confirm]')!)
+    click(container.querySelector('button[data-confirm]')!)
     const execute = container.querySelector('button[data-execute]')
     expect(execute, 'EXECUTE is not on screen').not.toBeNull()
     click(execute!)
@@ -326,14 +326,17 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
     click(procureButton())
     const procure = sheet('procure')!
     expect(procure.textContent, 'a step header is back').not.toMatch(/STEP \d+ OF \d+/)
-    expect(procure.querySelector('h2')!.textContent).toBe(`PROCURE · ${turnBudget(state)} CR LEFT`)
+    // The money is the dock's REMAINING since v1.6 R4; the sheet's head
+    // is its name and the night's one status line.
+    expect(procure.querySelector('h2')!.textContent).toBe('PROCURE')
+    expect(container.querySelector('[data-remaining]')!.textContent).toContain(`${turnBudget(state)}`)
     expect([...procure.querySelectorAll('[data-procure-kind]')].map((b) => b.getAttribute('data-procure-kind')), 'PROCURE offers other assets').toEqual(PROCURE_KINDS)
     expect(procure.querySelector('[data-procure-defenses]')!.textContent, 'the retainer is not in DEFENSES').toMatch(/Incident response retainer/)
     // INTEL is the one intel brief since v1.3 Round 0 (D2 a), priced from
     // the scenario on a night it is not free; turn 2 of this fixture is not.
     expect(briefFree(state)).toBe(false)
     const intel = procure.querySelector('button[data-procure-intel]')
-    expect(intel?.textContent, 'PROCURE has no INTEL order').toContain('Intel brief')
+    expect(intel?.textContent, 'PROCURE has no INTEL order').toContain('INTEL BRIEF')
     // A cost chip, the whole card the tap (v1.6 R1: no link-style "+ ADD").
     expect(intel!.querySelector('[data-cost]')!.textContent).toBe(`${DEFAULT_SCENARIO.prices.intelBrief} CR`)
     expect(procure.textContent).not.toContain('+ ADD')
@@ -343,8 +346,8 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
     click(drone)
     expect(sheet('procure'), 'the sheet closed on a tap').toBe(procure)
     expect(drone.getAttribute('aria-pressed')).toBe('true')
-    expect(drone.querySelector('[data-cost]')!.textContent).toBe(`${assetPrice(DEFAULT_SCENARIO, 'drone')} CR · ORDERED`)
-    click(procure.querySelector('button[data-confirm]')!)
+    expect(drone.querySelector('[data-cost]')!.textContent).toBe('ORDERED')
+    click(container.querySelector('button[data-confirm]')!)
     // The sheet closes and the queued tile is on AIR, with its call sign:
     // the next drone ordinal, read off the fixture (v1.3's WIN_SCRIPT
     // orders a drone on turn 1, so turn 2 already flies three).

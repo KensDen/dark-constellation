@@ -291,6 +291,8 @@ export const briefButton = (price: number) => `INTEL BRIEF · ${price} CR`
 export const BRIEF_RULE = "Names COLDVEIL's moves the moment you order it, and the defenses then say which moves they stop or blunt. Once named, the order is locked for this turn: no cancel, no refund."
 export const BRIEF_LOCKED_LINE = "It has named tonight's moves, so it stays ordered: no cancel, no refund."
 export const BRIEF_LOCKED = 'LOCKED'
+// The intel brief's tile in PROCURE, before the tap: it locks once ordered.
+export const BRIEF_LOCKS = 'LOCKS'
 export const briefLockedTag = (price: number) => `${price} CR · ${BRIEF_LOCKED}`
 // The TONIGHT row once the brief is ordered: a status with its padlock.
 export const briefLockedRow = (price: number) => `INTEL BRIEF · ${briefLockedTag(price)}`
@@ -338,20 +340,17 @@ export const capLabel = (n: number) => `${n} A TURN`
 // Beside the note on a move whose defenses wait for the turn's one (the R1
 // re-review: "stopped by the highlighted defense" read as tonight).
 export const NOT_THIS_TURN = 'Not this turn unless you swap.'
-// The DEFENSES heading's note, beside the upkeep.
-export const defensesPerTurn = (n: number) => `${n} a turn`
-// PROCURE's planned line leads with the turn's one defense (v1.4 finding
-// 3: "Ordered: 0 of 100 CR" read as a budget to fill).
-export const defenseCount = (ordered: number, n: number) => `New defense this turn: ${ordered} of ${n}.`
-// Under CONFIRM N ORDERS (v1.4 finding 6: CONFIRM read as locking them in).
-// One line since v1.6 R1, so two whole cards show over it at 375; how to
-// cancel is PROCURE_HOW's, at the top of the list.
-export const confirmNote = (cost: number, briefLocked = false) =>
-  briefLocked ? `${cost} CR committed. The intel brief stays ordered.` : `${cost} CR committed. Nothing is final until you EXECUTE.`
+// PROCURE's one status line since v1.6 R4 (Ken's ruling of 27 October
+// 2026: three blocks of rules at its top became one line and a "?").
+export const defenseStatus = (ordered: number, n: number) => `NEW DEFENSE ${ordered} OF ${n}`
+// Behind PROCURE's "?": what keeping a defense costs, which each card said.
+export const upkeepLine = (upkeep: number) => `Each defense costs ${upkeep} CR a turn to keep.`
 // PROCURE's one line on how its cards work (v1.6 R1: the whole card is the
 // tap, where "+ ADD" was).
 // PROCURE's teaching, behind its "?" after the first time (v1.6 R3).
 export const PROCURE_HELP_LABEL = 'How PROCURE works'
+// PROCURE's one way out, the dock's PROCURE while the sheet is open (v1.6 R4).
+export const BACK_TO_BOARD = 'BACK TO BOARD'
 export const PROCURE_HELP_SEEN_KEY = 'dc-procure-help-seen'
 export const FUNDING_LINE = 'Funding arrives at the turn close, after repairs.'
 export const PROCURE_HOW = 'Tap a card to order it, again to cancel.'
@@ -384,7 +383,7 @@ export function stopsTags(cm: Countermeasure, state: GameState, named: ReadonlyS
   const tags = (['stops', 'blunts'] as const).flatMap((verb) =>
     key.known
       .filter((k) => stopVerb(cm.id, eventById(state.scenario, k.id)) === verb)
-      .map((k) => ({ text: `${verb === 'stops' ? 'Stops' : 'Blunts'} ${shortName(eventById(state.scenario, k.id))}${k.tonight ? ' · tonight' : ''}`, verb })),
+      .map((k) => ({ text: `${verb === 'stops' ? 'Stops' : 'Blunts'} ${shortName(eventById(state.scenario, k.id))}${k.tonight ? '\u00a0·\u00a0tonight' : ''}`, verb })),
   )
   return key.unmet ? [...tags, { text: `+${key.unmet} threat${key.unmet === 1 ? '' : 's'} not met yet`, verb: 'other' as const }] : tags
 }

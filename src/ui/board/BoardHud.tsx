@@ -42,6 +42,8 @@ export interface BoardHudProps {
   // block (delta 0). With motion off it stays while the move's card is up.
   drop?: { id: string; delta: number; label?: string } | null
   countMs?: number
+  // END OF TURN is up and says the turn's change: no chip beside it (v1.6 R4).
+  hush?: boolean
 }
 
 // The change no move explains (END OF TURN's recovery, a reload's close):
@@ -63,16 +65,16 @@ function useScoreChange(score: number, explained: boolean): { id: number; delta:
   return chip
 }
 
-export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSystem, systemOpen, drop, countMs }: BoardHudProps) {
+export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSystem, systemOpen, drop, countMs, hush = false }: BoardHudProps) {
   const scenario = shown.scenario
   const score = maiScore(shown)
   const winAt = scenario.winThreshold
   const margin = marginChip(score, winAt)
   const fill = Math.max(0, Math.min(100, score))
   const reduced = useReducedMotion()
-  const change = useScoreChange(score, !!drop)
+  const change = useScoreChange(score, !!drop || hush)
   // The delta chip: the move's, or else the change no move explains.
-  const chip = drop ? { key: drop.id, fall: drop.delta > 0, text: drop.delta > 0 ? `-${drop.delta.toFixed(1)}` : 'NO LOSS', label: drop.delta > 0 ? drop.label : undefined } : change ? { key: `change-${change.id}`, fall: change.delta < 0, text: `${change.delta > 0 ? '+' : ''}${change.delta.toFixed(1)}`, label: undefined } : null
+  const chip = hush ? null : drop ? { key: drop.id, fall: drop.delta > 0, text: drop.delta > 0 ? `-${drop.delta.toFixed(1)}` : 'NO LOSS', label: drop.delta > 0 ? drop.label : undefined } : change ? { key: `change-${change.id}`, fall: change.delta < 0, text: `${change.delta > 0 ? '+' : ''}${change.delta.toFixed(1)}`, label: undefined } : null
   return (
     <header data-hud className="relative flex-none border-b-2 border-dc-line bg-dc-chrome px-safe pt-safe">
       <div className="flex items-center justify-between gap-2 px-3 pt-1 pb-0.5 font-mono text-[11px] tracking-widest text-dc-muted">

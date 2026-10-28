@@ -269,7 +269,7 @@ describe('the hidden moves (R6 question 14)', () => {
     // asking for it or promising its cancel (the R2 review, finding 29).
     click(q('[data-sheet="procure"] button[data-procure-intel]')!)
     expect(q('[data-sheet="procure"] [data-match-note]'), 'the note still asks for the brief it locked').toBeNull()
-    expect(q('[data-confirm] + p')!.textContent).toBe(`${second.scenario.prices.intelBrief} CR committed. The intel brief stays ordered.`)
+    expect(q('[data-sheet="procure"] [data-procure-intel]')!.hasAttribute('data-locked'), 'the ordered brief is not locked').toBe(true)
     // A tap on a hidden move does the same.
     render(gameAt(3))
     click(q('[data-move-unknown]')!)
@@ -287,15 +287,23 @@ describe("GUARD R2 (e): PROCURE's badge counts queued orders", () => {
     click(q('[data-action="procure"]')!)
     click(q('[data-confirm]')!)
     expect(badge(), 'PROCURE opened and closed counted as an order').toBeNull()
-    click(q('[data-action="procure"]')!)
-    click(q('[data-procure-kind="drone"]')!)
+    // The count stands on the dock's PROCURE once the sheet closes; while
+    // it is open the dock's button is BACK TO BOARD, its one way out, and
+    // the tiles say ORDERED (v1.6 R4's fresh eyes, K5).
+    const order = (sel: string) => {
+      click(q('[data-action="procure"]')!)
+      expect(q('[data-confirm]')!.textContent).toBe('BACK TO BOARD')
+      expect(badge(), 'the count wraps BACK TO BOARD').toBeNull()
+      click(q(sel)!)
+      click(q('[data-confirm]')!)
+    }
+    order('[data-procure-kind="drone"]')
     expect(badge()!.textContent).toBe('1')
-    click(q('[data-procure-defense]:not([disabled])')!)
+    order('[data-procure-defense]:not([disabled])')
     expect(badge()!.textContent).toBe('2')
-    click(q('[data-procure-intel]')!)
+    order('[data-procure-intel]')
     expect(badge()!.textContent).toBe('3')
-    expect(q('[data-confirm]')!.textContent).toBe('CONFIRM 3 ORDERS')
-    click(q('[data-procure-kind="drone"]')!)
+    order('[data-procure-kind="drone"]')
     expect(badge()!.textContent).toBe('2')
   })
 })

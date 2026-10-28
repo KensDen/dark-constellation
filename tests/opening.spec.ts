@@ -757,8 +757,11 @@ describe('the opening: the night tells the truth (Round 7b)', () => {
             )
             // On the card as the player reads it.
             const card = renderNight(before, after).cards.find((c) => c.kind === 'end')!
+            // The turn summary (v1.6 R4): the row says missed, and the hint
+            // under the panels says the detail.
             const row = pick(card.html, /<div data-ledger-row="bonus"[^>]*>([\s\S]*?)<\/div>/)
-            expect(row, `${at}: END OF TURN reads "${row}"`).toBe(`${nightCopy.COVERAGE_BONUS} (${bonus!.detail})${nightCopy.MISSED}`)
+            expect(row, `${at}: END OF TURN reads "${row}"`).toBe(`${nightCopy.LEDGER_SHORT.bonus}${nightCopy.MISSED}`)
+            expect(pick(card.html, /<p data-end-hint="true"[^>]*>([\s\S]*?)<\/p>/), `${at}: END OF TURN's hint`).toBe(nightCopy.bonusHint(bonus!.detail!))
             // What a player reads, checked without the helper, so a change
             // to coverageFigure itself cannot carry the line with it: a
             // readout (whole, or one decimal), never above the coverage
@@ -850,24 +853,26 @@ describe('the opening: the night tells the truth (Round 7b)', () => {
       const bonus = ledgerRows(record, after).find((r) => r.key === 'bonus')!
       const card = renderNight(state, after).cards.find((c) => c.kind === 'end')!
       const row = pick(card.html, /<div data-ledger-row="bonus"[^>]*>([\s\S]*?)<\/div>/)
+      const hint = pick(card.html, /<p data-end-hint="true"[^>]*>([\s\S]*?)<\/p>/)
       const posture = coverageLine(state)
       if (clear) {
-        expect(row, `${at}: END OF TURN reads "${row}"`).toBe(`${nightCopy.COVERAGE_BONUS} (coverage ${printed}, needs ${coverageMin})+${credits}`)
+        // Paid: the row says +credits, and no hint (v1.6 R4's summary).
+        expect(row, `${at}: END OF TURN reads "${row}"`).toBe(`${nightCopy.LEDGER_SHORT.bonus}+${credits}`)
+        expect(hint, `${at}: a paid bonus has a hint`).toBeUndefined()
         expect(posture, `${at}: the posture panel says "${posture}"`).toContain(
           `Coverage ${printed}, clear of the ${coverageMin} the coverage bonus pays at.`,
         )
         expect(posture, `${at}: the posture panel takes the under branch`).not.toContain(`The coverage bonus pays ${credits} CR a turn from`)
       } else {
         expect(bonus.word, `${at}: END OF TURN pays a fleet under the minimum`).toBe(nightCopy.MISSED)
-        expect(row, `${at}: END OF TURN reads "${row}"`).toMatch(
-          new RegExp(`^${nightCopy.COVERAGE_BONUS} \\(coverage ${printed.replace('.', '\\.')}, needs ${coverageMin}\\. .+ gets you there\\.\\)${nightCopy.MISSED}$`),
-        )
+        expect(row, `${at}: END OF TURN reads "${row}"`).toBe(`${nightCopy.LEDGER_SHORT.bonus}${nightCopy.MISSED}`)
+        expect(hint, `${at}: END OF TURN's hint reads "${hint}"`).toMatch(new RegExp(`^Bonus missed: coverage ${printed.replace('.', '\\.')}, needs ${coverageMin}\\. .+ gets you there\\.$`))
         expect(posture, `${at}: the posture panel says "${posture}"`).toContain(
           `Coverage ${printed}. The coverage bonus pays ${credits} CR a turn from ${coverageMin}.`,
         )
         expect(posture, `${at}: the posture panel calls a fleet under the minimum clear of it`).not.toContain('clear of the')
         for (const [surface, text] of [
-          ['END OF TURN', row!],
+          ['END OF TURN', hint!],
           ['the posture panel', posture],
         ]) {
           expect(text.toLowerCase(), `${at}: ${surface} prints the minimum as the fleet's coverage: "${text}"`).not.toContain(

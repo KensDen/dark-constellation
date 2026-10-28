@@ -367,6 +367,28 @@ export const recoveryFast = (heal: number, base: number, retained: number) =>
 // tonight's moves took and what the defenses saved, and the overnight
 // recovery, from the score the turn opened on to the one it closed on.
 export const SCORE_LINES = 'MISSION ASSURANCE SCORE'
+// THE TURN SUMMARY'S WORDS (v1.6 R4): the two panels' heads and their
+// short row names, numbers in one column; the long names stay for the
+// screen reader's labels and the night's other cards.
+export const SCORE_PANEL = 'SCORE'
+export const NO_CHANGE = 'HELD'
+// A missed coverage bonus's detail as the summary's one hint line, said
+// with the panel's word for it.
+export const bonusHint = (detail: string) => `Bonus missed: ${detail}`
+export const budgetPanel = (turn: number, last: boolean) => (last ? 'FINAL BUDGET' : `BUDGET · TURN ${turn + 1}`)
+export const SCORE_SHORT: Record<'from' | 'conditions' | 'moves' | 'recovery' | 'to', string> = { from: 'Start', conditions: 'Conditions', moves: 'Moves', recovery: 'Recovery', to: 'End' }
+export const LEDGER_SHORT: Record<'left' | 'fuel' | 'windfall' | 'repairs' | 'keeping' | 'funding' | 'bonus' | 'total', string> = {
+  total: 'Next turn',
+  left: 'Orders',
+  fuel: 'Burn fuel',
+  windfall: 'Windfall',
+  repairs: 'Repairs',
+  keeping: 'Upkeep',
+  funding: 'Funding',
+  bonus: 'Bonus',
+}
+export const TONIGHT_ROWS = 'TONIGHT'
+export const END_HELP = 'How recovery works'
 export const BUDGET_LINES = 'BUDGET'
 export const SCORE_FROM = 'Start of turn'
 export const SCORE_CONDITIONS = 'Ongoing conditions'

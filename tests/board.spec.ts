@@ -92,7 +92,7 @@ describe('the board (v1.2 R1)', () => {
     const role = 'flies the LiDAR mapping sorties'
     expect(assetRole('drone').endsWith(role), 'the drone role line no longer ends with its role').toBe(true)
     expect(strings.some((s) => s.file === 'ui/board/board.ts' && s.text === role), 'the string walker did not find the role copy').toBe(true)
-    expect(strings.some((s) => s.file === 'ui/board/Procure.tsx' && /Ordered:/.test(s.text)), 'the walker missed the JSX text').toBe(true)
+    expect(strings.some((s) => s.file === 'ui/board/Procure.tsx' && /a turn each to keep/.test(s.text)), 'the walker missed the JSX text').toBe(true)
     const offenders = strings.filter((s) => /in this build/i.test(s.text)).map((s) => `${s.file}: ${JSON.stringify(s.text)}`)
     expect(offenders.join('\n'), 'a developer parenthetical is back in player copy').toBe('')
   })

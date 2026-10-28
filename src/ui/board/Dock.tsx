@@ -15,7 +15,7 @@
 import type { RefObject } from 'react'
 import { useCueClass, useReducedMotion } from '../cues/motion'
 import { ACTIONS } from './actions'
-import { BELOW_ZERO, OVER_BUDGET, REMAINING, WORST_CASE, worstSum, type WorstCase } from './boardModel'
+import { BACK_TO_BOARD, BELOW_ZERO, OVER_BUDGET, REMAINING, WORST_CASE, worstSum, type WorstCase } from './boardModel'
 
 const BIG = 'dc-tile relative flex min-h-12 flex-1 items-center justify-center gap-2 border-2 font-display text-xs disabled:cursor-not-allowed disabled:opacity-40'
 const SOLID = `${BIG} border-dc-go bg-dc-go text-dc-ground shadow-hard`
@@ -34,12 +34,12 @@ export interface DockProps {
   onWorst: () => void
   // A nonce: the FIRST ORDERS line pulses the WORST CASE line.
   pulseWorst: number
-  // PROCURE is open over the board on a phone, with CONFIRM N ORDERS its
-  // green primary: EXECUTE and PROCURE step back to their outline until
-  // the sheet closes, so at most one green primary shows (v1.6 R1; with
-  // nothing queued, none: the dock's PROCURE would open what is open).
-  // Both still act, and the money line stays, so WORST CASE reads while
-  // ordering.
+  // PROCURE is open over the board on a phone. Since v1.6 R4 (Ken's ruling
+  // of 27 October 2026: one exit, and no PROCURE button inside PROCURE)
+  // the dock's PROCURE reads BACK TO BOARD and is the sheet's one way out,
+  // under the thumb; the sheet has no close or confirm of its own. EXECUTE
+  // stays beside it, green once an order is in, and the money line stays,
+  // so WORST CASE reads while ordering.
   quiet?: boolean
 }
 
@@ -71,9 +71,19 @@ export default function Dock(p: DockProps) {
         <div className="mt-1.5 flex gap-2">
           {ACTIONS.map((a) =>
             a.sheet ? (
-              <button key={a.id} type="button" data-action={a.id} aria-expanded={p.procureOpen} onClick={p.onProcure} className={p.orders > 0 || p.quiet ? OUTLINE : SOLID}>
-                {a.label}
-                {p.orders > 0 && (
+              <button
+                key={a.id}
+                type="button"
+                data-action={a.id}
+                data-confirm={p.quiet || undefined}
+                aria-expanded={p.procureOpen}
+                onClick={p.onProcure}
+                className={p.orders > 0 || p.quiet ? OUTLINE : SOLID}
+              >
+                {p.quiet ? BACK_TO_BOARD : a.label}
+                {/* The count off BACK TO BOARD, which it wrapped to two lines
+                    at 390 (v1.6 R4's fresh eyes, K5): the tiles say ORDERED. */}
+                {p.orders > 0 && !p.quiet && (
                   <span
                     data-order-badge
                     aria-label={`${p.orders} ${p.orders === 1 ? 'order' : 'orders'} queued`}
@@ -93,7 +103,7 @@ export default function Dock(p: DockProps) {
                 aria-label={p.executeName}
                 disabled={over}
                 onClick={p.onExecute}
-                className={p.orders > 0 && !p.quiet ? SOLID : OUTLINE}
+                className={p.orders > 0 ? SOLID : OUTLINE}
               >
                 {a.label}
               </button>

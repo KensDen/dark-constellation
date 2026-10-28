@@ -18,7 +18,7 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { NEW_DEFENSES_PER_NIGHT, newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
-import { DEFENSE_IN, NOT_THIS_TURN, capLabel, defenseCount, defenseOrderIn, defenseRule } from '../src/ui/board/boardModel'
+import { DEFENSE_IN, NOT_THIS_TURN, capLabel, defenseOrderIn, defenseRule, defenseStatus } from '../src/ui/board/boardModel'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 
@@ -110,9 +110,10 @@ describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', 
     // A limit with its reason, and not on the fleet (the v1.4 fresh-eyes review).
     expect(rule()?.textContent).toContain('can bring only 1 online')
     expect(rule()?.textContent).toContain('Assets skip integration, so the limit does not apply to them.')
-    expect(q('[data-procure-defenses]')!.previousElementSibling!.textContent).toContain('1 a turn')
-    // The planned line leads with the turn's one defense (v1.4 finding 3).
-    expect(q('[data-planned]')!.textContent).toContain(defenseCount(0, 1))
+    // PROCURE's one status line since v1.6 R4 says the turn's one defense
+    // (v1.4 finding 3); the rule and its reason stand behind its "?", open
+    // on its own the first time a device opens PROCURE.
+    expect(q('[data-defense-status]')!.textContent).toBe(defenseStatus(0, 1))
     expect(defenses().filter((b) => b.hasAttribute('data-capped'))).toEqual([])
     expect(container.textContent).not.toContain('1 A TURN')
   })
@@ -130,7 +131,7 @@ describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', 
     // says what to cancel (v1.4 round 2, finding 1), after the reason
     // Ken's ruling of 26 October 2026 names (v1.6 R1).
     expect(rule()?.textContent).toContain(`Tonight's order is in: ${antiJam}.`)
-    expect(q('[data-planned]')!.textContent).toContain(defenseCount(1, 1))
+    expect(q('[data-defense-status]')!.textContent).toBe(defenseStatus(1, 1))
     // Why, and how to change it (the v1.4 fresh-eyes review).
     expect(rule()?.textContent).toContain('1 new defense a turn.')
     expect(rule()?.textContent).toContain('To swap, cancel it first.')
@@ -146,10 +147,11 @@ describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', 
       expect(capLabel(NEW_DEFENSES_PER_NIGHT)).toBe('1 A TURN')
       // Not read as unaffordable: no price to add, and the reason is the rule line.
       expect(b.textContent, `${id} still offers itself`).not.toContain('+ ADD')
-      expect(b.getAttribute('aria-describedby')).toBe(rule()!.id)
+      // The reason is the status line, which always shows (v1.6 R4).
+      expect(b.getAttribute('aria-describedby')).toBe(q('[data-defense-status]')!.id)
     }
     // Every one of them fits the budget: the cap, not the price, is the reason.
-    const left = Number(q('[data-sheet="procure"] h2 b')!.textContent)
+    const left = Number(q('[data-remaining] b')!.textContent)
     for (const b of others) {
       const cost = DEFAULT_SCENARIO.countermeasures.find((c) => c.id === b.getAttribute('data-procure-defense'))!.cost
       expect(cost, `${b.getAttribute('data-procure-defense')} would be off for its price anyway, so this proves nothing`).toBeLessThanOrEqual(left)
@@ -189,7 +191,7 @@ describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', 
     click(q('[data-move="gnss-spoofing"]')!)
     expect(q('[data-match-note]')!.textContent).toContain(NOT_THIS_TURN)
     // Not on the move tonight's defense answers.
-    click(q('[aria-label="Close PROCURE"]')!)
+    click(q('button[data-confirm]')!)
     click(q('[data-move="uplink-jamming"]')!)
     expect(q('[data-match-note]')!.textContent).not.toContain(NOT_THIS_TURN)
   })
@@ -236,7 +238,7 @@ describe('TONIGHT under one new defense a turn (v1.4)', () => {
     // PROCURE, where the TONIGHT card's row opens (v1.5 R2).
     click(q('button[data-brief-order]')!)
     click(q('[data-sheet="procure"] button[data-procure-intel]')!)
-    click(q('[data-sheet="procure"] button[data-confirm]')!)
+    click(q('button[data-confirm]')!)
     // The rule stands behind TONIGHT's "?" since v1.6 R3.
     if (q('[data-tonight-help]')!.getAttribute('data-tonight-help') === 'closed') click(q('[data-tonight-help]')!)
     expect(container.querySelector('[data-tonight]')!.textContent).toContain('They go for the move')

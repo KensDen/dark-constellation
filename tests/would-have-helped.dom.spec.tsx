@@ -283,8 +283,11 @@ describe('the retainer at the close (critique row M8)', () => {
     const end = q('[data-night-card="end"]')
     expect(end, 'the reload did not open END OF TURN').not.toBeNull()
     const figures = [ASSET_HEAL_PER_TURN, state.scenario.recovery.base, state.scenario.recovery.withIrRetainer] as const
+    // Behind the summary's "?" since v1.6 R4, which shows only over damage.
+    act(() => void q('[data-end-help]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
     expect(end!.textContent).toContain(copy.recoverySlow(...figures))
     render({ ...state, counters: [...state.counters, 'irRetainer'] }, 'aftermath')
+    act(() => void q('[data-end-help]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
     expect(q('[data-night-card="end"]')!.textContent).toContain(copy.recoveryFast(...figures))
     expect(q('[data-night-card="end"]')!.textContent).not.toContain(copy.recoverySlow(...figures))
   })

@@ -816,7 +816,7 @@ details[open] .dc-open-turn {
      the phone's 9 to 11px labels and tags read as phone sizes at 1440, so
      in the HUD, the night's column, the dock and the side panel nothing
      is set under 12px. */
-  [data-board] :is([data-hud], [data-board-play], [data-dock], [data-sheet]) :is(.text-\[9px\], .text-\[10px\], .text-\[11px\]) {
+  [data-board] :is([data-hud], [data-board-play], [data-dock], [data-sheet]) :is(.text-\[8px\], .text-\[9px\], .text-\[10px\], .text-\[11px\]) {
     font-size: 12px;
   }
   /* The full brief, open with TONIGHT here, has the room to show more. */
@@ -853,6 +853,20 @@ details[open] .dc-open-turn {
     height: 100%;
     border-top: 0;
     border-left: 2px solid var(--dc-line);
+  }
+  /* The assets two to a row in the side panel, whose 12px floor runs a
+     name past a quarter's tile (v1.6 R4's fresh eyes, K1); and END OF
+     TURN's TONIGHT steps aside for the night's log beside it (K13). */
+  [data-board] [data-procure-assets] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  [data-board] [data-end-tonight] {
+    display: none;
+  }
+  /* PROCURE's "?" and a tile's blurb stand over the panel, not the board
+     (v1.6 R4). */
+  [data-board] [data-sheet='procure'] {
+    position: relative;
   }
   [data-board] [data-sheet-backdrop],
   [data-board] [data-board-more],

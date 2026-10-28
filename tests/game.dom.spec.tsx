@@ -953,7 +953,7 @@ describe('the chrome the reading budget counts, asserted by execution', () => {
     render(state, 'brief')
     click(container.querySelector('button[data-brief-order]')!)
     click(container.querySelector('[data-sheet="procure"] button[data-procure-intel]')!)
-    click(container.querySelector('[data-sheet="procure"] button[data-confirm]')!)
+    click(container.querySelector('button[data-confirm]')!)
     const text = container.textContent ?? ''
     const ordered = { buyAssets: [], buyCounters: [], intelBrief: true }
     expect(

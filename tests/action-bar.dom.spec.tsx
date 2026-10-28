@@ -220,7 +220,7 @@ describe('the dock carries the one action array (v1.2 R1b, the Dock since v1.3 R
     click(procureButton())
     expect(procureSheet(), 'PROCURE did not open').not.toBeNull()
     expect(procureMarks(), 'opening PROCURE marked it').toEqual([])
-    click(procureSheet()!.querySelector('button[data-confirm]')!)
+    click(container.querySelector('button[data-confirm]')!)
     expect(procureSheet()).toBeNull()
     expect(procureMarks(), 'opening and closing PROCURE with nothing queued marked it').toEqual([])
     expect(procureButton().textContent).toBe('PROCURE')
@@ -228,7 +228,7 @@ describe('the dock carries the one action array (v1.2 R1b, the Dock since v1.3 R
     // above are not blind.
     click(procureButton())
     click(procureSheet()!.querySelector('button[data-procure-kind="drone"]')!)
-    click(procureSheet()!.querySelector('button[data-confirm]')!)
+    click(container.querySelector('button[data-confirm]')!)
     expect(procureMarks().length, 'a queued order left PROCURE unmarked').toBeGreaterThan(0)
     // Execute, tap the night out, BEGIN TURN 3, and the next turn starts
     // unmarked.
@@ -270,12 +270,14 @@ describe('the dock carries the one action array (v1.2 R1b, the Dock since v1.3 R
     expect(executeButton()!.className, 'opening PROCURE made EXECUTE solid').toMatch(/shadow-press/)
     click(procureButton())
     click(procureSheet()!.querySelector('button[data-procure-kind="drone"]')!)
-    // One green primary at a time (v1.6 R1): while PROCURE is open its
-    // CONFIRM is the green one, and EXECUTE keeps its outline until it
-    // closes.
-    expect(procureSheet()!.querySelector('button[data-confirm]')!.className).toMatch(/bg-dc-go /)
-    expect(executeButton()!.className, 'two green primaries at once').not.toMatch(/bg-dc-go /)
-    click(procureSheet()!.querySelector('button[data-confirm]')!)
+    // One green primary at a time (v1.6 R1): since v1.6 R4 PROCURE's one
+    // way out is the dock's BACK TO BOARD, in its outline, and EXECUTE is
+    // the green one once an order is in.
+    expect(container.querySelector('button[data-confirm]')!.textContent).toMatch(/^BACK TO BOARD/)
+    expect(container.querySelector('button[data-confirm]')!.className).not.toMatch(/bg-dc-go /)
+    expect(executeButton()!.className).toMatch(/bg-dc-go /)
+    expect(container.querySelectorAll('button.bg-dc-go, button[class*="bg-dc-go "]').length, 'two green primaries at once').toBe(1)
+    click(container.querySelector('button[data-confirm]')!)
     expect(executeButton()!.className).toMatch(/bg-dc-go /)
     expect(executeButton()!.className).toMatch(/shadow-hard/)
     expect(procureButton().className).toMatch(/shadow-press/)

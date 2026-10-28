@@ -932,6 +932,7 @@ export default function Game({
         shown={shown}
         displayTurn={displayTurn}
         drop={maiDrop}
+        hush={phase === 'aftermath' || (phase === 'night' && !!view?.hush)}
         countMs={beatMs ? beatMs * COUNT_SHARE : undefined}
         dailyNumber={daily?.n}
         onSystem={() => toggleSheet('system')}
@@ -1017,10 +1018,7 @@ export default function Game({
             onToggleAsset={toggleAsset}
             onToggleCounter={toggleCounter}
             onOrderBrief={orderBrief}
-            onClose={() => openSheet(null)}
             remaining={worst.remaining}
-            cost={cost}
-            orders={orders}
           />
         )}
         {shownSheet === 'brief' && deciding && (

@@ -4,14 +4,17 @@
 // stays inside the deferred cap (brief 10); the per-event loop (the
 // overlay, the strike, the hit card and the intel card) is in ./cards.
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GameState, TurnRecord } from '../../engine/types'
 import { EVENT_CUES, MOMENT_CUES, outcomeSound } from '../../cues'
 import { shortName } from '../board/boardModel'
-import { ICON_DOWN, ICON_UP, tinted } from '../sprites/icons'
+import { ICON_DOWN, ICON_HELP, ICON_UP, tinted } from '../sprites/icons'
+import { callSigns } from '../board/board'
+import { LogRows } from '../board/LogRows'
+import { tracesOf } from '../board/strike'
 import PixelSprite from '../sprites/PixelSprite'
 import { Card, DossierRow, Named, Officer, Onward, Signed, Tag, type StepCardProps } from './cards'
-import { callTerms, damaged, ledgerRows, opportunityLines, scoreRows } from './closeModel'
+import { callTerms, damaged, ledgerRows, opportunityLines, scoreRows, type LedgerRow } from './closeModel'
 import { BLOCK_TONE, CHOICE, HEAD_TONE, PRIMARY, fmtScore, useOnce, type Play } from './kit'
 import * as copy from './nightCopy'
 import { scoreDelta, type Night, type NightStep } from './nightModel'
@@ -184,23 +187,37 @@ export function EndOfTurn({
   const ref = useRef<HTMLButtonElement | null>(null)
   useEffect(() => ref.current?.focus({ preventScroll: true }), [])
   useOnce(() => play(over ? outcomeSound(state.status === 'won') : MOMENT_CUES['end-of-turn'].sound))
-  const shown = (row: (typeof rows)[number]) =>
-    row.word ?? (row.key === 'left' || row.key === 'total' ? String(row.value) : row.value > 0 ? `+${row.value}` : row.value < 0 ? `-${-row.value}` : '0')
+  // THE TURN SUMMARY (v1.6 R4, Ken's ruling of 27 October 2026: a turn's
+  // summary, not a ledger). Two panels side by side with their numbers in
+  // one column each: the score's move (where it started, what the night
+  // took, what came back) and the budget's (what the orders spent, the
+  // bills, the funding, the bonus), each topped by where it lands; then
+  // what hit tonight, as the night's own rows; then one line of what would
+  // reach the coverage bonus. The rule for recovery stands behind "?".
+  const scores = night ? scoreRows(night).filter((r) => r.key !== 'from' && r.key !== 'to') : []
+  const from = night ? scoreRows(night).find((r) => r.key === 'from')!.value : null
+  const total = rows.find((r) => r.key === 'total')!
+  const budgetChange = total.value - record.ledger.start
+  const bonus = rows.find((r) => r.key === 'bonus')
+  const signs = useMemo(() => new Map([...(night ? callSigns(night.before) : []), ...callSigns(state)]), [night, state])
+  const log = tracesOf(record.turn, record.events, state.scenario)
+  const recovery = damaged(state) && !record.ledger.insolvent && state.scenario.recovery.withIrRetainer > state.scenario.recovery.base
+  const [help, setHelp] = useState(false)
+  const ledgerValue = (row: LedgerRow) => (row.word ? row.word : row.key === 'left' ? `-${record.ledger.ordered}` : row.value > 0 ? `+${row.value}` : row.value < 0 ? `-${-row.value}` : '0')
+  const tone = (n: number) => (n < 0 ? 'text-dc-hostile' : n > 0 ? 'text-dc-go' : 'text-dc-muted')
   return (
     <Card
       kind="end"
       label={copy.endHeader(record.turn)}
       head={copy.endHeader(record.turn)}
       right={
-        <span data-end-score className="flex items-center gap-1 whitespace-nowrap">
-          {copy.SCORE_WORD} <b className="text-dc-ink">{fmtScore(score)}</b>
-          {Math.abs(change) > 0.05 && (
-            <span className={`flex items-center gap-0.5 ${change < 0 ? 'text-dc-hostile' : 'text-dc-go'}`}>
-              <PixelSprite sprite={tinted(change < 0 ? ICON_DOWN : ICON_UP, change < 0 ? 'hostile' : 'go')} scale={1} name={change < 0 ? 'score-down' : 'score-up'} />
-              {Math.abs(change).toFixed(1)}
+        recovery ? (
+          <button type="button" data-end-help aria-label={copy.END_HELP} aria-expanded={help} onClick={() => setHelp((h) => !h)} className="-my-3 flex min-h-11 min-w-11 items-center justify-center">
+            <span className={`flex h-6 w-6 items-center justify-center border-2 ${help ? 'border-dc-friendly bg-dc-friendly/15' : 'border-dc-line'}`}>
+              <PixelSprite sprite={tinted(ICON_HELP, help ? 'friendly' : 'ink')} scale={1} name="end-help" />
             </span>
-          )}
-        </span>
+          </button>
+        ) : undefined
       }
       reduced={reduced}
       foot={
@@ -233,71 +250,80 @@ export function EndOfTurn({
           </div>
         )
       )}
-      <p className="font-mono text-[10px] tracking-widest text-dc-muted">{copy.BUDGET_LINES}</p>
-      <div data-ledger className="flex flex-col font-mono text-[13px]">
-        {rows.map((row, i) => (
-          <div
-            key={row.key}
-            data-ledger-row={row.key}
-            data-value={row.value}
-            style={reduced ? undefined : { animationDelay: `${i * 90}ms` }}
-            className={`dc-ledger-row flex items-baseline justify-between gap-3 py-1 ${reduced ? '' : 'dc-row-in'} ${row.key === 'total' ? 'font-bold' : ''}`}
-          >
-            <span className="min-w-0">
-              {row.label}
-              {row.detail && <span className="text-dc-muted"> ({row.detail})</span>}
-            </span>
-            <b
-              className={`flex-none ${
-                row.key === 'total'
-                  ? row.value < 0
-                    ? 'text-dc-hostile'
-                    : 'text-dc-ink'
-                  : row.word || row.value === 0
-                    ? 'text-dc-muted'
-                    : row.value < 0
-                      ? 'text-dc-hostile'
-                      : row.key === 'left'
-                        ? 'text-dc-ink'
-                        : 'text-dc-go'
-              }`}
-            >
-              {shown(row)}
-            </b>
-          </div>
-        ))}
-      </div>
-      {/* The score's own lines, so its change is checkable too (fresh-eyes
-          review: it fell during the overlay and rose by the close with
-          nothing on screen saying why). A night played here only. The
-          end of turn's own row went in v1.6 R3's sweep: the header says the
-          score it lands on, and the third time ran the card under its foot
-          at 375x667. */}
-      {night && (
-        <div data-score-lines className="flex flex-col font-mono text-[12px]">
-          <p className="font-mono text-[10px] tracking-widest text-dc-muted">{copy.SCORE_LINES}</p>
-          {scoreRows(night).filter((row) => row.key !== 'to').map((row) => (
-            <div key={row.key} data-score-row={row.key} className="dc-ledger-row flex items-baseline justify-between gap-3 py-0.5">
-              <span className="min-w-0">
-                {row.label}
-                {row.note && <span className={row.key === 'moves' ? 'text-dc-go' : 'text-dc-muted'}> ({row.note})</span>}
-              </span>
-              <b className={`flex-none ${row.key === 'from' || row.key === 'to' ? 'text-dc-ink' : row.value < 0 ? 'text-dc-hostile' : row.value > 0 ? 'text-dc-go' : 'text-dc-muted'}`}>
-                {row.key === 'from' || row.key === 'to' ? fmtScore(row.value) : row.value > 0 ? `+${row.value.toFixed(1)}` : row.value.toFixed(1)}
-              </b>
-            </div>
-          ))}
-        </div>
-      )}
-      {damaged(state) && !record.ledger.insolvent && state.scenario.recovery.withIrRetainer > state.scenario.recovery.base && (
-        <p className="text-[13px] text-dc-ink/80">
-          {(state.counters.includes('irRetainer') ? copy.recoveryFast : copy.recoverySlow)(
-            ASSET_HEAL_PER_TURN,
-            state.scenario.recovery.base,
-            state.scenario.recovery.withIrRetainer,
-          )}
+      {help && recovery && (
+        <p data-end-how className="border-l-2 border-dc-friendly/60 pl-2 text-[12px] leading-snug text-dc-muted">
+          {(state.counters.includes('irRetainer') ? copy.recoveryFast : copy.recoverySlow)(ASSET_HEAL_PER_TURN, state.scenario.recovery.base, state.scenario.recovery.withIrRetainer)}
         </p>
       )}
+      <div className="grid grid-cols-2 gap-2">
+        {/* The score's move. */}
+        <section data-score-lines aria-label={copy.SCORE_LINES} className="flex flex-col bg-dc-chrome px-2.5 py-2">
+          <p className="font-mono text-[10px] tracking-widest text-dc-muted">{copy.SCORE_PANEL}</p>
+          {/* The change is the big number; where it landed is the HUD's,
+              so here it is the end of a line from where it started. */}
+          {/* From a reload there is no night to measure, so the score. */}
+          {from === null ? (
+            <p className="mt-0.5 font-display text-[20px] leading-none text-dc-ink">{fmtScore(score)}</p>
+          ) : (
+            <p className={`mt-0.5 flex items-center gap-1 font-display text-[20px] leading-none ${tone(change)}`}>
+              {Math.abs(change) > 0.05 && <PixelSprite sprite={tinted(change < 0 ? ICON_DOWN : ICON_UP, change < 0 ? 'hostile' : 'go')} scale={2} name={change < 0 ? 'score-down' : 'score-up'} />}
+              {Math.abs(change) > 0.05 ? Math.abs(change).toFixed(1) : copy.NO_CHANGE}
+            </p>
+          )}
+          <p data-end-score className={`mt-1 font-mono text-[11px] text-dc-muted ${from === null ? 'sr-only' : ''}`}>
+            {from !== null && <span data-score-row="from">{fmtScore(from)} → </span>}
+            <b className="font-normal text-dc-ink">{fmtScore(score)}</b>
+          </p>
+          <dl className="mt-1.5 grid grid-cols-[1fr_auto] gap-x-2 gap-y-0.5 font-mono text-[11px]">
+            {scores.map((row) => (
+              <div key={row.key} data-score-row={row.key} className="col-span-2 grid grid-cols-subgrid">
+                <dt className="min-w-0 text-dc-ink/85">{copy.SCORE_SHORT[row.key]}</dt>
+                <dd className={`text-right ${tone(row.value)}`}>{row.value > 0 ? `+${row.value.toFixed(1)}` : row.value.toFixed(1)}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+        {/* The budget's move. */}
+        <section data-ledger aria-label={copy.BUDGET_LINES} className="flex flex-col bg-dc-chrome px-2.5 py-2">
+          <p className="font-mono text-[10px] tracking-widest text-dc-muted">{copy.budgetPanel(record.turn, over)}</p>
+          <p className={`mt-0.5 flex items-center gap-1 font-display text-[20px] leading-none ${tone(budgetChange)}`}>
+            {budgetChange !== 0 && <PixelSprite sprite={tinted(budgetChange < 0 ? ICON_DOWN : ICON_UP, budgetChange < 0 ? 'hostile' : 'go')} scale={2} name={budgetChange < 0 ? 'budget-down' : 'budget-up'} />}
+            {budgetChange !== 0 ? Math.abs(budgetChange) : copy.NO_CHANGE}
+            <span className="font-mono text-[11px]">CR</span>
+          </p>
+          <p data-ledger-row="total" data-value={total.value} className={`mt-1 font-mono text-[11px] text-dc-muted ${reduced ? '' : 'dc-row-in'}`}>
+            {record.ledger.start} → <b className={`font-normal ${total.value < 0 ? 'text-dc-hostile' : 'text-dc-ink'}`}>{total.value}</b> CR
+          </p>
+          <dl className="mt-1.5 grid grid-cols-[1fr_auto] gap-x-2 gap-y-0.5 font-mono text-[11px]">
+            {rows
+              .filter((r) => r.key !== 'total')
+              .map((row, i) => (
+                <div
+                  key={row.key}
+                  data-ledger-row={row.key}
+                  data-value={row.value}
+                  style={reduced ? undefined : { animationDelay: `${i * 90}ms` }}
+                  className={`col-span-2 grid grid-cols-subgrid ${reduced ? '' : 'dc-row-in'}`}
+                >
+                  <dt className="min-w-0 text-dc-ink/85">{copy.LEDGER_SHORT[row.key]}</dt>
+                  <dd className={`text-right ${row.word ? 'text-dc-muted' : row.key === 'left' ? tone(-record.ledger.ordered) : tone(row.value)}`}>{ledgerValue(row)}</dd>
+                </div>
+              ))}
+          </dl>
+        </section>
+      </div>
+      {/* What hit tonight, as the night's own rows. */}
+      {log.length > 0 && (
+        <div data-end-tonight>
+          <p className="font-mono text-[10px] tracking-widest text-dc-muted">{copy.TONIGHT_ROWS}</p>
+          <ol className="mt-1 flex flex-col gap-1">
+            <LogRows scenario={state.scenario} log={log} signs={signs} size="text-[13px]" delta={false} />
+          </ol>
+        </div>
+      )}
+      {/* What would reach the coverage bonus, when it was missed: the one
+          line on the card that says what to do. */}
+      {bonus?.word && bonus.detail && <p data-end-hint className="text-[12px] leading-snug text-dc-ink/80">{copy.bonusHint(bonus.detail)}</p>}
     </Card>
   )
 }

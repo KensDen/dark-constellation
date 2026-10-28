@@ -65,6 +65,9 @@ export interface BoardView {
   // whose card is up among them, and the move on its way while it strikes.
   log?: Trace[]
   moving?: string | null
+  // END OF TURN states the turn's change itself, so the HUD floats none
+  // (v1.6 R4's fresh eyes, K12: a green +4.0 over the card's red ▼1.4).
+  hush?: boolean
 }
 
 export interface NightProps {
@@ -201,7 +204,7 @@ export default function Night(p: NightProps) {
   const onBoard = p.onBoard
   useLayoutEffect(() => {
     const traces = (n?: number) => tracesOf(record.turn, record.events, scenario, n)
-    if (!night || stage.at === 'end') return onBoard({ shown: after, strike: null, drop: null, traces: traces(), log: traces() })
+    if (!night || stage.at === 'end') return onBoard({ shown: after, strike: null, drop: null, traces: traces(), log: traces(), hush: true })
     if (stage.at === 'moving') {
       const fell = Math.round((maiScore(night.before) - maiScore(night.opening)) * 10) / 10
       const label = night.pressed.length === 1 ? night.pressed[0] : copy.CONDITIONS_WORD
