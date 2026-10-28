@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { SPRITE_STATES } from '../src/ui/board/board'
-import { ASSET_MAPS, ASSET_SPRITES, assetSprite } from '../src/ui/sprites/assets'
+import { ASSET_MAPS, ASSET_SPRITES, KESTREL_SIDE, SCENE_MAPS, assetSprite } from '../src/ui/sprites/assets'
 import { CLOUD, SILHOUETTE } from '../src/ui/sprites/scenery'
 import { HIT_BURST, LOCK_ON, PART_SPARKLE, SHIELD_PLAIN, SHIELD_STAMP } from '../src/ui/sprites/effects'
 import { BOLT, COIN, COLDVEIL_EMBLEM, EYE } from '../src/ui/sprites/icons'
@@ -67,11 +67,11 @@ const tokenAt = (s: Sprite, p: string) => {
 const inksAt = (s: Sprite, cells: Set<string>) => [...new Set([...cells].map((p) => tokenAt(s, p)))].sort()
 // The scorched pixels: the cells the scorcher wrote over the map, read off
 // the map itself rather than off the scorch characters, so a scorch drawn
-// in any ink still counts.
+// in any ink still counts. The scene's map, which the board draws.
 const scorched = (kind: keyof typeof ASSET_MAPS, s: Sprite) => {
   const out = new Set<string>()
   s.rows.forEach((row, y) => [...row].forEach((c, x) => {
-    const was = ASSET_MAPS[kind][y][x]
+    const was = SCENE_MAPS[kind][y][x]
     // A critical sprite darkens its panels as well; a darkened panel is
     // not a scorch.
     if (c !== was && !(was === 'P' && s.palette[c].alpha !== undefined)) out.add(`${x},${y}`)
@@ -145,6 +145,7 @@ describe('the sprite set (v1.2 R2, v1.3 R2)', () => {
     const banded: [string, Sprite, number, number][] = [
       ...KINDS.flatMap((kind) => STATES.map((state): [string, Sprite, number, number] => [`${kind}.${state}`, ASSET_SPRITES[kind as keyof typeof ASSET_SPRITES][state], 16, 12])),
       ...KINDS.map((kind): [string, Sprite, number, number] => [`${kind}.transit`, assetSprite(kind as keyof typeof ASSET_MAPS, 100, 'transit'), 16, 12]),
+      ...KINDS.map((kind): [string, Sprite, number, number] => [`${kind}.icon`, assetSprite(kind as keyof typeof ASSET_MAPS, 100, 'live', 'icon'), 16, 12]),
       ['cloud', CLOUD, 16, 4],
       ['silhouette', SILHOUETTE, 7, 3],
       ['flood', FLOOD, 16, 10],
@@ -206,6 +207,43 @@ describe('the sprite set (v1.2 R2, v1.3 R2)', () => {
       expect(inksAt(assetSprite(kind, 75), scorched(kind, assetSprite(kind, 75))), `${kind} wounded scorch is not amber`).toEqual(['warn'])
       expect(inksAt(assetSprite(kind, 50), scorched(kind, assetSprite(kind, 50))), `${kind} critical scorch is not red`).toEqual(['hostile'])
     }
+  })
+
+  it('GUARD (y): a sprite in a scene matches the scene\'s side-on view; the KESTREL flies in profile, nose east (v1.6 R5)', () => {
+    // Ken's ruling of 27 October 2026: the sky, the clouds and the ground
+    // band are side on, so the drone is drawn in profile wherever it stands
+    // in one (the strip's AIR panel, the strike's close-up, the cold open's
+    // flight). Top down, the wing spans the grid and the fuselage crosses
+    // it, about as tall as it is wide; in profile it is long and low.
+    const box = (rows: readonly string[]) => {
+      const cells = rows.flatMap((row, y) => [...row].flatMap((c, x) => (c === TRANSPARENT ? [] : [[x, y]])))
+      const xs = cells.map(([x]) => x)
+      const ys = cells.map(([, y]) => y)
+      return { w: Math.max(...xs) - Math.min(...xs) + 1, h: Math.max(...ys) - Math.min(...ys) + 1 }
+    }
+    const scene = assetSprite('drone', 100).rows
+    expect(scene, 'the board and the close-up draw the top-down KESTREL').toEqual(KESTREL_SIDE)
+    expect(ASSET_SPRITES.drone.intact.rows, 'the cold open flies the top-down KESTREL').toEqual(KESTREL_SIDE)
+    const { w, h } = box(scene)
+    expect(w / h, `the scene's KESTREL is ${w} by ${h}, not a profile`).toBeGreaterThanOrEqual(1.75)
+    // Nose east: the beacon on the tail fin in the west half, the sensor
+    // ball's lens, under the body, in the east half.
+    const at = (c: string) => scene.flatMap((row, y) => [...row].flatMap((ch, x) => (ch === c ? [[x, y]] : [])))
+    expect(at('L').every(([x]) => x < 8), 'the tail fin is not at the west').toBe(true)
+    const body = Math.max(...at('B').map(([, y]) => y))
+    const ball = at('R').filter(([, y]) => y > body)
+    expect(ball.length, 'no sensor ball under the body').toBeGreaterThan(0)
+    expect(ball.every(([x]) => x >= 8), 'the sensor ball is not under the nose').toBe(true)
+    // An icon is not a scene: PROCURE keeps the top-down KESTREL.
+    expect(assetSprite('drone', 100, 'live', 'icon').rows).toEqual(ASSET_MAPS.drone)
+    expect(read('src/ui/board/Procure.tsx')).toMatch(/assetSprite\(kind, 100, 'live', 'icon'\)/)
+    for (const file of ['src/ui/board/AssetStrip.tsx', 'src/ui/board/Playfield.tsx', 'src/ui/briefingScenes.ts']) {
+      expect(read(file), `${file} draws an icon in a scene`).not.toMatch(/'icon'/)
+    }
+    // The others already match their scenes: the sats face the viewer over
+    // the limb with their panels spread, and the station stands on its
+    // ground line. Neither has a scene view of its own.
+    for (const kind of ['sat', 'rpoSat', 'groundStation'] as const) expect(SCENE_MAPS[kind]).toBe(ASSET_MAPS[kind])
   })
 
   it('keeps a lost asset on the board, greyed with the red X, and draws transit as the grey silhouette', () => {

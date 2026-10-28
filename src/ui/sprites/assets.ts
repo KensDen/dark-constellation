@@ -3,6 +3,14 @@
 // sat with its sensor and probe, the fixed-wing KESTREL, and the GS-1
 // station with its roof dish (Ken's sprite ruling, brief section 3).
 //
+// Two views (v1.6 R5, Ken's ruling of 27 October 2026: side-profile
+// drones). The scenes are drawn side on: the cold open's sky, the strip's
+// AIR panel with its clouds and the strike's close-up. So wherever a sprite
+// stands in a scene it is drawn in profile, and the KESTREL there flies
+// nose east. The sats face the viewer with their panels spread, and the
+// station stands on its ground line, which is already side on. PROCURE's
+// tiles are icons on a card, not a scene, and keep the KESTREL top down.
+//
 // Damage is not redrawn per state any more. A wound scorches body pixels
 // in one fixed order, as many as the integrity lost: amber while wounded,
 // red at 50 or below, with the panels darkened when critical. Lost is the
@@ -80,6 +88,30 @@ export const ASSET_MAPS: Record<AssetKind, readonly string[]> = {
   ],
 }
 
+// The KESTREL in profile, nose east: the satcom bulge (no canopy, it is
+// uncrewed), the wing edge on and a little from below in the panel blue,
+// the sensor ball under the chin, the tail fin with its beacon, the short
+// ventral fin, and the pusher prop a little taller than the body.
+export const KESTREL_SIDE: readonly string[] = [
+  '................',
+  '................',
+  '................',
+  '.L..............',
+  'SBB.......BBB...',
+  'SBBB.....BBBBBB.',
+  'SBBBBBBBBBBBBBBB',
+  'SDDDPPPPPPPPDDB.',
+  'S.D...DPPPD..RR.',
+  '.......DPD...RR.',
+  '................',
+  '................',
+]
+
+// What a scene draws for each kind, and what an icon does.
+export type View = 'scene' | 'icon'
+export const SCENE_MAPS: Record<AssetKind, readonly string[]> = { ...ASSET_MAPS, drone: KESTREL_SIDE }
+const mapOf = (kind: AssetKind, view: View) => (view === 'icon' ? ASSET_MAPS : SCENE_MAPS)[kind]
+
 // The five sprite inks and three section 3 tokens (brief 8.1). Panels are
 // friendly, sensors go, the ground line muted. The scorch and the X are
 // extra characters the scorcher writes over the map.
@@ -118,16 +150,19 @@ function scorchOrder(rows: readonly string[]): [x: number, y: number][] {
     .map((c) => [c.x, c.y])
 }
 
-const ORDER = Object.fromEntries((Object.keys(ASSET_MAPS) as AssetKind[]).map((k) => [k, scorchOrder(ASSET_MAPS[k])])) as Record<
-  AssetKind,
-  [number, number][]
->
+const ORDER = new Map<readonly string[], [number, number][]>()
+const orderOf = (map: readonly string[]) => {
+  let o = ORDER.get(map)
+  if (!o) ORDER.set(map, (o = scorchOrder(map)))
+  return o
+}
 
 // How many body pixels a given integrity scorches: the share lost, rounded
 // up, so the first point of damage already shows.
-export function scorchCount(kind: AssetKind, integrity: number): number {
+export function scorchCount(kind: AssetKind, integrity: number, view: View = 'scene'): number {
+  const n = orderOf(mapOf(kind, view)).length
   if (integrity >= 100) return 0
-  return Math.min(ORDER[kind].length, Math.ceil(((100 - Math.max(0, integrity)) / 100) * ORDER[kind].length))
+  return Math.min(n, Math.ceil(((100 - Math.max(0, integrity)) / 100) * n))
 }
 
 // The red X over a lost asset, corner to corner as the prototype draws it
@@ -149,17 +184,18 @@ export type DrawMode = 'live' | 'transit' | 'lost'
 
 const cache = new Map<string, Sprite>()
 
-// The sprite for an asset at an integrity. `live` scorches by integrity;
-// `transit` is the grey silhouette of an asset on its way; `lost` is the
-// greyed map with the red X. One object per distinct picture, so a tile
-// that re-renders at the same integrity hands PixelSprite the same sprite.
-export function assetSprite(kind: AssetKind, integrity: number, mode: DrawMode = integrity <= 0 ? 'lost' : 'live'): Sprite {
-  const n = mode === 'live' ? scorchCount(kind, integrity) : 0
+// The sprite for an asset at an integrity, in a scene or as an icon.
+// `live` scorches by integrity; `transit` is the grey silhouette of an
+// asset on its way; `lost` is the greyed map with the red X. One object per
+// distinct picture, so a tile that re-renders at the same integrity hands
+// PixelSprite the same sprite.
+export function assetSprite(kind: AssetKind, integrity: number, mode: DrawMode = integrity <= 0 ? 'lost' : 'live', view: View = 'scene'): Sprite {
+  const map = mapOf(kind, view)
+  const n = mode === 'live' ? scorchCount(kind, integrity, view) : 0
   const critical = mode === 'live' && integrity <= 50
-  const key = `${kind}:${mode}:${n}:${critical ? 1 : 0}`
+  const key = `${kind}:${view}:${mode}:${n}:${critical ? 1 : 0}`
   const hit = cache.get(key)
   if (hit) return hit
-  const map = ASSET_MAPS[kind]
   const grid = map.map((row) => [...row])
   if (mode !== 'live') {
     for (const row of grid) row.forEach((ch, x) => ch !== '.' && (row[x] = 'g'))
@@ -169,7 +205,7 @@ export function assetSprite(kind: AssetKind, integrity: number, mode: DrawMode =
     }
   } else {
     if (critical) for (const row of grid) row.forEach((ch, x) => ch === 'P' && (row[x] = 'k'))
-    for (const [x, y] of ORDER[kind].slice(0, n)) grid[y][x] = critical ? 'h' : 'a'
+    for (const [x, y] of orderOf(map).slice(0, n)) grid[y][x] = critical ? 'h' : 'a'
   }
   const made: Sprite = { rows: grid.map((r) => r.join('')), palette: PALETTE }
   cache.set(key, made)
@@ -187,18 +223,3 @@ export const ASSET_SPRITES = Object.fromEntries(
     Object.fromEntries(SPRITE_STATES.map(({ state }) => [state, assetSprite(kind, STATE_INTEGRITY[state])])),
   ]),
 ) as Record<AssetKind, Record<SpriteState, Sprite>>
-
-// The KESTREL turned a quarter clockwise, nose east, for the briefing's
-// flight scene (brief 8.2).
-export const KESTREL_EAST: Sprite = (() => {
-  const src = ASSET_MAPS.drone
-  const h = src.length
-  const w = src[0].length
-  const rows: string[] = []
-  for (let x = 0; x < w; x += 1) {
-    let row = ''
-    for (let y = h - 1; y >= 0; y -= 1) row += src[y][x]
-    rows.push(row)
-  }
-  return { rows, palette: PALETTE }
-})()

@@ -51,11 +51,12 @@ export interface ProcureProps {
   remaining: number
 }
 
-// An asset card's icon: the tile's own art, in an object of its own, so
-// the card is drawn as a card and never counted as a strip tile
+// An asset card's icon: the icon view (v1.6 R5: a card is not a scene, so
+// the KESTREL stays top down here), in an object of its own, so the card
+// is drawn as a card and never counted as a strip tile
 // (tests/render-count.dom.spec.tsx holds the strip still while PROCURE
 // changes the money).
-const ASSET_ICON = Object.fromEntries(PROCURE_KINDS.map((kind) => [kind, { ...assetSprite(kind, 100) }])) as Record<AssetKind, ReturnType<typeof assetSprite>>
+const ASSET_ICON = Object.fromEntries(PROCURE_KINDS.map((kind) => [kind, { ...assetSprite(kind, 100, 'live', 'icon') }])) as Record<AssetKind, ReturnType<typeof assetSprite>>
 
 const SECTION = 'mt-1.5 flex items-baseline justify-between border-b border-dc-line pb-0.5 font-mono text-[10px] tracking-widest text-dc-muted'
 

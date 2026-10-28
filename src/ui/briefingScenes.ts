@@ -12,7 +12,7 @@
 import type { SceneName } from './coldOpenSlides'
 import { DISASTER, FLOOD, WATCH_OFFICER } from './sprites/coldOpen'
 import { COLDVEIL_EMBLEM } from './sprites/icons'
-import { ASSET_SPRITES, KESTREL_EAST } from './sprites/assets'
+import { ASSET_SPRITES } from './sprites/assets'
 import { CLOUD, SILHOUETTE } from './sprites/scenery'
 import { runs, spriteRects, type Ink, type Palette, type Sprite, type Token } from './sprites/sprite'
 
@@ -179,8 +179,9 @@ export const OFFICER_PORTRAIT: Sprite = { ...WATCH_OFFICER[0], rows: WATCH_OFFIC
 
 const SAT = ASSET_SPRITES.sat.intact
 const RPO = ASSET_SPRITES.rpoSat.intact
-// The KESTREL nose east for the flight across the flood (brief 8.2).
-const DRONE = KESTREL_EAST
+// The KESTREL in profile, nose east, for the flight across the flood
+// (v1.6 R5: the sky is side on, so the drone is too).
+const DRONE = ASSET_SPRITES.drone.intact
 const STATION = ASSET_SPRITES.groundStation.intact
 
 export const SCENES: Record<SceneName, Draw> = {
@@ -325,18 +326,18 @@ export const SCENES: Record<SceneName, Draw> = {
     }
     let footprint: [number, number] | null = null
     const fleet = [
-      { y: 0.08, v: 26, o: 0.1, s: 2 },
+      // Clear of the caption's plate at 375x667 (v1.6 R5's review, S5).
+      { y: 0.11, v: 26, o: 0.1, s: 2 },
       { y: 0.3, v: 20, o: 0.62, s: 2 },
       { y: 0.14, v: 30, o: 0.45, s: 3, lead: true },
     ]
     fleet.forEach((d, i) => {
-      const w = DRONE.rows[0].length * d.s
-      const h = DRONE.rows.length * d.s
       const x = ((d.o * (W + 120) + t * d.v) % (W + 120)) - 80
       const y = Math.round(d.y * H)
       if (d.lead) {
-        const bx = x + w / 2
-        const by = y + h
+        // The cone comes down from the sensor ball under the nose.
+        const bx = x + 13 * d.s
+        const by = y + 11 * d.s
         const sweep = (t * 1.6) % 1
         for (let yy = by + 6; yy < waterTop; yy += 6) {
           const f = (yy - by) / (waterTop - by)
