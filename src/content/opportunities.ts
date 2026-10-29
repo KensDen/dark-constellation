@@ -34,7 +34,7 @@ export const OPPORTUNITIES: ThreatEvent[] = [
     benefit: { briefTurns: 2 },
     techniqueRefs: [],
     blurb:
-      `A partner nation opens its space tracking feed to ${PLAYER_ORG} for the flood response. Someone else's sensors, your warning time.`,
+      `A partner nation opens its space tracking feed to ${PLAYER_ORG} for the flood response. Someone else’s sensors, your warning time.`,
     learnMoreCards: [],
   },
   {

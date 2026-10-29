@@ -127,7 +127,7 @@ export default function FieldLibrary({
           a hands-on interception walkthrough sits on the third shelf too. UI
           text, so the approved entries and their hashes are not touched. */}
       <p data-library-caution className="mt-2 text-xs text-alert-amber">
-        Practice only on equipment you own or are authorized to test. Listening to other people&apos;s satellite traffic
+        Practice only on equipment you own or are authorized to test. Listening to other people’s satellite traffic
         can be illegal where you live.
       </p>
       {threat && (
@@ -165,7 +165,7 @@ export default function FieldLibrary({
               and its hashes stand (QC gauntlet Q27). */}
           {shelf.name === HANDS_ON && (
             <p data-shelf-note className="mt-2 text-xs text-alert-amber">
-              Practice only on equipment you own or are authorized to test. Listening to other people&apos;s satellite
+              Practice only on equipment you own or are authorized to test. Listening to other people’s satellite
               traffic can be illegal where you live.
             </p>
           )}

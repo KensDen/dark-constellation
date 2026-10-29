@@ -288,9 +288,15 @@ describe("the title's menu (Ken's R2 notes, 22 October 2026)", () => {
     loadPage()
     const title = container.querySelector('[data-title]')!
     // The key art, with the title over it, is the title's first element
-    // (v1.5 R2, where the ripple band was); nothing sits above it.
-    expect(title.firstElementChild!.hasAttribute('data-key-art'), 'something sits above the key art').toBe(true)
-    expect(title.firstElementChild!.querySelector('h1'), 'the title is not over the key art').not.toBeNull()
+    // (v1.5 R2, where the ripple band was); nothing sits above it. Since
+    // the desktop recomposition (29 October 2026) it leads the first
+    // screen's wrapper, which leads the title and steps aside on a phone.
+    const screen = title.firstElementChild!
+    expect(screen.hasAttribute('data-title-screen'), 'something sits above the first screen').toBe(true)
+    expect(screen.classList.contains('contents'), 'the first screen boxes the phone title').toBe(true)
+    const lead = screen.firstElementChild!
+    expect(lead.hasAttribute('data-key-art'), 'something sits above the key art').toBe(true)
+    expect(lead.querySelector('h1'), 'the title is not over the key art').not.toBeNull()
     const system = buttons().filter((b) => (b.textContent ?? '').trim() === 'SYSTEM')
     expect(system, 'the title shows SYSTEM more than once, or not at all').toHaveLength(1)
     expect(system[0].hasAttribute('data-title-system')).toBe(true)

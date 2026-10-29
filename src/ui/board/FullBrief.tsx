@@ -36,7 +36,7 @@ export default function FullBrief({ state, named, onTag }: FullBriefProps) {
         </p>
       </section>
       <section>
-        <p className={LABEL}>TONIGHT&apos;S TECHNIQUES</p>
+        <p className={LABEL}>TONIGHT’S TECHNIQUES</p>
         {copy.dark ? (
           <p className="mt-1 text-dc-muted">{copy.dark}</p>
         ) : (

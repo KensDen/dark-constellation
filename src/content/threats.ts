@@ -239,7 +239,7 @@ export const THREATS: ThreatEvent[] = [
       {
         title: 'Phantom objects, real research',
         body:
-          'Peer-reviewed work has demonstrated spoofing attacks that inject fake obstacles into LiDAR point clouds and steer the perception models behind them. By its authors\' account, the first security study of LiDAR-based perception in self-driving appeared at ACM CCS in 2019, and follow-up work at USENIX Security 2020 generalized the attack in black-box settings and proposed countermeasures. This is a laboratory-demonstrated class of attack, not speculation.',
+          'Peer-reviewed work has demonstrated spoofing attacks that inject fake obstacles into LiDAR point clouds and steer the perception models behind them. By its authors’ account, the first security study of LiDAR-based perception in self-driving appeared at ACM CCS in 2019, and follow-up work at USENIX Security 2020 generalized the attack in black-box settings and proposed countermeasures. This is a laboratory-demonstrated class of attack, not speculation.',
         sources: [
           {
             title: 'Cao et al., Adversarial Sensor Attack on LiDAR-based Perception in Autonomous Driving (CCS 2019)',
@@ -298,7 +298,7 @@ export const THREATS: ThreatEvent[] = [
             status: 'verified',
           },
           {
-            title: "Cao et al., You Can't See Me: Physical Removal Attacks on LiDAR-based Autonomous Vehicles Driving Frameworks (USENIX Security 2023)",
+            title: "Cao et al., You Can’t See Me: Physical Removal Attacks on LiDAR-based Autonomous Vehicles Driving Frameworks (USENIX Security 2023)",
             url: 'https://arxiv.org/abs/2210.09482',
             type: 'paper',
             status: 'verified',
@@ -453,7 +453,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'Yesterday\'s telemetry, retransmitted today. Ground ops watches a healthy spacecraft that no longer exists while the real one drifts into trouble. Replay preserves valid syntax, which is why freshness has to be cryptographic, not assumed.',
+      'Yesterday’s telemetry, retransmitted today. Ground ops watches a healthy spacecraft that no longer exists while the real one drifts into trouble. Replay preserves valid syntax, which is why freshness has to be cryptographic, not assumed.',
     learnMoreCards: [
       {
         title: 'Old data, replayed as new',
@@ -513,7 +513,7 @@ export const THREATS: ThreatEvent[] = [
           'An academic study presented at ACM CCS 2025 used a few hundred dollars of consumer receiver hardware to survey geostationary satellite links and found that a large share of the signals surveyed carried unencrypted traffic, including telecom backhaul and critical infrastructure data. Passive interception at continental range is a documented reality, and link encryption is the countermeasure.',
         sources: [
           {
-            title: 'UCSD and UMD, Don\'t Look Up: There Are Sensitive Internal Links in the Clear on GEO Satellites (CCS 2025)',
+            title: 'UCSD and UMD, Don’t Look Up: There Are Sensitive Internal Links in the Clear on GEO Satellites (CCS 2025)',
             url: 'https://satcom.sysnet.ucsd.edu/',
             type: 'paper',
             status: 'verified',
@@ -557,7 +557,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'Sensitive traffic rides a satellite backhaul link that nobody remembered to encrypt, and the mission\'s data leaves through the sky it came from. The study that documented this at scale read real backhaul traffic with commodity hardware.',
+      'Sensitive traffic rides a satellite backhaul link that nobody remembered to encrypt, and the mission’s data leaves through the sky it came from. The study that documented this at scale read real backhaul traffic with commodity hardware.',
     learnMoreCards: [
       {
         title: 'Backhaul in the clear',
@@ -565,7 +565,7 @@ export const THREATS: ThreatEvent[] = [
           'The same CCS 2025 study documented real unencrypted backhaul traffic recoverable from geostationary links with commodity equipment, and several operators told the researchers they had deployed a fix. Government advisories had urged satellite link encryption for years before the measurement study showed how much traffic was still exposed. Encrypting the backhaul is cheap next to what it protects.',
         sources: [
           {
-            title: 'UCSD and UMD, Don\'t Look Up: There Are Sensitive Internal Links in the Clear on GEO Satellites (CCS 2025)',
+            title: 'UCSD and UMD, Don’t Look Up: There Are Sensitive Internal Links in the Clear on GEO Satellites (CCS 2025)',
             url: 'https://satcom.sysnet.ucsd.edu/',
             type: 'paper',
             status: 'verified',
@@ -673,7 +673,7 @@ export const THREATS: ThreatEvent[] = [
       },
     ],
     blurb:
-      'A trusted account syncs the architecture documents to a cloud drive it controls. No exploit, no malware, just access that nobody was watching. The fiction here is invented; the pattern is the one CISA\'s insider threat guidance is written for.',
+      'A trusted account syncs the architecture documents to a cloud drive it controls. No exploit, no malware, just access that nobody was watching. The fiction here is invented; the pattern is the one CISA’s insider threat guidance is written for.',
     learnMoreCards: [
       {
         title: 'The threat that already has a badge',
@@ -714,7 +714,7 @@ export const THREATS: ThreatEvent[] = [
       {
         title: 'Kessler syndrome, the real one',
         body:
-          'The cascade scenario proposed by NASA scientist Donald Kessler in 1978 describes debris collisions breeding more debris until whole orbital regimes degrade. NASA\'s Orbital Debris Program Office leads measurement, modeling, and mitigation of the environment. Conjunction assessment and the fuel for avoidance burns are the operational face of that risk, and they draw on the same budget as security. Real operators maneuver at a collision chance of about 1 in 10,000; the game raises the odds so the call matters. SPARTA\'s techniques list debris only as cover an adversary can hide in (DE-0009.01); its threat list carries the collision itself as SV-MA-1, Space Debris, and that is this conjunction.',
+          'The cascade scenario proposed by NASA scientist Donald Kessler in 1978 describes debris collisions breeding more debris until whole orbital regimes degrade. NASA’s Orbital Debris Program Office leads measurement, modeling, and mitigation of the environment. Conjunction assessment and the fuel for avoidance burns are the operational face of that risk, and they draw on the same budget as security. Real operators maneuver at a collision chance of about 1 in 10,000; the game raises the odds so the call matters. SPARTA’s techniques list debris only as cover an adversary can hide in (DE-0009.01); its threat list carries the collision itself as SV-MA-1, Space Debris, and that is this conjunction.',
         sources: [
           {
             title: 'NASA Orbital Debris Program Office',

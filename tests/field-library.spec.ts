@@ -30,6 +30,10 @@ const LIST_SHA256 = 'e7fdf6ff69bf3e85828e9556776696eb4b1c3dd17c06252833b0cd3b74a
 // October check their bylines came from, the CISA byline to April 2024);
 // titles and links are unchanged, so LIST_SHA256 stands.
 const ENTRIES_SHA256 = '929663a6cc06f69e45a738a6d8d265a2efcca668cf23665841f7cb409006baf1'
+// Both are taken over the text with its curled apostrophes straightened
+// (29 October 2026: player-visible text curls them), so typography is
+// not content and the pins Ken approved still hold the words.
+const straight = (t: string) => t.replace(/\u2019/g, "'")
 
 describe('GUARD R5b (a): every pairing names a real event, and every threat has one', () => {
   it('passes the list as approved, and the game reads that list', async () => {
@@ -92,11 +96,11 @@ describe('the list as approved', () => {
     expect(SHELVES_AS_DRAFTED.length).toBe(11)
     expect(entries.length).toBe(36)
     const listing = SHELVES_AS_DRAFTED.flatMap((s) => s.entries.map((e) => [s.name, e.title, e.url].join(' | '))).join('\n')
-    expect(createHash('sha256').update(listing).digest('hex')).toBe(LIST_SHA256)
+    expect(createHash('sha256').update(straight(listing)).digest('hex')).toBe(LIST_SHA256)
     // And every field, so a paraphrased why line, a dropped pairing or a
     // changed date costs a deliberate edit too.
     const whole = SHELVES_AS_DRAFTED.flatMap((s) => s.entries.map((e) => `${s.name} | ${JSON.stringify(e)}`)).join('\n')
-    expect(createHash('sha256').update(whole).digest('hex')).toBe(ENTRIES_SHA256)
+    expect(createHash('sha256').update(straight(whole)).digest('hex')).toBe(ENTRIES_SHA256)
   })
 
   it('derives the SPARTA entry\'s pairings from the events\' technique references', () => {

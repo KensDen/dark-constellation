@@ -157,7 +157,7 @@ export const TONIGHT_REASON = 'They go for the move your defenses take the fewes
 // eyes: an exposed move's "details ›" changed with nothing to say why).
 // Not on turn 1, where FIRST ORDERS says the rule and ticks the order, and
 // where the longer line would push the board past 375x667.
-export const DEFENSE_IN = "This turn's new defense is ordered."
+export const DEFENSE_IN = "This turn’s new defense is ordered."
 export const tonightReason = (turn: number, open: boolean) => (open || turn === 1 ? TONIGHT_REASON : `${TONIGHT_REASON} ${DEFENSE_IN}`)
 export const TONIGHT_HIDDEN = 'The names are hidden. An intel brief reveals them.'
 // EXPOSED says what an exposed move does if it is the one COLDVEIL takes,
@@ -243,7 +243,7 @@ export const SECOND_ORDER = 'New vector tonight. Tap a move to see what answers 
 // SECOND ORDERS while tonight's moves are hidden, and what a tap on a hidden
 // move or "reveal ›" opens PROCURE at (R6 question 14: a player was told to
 // tap a move and look for EXPOSED while every move was Unidentified).
-export const hiddenOrder = (price: number) => `Order an intel brief (${price} CR) to name tonight's moves, then tap one to see what answers it.`
+export const hiddenOrder = (price: number) => `Order an intel brief (${price} CR) to name tonight’s moves, then tap one to see what answers it.`
 
 
 // THE HUD's words (brief 5.3 item 1).
@@ -288,8 +288,8 @@ export const briefButton = (price: number) => `INTEL BRIEF · ${price} CR`
 // THE BRIEF'S LOCK (v1.5 R2, Ken's ruling of 24 October 2026; the engine's
 // briefLocked): the brief names the moves the moment it is ordered, so the
 // order stands for the turn.
-export const BRIEF_RULE = "Names COLDVEIL's moves the moment you order it, and the defenses then say which moves they stop or blunt. Once named, the order is locked for this turn: no cancel, no refund."
-export const BRIEF_LOCKED_LINE = "It has named tonight's moves, so it stays ordered: no cancel, no refund."
+export const BRIEF_RULE = "Names COLDVEIL’s moves the moment you order it, and the defenses then say which moves they stop or blunt. Once named, the order is locked for this turn: no cancel, no refund."
+export const BRIEF_LOCKED_LINE = "It has named tonight’s moves, so it stays ordered: no cancel, no refund."
 export const BRIEF_LOCKED = 'LOCKED'
 // The intel brief's tile in PROCURE, before the tap: it locks once ordered.
 export const BRIEF_LOCKS = 'LOCKS'
@@ -327,10 +327,10 @@ export const defenseRule = (n: number) =>
 // Since v1.6 R1 it leads with the reason Ken's ruling of 26 October 2026
 // names, "Tonight's order is in", and the rule as a rate in turns (v1.5
 // R1: every count and rate says turn).
-export const ORDER_IN = "Tonight's order is in"
+export const ORDER_IN = "Tonight’s order is in"
 export const defenseOrderIn = (name: string, last = false) =>
   last
-    ? `${ORDER_IN}: ${name}, the operation's last new defense. To swap, cancel it first.`
+    ? `${ORDER_IN}: ${name}, the operation’s last new defense. To swap, cancel it first.`
     : `${ORDER_IN}: ${name}. 1 new defense a turn. To swap, cancel it first.`
 // What a defense reads where its price was, once the turn's defense is in
 // (v1.4 finding 7: NOT TONIGHT read as "this move is not on tonight"): the
@@ -365,7 +365,7 @@ export const turns = (n: number) => `${n} turn${n === 1 ? '' : 's'}`
 // item 3: "points" read as score points, and "every recovery" as asset
 // repair, which the retainer does not speed).
 export const retainerLine = (state: Pick<GameState, 'scenario'>) =>
-  `Link, data and sensor health recover ${state.scenario.recovery.withIrRetainer} a turn instead of ${state.scenario.recovery.base}; damaged assets heal ${ASSET_HEAL_PER_TURN} a turn with or without it. Stops no move, and counts as the turn's new defense.`
+  `Link, data and sensor health recover ${state.scenario.recovery.withIrRetainer} a turn instead of ${state.scenario.recovery.base}; damaged assets heal ${ASSET_HEAL_PER_TURN} a turn with or without it. Stops no move, and counts as the turn’s new defense.`
 // A condition chip's turns left (brief 6.5), and on its last turn LAST
 // rather than 0T (R6b's fresh eyes, item 4): the night it last presses, and
 // the board before that night, where the stored 1 read "1T" on turn 6 of 6

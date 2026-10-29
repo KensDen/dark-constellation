@@ -260,10 +260,10 @@ describe('the hidden moves (R6 question 14)', () => {
     render(second)
     const order = q('[data-order="intel"]')
     expect(order, 'SECOND ORDERS does not ask for the intel brief while the moves are hidden').not.toBeNull()
-    expect(order!.textContent).toContain(`Order an intel brief (${second.scenario.prices.intelBrief} CR) to name tonight's moves`)
+    expect(order!.textContent).toContain(`Order an intel brief (${second.scenario.prices.intelBrief} CR) to name tonight’s moves`)
     click(order!)
     const note = () => q('[data-sheet="procure"] [data-match-note]')?.textContent
-    expect(note()).toBe(`Order an intel brief (${second.scenario.prices.intelBrief} CR) to name tonight's moves, then tap one to see what answers it.`)
+    expect(note()).toBe(`Order an intel brief (${second.scenario.prices.intelBrief} CR) to name tonight’s moves, then tap one to see what answers it.`)
     expect(q('[data-procure-intel]')!.hasAttribute('data-match'), 'the intel brief is not the highlighted order').toBe(true)
     // Ordered, the brief locks (v1.5 R2), and the note and the footer stop
     // asking for it or promising its cancel (the R2 review, finding 29).

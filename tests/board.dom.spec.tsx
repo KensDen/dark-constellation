@@ -196,7 +196,7 @@ describe('the board (v1.2 R1, v1.3 R2)', () => {
     // Since v1.5 R1 it names the meters it speeds and says the assets' own
     // healing is the same either way (R6b's fresh eyes, item 3).
     expect(tile!.querySelector('[data-stops]')!.getAttribute('aria-label')).toBe(
-      `Link, data and sensor health recover ${withIrRetainer} a turn instead of ${base}; damaged assets heal ${ASSET_HEAL_PER_TURN} a turn with or without it. Stops no move, and counts as the turn's new defense.`,
+      `Link, data and sensor health recover ${withIrRetainer} a turn instead of ${base}; damaged assets heal ${ASSET_HEAL_PER_TURN} a turn with or without it. Stops no move, and counts as the turn’s new defense.`,
     )
     click(tile!)
     expect(defenseTile('irRetainer')!.getAttribute('aria-pressed'), 'the retainer did not queue').toBe('true')

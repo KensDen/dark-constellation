@@ -269,7 +269,7 @@ export interface FullBriefCopy {
   // Without the brief the moves and their techniques are not named.
   dark?: string
 }
-export const FULL_BRIEF_DARK = 'Order an intel brief to name tonight\'s moves and their techniques.'
+export const FULL_BRIEF_DARK = 'Order an intel brief to name tonight’s moves and their techniques.'
 export function fullBriefCopy(state: GameState, briefed = briefFree(state)): FullBriefCopy {
   const coverage = coverageLine(state)
   if (!briefed) return { coverage, moves: [], dark: FULL_BRIEF_DARK }

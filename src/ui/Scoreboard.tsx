@@ -82,7 +82,7 @@ export default function Scoreboard({ onBack }: { onBack: () => void }) {
             {streak > 0 && <p className={`${HEAD} text-dc-muted`}>STREAK {streak}</p>}
           </div>
           {dailies.length === 0 ? (
-            <p className="mt-1.5 text-[13px] text-dc-muted">No Daily Op finished yet. Each day&apos;s first finish is its official run.</p>
+            <p className="mt-1.5 text-[13px] text-dc-muted">No Daily Op finished yet. Each day’s first finish is its official run.</p>
           ) : (
             <ol className="mt-1.5 flex flex-col gap-1">
               {dailies.map(({ dateKey, result }) => {

@@ -125,19 +125,23 @@ export default function Title(p: TitleProps) {
 
   return (
     <main data-title className="mx-auto flex min-h-dvh w-full max-w-[520px] flex-col gap-4 px-4 pt-safe pb-10 text-dc-ink desk:max-w-none desk:gap-8 desk:px-0 desk:pt-0">
-      <header data-key-art className="relative mt-3 flex h-[212px] flex-col justify-end overflow-hidden border-2 border-dc-line bg-dc-shadow desk:mt-0 desk:h-[46vh] desk:min-h-[320px] desk:border-x-0 desk:border-t-0">
+      {/* The desktop's first screen (Claude's site review, 29 October): the
+          hero takes what the menu leaves of the window, so the two fill it
+          in balance; the frame follows below. A phone's wrapper steps aside. */}
+      <div data-title-screen className="contents desk:flex desk:min-h-dvh desk:flex-col desk:gap-8 desk:pb-10">
+      <header data-key-art className="relative mt-3 flex h-[212px] flex-col justify-end overflow-hidden border-2 border-dc-line bg-dc-shadow desk:mt-0 desk:h-auto desk:min-h-[360px] desk:flex-1 desk:border-x-0 desk:border-t-0">
         <Suspense fallback={null}>
           <TitleArt part="key" />
         </Suspense>
         <div className="relative px-2 pb-2.5 desk:mx-auto desk:w-full desk:max-w-[1200px] desk:px-8 desk:pb-9">
-          <h1 className="m-0">
-            <Wordmark size="clamp(0.9rem, 4.8vw, 1.7rem)" />
+          <h1 className="m-0 desk:[--wordmark:clamp(1.9rem,2.35vw,2.15rem)]">
+            <Wordmark size="var(--wordmark, clamp(0.9rem, 4.8vw, 1.7rem))" />
           </h1>
-          <p className="mt-3 font-mono text-xs tracking-widest text-dc-friendly">OP {DEFAULT_SCENARIO.name}</p>
+          <p className="mt-3 font-mono text-xs tracking-widest text-dc-friendly desk:mt-5 desk:text-[16px]">OP {DEFAULT_SCENARIO.name}</p>
           {/* One line on a phone (Ken, 21 October): the size follows the
               width, and the effect above fits it to the font, never under
               10px. */}
-          <p ref={tagline} data-tagline className="mt-2 whitespace-nowrap text-[clamp(10px,3.2vw,14px)] text-dc-muted">
+          <p ref={tagline} data-tagline className="mt-2 whitespace-nowrap text-[clamp(10px,3.2vw,14px)] text-dc-muted desk:text-[18px]">
             {TITLE_TAGLINE}
           </p>
         </div>
@@ -146,9 +150,9 @@ export default function Title(p: TitleProps) {
       {/* The menu: one column on a phone (these wrappers step aside), three
           on the desktop: the goals, the ways to play, and READ with
           SYSTEM. */}
-      <div data-title-menu className="contents desk:mx-auto desk:grid desk:w-full desk:max-w-[1200px] desk:grid-cols-3 desk:items-start desk:gap-6 desk:px-8">
+      <div data-title-menu className="contents desk:mx-auto desk:grid desk:w-full desk:max-w-[1200px] desk:grid-cols-3 desk:items-stretch desk:gap-6 desk:px-8">
       <div className="contents desk:flex desk:flex-col desk:gap-4">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2 desk:flex-1">
         <div className={TILE} data-goal="1">
           <p className="font-mono text-[10px] tracking-widest text-dc-muted">GOAL 1</p>
           <p className="mt-1 text-sm font-bold">Hold the mission</p>
@@ -160,7 +164,7 @@ export default function Title(p: TitleProps) {
           </p>
           {/* Whether it is done yet, as GOAL 2 shows its count (v1.3 R5):
               an icon and a word, never colour alone (rule 8). */}
-          <p data-goal-status className="mt-2 flex items-center gap-1.5 font-mono text-[10px] tracking-wider">
+          <p data-goal-status className="mt-2 flex items-center desk:mt-auto desk:pt-2 gap-1.5 font-mono text-[10px] tracking-wider">
             {held?.held && <PixelSprite sprite={tinted(ICON_CHECK, 'go')} scale={1} name="goal-held" />}
             <span className={held?.held ? 'text-dc-go' : 'text-dc-muted'}>
               {held ? `${held.held ? 'HELD' : 'NOT YET'} · BEST ${held.best.toFixed(1)}` : 'NOT YET'}
@@ -173,7 +177,7 @@ export default function Title(p: TitleProps) {
           <span className="mt-1 block font-mono text-xs text-dc-go">
             {goal.filed} / {goal.total} filed
           </span>
-          <span className="mt-2 block h-1 w-full bg-dc-line" aria-hidden="true">
+          <span className="mt-2 block h-1 w-full bg-dc-line desk:mt-auto" aria-hidden="true">
             <span className="block h-1 bg-dc-go" style={{ width: `${(goal.filed / Math.max(1, goal.total)) * 100}%` }} />
           </span>
         </button>
@@ -189,7 +193,7 @@ export default function Title(p: TitleProps) {
       )}
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div data-title-play className="flex flex-col gap-2">
         {p.resumeTurn !== null && (
           <button
             type="button"
@@ -204,7 +208,7 @@ export default function Title(p: TitleProps) {
           type="button"
           data-play
           onClick={p.onPlay}
-          className="flex min-h-14 flex-col items-center justify-center gap-1 border-2 border-dc-go bg-dc-go py-2 text-dc-ground shadow-press active:translate-y-[3px] active:shadow-none desk:min-h-28"
+          className="flex min-h-14 flex-col items-center justify-center gap-1 border-2 border-dc-go bg-dc-go py-2 text-dc-ground shadow-press active:translate-y-[3px] active:shadow-none desk:min-h-28 desk:flex-1"
         >
           {/* Filled, as PLAY AGAIN is on the debrief (v1.3 R5): the main
               way on looks the same wherever it is; the largest thing on
@@ -272,7 +276,7 @@ export default function Title(p: TitleProps) {
           </button>
           <button type="button" data-read="dossier" className={READ_BTN} onClick={p.onDossier}>
             <span className="block font-display text-[11px] text-dc-friendly">DOSSIER</span>
-            <span className="mt-1 block text-xs text-dc-muted">COLDVEIL&apos;s moves and the techniques behind them.</span>
+            <span className="mt-1 block text-xs text-dc-muted">COLDVEIL’s moves and the techniques behind them.</span>
           </button>
           <button type="button" data-read="library" className={READ_BTN} onClick={p.onLibrary}>
             <span className="block font-display text-[11px] text-dc-friendly">LIBRARY</span>
@@ -292,6 +296,7 @@ export default function Title(p: TitleProps) {
       >
         {SYSTEM_TITLE}
       </button>
+      </div>
       </div>
       </div>
 

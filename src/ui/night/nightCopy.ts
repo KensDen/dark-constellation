@@ -58,16 +58,16 @@ export const OFFICER: Record<string, readonly string[]> = {
   'debris-conjunction': ['Conjunction alert on {t}: a defunct upper stage on a crossing orbit, closest approach in 14 hours.'],
   'ground-ransomware': [
     'The mission data store is encrypted and a note is on the ops floor display. Shelter-mapping deliveries have stopped.',
-    "Ransomware is back on the ground segment, and this time it reached the scheduling server. Tonight's passes are flown by hand.",
+    "Ransomware is back on the ground segment, and this time it reached the scheduling server. Tonight’s passes are flown by hand.",
   ],
   'rogue-ground-station': ['{t} accepted a command we never sent. Someone else has a dish and our protocol.'],
   'backhaul-exfil': ['Survey imagery left over the unencrypted backhaul and surfaced on a forum before it reached the EOC.'],
   'blackout-chain': ['{t} swerved around an obstacle that was not there and clipped a power line. Signature COLDVEIL.'],
-  'time-spoof': ["{t}'s clock drifted 3 seconds overnight. 2 stored commands fired early, and the anti-replay window is open until we resync."],
+  'time-spoof': ["{t}’s clock drifted 3 seconds overnight. 2 stored commands fired early, and the anti-replay window is open until we resync."],
   'lidar-injection': ['{t} braked hard for a wall that was not there. The point cloud shows a building on an empty street.'],
-  'lidar-blinding': ["{t}'s LiDAR returned a clear path through a cell tower. {t} clipped the tower at 40 m."],
+  'lidar-blinding': ["{t}’s LiDAR returned a clear path through a cell tower. {t} clipped the tower at 40 m."],
   'training-data-poisoning': [
-    "Last night's perception retrain pulled survey frames from a share we do not control. The new model behaves until it sees one particular marking.",
+    "Last night’s perception retrain pulled survey frames from a share we do not control. The new model behaves until it sees one particular marking.",
   ],
   'supply-chain-implant': ['A sensor package on {t} woke up and started talking on a frequency nobody assigned it. It shipped that way.'],
   'insider-exfil': ['The architecture binder was synced to a personal cloud account overnight. The access logs say the access was valid. That is the problem.'],
@@ -81,14 +81,14 @@ export const HOOK: Record<string, string> = {
   'downlink-eavesdropping': 'Anyone under the beam can listen in',
   'telemetry-replay': 'Old data, replayed, can hide a dying satellite',
   'lidar-dazzle': 'How a laser can dazzle a docking sensor',
-  'debris-conjunction': "Space junk doesn't need a motive",
+  'debris-conjunction': "Space junk doesn’t need a motive",
   'ground-ransomware': 'Why attackers hit the ground, not the satellite',
   'rogue-ground-station': 'Build your own dish, send your own commands',
-  'backhaul-exfil': "Unencrypted satellite links leak more than you'd think",
+  'backhaul-exfil': "Unencrypted satellite links leak more than you’d think",
   'blackout-chain': 'Knock out GPS, then fool the only sensor left',
   'time-spoof': 'Lie about the time and the whole schedule breaks',
   'lidar-injection': 'Laser pulses that paint obstacles that are not there',
-  'lidar-blinding': "Make a real obstacle vanish from the drone's view",
+  'lidar-blinding': "Make a real obstacle vanish from the drone’s view",
   'training-data-poisoning': 'Poison the training data and the model learns a backdoor',
   'supply-chain-implant': 'Firmware tampered with before it ever flew',
   'insider-exfil': 'No exploit needed when someone already has the badge',
@@ -335,7 +335,7 @@ export const reviewQueued = (n: number) => `Loss review queued for end of turn: 
 
 // END OF TURN (brief 5.5 item 6): every line that made the budget.
 export const endHeader = (turn: number) => `END OF TURN ${turn}`
-export const LEFT_AFTER = "Left after tonight's orders"
+export const LEFT_AFTER = "Left after tonight’s orders"
 export const REPAIRS = 'Repairs'
 // The night's own budget lines (R6 question 12): the burn's fuel and an
 // opportunity's windfall, each a row of its own.
@@ -392,7 +392,7 @@ export const END_HELP = 'How recovery works'
 export const BUDGET_LINES = 'BUDGET'
 export const SCORE_FROM = 'Start of turn'
 export const SCORE_CONDITIONS = 'Ongoing conditions'
-export const SCORE_MOVES = 'Tonight\'s moves'
+export const SCORE_MOVES = 'Tonight’s moves'
 export const savedNote = (n: number) => `saved ${n}`
 export const SCORE_RECOVERY = 'Overnight recovery'
 export const SCORE_RECOVERY_ARRIVALS = 'Overnight recovery and arrivals'

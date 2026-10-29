@@ -130,7 +130,7 @@ describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', 
     // It names the defense ordered, so a sheet opened from another move
     // says what to cancel (v1.4 round 2, finding 1), after the reason
     // Ken's ruling of 26 October 2026 names (v1.6 R1).
-    expect(rule()?.textContent).toContain(`Tonight's order is in: ${antiJam}.`)
+    expect(rule()?.textContent).toContain(`Tonight’s order is in: ${antiJam}.`)
     expect(q('[data-defense-status]')!.textContent).toBe(defenseStatus(1, 1))
     // Why, and how to change it (the v1.4 fresh-eyes review).
     expect(rule()?.textContent).toContain('1 new defense a turn.')
@@ -179,7 +179,7 @@ describe('PROCURE under one new defense a turn (v1.4; in turns since v1.5 R1)', 
     expect(capped.length).toBeGreaterThan(0)
     for (const b of capped) expect(b.textContent).toContain('1 A TURN')
     // The last turn has no next one to be booked until (the R1 re-review).
-    expect(rule()?.textContent).toContain("the operation's last new defense")
+    expect(rule()?.textContent).toContain('the operation’s last new defense')
     expect(rule()?.textContent).not.toContain('next turn')
   })
 

@@ -52,7 +52,7 @@ export function howToLines(scenario = DEFAULT_SCENARIO): string[] {
   const { totalTurns, winThreshold, collapseThreshold, upkeepPerDefense } = scenario
   return [
     `Finish turn ${totalTurns} with the mission assurance score at ${winThreshold} or higher. You start above the win line, and ${ADVERSARY} spends ${totalTurns} turns eroding it.`,
-    `Each turn TONIGHT names ${ADVERSARY}'s moves. They go for the move your defenses take the fewest points off. Tap a move to see what answers it.`,
+    `Each turn TONIGHT names ${ADVERSARY}’s moves. They go for the move your defenses take the fewest points off. Tap a move to see what answers it.`,
     `PROCURE fleet and defenses, ${NEW_DEFENSES_PER_NIGHT} new defense a turn, then EXECUTE to play out the night. Each defense takes ${upkeepPerDefense} CR a turn to keep, and deployments take turns to arrive.`,
     `Some attacks become conditions that press every turn until they lift. A score under ${collapseThreshold} or a budget under 0 ends the operation.`,
   ]

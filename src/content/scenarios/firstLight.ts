@@ -93,7 +93,7 @@ export const FIRST_LIGHT: Scenario = {
     },
     {
       turn: 6,
-      intro: "Final tasking. Analysts expect COLDVEIL's signature chain and one more probe wherever you are thin.",
+      intro: "Final tasking. Analysts expect COLDVEIL’s signature chain and one more probe wherever you are thin.",
       slots: [{ fixed: 'blackout-chain' }, { drawFrom: ['ops-phishing', 'ground-ransomware', 'uplink-jamming'] }],
     },
   ],
