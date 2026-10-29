@@ -152,7 +152,7 @@ export default function Title(p: TitleProps) {
           SYSTEM. */}
       <div data-title-menu className="contents desk:mx-auto desk:grid desk:w-full desk:max-w-[1200px] desk:grid-cols-3 desk:items-stretch desk:gap-6 desk:px-8">
       <div className="contents desk:flex desk:flex-col desk:gap-4">
-      <div className="grid grid-cols-2 gap-2 desk:flex-1">
+      <div className="grid grid-cols-2 gap-2">
         <div className={TILE} data-goal="1">
           <p className="font-mono text-[10px] tracking-widest text-dc-muted">GOAL 1</p>
           <p className="mt-1 text-sm font-bold">Hold the mission</p>
@@ -164,7 +164,7 @@ export default function Title(p: TitleProps) {
           </p>
           {/* Whether it is done yet, as GOAL 2 shows its count (v1.3 R5):
               an icon and a word, never colour alone (rule 8). */}
-          <p data-goal-status className="mt-2 flex items-center desk:mt-auto desk:pt-2 gap-1.5 font-mono text-[10px] tracking-wider">
+          <p data-goal-status className="mt-2 flex items-center gap-1.5 font-mono text-[10px] tracking-wider">
             {held?.held && <PixelSprite sprite={tinted(ICON_CHECK, 'go')} scale={1} name="goal-held" />}
             <span className={held?.held ? 'text-dc-go' : 'text-dc-muted'}>
               {held ? `${held.held ? 'HELD' : 'NOT YET'} · BEST ${held.best.toFixed(1)}` : 'NOT YET'}
@@ -177,7 +177,7 @@ export default function Title(p: TitleProps) {
           <span className="mt-1 block font-mono text-xs text-dc-go">
             {goal.filed} / {goal.total} filed
           </span>
-          <span className="mt-2 block h-1 w-full bg-dc-line desk:mt-auto" aria-hidden="true">
+          <span className="mt-2 block h-1 w-full bg-dc-line" aria-hidden="true">
             <span className="block h-1 bg-dc-go" style={{ width: `${(goal.filed / Math.max(1, goal.total)) * 100}%` }} />
           </span>
         </button>
