@@ -10,14 +10,15 @@ architecture, defenses included, under budget while an adversary campaign escala
 
 Play it: https://kensden.github.io/dark-constellation/
 
-Status: v1.6.0, released 27 October 2026: COLDVEIL per seed, the phone night and the playtest
-passes. Each seed now plays one of two campaigns, so the hand-written order of six defenses no
-longer wins every seed. The board is decluttered for a phone, the night's strike holds long enough
-to read, a hit fits one screen and files to the Dossier, PROCURE is a loadout, END OF TURN is a turn
-summary, the debrief is an end screen with its long lists behind tabs, the coach shows once per
-device, and the drones fly in profile in every scene. It builds on v1.5.0's balance and art,
-v1.4.0's one new defense a night and v1.3.0's loop pass: six turns against a reacting adversary,
-with the title and briefing, the board and PROCURE, the night, the debrief, the Dossier and LIBRARY.
+Status: v1.6.2, released 29 October 2026: the title screen's desktop layout and curled apostrophes,
+on v1.6.0's COLDVEIL per seed, the phone night and the playtest passes. Each seed now plays one of
+two campaigns, so the hand-written order of six defenses no longer wins every seed. The board is
+decluttered for a phone, the night's strike holds long enough to read, a hit fits one screen and
+files to the Dossier, PROCURE is a loadout, END OF TURN is a turn summary, the debrief is an end
+screen with its long lists behind tabs, the coach shows once per device, and the drones fly in
+profile in every scene. It builds on v1.5.0's balance and art, v1.4.0's one new defense a night and
+v1.3.0's loop pass: six turns against a reacting adversary, with the title and briefing, the board
+and PROCURE, the night, the debrief, the Dossier and LIBRARY.
 
 ## How to play
 
@@ -161,6 +162,7 @@ scenes were drawn in code for this project.
 
 ## Releases
 
+- v1.6.2, 29 October 2026: the title screen's desktop layout, curled apostrophes.
 - v1.6.1, 27 October 2026: the v1.6.0 deploy fix (size trim, link entry).
 - v1.6.0, 27 October 2026: COLDVEIL per seed, the phone night and the playtest passes.
 - v1.5.0, 24 October 2026: balance, the leftovers and the art.
