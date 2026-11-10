@@ -134,10 +134,12 @@ describe('determinism', () => {
     // this line as well as to the file: the snapshot moves deliberately or
     // not at all. be6509e3 was the v1.3 Round 0 move; 2a5966f1 the Round
     // 6b move; ab375fc0 the v1.4.0 move; b5017102 the v1.6 R1 move;
-    // 112140af the v1.6 R2 move; 96e819db is the v1.7 R1 move (see the
-    // header).
+    // 112140af the v1.6 R2 move; 96e819db the v1.7 R1 move (see the
+    // header); 10a75489 is the v2.0 R1 move: mission funding 20 to 14 with
+    // the scan in place of the paid brief (src/content/scenarios/
+    // firstLight.ts), regenerated once, at the round's end.
     expect(createHash('sha1').update(readFileSync(SNAPSHOT_PATH, 'utf8')).digest('hex'), 'the committed snapshot file changed').toBe(
-      '96e819db23897f1c518056a015d63cb59f1622bc',
+      '10a7548952777b3d80a0fa182a1644b48e59e4b5',
     )
   })
 
