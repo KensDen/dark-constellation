@@ -146,8 +146,15 @@ const WORST_HIT_CARD_HEADLINE_AND_LINE = 40
 // decision, read with nothing else on screen. An answer is bounded at 10
 // words, a line and a half of its button at 375; the longest in the deck
 // is 9 ("Cut the segments apart and restore from offline backups").
+//
+// v2.0 R1: mission funding 20 to 14, and the worst card is 75 words where
+// it was 71: the same insider move on turn 5, now with neither of its two
+// answers in budget, so both print "Not enough budget: N CR free after
+// bills" where one did (first met on the top-intel line, STANDARD, seed
+// 22; the mixed line answering, seed 11, measures the same 75). The
+// budget stays 80, which leaves 5 words of room where it left 9.
 const RESPONSE_CARD_WORD_BUDGET = 80
-const WORST_RESPONSE_CARD = 71
+const WORST_RESPONSE_CARD = 75
 const RESPONSE_LABEL_WORD_BUDGET = 10
 const WORST_RESPONSE_LABEL = 9
 

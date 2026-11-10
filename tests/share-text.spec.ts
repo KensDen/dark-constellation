@@ -20,9 +20,10 @@
 // last turn, so their T6 cannot tell "the turn the campaign ended on"
 // (src/ui/reportCard.ts) from the scenario's length. So an early ending is
 // pinned too: a run of the same daily seed that goes insolvent before
-// turn 6 (randomPolicy(1) of tests/scripts.ts: lost at turn 5, five
-// squares, since v1.4; turn 4 before). A gradeLine that printed totalTurns, or a strip padded to
-// it, fails that pin and the square check below.
+// turn 6 (randomPolicy(1) of tests/scripts.ts: lost at turn 3, three
+// squares, since v2.0 R1; turn 5 from v1.4, turn 4 before). A gradeLine
+// that printed totalTurns, or a strip padded to it, fails that pin and
+// the square check below.
 //
 // Re-pinned for v1.3 Round 3, which retired MAI from player screens (v1.3
 // section 4): the grade line ends "score n" and free play's second line
@@ -70,6 +71,13 @@
 // on the last turn, so its D is an F (the pin below checks the reason),
 // and ends 20260712 on EASY at 45.6, a D; randomPolicy(1) still goes
 // insolvent at turn 5, at 65.7.
+//
+// v2.0 R1 (mission funding 20 to 14): the share text's form did not
+// change; one game did. randomPolicy(1) runs out of budget two turns
+// sooner on the Daily seed: insolvent at turn 3, at 74.2 (above the win
+// line, so the line says why), three squares, green, red, red. The other
+// pins hold as they were: the scripts' games close on less budget but
+// meet the same moves with the same answers.
 //
 // v1.3 Round 4 (M37; QC G-056 and G-057): free play takes the Daily Op's
 // four lines. Its longer text said "survived 6 of 6 turns" on a loss, put
@@ -143,15 +151,17 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
 
   it('names the turn the campaign ended on, not the scenario\'s length, for a run that ended early', () => {
     const end = play(startDailyOp(DAY).state, EARLY_END)
-    // The run really did end early, and to insolvency (an F), so T5 below
-    // is the turn it ended on and five squares are five turns played.
+    // The run really did end early, and to insolvency (an F), so T3 below
+    // is the turn it ended on and three squares are three turns played
+    // (T5 and five squares through v1.7; v2.0 R1's funding, 14 for 20,
+    // empties the budget two turns sooner).
     expect(end.lossReason).toBe('insolvency')
     expect(end.history.length, 'the run did not end early').toBeLessThan(end.scenario.totalTurns)
     expect(shareText(end, { n: 1, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade F · lost T5 · budget below zero · score 65.7, win line 70',
-        '\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
+        'Grade F · lost T3 · budget below zero · score 74.2, win line 70',
+        '\u{1F7E9}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )

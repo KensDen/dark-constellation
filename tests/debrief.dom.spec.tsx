@@ -136,11 +136,17 @@ function play(seed: number, script: Record<number, TurnActions>, respond: Respon
 // A won campaign (S) and a lost one (D), both with a mixed strip.
 // Since v1.7 R1 nobody wins with every move ridden out, so the win is the
 // prepared script answering in the night as tests/policies.ts's `sensible`
-// does, on seed 2, an S on the round's ladder (seed 16 ridden out, v1.6's
-// S, now loses). The loss is seed 16 with no orders and no answers, which
+// does, an S on the round's ladder (seed 16 ridden out, v1.6's S, now
+// loses). The loss is seed 16 with no orders and no answers, which
 // plays all six turns and ends under the line with a mixed strip (seed
 // 20260712, v1.6's, now collapses, an F with every turn the same colour).
-const WON = () => play(2, WIN_SCRIPT, sensible)
+// v2.0 R1: mission funding 20 to 14, so seed 2, v1.7's S, is now an A
+// (final 81.6, graded 86.1, under S at 88). The win is seed 30, the
+// lowest seed the script still takes to S: final 84.8, graded 88.8, five
+// moves answered, strip green, amber, green, green, magenta, amber. The C
+// below (seed 3: final 71.9, graded 74.9) and the loss (seed 16: 44.4,
+// under the line after six turns) hold as they were.
+const WON = () => play(30, WIN_SCRIPT, sensible)
 const LOST = () => play(16, LOSS_SCRIPT)
 const TODAY: DailyOp = { dateKey: '20260927', n: 1 }
 

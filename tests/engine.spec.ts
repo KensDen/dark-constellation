@@ -275,7 +275,11 @@ describe('the v1.3 rules (brief 6.1)', () => {
     expect(l.arrivals).toEqual(['t1-drone-1'])
     expect(l.bonusCoverage).toBe(58 + COVERAGE_PER_KIND.drone)
     expect(l.coverageBonus).toBe(DEFAULT_SCENARIO.slaBonus.credits)
-    expect(after.credits).toBe(100 - 25 - 4 + 20 + 10)
+    // v2.0 R1: mission funding 20 to 14, so the turn closes at 95 where it
+    // closed at 101. Funding is read from the scenario, as upkeep and the
+    // bonus are above, so the sum follows the scenario's own number.
+    expect(l.funding).toBe(DEFAULT_SCENARIO.incomePerTurn)
+    expect(after.credits).toBe(100 - 25 - 4 + DEFAULT_SCENARIO.incomePerTurn + 10)
     expect(l.after).toBe(after.credits)
     expect(l.afterNight - l.repairs - l.upkeep + l.funding + l.coverageBonus).toBe(l.after)
   })

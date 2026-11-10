@@ -720,14 +720,21 @@ describe('the night sounds the moment it is showing', () => {
     // played with a responder: the first response the budget can meet
     // (tests/policies.ts's `sensible`) or none (`ride`), and the engine
     // plays the same night the same way (playNight) for what to expect.
-    // Seed 4 on STANDARD with these orders, answered, wins and meets every
+    // Seed 5 on STANDARD with these orders, answered, wins and meets every
     // kind of card but a lost satellite; the passive line on the same seed,
-    // every move ridden out, loses; seed 8 on the plan, answered, holds on
+    // every move ridden out, loses; seed 27 on the plan, answered, holds on
     // the conjunction and loses the satellite (seeds 32 and 8 until v1.7
-    // R1, when a ridden-out plan stopped winning). Between them every row
-    // of the night is reached, BLACKOUT CHAIN and both debris results
-    // included, and the Dossier the first leaves makes the later ones
-    // meet moves already filed: CONTINUE, and a block moment with no card.
+    // R1, when a ridden-out plan stopped winning; seeds 4 and 8 through
+    // v1.7). v2.0 R1: mission funding 20 to 14, and the plan no longer
+    // wins either of those: seed 4 ends under the line at 62.1 and seed 8
+    // goes insolvent on turn 6 at 65.5. Seeds 5 and 27 are the lowest that
+    // still do what the three operations are here for: seed 5 answered
+    // wins at 71.3 with the satellite safe (ridden out it collapses at
+    // 30.7), and seed 27 wins at 73.1 with the satellite lost. Between
+    // them every row of the night is reached, BLACKOUT CHAIN and both
+    // debris results included, and the Dossier the first leaves makes the
+    // later ones meet moves already filed: CONTINUE, and a block moment
+    // with no card.
     // The plan is scripts/phone-layout.mjs's NIGHT_PLAN, one new defense a
     // night since v1.4.
     const PLAN: Record<number, CountermeasureId[]> = { 1: ['antiJam'], 2: ['encryptedBackhaul'], 3: ['linkAuth'], 4: ['pntAuth'], 5: ['sensorFusion'], 6: ['groundZeroTrust'] }
@@ -992,11 +999,11 @@ describe('the night sounds the moment it is showing', () => {
     }
 
     it('sounds each moment as the registry says and shows its treatment, and hears every row the night plays', async () => {
-      await playOperation(4, PLAN, 'take')
-      await playOperation(4, {}, 'ride')
-      // The same plan on seed 8 holds on the conjunction and loses the
+      await playOperation(5, PLAN, 'take')
+      await playOperation(5, {}, 'ride')
+      // The same plan on seed 27 holds on the conjunction and loses the
       // satellite, so the debris result's other voice is heard too.
-      await playOperation(8, PLAN, 'take')
+      await playOperation(27, PLAN, 'take')
       expect(endings, 'the operations did not end as their seeds do (won, lost, won)').toEqual(['won', 'lost', 'won'])
       expect(metersHeard, 'no readout ticked, so the filter that sets them aside proves nothing').toBeGreaterThan(0)
       expect(shields, 'no block landed on a tile, so the shield went unchecked').toBeGreaterThan(0)
