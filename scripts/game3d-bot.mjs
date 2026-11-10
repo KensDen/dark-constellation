@@ -211,7 +211,7 @@ async function run(b, base, view, plan, log, shots, table) {
   // What the device already has: nothing for a first visit; otherwise the
   // briefing seen, the guide done, and the difficulty set.
   await b.evaluate(`(() => {
-    ${plan.fresh ? '' : `localStorage.setItem('dc-intro-seen', '1'); localStorage.setItem('dc-3d-prefs', JSON.stringify({ guideSeen: true, assist: ${!!plan.assist} }));`}
+    ${plan.fresh ? '' : `localStorage.setItem('dc-intro-seen', '1'); localStorage.setItem('dc-3d-prefs', JSON.stringify({ guideSeen: true, assist: ${!!plan.assist}, lowPower: ${!!plan.lowPower} }));`}
     ${plan.difficulty ? `localStorage.setItem('dc-difficulty', '${plan.difficulty}');` : ''}
     return true
   })()`)
@@ -246,8 +246,34 @@ async function run(b, base, view, plan, log, shots, table) {
   const stats = { scans: 0, lens: 0, placed: 0, dragged: 0, rerouted: 0, isolated: 0, shielded: 0, tapped: 0, perfect: 0, good: 0, rode: 0, burned: 0, held: 0 }
   let fpsLogged = false
 
+  let reloaded = false
   // ---------------------------------------------------------- one night
   const planNight = async (night) => {
+    if (plan.continueAt === night) {
+      // THE AUTOSAVE: leave for the title mid-game, and CONTINUE.
+      await b.send('Page.navigate', { url: base })
+      if (!(await waitFor(b, 'document.querySelector("[data-continue]")', 8000))) {
+        // A game in progress resumes at once; the title offers it when asked for.
+        if (!(await waitFor(b, stageIs('plan'), 8000))) fail(`night ${night}: the autosave did not resume`)
+      } else {
+        await shot(`n${night}-title-continue`, 'the title with a game in progress: CONTINUE')
+        await click(b, '[data-continue]')
+      }
+      if (!(await waitFor(b, stageIs('plan'), 10000))) fail(`night ${night}: CONTINUE did not return to the plan`)
+      const turn = await b.evaluate(root('t3Turn'))
+      if (String(turn) !== String(night)) fail(`the autosave resumed on night ${turn}, not night ${night}`)
+      else log.push(`- night ${night}: left for the title and resumed from the autosave on night ${turn}`)
+      // And the save code, from SYSTEM.
+      await b.evaluate(`navigator.clipboard.writeText = async (t) => { window.__code = t }`)
+      await click(b, '[data-t3-menu]')
+      await waitFor(b, 'document.querySelector("[data-t3-sys=code]")')
+      await click(b, '[data-t3-sys="code"]')
+      await sleep(300)
+      const code = await b.evaluate('window.__code ?? ""')
+      if (!code.startsWith('DC1-')) fail('SYSTEM copied no save code')
+      else log.push(`- night ${night}: SYSTEM copied a save code of ${code.length} characters`)
+      await click(b, '[data-t3-room-back]')
+    }
     await sleep(quick ? 400 : 2100)
     if (await exists(b, '[data-t3-guide]')) await shot(`n${night}-guide`, 'the guide: one line, in the world, and a way to skip it')
     await shot(`n${night}-dusk`, 'before the night: unidentified signatures over the fleet, the stakes, the scan, the pieces')
@@ -300,7 +326,8 @@ async function run(b, base, view, plan, log, shots, table) {
       for (const c of want) {
         await click(b, `[data-t3-contact="${c.id}"]`)
         await sleep(quick ? 150 : 450)
-        const piece = await b.evaluate(`document.querySelector('[data-t3-order]:not(:disabled)[aria-pressed="false"]')?.dataset.t3Order ?? null`)
+        // A careful player leaves a piece that would put WORST CASE below 0.
+        const piece = await b.evaluate(`document.querySelector('[data-t3-order]:not(:disabled):not([data-risky])[aria-pressed="false"]')?.dataset.t3Order ?? null`)
         if (!piece) {
           await click(b, '[data-t3-close]')
           continue
@@ -321,6 +348,7 @@ async function run(b, base, view, plan, log, shots, table) {
         break
       }
     } else if (plan.place === 'random') {
+      // A beginner picks by name, risky or not: the game says so at BEGIN.
       const free = await b.evaluate(`[...document.querySelectorAll('[data-t3-piece][data-state="free"]')].map((e) => e.dataset.t3Piece)`)
       if (free.length && coin() < 0.85) {
         const piece = free[Math.floor(coin() * free.length)]
@@ -343,6 +371,26 @@ async function run(b, base, view, plan, log, shots, table) {
     await shot(`n${night}-orders`, 'the whole theater with tonight’s orders in')
     log.push(`- night ${night}: ${await b.evaluate(`(document.querySelector('[data-t3-order-line]')?.textContent ?? '').trim()`)}; ${await b.evaluate(`(document.querySelector('[data-t3-stakes]')?.textContent ?? '').replace(/\\s+/g, ' ').trim()`)}`)
     if (!(await click(b, '[data-t3-begin]'))) fail(`night ${night}: no BEGIN THE NIGHT`)
+    await sleep(150)
+    if (await exists(b, '[data-t3-risk]')) {
+      // WORST CASE is below 0: the game asks again, and says what it risks.
+      await shot(`n${night}-at-risk`, 'BEGIN asked twice: tonight could break the budget, and the game says so first')
+      log.push(`- night ${night}: ${await b.evaluate(`document.querySelector('[data-t3-risk]').textContent`)}`)
+      // The beginner takes the order back and begins safe.
+      const mine = await b.evaluate(`document.querySelector('[data-t3-piece].is-ordered')?.dataset.t3Piece ?? null`)
+      if (mine) {
+        await click(b, `[data-t3-piece="${mine}"]`)
+        await sleep(200)
+        await click(b, '[data-t3-remove]')
+        await sleep(200)
+        await click(b, '[data-t3-close]')
+        stats.placed -= 1
+        log.push(`- night ${night}: took ${mine} back`)
+      }
+      await click(b, '[data-t3-begin]')
+      await sleep(150)
+      if (await exists(b, '[data-t3-risk]')) await click(b, '[data-t3-begin]')
+    }
   }
 
   const answer = async (night, i) => {
@@ -402,6 +450,16 @@ async function run(b, base, view, plan, log, shots, table) {
         await shot(`n${nightNo}-s${i + 1}-incoming`, 'the strike leaves COLDVEIL with its own look and sound')
       }
       await waitFor(b, `${stageIs('choose', i)} || ${stageIs('call', i)} || ${stageIs('land', i)} || ${stageIs('impact', i)} || ${stageIs('result', i)}`, 15000)
+      if (plan.reloadAt === nightNo && !reloaded && (await b.evaluate(`!!${stageIs('choose', i)}`))) {
+        // A RELOAD IN THE NIGHT: it lands on that night's dawn, the move
+        // in hand ridden out, never back before the night.
+        reloaded = true
+        await shot(`n${nightNo}-s${i + 1}-before-reload`, 'a strike held for its answer, and the page reloaded here')
+        await b.send('Page.reload')
+        if (!(await waitFor(b, stageIs('dawn'), 15000))) fail(`night ${nightNo}: a reload in the night did not land on its dawn`)
+        else log.push(`- night ${nightNo}: reloaded with a strike in hand; the game came back at that night's dawn`)
+        break
+      }
       if (await b.evaluate(`!!${stageIs('choose', i)}`)) await answer(nightNo, i)
       if (await b.evaluate(`!!${stageIs('call', i)}`)) {
         await sleep(quick ? 300 : 900)
@@ -537,7 +595,17 @@ async function run(b, base, view, plan, log, shots, table) {
     await shot('system', 'SYSTEM: Assist, Reduce motion, Low power, sound, and what finished games have earned')
     await click(b, '[data-t3-room-back]')
   }
-  // A reload on the debrief lands on the title: a finished game is not resumed.
+  if (plan.again) {
+    // PLAY AGAIN: a new operation in the same world, from night 1.
+    await click(b, '[data-t3-again]')
+    if (!(await waitFor(b, stageIs('plan'), 8000)) || String(await b.evaluate(root('t3Turn'))) !== '1') fail('PLAY AGAIN did not open night 1 of a new operation')
+    else {
+      await sleep(quick ? 400 : 2200)
+      await shot('play-again', 'PLAY AGAIN: a new operation, the fleet as it starts, the world kept')
+      const assets = await b.evaluate(`document.querySelectorAll('[data-t3-asset]').length`)
+      if (assets !== 6) fail(`PLAY AGAIN opened with ${assets} assets, not the starting 6`)
+    }
+  }
   return failures
 }
 
@@ -626,10 +694,10 @@ const VIEWS = [
 const GAMES = [
   { name: 'a-first-time-easy', label: 'First-time EASY (hands on)', what: 'a first visit: the briefing in the world, the guide, then a careful game on EASY with every gesture made by hand', fresh: true, seed: 3, scan: 'lens', place: 'smart', hands: true, fleet: true, respond: 'best', timing: 'aim', debris: 'burn', system: true },
   { name: 'b-daily-op', label: 'Daily Op (STANDARD, hands on)', what: 'the Daily Op from the title, on STANDARD, played carefully by hand, and shared', daily: true, seed: 5, scan: 'tap', place: 'smart', hands: true, respond: 'best', timing: 'aim', debris: 'burn' },
-  { name: 'c-poor', label: 'Deliberately poor (STANDARD)', what: 'nothing scanned, nothing placed, every move ridden out, HOLD on the debris', difficulty: 'standard', seed: 20261110, scan: 'none', place: 'none', respond: 'ride', timing: 'none', debris: 'hold' },
-  { name: 'd-beginner', label: 'Beginner (EASY, taps only)', what: 'a beginner on EASY who only taps: scans the first signatures, places a piece that looks good, answers 2 moves in 3, taps the TAP button late or early', difficulty: 'easy', seed: 77, scan: 'second', place: 'random', respond: 'careless', timing: 'button', debris: 'coin' },
+  { name: 'c-poor', label: 'Deliberately poor (STANDARD)', what: 'nothing scanned, nothing placed, every move ridden out, HOLD on the debris', difficulty: 'standard', seed: 20261110, scan: 'none', place: 'none', respond: 'ride', timing: 'none', debris: 'hold', reloadAt: 2 },
+  { name: 'd-beginner', label: 'Beginner (EASY, taps only)', what: 'a beginner on EASY who only taps: scans the first signatures, places a piece that looks good, answers 2 moves in 3, taps the TAP button late or early', difficulty: 'easy', seed: 77, scan: 'second', place: 'random', respond: 'careless', timing: 'button', debris: 'coin', continueAt: 3, again: true },
 ]
-const EXTRA = [{ name: 'e-reduced-assist', label: 'Reduce Motion and Assist (EASY, taps only)', what: 'Reduce Motion with Assist: no camera travel, no timed tap, every action a plain activation', difficulty: 'easy', seed: 3, reduced: true, assist: true, scan: 'tap', place: 'smart', respond: 'best', timing: 'none', debris: 'burn', views: ['390x844'] }]
+const EXTRA = [{ name: 'e-reduced-assist', label: 'Reduce Motion and Assist (EASY, taps only)', what: 'Reduce Motion with Assist and low power: no camera travel, no timed tap, every action a plain activation', difficulty: 'easy', seed: 3, reduced: true, assist: true, lowPower: true, scan: 'tap', place: 'smart', respond: 'best', timing: 'none', debris: 'burn', views: ['390x844'] }]
 async function main() {
   const chrome = findChrome()
   if (!chrome) {

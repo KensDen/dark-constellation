@@ -150,6 +150,17 @@ export class World extends Theater {
   // The fleet as it stands. An asset in `arriving` flies in; the rest are
   // simply there (a game resumed from a save).
   syncAssets(list: readonly TheaterAsset[], arriving: ReadonlySet<string> = new Set()): void {
+    // An asset of an earlier game that this one does not hold leaves.
+    for (const [id, b] of this.bodies) {
+      if (list.some((a) => a.id === id)) continue
+      this.scene.remove(b.root, b.reticle)
+      if (b.link) this.scene.remove(b.link.mesh)
+      const e = this.extra.get(id)
+      for (const m of e?.modules ?? []) this.scene.remove(m)
+      if (e?.iso) this.scene.remove(e.iso)
+      this.extra.delete(id)
+      this.bodies.delete(id)
+    }
     const fresh = list.filter((a) => !this.bodies.has(a.id))
     this.setAssets(list)
     for (const a of fresh) {

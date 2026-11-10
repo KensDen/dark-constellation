@@ -152,16 +152,19 @@ export const responseCost = (effect: ResponseEffect, exposed: number): number =>
 // With Reduce Motion or Assist on, the presentation grants the good grade
 // with no tap (src/ui/three), which is why good is half of perfect.
 //
-// 8 AND 4 PERCENT, SET BY THE SWEEP (500 seeds a line, funding at 14).
-// At 25 and 12.5, a perfect tap on every move took Novice from 47 percent
-// of games to 82 on STANDARD: the reflex was worth more than the orders.
-// At 12 and 6 it took Prepared from 82 to 100. At 8 and 4: Novice 43
-// percent with no taps, 51 at the Assist rate and 56 with a perfect tap on
-// every move (median final score 68.8, 70.0 and 70.9); Prepared 82, 85 and
-// 95 (78.6, 79.5 and 80.8). About 1 point of score a game at the Assist
-// rate and 2 at perfect, which this close to the win line is still some
-// games in ten.
-export const TIMING_BONUS: Record<TimingGrade, number> = { 1: 0.04, 2: 0.08 }
+// 5 AND 2.5 PERCENT, SET BY THE SWEEP (500 seeds a line, funding at 14),
+// to Ken's bound of 10 November 2026: a perfect tap on every strike may
+// lift Novice's win rate by about 10 points at most. At 25 and 12.5 it
+// took Novice from 47 percent of games to 82 on STANDARD: the reflex was
+// worth more than the orders. At 12 and 6 it took Prepared from 82 to 100.
+// At 8 and 4, Novice 42.6 to 56.0 (13.4 points); at 6 and 3, to 54.0
+// (11.4). At 5 and 2.5: Novice 42.6 percent with no taps, 47.2 at the
+// Assist rate and 50.8 with a perfect tap on every move (8.2 points;
+// median final score 68.8, 69.6 and 70.1), and Prepared 81.8, 81.8 and
+// 87.2 (78.6, 79.1 and 79.5). Damage is whole numbers, so the steps are
+// coarse: 4 and 2 measures the same for Novice. tests/sweep.spec.ts holds
+// the bound and prints both rates.
+export const TIMING_BONUS: Record<TimingGrade, number> = { 1: 0.025, 2: 0.05 }
 export const timingShare = (grade: TimingGrade | 0 | null | undefined): number => 1 - (grade ? TIMING_BONUS[grade] : 0)
 export const timingRefund = (cost: number, grade: TimingGrade | 0 | null | undefined): number => (grade ? Math.round(cost * TIMING_BONUS[grade]) : 0)
 

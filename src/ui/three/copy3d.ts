@@ -117,6 +117,9 @@ export const upTo = (d: number) => (d < -0.05 ? `up to ${d.toFixed(1)}` : 'nothi
 export const WORST = 'WORST CASE'
 export const worstNote = (n: number) => (n < 0 ? 'A bad night would break the budget.' : 'The budget survives a bad night.')
 export const BEGIN = 'BEGIN THE NIGHT'
+export const BEGIN_AT_RISK = 'BEGIN AT RISK'
+export const RISKY = 'Risky: a bad night would break the budget'
+export const riskLine = (worst: number) => `WORST CASE ${worst} CR. If tonight goes as badly as it can, the budget breaks and the operation ends there. Take an order back, or tap again to begin.`
 export const orderLine = (defense: string | null, assets: number, scans: number) =>
   [defense ? `${defense} placed` : 'No defense placed', assets ? `${assets} asset${assets === 1 ? '' : 's'} ordered` : '', `${scans} scanned`].filter(Boolean).join(' · ')
 

@@ -146,6 +146,34 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     expect(reported.get('preparedRide:standard')!.wins).toBeLessThan(runs.get(key('prepared', 'standard'))!.wins)
   })
 
+  it('keeps the timed tap a bonus: a perfect tap on every strike lifts Novice by 10 points at most, and no tap ever costs a game (v2.0 R1)', () => {
+    // Ken's bound of 10 November 2026. The gated lines take no tap (the
+    // bands above are theirs); these are the same lines with the Assist
+    // rate, and with a perfect tap, on every move (tests/policies.ts).
+    const rate = (r: PolicyRun) => pct(r.wins, SEEDS)
+    const lines: string[] = []
+    for (const difficulty of ['standard', 'easy'] as const) {
+      const none = runs.get(key('novice', difficulty))!
+      const assist = reported.get(`noviceAssist:${difficulty}`)!
+      const perfect = reported.get(`novicePerfect:${difficulty}`)!
+      const prepared = runs.get(key('prepared', difficulty))!
+      const preparedPerfect = reported.get(`preparedPerfect:${difficulty}`)!
+      lines.push(
+        `| ${difficulty.toUpperCase()} | ${rate(none).toFixed(1)}% | ${rate(assist).toFixed(1)}% | ${rate(perfect).toFixed(1)}% | ${(rate(perfect) - rate(none)).toFixed(1)} | ${median(none.finalScores)} / ${median(assist.finalScores)} / ${median(perfect.finalScores)} | ${rate(prepared).toFixed(1)}% | ${rate(preparedPerfect).toFixed(1)}% | ${(rate(preparedPerfect) - rate(prepared)).toFixed(1)} |`,
+      )
+      expect(rate(perfect) - rate(none), `${difficulty}: a perfect tap on every strike lifts Novice by ${(rate(perfect) - rate(none)).toFixed(1)} points`).toBeLessThanOrEqual(10)
+      // A tap only ever takes damage off or pays credits back.
+      expect(perfect.wins, `${difficulty}: perfect taps cost Novice games`).toBeGreaterThanOrEqual(none.wins)
+      expect(assist.wins, `${difficulty}: the Assist rate cost Novice games`).toBeGreaterThanOrEqual(none.wins)
+      expect(perfect.wins, `${difficulty}: the Assist rate is worth more than a perfect tap`).toBeGreaterThanOrEqual(assist.wins)
+      expect(preparedPerfect.wins).toBeGreaterThanOrEqual(prepared.wins)
+    }
+    if (process.env.SWEEP)
+      process.stderr.write(
+        ['\nThe timed tap, win rates with and without it:', '| difficulty | Novice, no taps | Novice, Assist rate | Novice, perfect taps | lift at perfect, points | Novice median final score (none / Assist / perfect) | Prepared, no taps | Prepared, perfect taps | lift, points |', '|---|---|---|---|---|---|---|---|---|', ...lines, ''].join('\n') + '\n',
+      )
+  })
+
   it('holds Buy everything to no more wins than Prepared, on each difficulty (v1.5 R1)', () => {
     for (const difficulty of ['standard', 'easy'] as const) {
       const spend = runs.get(key('buyEverything', difficulty))!.wins

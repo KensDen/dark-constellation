@@ -53,8 +53,9 @@ export function Tray({ kit, fleetOrdered, selected, onPick, onFleet, startDrag }
             data-t3-piece={p.cm.id}
             data-state={p.blocked ?? (p.ordered ? 'ordered' : 'free')}
             aria-pressed={selected === p.cm.id}
-            aria-label={`${p.cm.name}. ${state}. ${does}.${p.blocked === 'budget' ? ' Not enough budget tonight.' : ''}`}
-            className={`t3-piece${p.ordered ? ' is-ordered' : ''}${p.blocked ? ` is-${p.blocked}` : ''}${hot && !p.blocked ? ' is-hot' : ''}${selected === p.cm.id ? ' is-on' : ''}`}
+            aria-label={`${p.cm.name}. ${state}. ${does}.${p.blocked === 'budget' ? ' Not enough budget tonight.' : ''}${p.risky && !p.ordered ? ` ${c3.RISKY}.` : ''}`}
+            data-risky={p.risky || undefined}
+            className={`t3-piece${p.ordered ? ' is-ordered' : ''}${p.blocked ? ` is-${p.blocked}` : ''}${hot && !p.blocked ? ' is-hot' : ''}${p.risky && !p.ordered ? ' is-risky' : ''}${selected === p.cm.id ? ' is-on' : ''}`}
             onPointerDown={p.blocked ? undefined : (e) => startDrag(e, p.cm.id, PIECE[p.cm.id])}
             onClick={() => onPick(p.cm.id)}
           >
@@ -82,6 +83,7 @@ export interface AnswerView {
   owned: boolean
   ordered: boolean
   blocked: 'owned' | 'budget' | null
+  risky: boolean
   // What COLDVEIL does once it is placed, when it moves.
   then: string
 }
@@ -158,12 +160,13 @@ export function ContactCard({
       </p>
       {answers.map((a) => {
         const lockedBy = !a.ordered && !a.owned && locked ? ` · ${c3.replaces(locked)}` : ''
-        const line = a.owned ? c3.OWNED : a.ordered ? `${c3.PLACED} · tap to take it back` : `${verbWord(a.verb)} it${a.then ? `, ${a.then}` : ', every night'}${lockedBy}`
+        const line = a.owned ? c3.OWNED : a.ordered ? `${c3.PLACED} · tap to take it back` : `${verbWord(a.verb)} it${a.then ? `, ${a.then}` : ', every night'}${lockedBy}${a.risky ? `. ${c3.RISKY}` : ''}`
         return (
           <button
             key={a.id}
             type="button"
             data-t3-order={a.id}
+            data-risky={a.risky || undefined}
             aria-pressed={a.ordered}
             disabled={a.owned || (a.blocked === 'budget' && !a.ordered)}
             aria-label={`${a.name}. ${a.cost} CR. ${line}.`}
@@ -174,7 +177,7 @@ export function ContactCard({
               <b>{PIECE[a.id]}</b>
               <span>{a.owned ? '' : `${a.cost} CR`}</span>
             </span>
-            <span className={`t3-choice-sub ${a.then ? 't3-warn' : 't3-ok'}`}>{a.blocked === 'budget' && !a.ordered ? 'Not enough budget tonight' : line}</span>
+            <span className={`t3-choice-sub ${a.then || a.risky ? 't3-warn' : 't3-ok'}`}>{a.blocked === 'budget' && !a.ordered ? 'Not enough budget tonight' : line}</span>
           </button>
         )
       })}
@@ -205,6 +208,7 @@ export function PieceCard({ piece, targets, locked, upkeep, onPlace, onRemove, o
           : c3.nothingKnown}
       </p>
       {piece.blocked === 'budget' && <p className="t3-note">Not enough budget tonight.</p>}
+      {piece.risky && !piece.ordered && <p className="t3-note">{c3.RISKY}.</p>}
       {piece.ordered ? (
         <button type="button" data-t3-remove className="t3-btn" onClick={onRemove}>
           {c3.TAKE_BACK}
@@ -277,7 +281,9 @@ export function FleetCard({ fleet, signs, onToggle, onClose }: { fleet: FleetPie
               <b>{kindLabels[f.kind]}</b>
               <span>{f.price} CR</span>
             </span>
-            <span className="t3-choice-sub t3-ok">{f.ordered ? `${c3.ORDERED} · ${signs[f.kind] ?? ''} ${c3.arrivesIn(f.eta)}` : f.fits ? `${c3.coverageOf(COVERAGE_PER_KIND[f.kind])} · ${c3.arrivesIn(f.eta)}` : 'Not enough budget tonight'}</span>
+            <span className={`t3-choice-sub ${f.risky ? 't3-warn' : 't3-ok'}`}>
+              {f.ordered ? `${c3.ORDERED} · ${signs[f.kind] ?? ''} ${c3.arrivesIn(f.eta)}` : f.fits ? `${c3.coverageOf(COVERAGE_PER_KIND[f.kind])} · ${c3.arrivesIn(f.eta)}${f.risky ? `. ${c3.RISKY}` : ''}` : 'Not enough budget tonight'}
+            </span>
           </button>
         ))}
       </div>

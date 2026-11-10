@@ -114,11 +114,15 @@ const saveStore = new LocalStorageStore()
 const scoreSink = new LocalScoreSink()
 const dailyLedger = new LocalDailyLedger()
 
+// A game opened from an address with a seed in it (?view=3d&seed=n) drops
+// the seed from the address once it is running, so a reload resumes the
+// game from its autosave and does not start the seed again; leaving for
+// the title leaves a plain address too.
 function dropViewParam(): void {
   try {
     const url = new URL(location.href)
-    if (!url.searchParams.has('view') && !url.searchParams.has('seed')) return
-    url.searchParams.delete('view')
+    if (url.searchParams.get('view') !== '3d' && !url.searchParams.has('seed')) return
+    if (url.searchParams.get('view') === '3d') url.searchParams.delete('view')
     url.searchParams.delete('seed')
     history.replaceState(null, '', url.pathname + (url.search || '') + url.hash)
   } catch {
@@ -180,6 +184,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const [drag, setDrag] = useState<Drag | null>(null)
   const [dwell, setDwell] = useState<string | null>(null)
   const [tapOpen, setTapOpen] = useState(false)
+  // BEGIN asked once more on a night whose WORST CASE is below 0.
+  const [atRisk, setAtRisk] = useState(false)
   const [guide, setGuide] = useState<GuideStep>(() => (mode === 'play' && !readPrefs().guideSeen && start.state.status === 'playing' && start.state.history.length === 0 ? 'scan' : null))
   // Whether this game's finish has been recorded. True from the start for
   // a game that arrived finished: it was not played here.
@@ -224,6 +230,17 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   wideRef.current = wide
   const dockAt = useRef({ y: 0, set: false })
   const frameNo = useRef(0)
+  // Each asset's signatures are tied to it by a line, so a block of them
+  // set aside from a crowded spot still reads as that asset's.
+  const ties = useRef(new Map<string, SVGLineElement>())
+  const chipAt = useRef(new Map<string, { dx: number; dy: number; w: number; h: number }>())
+  const tieRef = useCallback(
+    (key: string) => (el: SVGLineElement | null) => {
+      if (el) ties.current.set(key, el)
+      else ties.current.delete(key)
+    },
+    [],
+  )
 
   const tagRef = useCallback(
     (key: string) => (el: HTMLElement | null) => {
@@ -268,6 +285,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       const want = flip ? '1' : ''
       if (a.el.dataset.flip !== want) a.el.dataset.flip = want
     })
+    chipAt.current.clear()
     list.forEach((a, i) => {
       const chips = a.el.querySelector<HTMLElement>('.t3-contacts')
       if (!chips) return
@@ -289,21 +307,26 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         [-w - 8, down],
         [34, up + h / 2],
         [-34 - w, up + h / 2],
+        [-w / 2, up - 50],
+        [-w / 2, down + 50],
+        [70, -h / 2],
+        [-70 - w, -h / 2],
       ]
       const boxAt = ([dx, dy]: [number, number]): Box => [a.x + dx, a.y + dy, a.x + dx + w, a.y + dy + h]
       // The spot it has keeps it unless another is clearly better, so the
       // labels do not hop as the camera drifts.
       const held = Number(chips.dataset.spot ?? 0)
       let best = held
-      let bestCost = cost(boxAt(spots[held] ?? spots[0]), i, 2) - 260
+      let bestCost = cost(boxAt(spots[held] ?? spots[0]), i, 5) - 260
       spots.forEach((spot, k) => {
-        const c = cost(boxAt(spot), i, 2) + k * 4
+        const c = cost(boxAt(spot), i, 5) + k * 14
         if (c < bestCost) {
           best = k
           bestCost = c
         }
       })
       taken.push(boxAt(spots[best] ?? spots[0]))
+      chipAt.current.set(a.key, { dx: (spots[best] ?? spots[0])[0], dy: (spots[best] ?? spots[0])[1], w, h })
       if (chips.dataset.spot !== String(best) || chips.dataset.w !== String(w)) {
         chips.dataset.spot = String(best)
         chips.dataset.w = String(w)
@@ -326,6 +349,21 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             el.style.visibility = on ? 'visible' : 'hidden'
           }
           at.current.set(key, { x, y, on })
+          const tie = ties.current.get(key)
+          if (tie) {
+            const box = chipAt.current.get(key)
+            const ex = box ? Math.max(x + box.dx, Math.min(x + box.dx + box.w, x)) : x
+            const ey = box ? Math.max(y + box.dy, Math.min(y + box.dy + box.h, y)) : y
+            const far = Math.hypot(ex - x, ey - y)
+            if (!box || !on || far < 34) tie.style.opacity = '0'
+            else {
+              tie.setAttribute('x1', `${x + ((ex - x) / far) * 24}`)
+              tie.setAttribute('y1', `${y + ((ey - y) / far) * 24}`)
+              tie.setAttribute('x2', `${ex}`)
+              tie.setAttribute('y2', `${ey}`)
+              tie.style.opacity = '1'
+            }
+          }
           if (key === 'comet') {
             frameNo.current += 1
             if (frameNo.current % 5 === 0) layoutTags()
@@ -425,7 +463,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     )
     t.setSkin(unlocksFor(progress(), dossier().size).skins[pf.skin] ? pf.skin : 'standard')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game.assets.length, failed])
+  }, [game.assets.length, game.seed, failed])
 
   // What stands on the board the world shows: integrity, losses, the
   // conditions on links and assets, the streak's ring.
@@ -545,6 +583,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   useEffect(() => {
     if (mode !== 'play' || game.status !== 'playing' || phase !== 'plan') return
     saveStore.autosave(game, 'brief', daily)
+    dropViewParam()
   }, [mode, game, phase, daily])
 
   const fresh = game.status === 'playing' && game.history.length === 0
@@ -609,6 +648,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
 
   // --------------------------------------------------------------- orders
 
+  // An order changed: the risk is asked about afresh.
+  useEffect(() => setAtRisk(false), [orders])
+
   const float = (key: string, text: string, tone: Floater['tone']) => {
     const id = Date.now() + Math.random()
     setFloaters((f) => [...f, { id, key, text, tone }])
@@ -671,6 +713,15 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
 
   const begin = () => {
     if (!deciding) return
+    // A night that could break the budget is begun on a second tap, with
+    // what it risks said first: insolvency ends the operation.
+    if (stakes && stakes.worst < 0 && !atRisk) {
+      setAtRisk(true)
+      play('denied-buzz')
+      setSay(c3.riskLine(stakes.worst))
+      return
+    }
+    setAtRisk(false)
     markNight({ run, turn: game.turn, orders, inputs: NO_INPUTS })
     setSel(null)
     setNote('')
@@ -1170,7 +1221,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         const dodge = after.find((x) => x.slot === c.slot && x.id !== c.id && (x.favor === 'likely' || x.favor === 'either') && x.exposed > 0)
         if (self && self.favor === 'unlikely' && dodge) then = `then COLDVEIL switches to ${dodge.known ? shortName(dodge.def) : 'an unidentified move'}`
       }
-      return { id: a.cm.id, name: a.cm.name, cost: a.cm.cost, verb: a.verb, owned: a.owned, ordered: a.ordered, blocked: piece?.blocked ?? null, then }
+      return { id: a.cm.id, name: a.cm.name, cost: a.cm.cost, verb: a.verb, owned: a.owned, ordered: a.ordered, blocked: piece?.blocked ?? null, risky: !!piece?.risky && !a.ordered, then }
     })
 
   const assetTap = (id: string) => {
@@ -1210,6 +1261,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       <svg className="t3-leader" aria-hidden="true">
         <line ref={leaderRef} x1="0" y1="0" x2="0" y2="0" />
         <line ref={dragLine} className="t3-dragline" x1="0" y1="0" x2="0" y2="0" style={{ opacity: drag && (drag.kind === 'link' || drag.kind === 'burn') ? 1 : 0 }} />
+        {deciding && game.assets.filter((a) => contacts.some((c) => c.targetId === a.id)).map((a) => <line key={a.id} ref={tieRef(a.id)} className="t3-tie" x1="0" y1="0" x2="0" y2="0" />)}
       </svg>
 
       {/* The world's own labels: each asset is a button on the asset, and
@@ -1496,9 +1548,15 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
               startDrag={(e, id, label) => startDrag(e, 'piece', id, label)}
             />
             <div className="t3-go">
-              <p data-t3-order-line>{c3.orderLine(ownedName, orders.assets.length, orders.scans.length)}</p>
-              <button type="button" data-t3-begin className="t3-btn t3-primary" onClick={begin}>
-                {c3.BEGIN}
+              {atRisk && stakes && stakes.worst < 0 ? (
+                <p className="t3-riskline" role="alert" data-t3-risk>
+                  {c3.riskLine(stakes.worst)}
+                </p>
+              ) : (
+                <p data-t3-order-line>{c3.orderLine(ownedName, orders.assets.length, orders.scans.length)}</p>
+              )}
+              <button type="button" data-t3-begin data-t3-worst={stakes?.worst} className={`t3-btn t3-primary${atRisk && stakes && stakes.worst < 0 ? ' t3-risk' : ''}`} onClick={begin}>
+                {atRisk && stakes && stakes.worst < 0 ? c3.BEGIN_AT_RISK : c3.BEGIN}
               </button>
             </div>
           </>

@@ -18,6 +18,7 @@ import {
   ASSET_DAMAGE_PER_SEVERITY,
   DEPLOY_TURNS,
   METER_DAMAGE_PER_SEVERITY,
+  TIMING_BONUS,
   briefFree,
   chainBonusOf,
   countersAfter,
@@ -223,6 +224,9 @@ export interface KitPiece {
   // Why it cannot be placed tonight, when it cannot.
   blocked: 'owned' | 'budget' | null
   ordered: boolean
+  // Placing it tonight would leave WORST CASE below 0: a night that went
+  // as badly as it can would break the budget.
+  risky: boolean
   // The identified signatures tonight it answers, and what it does to each.
   answers: { contact: Contact; verb: Answer['verb'] }[]
   domain: AssetKind[]
@@ -238,7 +242,9 @@ export function kitFor(state: GameState, orders: Orders, contacts: readonly Cont
   const pieces = state.scenario.countermeasures.map((cm): KitPiece => {
     const owned = state.counters.includes(cm.id)
     const answers = contacts.filter((c) => c.known && c.def.counters.includes(cm.id)).map((c) => ({ contact: c, verb: stopVerb(cm.id, c.def) }))
-    return { cm, blocked: owned ? 'owned' : cm.cost > free ? 'budget' : null, ordered: orders.defense === cm.id, answers, domain: domainOf(state, cm.id) }
+    const blocked = owned ? ('owned' as const) : cm.cost > free ? ('budget' as const) : null
+    const risky = !blocked && worstCase(state, actionsOf({ ...orders, defense: cm.id })).value < 0
+    return { cm, blocked, ordered: orders.defense === cm.id, risky, answers, domain: domainOf(state, cm.id) }
   })
   // The pieces that answer what the scan has named come first, the ones
   // COLDVEIL favors before the rest; owned pieces go last.
@@ -252,13 +258,16 @@ export interface FleetPiece {
   eta: number
   ordered: boolean
   fits: boolean
+  risky: boolean
 }
 const FLEET_ORDER: AssetKind[] = ['drone', 'groundStation', 'sat', 'rpoSat']
 export function fleetFor(state: GameState, orders: Orders): FleetPiece[] {
   return FLEET_ORDER.map((kind) => {
     const ordered = orders.assets.includes(kind)
     const price = state.scenario.prices[kind]
-    return { kind, price, eta: DEPLOY_TURNS[kind], ordered, fits: ordered || price <= remaining(state, orders) }
+    const fits = ordered || price <= remaining(state, orders)
+    const risky = fits && !ordered && worstCase(state, actionsOf({ ...orders, assets: [...orders.assets, kind] })).value < 0
+    return { kind, price, eta: DEPLOY_TURNS[kind], ordered, fits, risky }
   })
 }
 
@@ -359,7 +368,7 @@ export function tapLine(ev: ResolvedEvent): string {
   if (!ev.timing) return ''
   const word = ev.timing === 2 ? 'PERFECT' : 'GOOD'
   if (ev.refund) return `${word} · +${ev.refund} CR back`
-  if (ev.effectiveSeverity > 0) return `${word} · braced, ${ev.timing === 2 ? 8 : 4}% less damage`
+  if (ev.effectiveSeverity > 0) return `${word} · braced, ${TIMING_BONUS[ev.timing] * 100}% less damage`
   return word
 }
 

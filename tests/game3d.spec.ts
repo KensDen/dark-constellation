@@ -204,7 +204,7 @@ describe('the scan and the timed tap are engine inputs, with the rules’ limits
     }
     expect(hits).toBeGreaterThan(100)
     expect(refunds).toBeGreaterThan(20)
-    expect(TIMING_BONUS[2]).toBeLessThanOrEqual(0.1)
+    expect(TIMING_BONUS[2]).toBeLessThanOrEqual(0.05)
     expect(TIMING_BONUS[1]).toBe(TIMING_BONUS[2] / 2)
   })
 
@@ -261,6 +261,40 @@ describe('a game through the model is the engine’s game, and replays to itself
       expect(ghost[0].history.length).toBe(0)
       expect(coachRun(end).map((s) => s.history.length)).toEqual(ghost.map((s) => s.history.length))
     }
+  })
+})
+
+describe('the guard on the one way to lose by accident (v2.0 R1)', () => {
+  it('marks as risky exactly the pieces and assets that would put WORST CASE below 0', () => {
+    let risky = 0
+    let safe = 0
+    for (const seed of SEEDS.slice(0, 20)) {
+      // Deep in a game that has spent freely, so some orders are risky.
+      let state = fresh(seed)
+      for (let turn = 1; turn <= 4 && state.status === 'playing'; turn += 1) {
+        const piece = kitFor(state, NO_ORDERS, contactsFor(state, NO_ORDERS)).find((p) => !p.blocked)
+        try {
+          state = resolveTurn(state, actionsOf({ ...NO_ORDERS, defense: piece?.cm.id ?? null, assets: turn === 1 ? ['sat'] : [] }), turnRng(state.seed, state.turn))
+        } catch {
+          break
+        }
+      }
+      if (state.status !== 'playing') continue
+      const contacts = contactsFor(state, NO_ORDERS)
+      for (const p of kitFor(state, NO_ORDERS, contacts)) {
+        if (p.blocked) {
+          expect(p.risky, `${p.cm.id} is blocked and risky at once`).toBe(false)
+          continue
+        }
+        const worst = stakesFor(state, { ...NO_ORDERS, defense: p.cm.id }, contacts, 0).worst
+        expect(p.risky, `seed ${seed} turn ${state.turn}: ${p.cm.id} at WORST CASE ${worst}`).toBe(worst < 0)
+        if (p.risky) risky += 1
+        else safe += 1
+      }
+    }
+    // Not vacuous either way.
+    expect(risky).toBeGreaterThan(5)
+    expect(safe).toBeGreaterThan(5)
   })
 })
 
