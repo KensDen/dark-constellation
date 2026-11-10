@@ -84,17 +84,25 @@ const C = {
 
 const FOV = 40
 const TAN = Math.tan((FOV * Math.PI) / 360)
-const RING_R = 1.62
+const RING_R = 1.4
 const RING_TILT = 0.96
-const COLDVEIL_AT = new Vector3(-1.32, 2.42, -0.35)
+// COLDVEIL stands off the night side: above the theater on a tall screen,
+// out to its left on a wide one, so each shape of screen is filled.
+const COLDVEIL_AT = new Vector3(-1.12, 2.3, -0.3)
+const LAYOUT = {
+  tall: { foe: [-1.12, 2.3, -0.3], centre: [0, 0.56, 0], halfW: 1.66, halfH: 1.98 },
+  wide: { foe: [-2.05, 1.62, -0.3], centre: [-0.34, 0.42, 0], halfW: 2.12, halfH: 1.62 },
+}
 const SUN_DAY = new Vector3(0.74, 0.34, 0.58).normalize()
 const SUN_NIGHT = new Vector3(0.78, 0.16, -0.6).normalize()
-const AO = { lat: 0.42, lon: 0 }
+const AO = { lat: 0.4, lon: 0 }
 // The theater's bounds for the wide framing: its centre, and half its
 // width and height.
-const CENTRE = new Vector3(0, 0.72, 0)
-const HALF_W = 1.92
-const HALF_H = 1.95
+const CENTRE = new Vector3(0, 0.56, 0)
+let HALF_W = 1.66
+let HALF_H = 1.98
+// Where the score stands at dawn: under the globe, in the world.
+const SCORE_AT = new Vector3(0, -1.32, 0.2)
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k
@@ -113,17 +121,17 @@ function onRing(a: number, out = new Vector3()): Vector3 {
 // Where each asset keeps station, by kind, in the order the fleet lists
 // them. More than the starter fleet holds, so an extra tile has a place.
 const STATIONS: Record<TheaterKind, number[][]> = {
-  sat: [[2.5], [1.62], [0.2], [2.95]],
-  rpoSat: [[0.72], [3.3]],
+  sat: [[2.56], [1.62], [0.16], [3.0]],
+  rpoSat: [[0.66], [3.35]],
   drone: [
-    [0.6, -0.5],
-    [0.5, 0.52],
-    [0.1, -0.3],
-    [0.08, 0.4],
+    [0.7, -0.74],
+    [0.66, 0.74],
+    [-0.12, -0.5],
+    [-0.14, 0.52],
   ],
   groundStation: [
-    [0.3, 0.02],
-    [0.0, 0.55],
+    [0.14, 0.0],
+    [-0.3, 0.1],
   ],
 }
 
@@ -723,7 +731,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
       const model = a.kind === 'drone' ? buildDrone() : a.kind === 'groundStation' ? buildStation() : buildSat(a.kind === 'rpoSat')
       const root = new Group()
       root.add(model)
-      const reticle = new Mesh(new RingGeometry(0.9, 1, 56), new MeshBasicMaterial({ color: C.threat, transparent: true, opacity: 0, depthWrite: false, depthTest: false, side: DoubleSide }))
+      const reticle = new Mesh(new RingGeometry(0.94, 1, 64), new MeshBasicMaterial({ color: C.threat, transparent: true, opacity: 0, depthWrite: false, depthTest: false, side: DoubleSide }))
       reticle.visible = false
       this.scene.add(root, reticle)
       const radius = a.kind === 'drone' ? 0.17 : a.kind === 'groundStation' ? 0.15 : 0.24
@@ -964,10 +972,13 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     const aspect = this.w / this.h
     const clearH = Math.max(0.3, this.clearBottom - this.clearTop)
     const clearW = Math.max(0.4, this.clearRight)
-    this.want.dist = Math.max(HALF_W / (TAN * aspect * clearW), HALF_H / (TAN * clearH)) * 1.04
-    this.want.az = this.beat === 'dawn' ? 0.16 : 0
+    // At dawn the score stands under the globe, so the frame makes room.
+    const dawn = this.beat === 'dawn'
+    this.want.dist = Math.max(HALF_W / (TAN * aspect * clearW), (HALF_H + (dawn ? 0.42 : 0)) / (TAN * clearH)) * 1.04
+    this.want.az = dawn ? 0.14 : 0
     this.want.el = 0.3
     this.want.look.copy(CENTRE)
+    if (dawn) this.want.look.y -= 0.36
   }
 
   // Where the camera should be for what is happening: the whole theater,
@@ -978,16 +989,21 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     const b = this.focusId ? this.bodies.get(this.focusId) : undefined
     if (!b || this.reduced) return
     const wide = this.want.dist
+    const aspect = this.w / this.h
+    const clearH = Math.max(0.3, this.clearBottom - this.clearTop)
+    // Closer than the whole theater: a round patch of it about the tile,
+    // sized to what the chrome leaves clear.
+    const near = (r: number) => Math.min(wide, Math.max(r / (TAN * aspect * Math.max(0.4, this.clearRight)), r / (TAN * clearH)))
     if (this.comet) {
       // A strike: between the tile and where the strike comes from, close
       // enough to see the shield and far enough to see it coming.
-      this.want.look.copy(b.pos).lerp(COLDVEIL_AT, 0.3)
-      this.want.dist = wide * 0.62
+      this.want.look.copy(b.pos).lerp(COLDVEIL_AT, 0.2).lerp(CENTRE, 0.25)
+      this.want.dist = near(1.42)
       this.want.az = clamp(Math.atan2(b.pos.x, b.pos.z + 1.2) * 0.5, -0.5, 0.5) + 0.12
       this.want.el = 0.36
     } else {
-      this.want.look.copy(CENTRE).lerp(b.pos, 0.62)
-      this.want.dist = wide * 0.74
+      this.want.look.copy(CENTRE).lerp(b.pos, 0.5)
+      this.want.dist = near(1.5)
       this.want.az = clamp(Math.atan2(b.pos.x, b.pos.z + 1.6) * 0.45, -0.45, 0.45)
       this.want.el = 0.33
     }
@@ -1073,6 +1089,12 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     this.renderer.setPixelRatio(ratio)
     this.renderer.setSize(w, h, false)
     this.camera.aspect = w / h
+    const lay = w > h * 1.15 ? LAYOUT.wide : LAYOUT.tall
+    COLDVEIL_AT.fromArray(lay.foe)
+    CENTRE.fromArray(lay.centre)
+    HALF_W = lay.halfW
+    HALF_H = lay.halfH
+    this.coldveil.position.copy(COLDVEIL_AT)
     const px = (h * ratio) / (2 * TAN)
     this.globeUniforms.scale.value = px
     this.sparks.uniforms.scale.value = px
@@ -1128,9 +1150,9 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
         const a = time * 0.42 * calm + b.phase
         const lat = s[0] + Math.sin(a) * 0.035
         const lon = s[1] + Math.cos(a) * 0.05
-        onGlobe(lat, lon, 1.2, b.pos)
+        onGlobe(lat, lon, 1.15, b.pos)
         b.root.position.copy(b.pos)
-        onGlobe(s[0] + Math.sin(a + 0.3) * 0.035, s[1] + Math.cos(a + 0.3) * 0.05, 1.2, this.tmp)
+        onGlobe(s[0] + Math.sin(a + 0.3) * 0.035, s[1] + Math.cos(a + 0.3) * 0.05, 1.15, this.tmp)
         b.root.up.copy(b.pos).normalize()
         b.root.lookAt(this.tmp)
         b.model.rotation.z = 0.35
@@ -1221,9 +1243,9 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
         ret.position.copy(b.pos)
         ret.quaternion.copy(this.camera.quaternion)
         const pulse = this.reduced ? 1 : 1 + Math.sin(time * 4.2) * 0.07
-        ret.scale.setScalar(b.radius * 1.75 * pulse)
+        ret.scale.setScalar(b.radius * 1.32 * pulse)
         ret.rotation.z = time * 0.6
-        ;(ret.material as MeshBasicMaterial).opacity = b.targeted * 0.8
+        ;(ret.material as MeshBasicMaterial).opacity = b.targeted * 0.75
       }
       const sh = b.shield
       if (sh) {
@@ -1350,6 +1372,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
   private placeAll(): void {
     for (const b of this.bodies.values()) this.placeOne(b.id, b.pos)
     this.placeOne('coldveil', COLDVEIL_AT)
+    this.placeOne('score', SCORE_AT)
     if (this.comet) this.placeOne('comet', this.comet.ribbon.at(this.comet.u, this.tmp3))
     else this.place('comet', 0, 0, false)
   }

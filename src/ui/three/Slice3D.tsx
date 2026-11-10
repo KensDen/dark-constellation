@@ -16,10 +16,10 @@ import './slice3d.css'
 import { strikeIntensity, useMusicState, useSound } from '../../audio'
 import { THREAT_EVENT_COUNT } from '../../content'
 import { RESPONSE_TEXT } from '../../content/responseText'
-import { CONDITION_CUES, MOMENT_CUES, strikeSound } from '../../cues'
+import { CONDITION_CUES, EVENT_CUES, MOMENT_CUES, strikeSound } from '../../cues'
 import { planFor } from '../../engine/campaign'
 import { maiScore } from '../../engine/scoring'
-import type { CountermeasureId, Difficulty, GameState } from '../../engine/types'
+import type { CountermeasureId, Difficulty, GameState, ThreatEvent } from '../../engine/types'
 import { callSigns } from '../board/board'
 import { TONIGHT_REASON, shortName, stoppedByLine, stopVerb } from '../board/boardModel'
 import { useCountUp, usePageVisible, useReducedMotion } from '../cues/motion'
@@ -50,8 +50,15 @@ const SHORT: Record<CountermeasureId, string> = {
 // the experiment chunk; tests/bundle-budget.json records the same string).
 const EXPERIMENT = 'dc-3d-slice-experiment'
 
+// From this width the cards stand in a column beside the theater; under
+// it they are a sheet at the foot of the screen.
+const WIDE = 1000
+
 const VERDICT_WORD: Record<Verdict, string> = { blocked: 'BLOCKED', halved: 'HALVED', partial: 'PARTIAL', hit: 'HIT' }
 const dots = (n: number) => '●'.repeat(n)
+// A move's name on the world, where a chip has a tile's width: the deck's
+// own short label for it (src/cues.ts); the cards keep the full name.
+const chipName = (def: ThreatEvent) => EVENT_CUES[def.id]?.label ?? shortName(def)
 const tenth = (n: number) => Math.round(n * 10) / 10
 const signed = (n: number) => `${n > 0 ? '+' : ''}${n.toFixed(1)}`
 
@@ -109,7 +116,7 @@ export default function Slice3D({ onBack, difficulty = 'easy' }: { onBack: () =>
   const [note, setNote] = useState('')
   const [say, setSay] = useState('')
   const [failed, setFailed] = useState(false)
-  const [wide, setWide] = useState(() => typeof innerWidth === 'number' && innerWidth >= 900)
+  const [wide, setWide] = useState(() => typeof innerWidth === 'number' && innerWidth >= WIDE)
 
   const signs = useMemo(() => callSigns(game), [game])
   const aims = useMemo(() => aimsFor(game, defense), [game, defense])
@@ -164,26 +171,22 @@ export default function Slice3D({ onBack, difficulty = 'easy' }: { onBack: () =>
           const dock = dockRef.current
           const line = leaderRef.current
           if (!dock) return
-          const W = innerWidth
           const H = innerHeight
           if (wideRef.current) {
-            const dw = dock.offsetWidth
+            // The card keeps its column and rides level with the tile.
             const dh = dock.offsetHeight
-            const right = x < W * 0.56
-            const left = Math.max(20, Math.min(W - dw - 20, right ? x + 96 : x - 96 - dw))
-            const top = Math.max(76, Math.min(H - dh - 20, y - dh * 0.42))
+            const left = dock.offsetLeft
+            const top = Math.max(84, Math.min(H - dh - 24, y - dh * 0.4))
             const at = dockAt.current
-            const k = at.set ? 0.16 : 1
-            at.x += (left - at.x) * k
-            at.y += (top - at.y) * k
+            at.y += (top - at.y) * (at.set ? 0.14 : 1)
             at.set = true
-            dock.style.transform = `translate3d(${at.x.toFixed(1)}px, ${at.y.toFixed(1)}px, 0)`
+            dock.style.transform = `translate3d(0, ${at.y.toFixed(1)}px, 0)`
             if (line) {
-              line.setAttribute('x1', `${x + (right ? 30 : -30)}`)
+              line.setAttribute('x1', `${x + 34}`)
               line.setAttribute('y1', `${y}`)
-              line.setAttribute('x2', `${right ? at.x : at.x + dw}`)
-              line.setAttribute('y2', `${Math.max(at.y + 24, Math.min(at.y + dh - 24, y))}`)
-              line.style.opacity = on ? '1' : '0'
+              line.setAttribute('x2', `${left - 6}`)
+              line.setAttribute('y2', `${Math.max(at.y + 28, Math.min(at.y + dh - 28, y))}`)
+              line.style.opacity = on && left - x > 70 ? '1' : '0'
             }
           } else if (line) {
             const top = dock.getBoundingClientRect().top
@@ -204,7 +207,7 @@ export default function Slice3D({ onBack, difficulty = 'easy' }: { onBack: () =>
     t.onTapEmpty = () => setSelected(null)
     const size = () => {
       t.resize()
-      setWide(innerWidth >= 900)
+      setWide(innerWidth >= WIDE)
     }
     const ro = new ResizeObserver(size)
     ro.observe(canvas)
@@ -284,7 +287,9 @@ export default function Slice3D({ onBack, difficulty = 'easy' }: { onBack: () =>
     const tell = () => {
       const H = innerHeight || 1
       const clearTop = top.getBoundingClientRect().bottom / H
-      if (wide) theater.current?.setClear(clearTop, 0.97, 1)
+      // On a wide screen the cards keep a column on the right and the
+      // theater has the rest.
+      if (wide) theater.current?.setClear(clearTop, 0.97, 1 - (dock.offsetWidth + 72) / (innerWidth || 1))
       else theater.current?.setClear(clearTop, Math.max(0.42, Math.min(0.9, (H - dock.offsetHeight - 8) / H)), 1)
     }
     tell()
@@ -505,6 +510,7 @@ export default function Slice3D({ onBack, difficulty = 'easy' }: { onBack: () =>
   const score = useCountUp(hud.score, reduced, 700)
   const credits = useCountUp(hud.credits, reduced, 500)
   const boardState = phase === 'plan' ? game : shown
+  const dawnDelta = tenth(now.night.record.maiScore - maiScore(game))
   const threatCount = now.night.steps.filter((s) => s.kind === 'threat').length
   const phaseLine =
     phase === 'plan' ? 'BEFORE THE NIGHT' : phase === 'dawn' ? 'DAWN' : stage.at === 'fall' ? copy.MOVING : step?.kind === 'threat' ? `STRIKE ${now.night.steps.filter((s) => s.kind === 'threat' && s.index <= stage.i).length} OF ${threatCount}` : 'THE NIGHT'
@@ -536,10 +542,19 @@ export default function Slice3D({ onBack, difficulty = 'easy' }: { onBack: () =>
         <div ref={tagRef('coldveil')} className="t3-tag t3-tag-foe" aria-hidden="true">
           <span>COLDVEIL</span>
         </div>
+        <div ref={tagRef('score')} className="t3-tag t3-tag-score" aria-hidden="true">
+          {phase === 'dawn' && (
+            <p className="t3-worldscore" data-t3-final>
+              <span>MISSION ASSURANCE</span>
+              <b>{score.toFixed(1)}</b>
+              <i className={dawnDelta < -0.05 ? 't3-bad' : 't3-ok'}>{Math.abs(dawnDelta) < 0.05 ? 'held through the night' : `${signed(dawnDelta)} tonight`}</i>
+            </p>
+          )}
+        </div>
         <div ref={tagRef('comet')} className="t3-tag t3-tag-comet" aria-hidden="true">
           {phase === 'night' && step?.kind === 'threat' && (stage.at === 'launch' || stage.at === 'choose') && (
             <span>
-              {shortName(step.def)} {dots(step.ev.baseSeverity + step.ev.chainBonus)}
+              {chipName(step.def)} {dots(step.ev.baseSeverity + step.ev.chainBonus)}
             </span>
           )}
         </div>
@@ -554,6 +569,7 @@ export default function Slice3D({ onBack, difficulty = 'easy' }: { onBack: () =>
               <button
                 type="button"
                 data-t3-asset={a.id}
+                data-t3-kind={a.kind}
                 data-t3-sign={sign}
                 aria-label={label}
                 aria-pressed={selected === a.id}
@@ -568,7 +584,7 @@ export default function Slice3D({ onBack, difficulty = 'easy' }: { onBack: () =>
                   {phase !== 'dawn' &&
                     on.map((x) => (
                       <span key={x.index} className={`t3-chip ${x.exposed === 0 ? 't3-chip-held' : 't3-chip-foe'}`}>
-                        {shortName(x.def)} <i>{dots(x.strength)}</i>
+                        {chipName(x.def)} <i>{dots(x.strength)}</i>
                       </span>
                     ))}
                 </span>
@@ -636,16 +652,16 @@ export default function Slice3D({ onBack, difficulty = 'easy' }: { onBack: () =>
                   <button type="button" data-t3-move={a.def.id} className="t3-move" onClick={() => a.targetId && setSelected(a.targetId)}>
                     <span className={a.exposed === 0 ? 't3-held-dot' : 't3-foe-dot'} aria-hidden="true" />
                     <span>
-                      <b>{shortName(a.def)}</b> <i>{dots(a.strength)}</i>
+                      <b>{chipName(a.def)}</b> <i>{dots(a.strength)}</i>
                       <small>
-                        aimed at {signs.get(a.targetId ?? '') ?? 'the fleet'} · {a.exposed === 0 ? 'your shield stops it' : `strength ${a.exposed} gets through`}
+                        on {signs.get(a.targetId ?? '') ?? 'the fleet'} · {a.exposed === 0 ? 'your shield stops it' : `strength ${a.exposed} gets through`}
                       </small>
                     </span>
                   </button>
                 </li>
               ))}
             </ul>
-            {note ? <p className="t3-note">{note}</p> : <p className="t3-hint">Tap a target to see what is coming and order a defense. Drag to look around.</p>}
+            {note ? <p className="t3-note">{note}</p> : <p className="t3-hint">Tap a target to order a defense. Drag to look around.</p>}
           </div>
         )}
 
@@ -674,13 +690,18 @@ export default function Slice3D({ onBack, difficulty = 'easy' }: { onBack: () =>
                 <p className="t3-hook">{copy.HOOK[a.def.id] ?? a.def.name}.</p>
                 {a.answers.map(({ cm, verb, ordered }) => {
                   const locked = !ordered && defense !== null
+                  // What COLDVEIL does about it: the engine's own answer
+                  // for this track with this defense ordered.
+                  const then = aimsFor(game, cm.id)[a.index]
+                  const dodge = then && then.exposed > 0 ? then : null
+                  const does = dodge ? `${verb === 'stops' ? 'Stops' : 'Blunts'} it, then COLDVEIL switches to ${chipName(dodge.def)}` : verb === 'stops' ? 'Stops this track, every night' : 'Blunts it, every night'
                   return (
                     <button
                       key={cm.id}
                       type="button"
                       data-t3-order={cm.id}
                       aria-pressed={ordered}
-                      aria-label={`${cm.name}. ${cm.cost} CR. ${verb === 'stops' ? 'Stops' : 'Blunts'} ${shortName(a.def)}.${ordered ? ' Ordered. Tap to cancel.' : locked ? ' Replaces tonight’s order.' : ''}`}
+                      aria-label={`${cm.name}. ${cm.cost} CR. ${does}.${ordered ? ' Ordered. Tap to cancel.' : locked ? ' Replaces tonight’s order.' : ''}`}
                       className={`t3-choice t3-defense${ordered ? ' is-on' : ''}`}
                       onClick={() => order(cm.id)}
                     >
@@ -688,11 +709,10 @@ export default function Slice3D({ onBack, difficulty = 'easy' }: { onBack: () =>
                         <b>{SHORT[cm.id]}</b>
                         <span>{cm.cost} CR</span>
                       </span>
-                      <span className="t3-choice-sub t3-ok">{ordered ? 'ORDERED · shield up · tap to cancel' : `${verb === 'stops' ? 'Stops it' : 'Blunts it'}${locked ? ' · replaces tonight’s order' : ' · every night'}`}</span>
+                      <span className={`t3-choice-sub ${dodge ? 't3-warn' : 't3-ok'}`}>{ordered ? (dodge ? `ORDERED · COLDVEIL switched to ${chipName(dodge.def)} · tap to cancel` : 'ORDERED · shield up · tap to cancel') : `${does}${locked ? ' · replaces tonight’s order' : ''}`}</span>
                     </button>
                   )
                 })}
-                {a.alternatives.length > 0 && a.exposed > 0 && <p className="t3-alt">Stop this and COLDVEIL can switch to {a.alternatives.map((x) => shortName(x)).join(' or ')}.</p>}
               </div>
             ))}
             {note && <p className="t3-note">{note}</p>}
@@ -960,15 +980,11 @@ function DawnCard({ game, now, defense, first, onAgain, onBack }: { game: GameSt
   ].filter(Boolean)
   return (
     <div className="t3-card t3-dawn" key="dawn" data-t3-card="dawn">
-      <p className="t3-eyebrow t3-ok">DAWN · {stopped === threats.length ? 'A CLEAN NIGHT' : `${stopped} OF ${threats.length} STOPPED`}</p>
-      <div className="t3-scoreline" data-t3-final>
-        <span>{from.toFixed(1)}</span>
-        <svg viewBox="0 0 24 12" width="28" height="14" aria-hidden="true">
-          <path d="M1 6h20M16 1l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <b>{to.toFixed(1)}</b>
-        <i className={to - from < -0.05 ? 't3-bad' : 't3-ok'}>{Math.abs(to - from) < 0.05 ? 'held' : signed(tenth(to - from))}</i>
-      </div>
+      <p className={`t3-eyebrow ${stopped === threats.length ? 't3-ok' : 't3-warn'}`}>DAWN · {stopped === threats.length ? 'A CLEAN NIGHT' : `${stopped} OF ${threats.length} STOPPED`}</p>
+      <p className="t3-ledger" data-t3-scoreline>
+        Score {from.toFixed(1)} → {to.toFixed(1)}
+        <small>{Math.abs(to - from) < 0.05 ? 'Held through the night.' : `${signed(tenth(to - from))} tonight. The win line is ${game.scenario.winThreshold}.`}</small>
+      </p>
       <p className="t3-helped">
         {worst ? <span className="t3-warn">{copy.FIX_LABEL} </span> : null}
         {fix}

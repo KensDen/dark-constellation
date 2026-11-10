@@ -96,7 +96,8 @@ html.t3-on body {
   gap: 10px;
   padding: max(10px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) 8px max(12px, env(safe-area-inset-left, 0px));
   pointer-events: none;
-  background: linear-gradient(#04070d 0%, rgba(4, 7, 13, 0.6) 60%, rgba(4, 7, 13, 0));
+  background: linear-gradient(#04070d 0%, rgba(4, 7, 13, 0.92) 62%, rgba(4, 7, 13, 0));
+  padding-bottom: 18px;
 }
 .t3-top > * {
   pointer-events: auto;
@@ -113,21 +114,22 @@ html.t3-on body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
+/* A quieter face on the same 44 by 44 target. */
 .t3-round.t3-small {
-  width: 36px;
-  height: 36px;
-  /* The tap target stays 44 by 44 around the smaller face. */
-  margin: -4px;
-  border-width: 5px;
+  margin: -6px -6px 0 0;
   border-color: transparent;
-  background-clip: padding-box;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: var(--t3-dim);
 }
 .t3-where {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  font-size: 11px;
-  letter-spacing: 0.14em;
+  flex: 1 1 0;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
   color: var(--t3-dim);
   pointer-events: none;
 }
@@ -141,15 +143,16 @@ html.t3-on body {
   text-overflow: ellipsis;
 }
 .t3-meters {
-  margin-left: auto;
+  flex: none;
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 .t3-meter {
   display: grid;
   grid-template-columns: auto;
   justify-items: end;
-  padding: 6px 12px 7px;
+  padding: 6px 10px 7px;
+  white-space: nowrap;
   border-radius: 16px;
   border: 1px solid var(--t3-edge);
   background: var(--t3-glass);
@@ -227,7 +230,7 @@ html.t3-on body {
   text-shadow: 0 0 8px #04070d, 0 0 8px #04070d;
 }
 .t3-tag-comet span {
-  transform: translate(14px, -26px);
+  transform: translate(-50%, -42px);
   padding: 4px 9px;
   border-radius: 999px;
   letter-spacing: 0.04em;
@@ -256,7 +259,37 @@ html.t3-on body {
   box-shadow: inset 0 0 0 1.5px rgba(111, 227, 255, 0.85), 0 0 22px rgba(111, 227, 255, 0.35);
 }
 .t3-asset.is-aimed:not(.is-on):not(:disabled) {
-  animation: t3-ping 1.6s ease-out infinite;
+  animation: t3-ping 1.8s ease-out infinite;
+}
+.t3-tag-score {
+  z-index: 1;
+}
+.t3-worldscore {
+  position: absolute;
+  margin: 0;
+  transform: translate(-50%, -30%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  white-space: nowrap;
+  text-shadow: 0 0 14px #04070d, 0 0 14px #04070d;
+  animation: t3-pop 0.7s cubic-bezier(0.2, 1.4, 0.4, 1) 0.5s both;
+}
+.t3-worldscore span {
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  color: var(--t3-dim);
+}
+.t3-worldscore b {
+  font: 700 54px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.t3-worldscore i {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
 }
 .t3-sign {
   position: absolute;
@@ -268,9 +301,9 @@ html.t3-on body {
   align-items: center;
   gap: 3px;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   color: var(--t3-ink);
   text-shadow: 0 0 6px #04070d, 0 0 6px #04070d, 0 0 6px #04070d;
 }
@@ -304,6 +337,16 @@ html.t3-on body {
   flex-direction: column;
   align-items: center;
   gap: 3px;
+}
+/* The ground station is the lowest tile: its chips hang under its name,
+   clear of the drones above it. */
+.t3-asset[data-t3-kind='groundStation'] .t3-threats {
+  bottom: auto;
+  top: calc(100% + 16px);
+}
+/* A verdict rising off a tile has the tile to itself. */
+.t3-tag:has(.t3-float) .t3-threats {
+  opacity: 0;
 }
 .t3-chip {
   padding: 3px 8px;
@@ -384,19 +427,19 @@ html.t3-on body {
 .t3-dock > * {
   pointer-events: auto;
 }
+/* A wide screen: the cards keep a column on the right, level with the
+   tile they are about, and the theater has the rest. */
 .t3-wide .t3-dock {
-  left: 50%;
-  right: auto;
-  bottom: 24px;
-  width: 440px;
+  left: auto;
+  right: 36px;
+  top: 50%;
+  bottom: auto;
+  width: 412px;
   padding: 0;
-  transform: translateX(-50%);
+  transform: translateY(-50%);
 }
 .t3-wide .t3-dock.is-anchored {
-  left: 0;
   top: 0;
-  bottom: auto;
-  transform: none;
   will-change: transform;
 }
 .t3-card {
@@ -443,6 +486,9 @@ html.t3-on body {
 }
 .t3-eyebrow.t3-ok {
   color: var(--t3-go);
+}
+.t3-eyebrow.t3-warn {
+  color: var(--t3-warn);
 }
 .t3-lead {
   font-size: 16px;
@@ -503,8 +549,8 @@ html.t3-on body {
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 48px;
-  padding: 6px 12px;
+  min-height: 46px;
+  padding: 5px 12px;
   border: 1px solid var(--t3-edge);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.04);
@@ -609,8 +655,12 @@ html.t3-on body {
 .t3-choice.t3-block .t3-choice-sub {
   color: var(--t3-go);
 }
-.t3-choice.t3-halve .t3-choice-sub {
+.t3-choice.t3-halve .t3-choice-sub,
+.t3-choice .t3-choice-sub.t3-warn {
   color: var(--t3-warn);
+}
+.t3-choice .t3-choice-sub.t3-ok {
+  color: var(--t3-go);
 }
 .t3-choice.t3-ride .t3-choice-sub {
   color: #ff9a92;
@@ -814,7 +864,7 @@ html.t3-on body {
 }
 @keyframes t3-ping {
   0% {
-    box-shadow: 0 0 0 0 rgba(255, 90, 79, 0.55);
+    box-shadow: 0 0 0 0 rgba(255, 90, 79, 0.35);
   }
   100% {
     box-shadow: 0 0 0 16px rgba(255, 90, 79, 0);
@@ -844,7 +894,8 @@ html.t3-on body {
 .t3-root[data-reduced] .t3-card,
 .t3-root[data-reduced] .t3-note,
 .t3-root[data-reduced] .t3-chip,
-.t3-root[data-reduced] .t3-stamp {
+.t3-root[data-reduced] .t3-stamp,
+.t3-root[data-reduced] .t3-worldscore {
   animation: none;
 }
 .t3-root[data-reduced] .t3-asset.is-aimed {
