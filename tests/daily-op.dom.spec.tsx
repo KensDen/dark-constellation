@@ -38,6 +38,9 @@ import { startDailyOp } from '../src/ui/dailyOp'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
+import { FILED_BEAT_MS } from '../src/ui/night/cards'
+import { playNight } from '../src/engine/responses'
+import { sensible } from './policies'
 import { NO_OP } from './scripts'
 
 declare global {
@@ -93,8 +96,9 @@ beforeEach(() => {
   localStorage.setItem(INTRO_SEEN_KEY, '1')
   // Reduced motion keeps the debrief still, so what it shows is
   // there at once; the reveal has its own suite. It also skips the
-  // night's overlay and strikes, so its cards arrive at once.
+  // night's overlay, so its first stage arrives at once.
   setReducedMotion(true)
+  answer = 'ride'
   resetAudioEngineForTests()
   installFakeAudioContext()
   container = document.createElement('div')
@@ -151,32 +155,54 @@ const openSystem = () => click(container.querySelector('button[aria-label="Syste
 // One turn through the controls: tap EXECUTE, tap the night through to
 // END OF TURN, and move on with BEGIN TURN n+1, or DEBRIEF on the last.
 // Since v1.3 Round 0 EXECUTE is a plain button (a synthetic keydown does
-// not click one in jsdom, so it is clicked), and since R3 every card of
-// the night waits for its tap (brief 5.5): FILE IT on the intel card,
-// HOLD on the debris call, COLLECT INTEL CARD or CONTINUE, as a player
-// does. Each tap is settled, since the night and its cards are chunks of
-// their own. The control is there only while the turn is undecided, so
-// its absence is the end of the campaign.
+// not click one in jsdom, so it is clicked). Since v1.7 R1 the night is a
+// decision: a move that would land stops on THE RESPONSE until a button is
+// clicked (`answer` says which: ride every move out, or take the first
+// response the budget can meet, which is tests/policies.ts's `sensible`),
+// a move a defense stops is the block moment, ended here by its tap, and
+// FILE TO DOSSIER files at once and goes on by itself after its FILED
+// stamp's beat, which the fake clock is advanced past. HOLD on the debris
+// call, CONTINUE and BEGIN are as before. Each tap is settled, since the
+// night and its cards are chunks of their own. The control is there only
+// while the turn is undecided, so its absence is the end of the campaign.
 const executeControl = () => container.querySelector('button[data-execute]')
+let answer: 'ride' | 'take' = 'ride'
 async function tap(el: Element) {
   await act(async () => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
   })
   await act(async () => {})
+  // The FILED stamp stands for its beat, then the night goes on by itself.
+  if (container.querySelector('[data-filed-stamp]')) {
+    await act(async () => {
+      vi.advanceTimersByTime(FILED_BEAT_MS + 80)
+    })
+    expect(container.querySelector('[data-filed-stamp]'), 'the FILED stamp never let the night go on').toBeNull()
+  }
+}
+const responseCard = () => container.querySelector('[data-night-card="respond"] [data-responses]')
+const responseButton = () => {
+  const group = responseCard()
+  if (!group) return null
+  const fitting = answer === 'take' ? group.querySelector('button[data-response]:not([disabled]):not([data-response="ride"])') : null
+  return fitting ?? group.querySelector('button[data-response="ride"]')
 }
 const wayOn = () =>
-  container.querySelector('[data-file-it]') ??
+  responseButton() ??
+  container.querySelector('button[data-strike-tap]') ??
   container.querySelector('[data-call="hold"]') ??
   container.querySelector('[data-collect]') ??
   container.querySelector('[data-continue]') ??
   container.querySelector('[data-night-card="end"] button[data-begin]')
-async function playTurn(): Promise<boolean> {
+// `each` is called on every stage of the night before its tap.
+async function playTurn(each?: () => void): Promise<boolean> {
   const execute = executeControl()
   if (!execute) return false
   await tap(execute)
   for (let cards = 0; cards < 40; cards += 1) {
     const way = wayOn()
     expect(way, 'a card of the night has no way on').not.toBeNull()
+    each?.()
     const last = way!.hasAttribute('data-begin')
     await tap(way!)
     if (last) break
@@ -415,5 +441,100 @@ describe('GUARD R5 (c): a run belongs to the date it started', () => {
     const code = (container.querySelector('[data-outcome-save-code]') as HTMLTextAreaElement).value
     expect(decodeSaveCode(code).state.seed).toBe(dailySeed(new Date(2026, 8, 27, 12)))
     expect(container.querySelector('[data-countdown]')?.textContent).toBe('DAILY OP #2 IS OPEN NOW')
+  })
+})
+
+// THE RESPONSE AND THE OFFICIAL RESULT (v1.7 R1). EXECUTE commits the last
+// turn with every move ridden out, which on this date is a lost operation;
+// the player's answers on that night make it a won one. The Daily's result
+// is the one the player finished with, claimed once every choice is made,
+// never the ridden-out one claimed while a response is still on screen.
+describe('the Daily Op and the night\'s responses (v1.7 R1)', () => {
+  // The same Daily as the engine plays it: no orders, and each night's
+  // moves answered by `sensible` or ridden out.
+  const enginePlay = (respond: Parameters<typeof playNight>[2]): GameState => {
+    let state = startDailyOp(new Date()).state
+    while (state.status === 'playing') state = playNight(state, NO_OP, respond)
+    return state
+  }
+  const claims = () => vi.mocked(localStorage.setItem).mock.calls.filter(([key]) => key === 'dc-daily').length
+  const outcomeState = () => decodeSaveCode((container.querySelector('[data-outcome-save-code]') as HTMLTextAreaElement).value).state
+
+  it('claims nothing while a response is open on the last night, and claims the answered result once after it', async () => {
+    const answeredRun = enginePlay(sensible)
+    const ridden = enginePlay(() => null)
+    const lastTurn = answeredRun.history.length
+    const lastNight = answeredRun.history[lastTurn - 1]
+    // What makes this date a test of it: the last night's answer changes the
+    // result, so a claim made at EXECUTE would be seen to be the wrong one.
+    expect(lastNight.events.some((e) => e.response), 'no response is taken on the last night of this date').toBe(true)
+    expect(ridden.history[ridden.history.length - 1].maiScore).not.toBe(lastNight.maiScore)
+
+    vi.spyOn(localStorage, 'setItem')
+    answer = 'take'
+    loadPage()
+    click(dailyEntry()!)
+    let turn = 0
+    let askedOnLastNight = 0
+    let resultsOnLastNight = 0
+    for (; turn < 20; turn += 1) {
+      const played = await playTurn(() => {
+        if (turn + 1 !== lastTurn) return
+        if (responseCard()) {
+          askedOnLastNight += 1
+          expect(ledger(), 'the Daily was claimed while a response was still open on the last night').toEqual({})
+          expect(claims()).toBe(0)
+        } else if (askedOnLastNight === lastNight.events.filter((e) => e.room !== undefined).length) {
+          // Every choice of the last night is made: the result is in, before
+          // END OF TURN and before DEBRIEF is tapped.
+          resultsOnLastNight += 1
+          expect(ledger()['20260927'], 'the Daily was not claimed once the last response was answered').toBeDefined()
+        }
+      })
+      if (!played) break
+    }
+    await settle()
+    expect(turn, 'the board played another number of turns than the engine').toBe(lastTurn)
+    expect(askedOnLastNight, 'the last night never asked for a response').toBe(lastNight.events.filter((e) => e.room !== undefined).length)
+    expect(resultsOnLastNight, 'nothing was looked at after the last answer').toBeGreaterThan(0)
+
+    expect(container.querySelector('[data-debrief]'), 'the campaign never reached the debrief').not.toBeNull()
+    expect(claims(), 'the Daily result was not claimed exactly once').toBe(1)
+    const entry = ledger()['20260927'] as unknown as { outcome: string; mai: number; turns: number }
+    expect(entry.outcome).toBe(answeredRun.status)
+    expect(entry.mai).toBe(lastNight.maiScore)
+    expect(entry.turns).toBe(lastTurn)
+    expect(standing()).toBe('OFFICIAL')
+  })
+
+  it('ends the same Daily the same way twice: same orders and same responses, the engine\'s own result', async () => {
+    const expected = enginePlay(sensible)
+    answer = 'take'
+    loadPage()
+    click(dailyEntry()!)
+    await playToEnd()
+    const first = outcomeState()
+    const official = ledger()['20260927']
+    expect(first.status).toBe(expected.status)
+    expect(first.history).toEqual(JSON.parse(JSON.stringify(expected.history)))
+
+    // Again on the same date: the Dossier now holds every card, so the
+    // night shows other cards (CONTINUE, no FILE TO DOSSIER), and the
+    // engine's result may not move for it.
+    click(byText(/^BACK TO TITLE$/)!)
+    click(dailyEntry()!)
+    await playToEnd()
+    expect(outcomeState().history, 'the same Daily with the same answers ended another way').toEqual(first.history)
+    expect(standing()).toBe('PRACTICE')
+    expect(ledger()['20260927'], 'the replay replaced the official result').toEqual(official)
+
+    // And the answers are part of it: ridden out, this date ends otherwise.
+    answer = 'ride'
+    click(byText(/^BACK TO TITLE$/)!)
+    click(dailyEntry()!)
+    await playToEnd()
+    const ridden = enginePlay(() => null)
+    expect(outcomeState().history.at(-1)!.maiScore).toBe(ridden.history.at(-1)!.maiScore)
+    expect(outcomeState().history.at(-1)!.maiScore).not.toBe(first.history.at(-1)!.maiScore)
   })
 })

@@ -10,29 +10,36 @@
 // - the aftermath listed the turn's threats, landed or held, each with the
 //   same button. Opportunities had no entries.
 // v1.3 R3 (brief 5.5) retired the director's playback and the aftermath
-// card with it. From play, LEARN MORE is now on the night's intel card (a
-// threat met for the first time offers COLLECT INTEL CARD, and the card it
-// collects carries the button) and on the tile's intel card, under each
-// condition's REAL WORLD line. The guards follow it there: the button's
-// shape, that asking for the library does not move the night on, that
-// every threat met for the first time, landed or held, offers it and no
-// opportunity does, and the tile card's button per condition.
+// card with it, and LEARN MORE moved to the night's full-screen Dossier
+// card (a threat met for the first time was collected onto it). v1.7 R1
+// retired that card: every result in the night now carries the move's
+// Dossier row (NEW DOSSIER CARD on a first meeting, IN YOUR DOSSIER
+// after), closed, and the row's body holds the button. From play, then,
+// LEARN MORE is on the result's Dossier row and on the tile's intel card,
+// under each condition's REAL WORLD line. The guards follow it there: the
+// button's shape, that asking for the library neither moves the night on
+// nor files the card, that every threat met for the first time, landed or
+// held, offers it and no opportunity does, and the tile card's button per
+// condition.
 // The library itself is Game's (tests/field-library.dom.spec.tsx opens it
 // for real over the night); here the provider is a stub, so what the
 // button asks for and when is what is measured.
 
-import { act } from 'react'
+import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
-import type { GameState } from '../src/engine/types'
+import { answered } from '../src/engine/responses'
+import type { GameState, TurnActions } from '../src/engine/types'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import IntelCard from '../src/ui/board/IntelCard'
 import { callIndex, shortName } from '../src/ui/board/boardModel'
 import { LearnMore } from '../src/ui/learnMore'
+import { BLOCK_MS } from '../src/ui/board/strike'
+import { FILED_BEAT_MS } from '../src/ui/night/cards'
 import Night, { type BoardView } from '../src/ui/night/Night'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 import { LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
@@ -70,9 +77,12 @@ beforeAll(async () => {
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  // The night's own clocks (the block moment and the FILED stamp, v1.7
+  // R1) run on the fake one, so a test says when they pass.
+  vi.useFakeTimers()
   vi.stubGlobal('localStorage', memoryStorage())
-  // Reduced motion: the night's cards arrive at once, with no overlay and
-  // no strike to wait out.
+  // Reduced motion: the night's cards arrive at once, with no overlay to
+  // wait out.
   vi.stubGlobal('matchMedia', (query: string) => ({
     matches: query.includes('reduce'),
     media: query,
@@ -95,27 +105,32 @@ afterEach(() => {
   container.remove()
   resetAudioEngineForTests()
   removeFakeAudioContext()
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
 const kindOf = (id: string) => DEFAULT_SCENARIO.events.find((e) => e.id === id)?.kind ?? 'threat'
 const q = (sel: string) => container.querySelector(sel)
 const buttons = () => [...container.querySelectorAll<HTMLButtonElement>('button[data-learn-more]')]
-// Where the night is: the intel card by its threat, a card by its label,
+// Where the night is: a card by its label, the block moment by its move,
 // or done.
-const nightAt = () => q('[data-intel-file]')?.getAttribute('data-intel-file') ?? q('[data-night-card]')?.getAttribute('aria-label') ?? 'done'
+const nightAt = () => q('[data-night-card]')?.getAttribute('aria-label') ?? q('[data-block-moment] [data-strike-name]')?.textContent ?? 'done'
+// The result on screen and the threat its Dossier row is for.
+const resultCard = () => q('section[data-night-card="hit"]')
+const rowId = () => resultCard()?.querySelector('details[data-dossier-row]')?.getAttribute('data-dossier-row') ?? null
 
 // A turn of real play whose shape a test needs. The mixed line since v1.4:
 // with one new defense a night the prepared script's nights are held
 // outright or hit on every slot, and the mixed line's turn 3 blocks one
 // move and lets the other through.
-function find<T>(pick: (before: GameState, after: GameState) => T | undefined): T {
+function find<T>(pick: (before: GameState, after: GameState, orders: TurnActions) => T | undefined): T {
   for (const script of [WIN_SCRIPT, MIXED_SCRIPT, LOSS_SCRIPT]) {
     for (const seed of [20260712, 4041, ...Array.from({ length: 200 }, (_, i) => i + 1)]) {
       let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
       while (state.status === 'playing') {
-        const after = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
-        const found = pick(state, after)
+        const orders = script[state.turn] ?? NO_OP
+        const after = resolveTurn(state, orders, turnRng(state.seed, state.turn))
+        const found = pick(state, after, orders)
         if (found) return found
         state = after
       }
@@ -141,30 +156,72 @@ const press = (key: string) =>
 
 // The night itself (src/ui/night/Night.tsx), as Game mounts it after
 // EXECUTE, inside the stub provider. A night with no debris call, so the
-// engine's resolution is the night's.
+// engine's resolution is the night's. Since v1.7 R1 the night asks for a
+// response to each move that would land and Game resolves the turn again
+// with each answer (src/ui/Game.tsx, onRespond); this stands in for Game
+// the same way, through the engine's own resolver.
 const onBoard = (_: BoardView) => {}
-async function renderNight(turn: { before: GameState; after: GameState }, open: (id: string, from: HTMLElement) => void) {
+interface Turn {
+  before: GameState
+  after: GameState
+  orders: TurnActions
+}
+function NightUnderTest({ turn }: { turn: Turn }) {
+  const [responses, setResponses] = useState<(string | null)[]>([])
+  const resolve = (r: readonly (string | null)[]) => resolveTurn(turn.before, { ...turn.orders, responses: [...r] }, turnRng(turn.before.seed, turn.before.turn))
+  return (
+    <Night
+      before={turn.before}
+      hold={resolve(responses)}
+      burn={null}
+      choice={null}
+      responses={responses}
+      preview={(i, id) => resolve(answered(responses, i, id))}
+      onRespond={(i, id) => setResponses((r) => (r[i] === undefined ? answered(r, i, id) : r))}
+      onCall={() => {}}
+      onBoard={onBoard}
+      onDone={() => {}}
+    />
+  )
+}
+async function renderNight(turn: Turn, open: (id: string, from: HTMLElement) => void) {
   await act(async () => {
     root.render(
       <LearnMore.Provider value={open}>
-        <Night before={turn.before} hold={turn.after} burn={null} choice={null} onCall={() => {}} onBoard={onBoard} onDone={() => {}} />
+        <NightUnderTest turn={turn} />
       </LearnMore.Provider>,
     )
   })
   await act(async () => {})
 }
-// On through the night to the next Dossier card: CONTINUE, FILE TO DOSSIER,
-// and CONTINUE on any Dossier card before it.
-async function toIntelCard() {
-  for (let guard = 0; guard < 20 && !q('[data-intel-file]'); guard += 1) await tap(q('[data-collect]') ?? q('[data-continue]'))
-  expect(q('[data-intel-file]'), 'the night never reached an intel card').not.toBeNull()
+const pass = async (ms: number) => {
+  await act(async () => void vi.advanceTimersByTime(ms))
+  await act(async () => {})
+}
+// One step on through the night (v1.7 R1): a move that would land is
+// ridden out, the block moment is left to its own clock, FILE TO DOSSIER
+// is tapped and its FILED stamp waited out, CONTINUE is tapped.
+async function onward() {
+  const ride = q('button[data-response="ride"]')
+  if (ride) return tap(ride)
+  if (q('[data-block-moment]')) return pass(BLOCK_MS + 1)
+  const file = q('[data-collect]')
+  if (!file) return tap(q('[data-continue]'))
+  await tap(file)
+  await pass(FILED_BEAT_MS + 1)
+}
+// On through the night to the next result card of a threat met for the
+// first time: the one that offers FILE TO DOSSIER.
+async function toFirstMeeting() {
+  for (let guard = 0; guard < 20 && !(resultCard() && q('[data-collect]')); guard += 1) await onward()
+  expect(resultCard() && q('[data-collect]'), 'the night never reached the result of a first meeting').not.toBeNull()
 }
 
-describe("LEARN MORE on the night's intel card (critique row M7)", () => {
+describe("LEARN MORE on the night's Dossier row (critique row M7; the intel card until v1.7 R1)", () => {
   // A night with a threat that landed, one that was held, and an
   // opportunity, so every branch is on screen; and no debris call, so the
   // resolution EXECUTE gives is the night's.
-  const turn = find((before, after) => {
+  const turn = find((before, after, orders) => {
     if (callIndex(after) >= 0) return undefined
     const events = after.history.at(-1)!.events
     const threats = events.filter((ev) => kindOf(ev.eventId) === 'threat')
@@ -172,16 +229,22 @@ describe("LEARN MORE on the night's intel card (critique row M7)", () => {
       threats.some((ev) => ev.effectiveSeverity > 0) &&
       threats.some((ev) => ev.effectiveSeverity === 0) &&
       events.some((ev) => kindOf(ev.eventId) === 'opportunity')
-    return shape ? { before, after, threats } : undefined
+    return shape ? { before, after, orders, threats } : undefined
   })
 
   it('is a full-width 44px button in the go colour, keeping its words for a screen reader', async () => {
     await renderNight(turn, () => {})
-    await toIntelCard()
+    await toFirstMeeting()
     const [button] = buttons()
-    expect(button, 'the intel card has no LEARN MORE').toBeDefined()
-    const id = q('[data-intel-file]')!.getAttribute('data-intel-file')!
-    const def = DEFAULT_SCENARIO.events.find((e) => e.id === id)!
+    expect(button, 'the result has no LEARN MORE').toBeDefined()
+    const def = DEFAULT_SCENARIO.events.find((e) => e.id === rowId())!
+    // One tap from the card: in the body of the move's own Dossier row,
+    // which arrives closed and says the card is new.
+    const row = button.closest('details') as HTMLDetailsElement
+    expect(row.getAttribute('data-dossier-row')).toBe(def.id)
+    expect(row.open, 'the dossier row arrived open').toBe(false)
+    expect(row.hasAttribute('data-fresh'), 'a first meeting does not say NEW DOSSIER CARD').toBe(true)
+    expect(resultCard()!.querySelector('[data-move-name]')!.textContent).toBe(shortName(def))
     expect(button.getAttribute('data-learn-more')).toBe(def.id)
     expect(button.getAttribute('aria-haspopup')).toBe('dialog')
     expect(button.textContent).toBe(`LEARN MORE in the Field Library: ${shortName(def)}`)
@@ -192,7 +255,7 @@ describe("LEARN MORE on the night's intel card (critique row M7)", () => {
     expect(button.className, 'still the old underlined link').not.toMatch(/underline|text-\[10px\]/)
   })
 
-  it('asks for the library without moving the night on, and the Dossier card waits for its CONTINUE', async () => {
+  it('asks for the library without moving the night on or filing the card, which waits for FILE TO DOSSIER', async () => {
     // This case proved PAUSE ON INTENT, then that the tap and a key meant
     // for the library left the playback's card alone. What it was for still
     // stands in the night: the card the player asked about is the card on
@@ -206,54 +269,72 @@ describe("LEARN MORE on the night's intel card (critique row M7)", () => {
       asked.push(id)
       from.push(el)
     })
-    await toIntelCard()
+    await toFirstMeeting()
     const held = nightAt()
+    const id = rowId()!
+    const filed = () => JSON.parse(localStorage.getItem('dc-dossier') ?? '[]') as string[]
     const [button] = buttons()
     await tap(button)
-    expect(asked, 'LEARN MORE did not ask for the library about this card').toEqual([held])
+    expect(asked, 'LEARN MORE did not ask for the library about this card').toEqual([id])
     expect(from, 'LEARN MORE did not say which link asked, so focus could not come back to it').toEqual([button])
     expect(nightAt(), 'the tap on LEARN MORE moved the night on').toBe(held)
-    // FILE TO DOSSIER filed it as the card arrived (v1.6 R3, Ken's playtest
-    // item 4).
-    expect(JSON.parse(localStorage.getItem('dc-dossier') ?? '[]'), 'the card was not filed at FILE TO DOSSIER').toContain(held)
+    // Reading about a threat is not filing it (v1.7 R1: the button is on
+    // the result now, above FILE TO DOSSIER, where until then it was on
+    // the card that arrived already filed).
+    expect(filed(), 'LEARN MORE filed the card').not.toContain(id)
+    expect(q('[data-collect]'), 'LEARN MORE took FILE TO DOSSIER away').not.toBeNull()
     // The library's keys are its own.
     press(' ')
     press('Escape')
     press('Enter')
     expect(nightAt(), 'a key meant for the library moved the night on behind it').toBe(held)
-    // The positive control: CONTINUE moves the night on.
-    await tap(q('[data-file-it]'))
-    expect(nightAt(), 'CONTINUE did not move the night on').not.toBe(held)
+    expect(filed()).not.toContain(id)
+    // And however long the player reads, the card is still there.
+    await pass(60_000)
+    expect(nightAt(), 'the night moved on while the player read').toBe(held)
+    // The positive control: FILE TO DOSSIER files it at the tap, stamps
+    // it, and the night goes on by itself a beat later.
+    await tap(q('[data-collect]'))
+    expect(filed(), 'the card was not filed at FILE TO DOSSIER').toContain(id)
+    expect(q('[data-filed-stamp]'), 'no FILED stamp').not.toBeNull()
+    expect(nightAt()).toBe(held)
+    await pass(FILED_BEAT_MS + 1)
+    expect(nightAt(), 'the night did not go on after the FILED stamp').not.toBe(held)
   })
 
   it('offers it for every threat met for the first time, landed or held, and for no opportunity', async () => {
     // The aftermath's list (one tap from the end of the turn, every threat,
     // landed or held, and no opportunity) has its place in the night: each
-    // threat met for the first time is collected onto an intel card with
-    // LEARN MORE. Walked to the end of the night, collecting every one.
+    // threat met for the first time has a result with its Dossier row, a
+    // held one after its block moment, and the row carries LEARN MORE.
+    // Walked to the end of the night, asking about and filing every one.
     const asked: string[] = []
     await renderNight(turn, (id) => asked.push(id))
     const offered: string[] = []
     let opportunities = 0
-    for (let guard = 0; guard < 30 && nightAt() !== 'done' && !q('[data-night-card="end"]'); guard += 1) {
+    let blocks = 0
+    for (let guard = 0; guard < 40 && nightAt() !== 'done' && !q('[data-night-card="end"]'); guard += 1) {
       if (q('[data-night-card="opportunity"]')) {
         opportunities += 1
         expect(buttons(), 'an opportunity card offers LEARN MORE').toEqual([])
       }
-      const intel = q('[data-intel-file]')
-      if (intel) {
+      // Neither the response card nor the block moment is the card: the
+      // button comes with the result.
+      if (q('[data-night-card="respond"]') || q('[data-block-moment]')) expect(buttons(), 'LEARN MORE before the result').toEqual([])
+      if (q('[data-block-moment]')) blocks += 1
+      if (resultCard()) {
         const [button] = buttons()
-        expect(button, `${intel.getAttribute('data-intel-file')}'s intel card has no LEARN MORE`).toBeDefined()
+        expect(button, `${rowId()}'s result has no LEARN MORE`).toBeDefined()
+        expect(button.getAttribute('data-learn-more')).toBe(rowId())
         offered.push(button.getAttribute('data-learn-more')!)
         // One tap from the card.
         await tap(button)
-        await tap(q('[data-file-it]'))
-        continue
       }
-      await tap(q('[data-collect]') ?? q('[data-continue]'))
+      await onward()
     }
     expect(q('[data-night-card="end"]'), 'the night never reached END OF TURN').not.toBeNull()
     expect(opportunities, 'no opportunity card was seen, so its branch is untested').toBeGreaterThan(0)
+    expect(blocks, 'no block moment was seen, so the held branch is untested').toBeGreaterThan(0)
     const threats = [...new Set(turn.threats.map((ev) => ev.eventId))]
     expect(offered.sort(), 'not every threat met, landed or held, offered LEARN MORE').toEqual([...threats].sort())
     expect(asked.sort()).toEqual([...threats].sort())

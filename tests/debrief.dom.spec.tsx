@@ -24,17 +24,20 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import Debrief from '../src/ui/Debrief'
 import { DEBRIEF_MOTION } from '../src/ui/debriefMotion'
-import { FILED_SHOWN, debriefStats, filedThisGame, lossLead, nextTime } from '../src/ui/debriefModel'
+import { FILED_SHOWN, debriefStats, decisions, filedThisGame, lossLead, nextTime, threatName } from '../src/ui/debriefModel'
 import { shareText } from '../src/ui/reportCard'
 import { HOOK } from '../src/ui/night/nightCopy'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { gradeOf, turnStrip } from '../src/engine/grade'
 import { newGame, resolveTurn } from '../src/engine/reducer'
+import { playNight, type Responder } from '../src/engine/responses'
+import { RESPONSE_TEXT } from '../src/content/responseText'
 import { turnRng } from '../src/engine/rng'
 import type { GameState, TurnActions } from '../src/engine/types'
 import { runKey, type DailyOp, type DailyStanding } from '../src/persistence'
 import { getAudioEngine, installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
+import { ride, sensible } from './policies'
 import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT } from './scripts'
 
 declare global {
@@ -122,18 +125,23 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function play(seed: number, script: Record<number, TurnActions>): GameState {
+// A whole campaign through the engine, each night's moves answered by
+// `respond` (v1.7 R1: a decision in the night); `ride` takes none, which
+// is the game as plain resolveTurn plays it.
+function play(seed: number, script: Record<number, TurnActions>, respond: Responder = ride): GameState {
   let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
-  while (state.status === 'playing') state = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+  while (state.status === 'playing') state = playNight(state, script[state.turn] ?? NO_OP, respond)
   return state
 }
-// A won campaign (S, 6 hits) and a lost one (D, 9 hits), both with a
-// mixed strip. The win is seed 6 since v1.4: the prepared script orders one
-// new defense a night, and on 20260712 it now wins at B.
-// Seed 16 since v1.6 R1, an S for the prepared script on the seed's
-// other order (seed 6 under v1.5's one order).
-const WON = () => play(16, WIN_SCRIPT)
-const LOST = () => play(20260712, LOSS_SCRIPT)
+// A won campaign (S) and a lost one (D), both with a mixed strip.
+// Since v1.7 R1 nobody wins with every move ridden out, so the win is the
+// prepared script answering in the night as tests/policies.ts's `sensible`
+// does, on seed 2, an S on the round's ladder (seed 16 ridden out, v1.6's
+// S, now loses). The loss is seed 16 with no orders and no answers, which
+// plays all six turns and ends under the line with a mixed strip (seed
+// 20260712, v1.6's, now collapses, an F with every turn the same colour).
+const WON = () => play(2, WIN_SCRIPT, sensible)
+const LOST = () => play(16, LOSS_SCRIPT)
 const TODAY: DailyOp = { dateKey: '20260927', n: 1 }
 
 // The threats a game met, in order.
@@ -206,6 +214,17 @@ function words(el: Element): string {
 }
 
 describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed cards', () => {
+  it('reads fixtures that are what their names say (v1.7 R1): a win at S, a loss at D, each with a mixed strip', () => {
+    // Every test below that shows WON() means a won debrief: v1.6's fixture
+    // went on passing most of them as a loss once riding every move out
+    // stopped winning.
+    expect([WON().status, gradeOf(WON())]).toEqual(['won', 'S'])
+    expect([LOST().status, LOST().lossReason, gradeOf(LOST())]).toEqual(['lost', 'belowThreshold', 'D'])
+    expect(new Set(turnStrip(WON())).size).toBeGreaterThan(1)
+    expect(new Set(turnStrip(LOST())).size).toBeGreaterThan(1)
+    expect(WON().history.flatMap((r) => r.events).some((e) => e.response), 'the win answered nothing in the night').toBe(true)
+  })
+
   it('shows the grade and the six stats, in the brief\'s order, from the engine', () => {
     setReducedMotion(true)
     for (const state of [WON(), LOST()]) {
@@ -289,6 +308,7 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
     const rec = lost.history.find((r) => r.turn === lead.turn)!
     const worst = rec.events.filter((e) => e.effectiveSeverity > 0).sort((a, b) => b.effectiveSeverity - a.effectiveSeverity)[0]
     if (worst) expect(lead.line).toContain(`, -${(Math.round((worst.scoreBefore - worst.scoreAfter) * 10) / 10).toFixed(1)} of it from one strike: `)
+    expect(WON().status, 'the win is not one, so its debrief leads with a drop').toBe('won')
     show(WON())
     expect(container.querySelector('[data-loss-lead]')).toBeNull()
   })
@@ -363,13 +383,32 @@ describe('GUARD R4 (b): the debrief shows the engine\'s grade, stats and filed c
 describe('NEXT TIME names an order of purchases and what it does to the game (v1.4; v1.5 R1)', () => {
   it('says the turn to order it on and the score the same game ends on, never "by turn" or "would have"', () => {
     let earlier = 0
+    let answers = 0
     for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
-      for (const state of [play(seed, WIN_SCRIPT), play(seed, LOSS_SCRIPT)]) {
+      // Ridden out and answered in the night (v1.7 R1): both are games a
+      // player ends with.
+      for (const state of [play(seed, WIN_SCRIPT), play(seed, LOSS_SCRIPT), play(seed, WIN_SCRIPT, sensible), play(seed, LOSS_SCRIPT, sensible)]) {
         const next = nextTime(state)
         if (!next || state.lossReason === 'insolvency') continue
         show(state)
         const text = container.querySelector('[data-next-time] p')!.textContent!
         expect(text, `seed ${seed}: "${text}"`).not.toMatch(/by turn|would have/)
+        // NEXT TIME may name a response instead (v1.7 R1): one move this
+        // game let through, answered in the night, every order the same.
+        expect(container.querySelector('[data-next-answer]') !== null, `seed ${seed}: the answer's line and the model disagree`).toBe(next.kind === 'answer')
+        if (next.kind === 'answer') {
+          answers += 1
+          const rec = state.history.find((r) => r.turn === next.turn)!
+          const ev = rec.events.find((e) => e.eventId === next.move)!
+          expect(ev.response, `seed ${seed}: NEXT TIME names a move this game did answer`).toBeUndefined()
+          expect(ev.effectiveSeverity, `seed ${seed}: NEXT TIME answers a move that did not land`).toBeGreaterThan(0)
+          const name = threatName(state, next.move)
+          expect(text, `seed ${seed}: "${text}"`).toContain(`On turn ${next.turn}, answer ${name} in the night: ${RESPONSE_TEXT[next.move][next.response]} (${next.cost} CR).`)
+          expect(text, `seed ${seed}: "${text}"`).toContain(`this game ends at ${next.final.toFixed(1)}, not ${next.was.toFixed(1)}`)
+          expect(next.was).toBe(state.history[state.history.length - 1].maiScore)
+          expect(next.final, `seed ${seed}: the answer named does not end the game higher`).toBeGreaterThan(next.was)
+          expect(text.endsWith(next.won ? (state.status !== 'won' ? ', and is won.' : '.') : ', still under the win line of 70.'), `seed ${seed}: "${text}"`).toBe(true)
+        }
         if (next.kind === 'earlier') {
           earlier += 1
           expect(text, `seed ${seed}: "${text}"`).toContain(`on turn ${next.orderOn}`)
@@ -384,6 +423,33 @@ describe('NEXT TIME names an order of purchases and what it does to the game (v1
       }
     }
     expect(earlier, 'no NEXT TIME named a better order').toBeGreaterThan(0)
+    expect(answers, 'no NEXT TIME named a response').toBeGreaterThan(0)
+  })
+
+  it('lists the moves answered in the night under their turn in DECISIONS, with what they took from the budget (v1.7 R1)', () => {
+    setReducedMotion(true)
+    const state = WON()
+    show(state)
+    act(() => void container.querySelector('[data-debrief-tab="decisions"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    const rows = [...container.querySelectorAll('[data-decision]')]
+    expect(rows.map((r) => Number(r.getAttribute('data-decision')))).toEqual(state.history.map((r) => r.turn))
+    let answeredRows = 0
+    for (const [i, rec] of state.history.entries()) {
+      const taken = rec.events.filter((e) => e.response)
+      const lines = [...rows[i].querySelectorAll('[data-decision-answer]')].map((l) => l.textContent)
+      expect(lines).toEqual(taken.map((e) => `answered ${threatName(state, e.eventId)}`))
+      answeredRows += lines.length
+      // The turn's figure is its orders and its responses together.
+      const spent = rec.ledger.ordered + taken.reduce((sum, e) => sum + e.response!.cost, 0)
+      expect(decisions(state)[i].spent).toBe(spent)
+      expect(rows[i].lastElementChild!.textContent).toBe(spent > 0 ? `${spent} CR` : '')
+    }
+    expect(answeredRows, 'the win answered nothing, so this lists nothing').toBeGreaterThan(0)
+    // A game that rode every move out lists none.
+    show(LOST())
+    act(() => void container.querySelector('[data-debrief-tab="decisions"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(container.querySelectorAll('[data-decision]').length).toBe(LOST().history.length)
+    expect(container.querySelector('[data-decision-answer]')).toBeNull()
   })
 
   it('leads an insolvent run with the budget, not a defense (v1.5 R1)', () => {
@@ -415,20 +481,11 @@ describe('GUARD R5 (a): a won debrief and a lost one differ in layout, not only 
   // Read with motion off, where a win must still read as a win, and by
   // structure alone: which blocks the first screen holds, in what order,
   // and which shapes they carry. No class and no colour is compared.
-  const C_WIN = () => {
-    // Seed 53 since v1.6 R1, where each seed plays its own order (seed 3
-    // under v1.5's one order now grades D); seed 3 since v1.4, one new
-    // defense a night, where seed 24's plan ordered three on turn 2.
-    let state = newGame(DEFAULT_SCENARIO, 53, 'standard')
-    const plan: Record<number, TurnActions> = {
-      2: { ...NO_OP, buyCounters: ['antiJam'] },
-      // Encrypted backhaul since the engine round of R6 (Decisions Q1), which
-      // took link authentication off the listening threats.
-      3: { ...NO_OP, buyCounters: ['encryptedBackhaul'] },
-    }
-    while (state.status === 'playing') state = resolveTurn(state, plan[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
-    return state
-  }
+  // Seed 3 since v1.7 R1: the prepared script answering in the night, a
+  // win that scraped the line (C is under 77.5 on the round's ladder).
+  // Until then a plan of two defenses with every move ridden out, seed 53,
+  // which no longer wins.
+  const C_WIN = () => play(3, WIN_SCRIPT, sensible)
   const blocks = () =>
     [...container.querySelector('[data-debrief-first]')!.children].map((el) =>
       ['data-debrief-eyebrow', 'data-hero', 'data-hero-lines', 'data-loss-lead', 'data-stats', 'data-filed-this-game'].find((a) => el.hasAttribute(a)) ?? el.tagName,

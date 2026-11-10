@@ -175,13 +175,21 @@ describe('the rest of the debrief reads the record too', () => {
     for (const g of GAMES) {
       const missed = g.learned.some((l) => l.how === 'missed')
       const next = nextTime(g)
+      // v1.7 R1: NEXT TIME may name a response instead, a move answered
+      // in the night with every order the same, when that ends the game
+      // higher than any defense ordered earlier (tests/debrief.dom.spec.tsx
+      // holds its sentence; tests/responses.spec.ts its rules).
       if (!missed) {
-        expect(next).toBeNull()
+        expect(next === null || next.kind === 'answer').toBe(true)
         continue
       }
       expect(next).not.toBeNull()
       if (next!.kind === 'none') {
         none += 1
+        continue
+      }
+      if (next!.kind === 'answer') {
+        expect(next!.final, 'NEXT TIME names an answer that ends no higher').toBeGreaterThan(next!.was)
         continue
       }
       earlier += 1

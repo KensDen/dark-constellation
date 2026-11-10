@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
 //
 // Hits land on the board, and the game starts teaching (v1.2 R3, brief
-// 4.5 and 4.8). Since v1.3 R3 (brief 5.5) the hit plays in the night's
-// strike, motion on, between COLDVEIL IS MOVING and the hit card, in place
-// of the retired director's beat. The round's DOM guards:
+// 4.5 and 4.8). Since v1.3 R3 (brief 5.5) the hit plays in the night,
+// motion on, in place of the retired director's beat. Since v1.7 R1 the
+// night stops on a move that would land (THE RESPONSE): the reticle locks
+// on its tile and waits there for the answer, and the hit lands, with its
+// strobe, burst, pip pop and float, as the answer is given, under the
+// result on the same screen. These tests ride every move out, so the night
+// they tap through is the one the engine's record of an empty cart
+// describes. A move a defense stops plays THE BLOCK MOMENT on its own. The
+// round's DOM guards:
 //   (a) every hit the night strikes locks on and strobes on the tile of
 //       the asset the engine named, and on no other (the engine half, that
 //       every asset-damaging event names its asset, is in engine.spec.ts).
@@ -11,16 +17,19 @@
 //       defense held, and since R3 a block shows on that tile as a shield
 //       rather than a lock-on, so a strike is a hit when anything got
 //       through;
-//   (c) each card carries its own event's technique and source: the intel
-//       card a first meeting opens, and the IN YOUR DOSSIER row of a repeat
-//       meeting (the REAL WORLD line rode the director's event card; the
-//       content half is in real-world.spec.ts);
+//   (c) each card carries its own event's technique and source, on its
+//       Dossier row: NEW DOSSIER CARD on a first meeting and IN YOUR
+//       DOSSIER on a repeat (v1.7 R1: the full-screen Dossier card a first
+//       meeting opened is gone, and the row is on every result; the REAL
+//       WORLD line rode the director's event card; the content half is in
+//       real-world.spec.ts);
 //   (d) COLDVEIL's intel card with no intel brief names no event, vector
 //       or technique (the intel levels left with v1.3 Round 0: the brief
 //       is on or off). Since v1.3 R2 that card opens from the TONIGHT
 //       card's full brief, where the threat banner's button used to be;
 //   (e) under reduced motion nothing strobes, bursts, pops or floats: the
-//       night skips the strike, and the stylesheet stops its treatment.
+//       night plays none of the hit's treatment, the block moment stands
+//       still, and the stylesheet stops what is left.
 // And the intel card behaves as a dialog: a real button opens it, focus
 // comes back to that button, and Escape closes it without ending the night
 // behind it.
@@ -209,22 +218,34 @@ async function openFullBrief() {
 }
 const tiles = () => [...container.querySelectorAll('button[data-asset-id]')]
 const inTiles = (selector: string) => tiles().filter((t) => t.querySelector(selector)).map((t) => t.getAttribute('data-asset-id'))
-// The night is on: its overlay, a strike's banner, a card or the intel card.
-const inNight = () => !!(q('[data-moving]') || q('[data-strike-banner]') || q('[data-night-card]') || q('[data-intel-file]'))
-// The tap a card asks for: FILE IT, HOLD on the call, COLLECT or CONTINUE,
-// BEGIN TURN.
-const wayOn = () => q('[data-file-it]') ?? q('[data-call="hold"]') ?? q('[data-collect]') ?? q('[data-continue]') ?? q('[data-begin]')
+// The night is on: its overlay, the block moment's banner or a card.
+const inNight = () => !!(q('[data-moving]') || q('[data-strike-banner]') || q('[data-night-card]'))
+// The tap a card asks for. Since v1.7 R1 a move that would land waits on
+// THE RESPONSE, and these tests ride every one out, which is the night the
+// engine's record of an empty cart describes (recordOf); then HOLD on the
+// call, FILE TO DOSSIER or CONTINUE, BEGIN TURN.
+const wayOn = () => q('button[data-response="ride"]') ?? q('[data-call="hold"]') ?? q('[data-collect]') ?? q('[data-continue]') ?? q('[data-begin]')
 // The night as a player taps through it. Every card waits for a tap; only
-// the overlay and each strike play on their own (brief 5.5), so while one
-// of those is up the clock runs in steps of `every` ms and `look` reads the
-// board at each, and a card is tapped on by its way on. It stops as soon
-// as `look` says it has what it came for, or the night is over.
+// the overlay, the block moment and the FILED stamp play on their own
+// (brief 5.5, v1.7 R1), so while one of those is up the clock runs in
+// steps of `every` ms and `look` reads the board at each, and a card is
+// tapped on by its way on. It stops as soon as `look` says it has what it
+// came for, or the night is over. The block moment is left to its clock
+// and never tapped, so the shield is seen locking on and landing.
+//
+// v1.7 R1: until the response card had a way on here, a night stood on it
+// for all 2000 turns of this loop, each a step of the fake clock, which is
+// what made this file take minutes. The loop now fails loudly instead.
 async function tapThrough(look: () => boolean | void, every: number) {
   for (let i = 0; i < 2000 && inNight(); i += 1) {
     if (look()) return
     const way = wayOn()
     if (way) await tap(way)
-    else await step(every)
+    else {
+      const waiting = q('[data-moving]') || q('[data-strike-banner]') || q('[data-filed-stamp]')
+      if (!waiting) throw new Error(`the night stands on a card these tests have no way past: ${q('[data-night-card]')?.getAttribute('aria-label')}`)
+      await step(every)
+    }
   }
 }
 
@@ -262,6 +283,8 @@ describe('hits land on their tiles (v1.2 R3, the night since v1.3 R3)', () => {
       await execute()
       const locked: string[] = []
       const struck: string[] = []
+      let waited = true
+      let landedOnResult = true
       await tapThrough(() => {
         const lock = inTiles('svg[data-sprite="lock-on"]')
         const strobe = inTiles('span[data-strobe]')
@@ -269,18 +292,25 @@ describe('hits land on their tiles (v1.2 R3, the night since v1.3 R3)', () => {
         expect(strobe.length, 'the strobe is on more than one tile').toBeLessThanOrEqual(1)
         if (lock[0] && locked[locked.length - 1] !== lock[0]) locked.push(lock[0]!)
         if (strobe[0] && struck[struck.length - 1] !== strobe[0]) struck.push(strobe[0]!)
+        // v1.7 R1: the reticle locks on while the move waits for its
+        // response, and the hit lands under its result, never before the
+        // player has answered.
+        if (q('button[data-struck="lock"]')) waited = waited && !!q('[data-night-card="respond"]')
+        if (strobe[0]) landedOnResult = landedOnResult && !!q('[data-night-card="hit"]')
       }, 20)
       expect(inNight(), 'the night never finished').toBe(false)
       expect(locked, `turn ${turn}: the lock-on went to other tiles`).toEqual(expected)
       expect(struck, `turn ${turn}: the strobe went to other tiles`).toEqual(expected)
+      expect(waited, `turn ${turn}: a tile was locked on with no response card up`).toBe(true)
+      expect(landedOnResult, `turn ${turn}: a hit landed before its response was given`).toBe(true)
       checked += expected.length
     }
     expect(checked).toBeGreaterThanOrEqual(3)
   }, 30_000)
 
   it('bursts on the struck tile as the hit lands, and floats the score it cost off the HUD', async () => {
-    // The rest of the hit's treatment (v1.2 R3), in the strike's second
-    // part: the burst's frames on the tile and the "-n" the score fell by.
+    // The rest of the hit's treatment (v1.2 R3), as the answer lands
+    // (v1.7 R1; the strike's second part until then): the burst's frames on the tile and the "-n" the score fell by.
     const turn = firstTurnWhere((events) => events.some((e) => isThreat(e) && e.effectiveSeverity > 0 && e.targetAssetId))
     const state = gameAt(turn)
     const first = hitsOf(state)[0]
@@ -370,14 +400,19 @@ describe('a lost pip pops out of the row (v1.2 R3)', () => {
 })
 
 describe("each card carries its own event's technique and source (v1.2 R3, the night's cards since v1.3 R3)", () => {
-  it("GUARD R3 (c): the intel card and the dossier row name the event's own technique and source, one tap from the card", async () => {
-    // A night with two different threats, so a line written for one cannot
-    // pass as both. Played twice: once with nothing filed, where each first
-    // meeting opens its intel card (COLLECT INTEL CARD), and once with both
-    // filed, where each hit card carries the IN YOUR DOSSIER row closed.
+  it("GUARD R3 (c): the dossier row names the event's own technique and source, one tap from the card, on a first meeting and on a repeat", async () => {
+    // A night on which two different threats land, so a line written for
+    // one cannot pass as both. Played twice: once with nothing filed, where
+    // each result carries its row as a NEW DOSSIER CARD over FILE TO
+    // DOSSIER, and once with both filed, where each carries the IN YOUR
+    // DOSSIER row over CONTINUE. Until v1.7 R1 a first meeting opened a
+    // full-screen Dossier card (data-intel-file) and had no row; a move a
+    // defense stops, once filed, has no card at all now, which is why the
+    // fixture asks for two that land.
     setReducedMotion(true)
-    const state = gameAt(firstTurnWhere((events) => new Set(events.filter(isThreat).map((e) => e.eventId)).size >= 2))
-    const ids = [...new Set(recordOf(state).filter(isThreat).map((e) => e.eventId))]
+    const landing = (events: ResolvedEvent[]) => [...new Set(events.filter((e) => isThreat(e) && e.effectiveSeverity > 0).map((e) => e.eventId))]
+    const state = gameAt(firstTurnWhere((events) => landing(events).length >= 2))
+    const ids = landing(recordOf(state))
     const own = (id: string) => {
       const def = DEFAULT_SCENARIO.events.find((e) => e.id === id)!
       const ref = def.techniqueRefs[0]
@@ -387,32 +422,39 @@ describe("each card carries its own event's technique and source (v1.2 R3, the n
       const dl = [...el.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent ?? ''])
       return { technique: dl.find(([k]) => k === 'TECHNIQUE')?.[1], source: dl.find(([k]) => k === 'SOURCE')?.[1] }
     }
+    const read = async (fresh: boolean) => {
+      const seen = new Map<string, { technique?: string; source?: string }>()
+      render(state)
+      await execute()
+      await tapThrough(() => {
+        const row = q('section[data-night-card="hit"] details[data-dossier-row]') as HTMLDetailsElement | null
+        if (!row || q('[data-filed-stamp]')) return
+        const id = row.getAttribute('data-dossier-row')!
+        if (!ids.includes(id)) return
+        // Closed on the card, and one tap opens it.
+        expect(row.open, 'the dossier row arrived open').toBe(false)
+        expect(row.querySelector('summary'), 'the row is not one tap from the card').not.toBeNull()
+        expect(row.hasAttribute('data-fresh'), `${id}: the row ${fresh ? 'does not say' : 'says'} it is new`).toBe(fresh)
+        expect(row.querySelector('summary')!.textContent, id).toContain(fresh ? 'NEW DOSSIER CARD' : 'IN YOUR DOSSIER')
+        // The way on under it: filing a first meeting, CONTINUE on a repeat.
+        expect(!!q('[data-collect]'), `${id}: FILE TO DOSSIER`).toBe(fresh)
+        expect(!!q('[data-continue]'), `${id}: CONTINUE`).toBe(!fresh)
+        seen.set(id, rows(row))
+      }, 50)
+      expect(inNight(), 'the night never finished').toBe(false)
+      return seen
+    }
 
-    const onIntel = new Map<string, { technique?: string; source?: string }>()
-    render(state)
-    await execute()
-    await tapThrough(() => {
-      const card = q('[data-intel-file]')
-      if (card) onIntel.set(card.getAttribute('data-intel-file')!, rows(card))
-    }, 50)
-    expect([...onIntel.keys()].sort(), 'not every first meeting opened its intel card').toEqual([...ids].sort())
-    for (const id of ids) expect(onIntel.get(id), `${id}'s intel card`).toEqual(own(id))
+    const onFirst = await read(true)
+    expect([...onFirst.keys()].sort(), 'not every first meeting carried its dossier row').toEqual([...ids].sort())
+    for (const id of ids) expect(onFirst.get(id), `${id}'s new dossier row`).toEqual(own(id))
+    // FILE TO DOSSIER filed each as the night went by.
+    expect(JSON.parse(localStorage.getItem('dc-dossier') ?? '[]')).toEqual(expect.arrayContaining(ids))
 
-    // A repeat meeting: the same night with both filed.
-    localStorage.setItem('dc-dossier', JSON.stringify(ids))
-    const onRow = new Map<string, { technique?: string; source?: string }>()
-    render(state)
-    await execute()
-    await tapThrough(() => {
-      const row = q('section[data-night-card="hit"] details[data-dossier-row]') as HTMLDetailsElement | null
-      if (!row) return
-      // Closed on the card, and one tap opens it.
-      expect(row.open, 'the dossier row arrived open').toBe(false)
-      expect(row.querySelector('summary'), 'the row is not one tap from the card').not.toBeNull()
-      onRow.set(row.getAttribute('data-dossier-row')!, rows(row))
-    }, 50)
-    expect([...onRow.keys()].sort(), 'not every repeat meeting carried its dossier row').toEqual([...ids].sort())
-    for (const id of ids) expect(onRow.get(id), `${id}'s dossier row`).toEqual(own(id))
+    // A repeat meeting: the same night again, with both filed.
+    const onRepeat = await read(false)
+    expect([...onRepeat.keys()].sort(), 'not every repeat meeting carried its dossier row').toEqual([...ids].sort())
+    for (const id of ids) expect(onRepeat.get(id), `${id}'s dossier row`).toEqual(own(id))
   }, 30_000)
 })
 
@@ -689,12 +731,15 @@ describe('the intel cards (v1.2 R3)', () => {
     // The penultimate turn, as turn 11 of 12 was before the six-turn
     // campaign of v1.3 Round 0. COLDVEIL's card is off the board during the
     // night since v1.3 R2 (it opens from the TONIGHT card), so a tile's card
-    // is the one a player can open here, and since R3 the strike is when
-    // the strip is in reach: each card dims the board under it.
+    // is the one a player can open here. Until v1.7 R1 this stopped on a
+    // strike's banner; a hit has none now, and the night's first card (THE
+    // RESPONSE, which waits for as long as the player likes with the strip
+    // in view above it) is where a player would tap a tile.
     render(gameAt(DEFAULT_SCENARIO.totalTurns - 1))
     await execute()
-    await tapThrough(() => !!q('[data-strike-banner]'), 50)
-    expect(q('[data-strike-banner]'), 'the night struck nothing').not.toBeNull()
+    await tapThrough(() => !!q('[data-night-card]'), 50)
+    expect(q('[data-night-card]'), 'the night showed no card').not.toBeNull()
+    const card = q('[data-night-card]')!.getAttribute('aria-label')
     const tile = tiles()[0]
     click(tile)
     await settle()
@@ -704,6 +749,7 @@ describe('the intel cards (v1.2 R3)', () => {
     })
     expect(q('section[data-intel-card]')).toBeNull()
     expect(inNight(), 'Escape on the card ended the night').toBe(true)
+    expect(q('[data-night-card]')?.getAttribute('aria-label'), 'Escape on the card moved the night on').toBe(card)
     expect(q('nav[aria-label="Actions"]'), 'Escape on the card put the dock back mid-night').toBeNull()
   })
 })
@@ -814,32 +860,56 @@ describe('GUARD R3 (e): under reduced motion nothing strobes, bursts, pops or fl
     expect(onHit, 'no hit card was seen').toBeGreaterThan(0)
   })
 
-  it('skips the strike under reduced motion: the card arrives with the board changed and nothing running', async () => {
-    // Brief 5.5: under reduced motion the overlay and the strike are
-    // skipped and the cards arrive at once, so the strike's treatment is
-    // never put on the board at all.
+  it("plays none of the hit's treatment under reduced motion: the result arrives with the board changed and nothing running", async () => {
+    // Brief 5.5: under reduced motion the overlay is skipped and the hit's
+    // treatment is never put on the board at all. Since v1.7 R1 two marks
+    // stand on the board with motion off, and both stand still: the
+    // reticle on the tile of a move waiting for its response (the lock-on's
+    // class is on it, and the stylesheet runs nothing for it, which is
+    // checked here on that very card), and the block moment, which stays
+    // for its time without its entrance (it was skipped until v1.7 R1).
     setReducedMotion(true)
     const state = fixture()
     const hit = recordOf(state).find((e) => isThreat(e) && takesPip(e))!
+    const name = DEFAULT_SCENARIO.events.find((e) => e.id === hit.eventId)!.name.split(' (')[0]
     render(state)
     await execute()
     let seen = false
+    let asked = false
     await tapThrough(() => {
-      for (const sel of ['[data-moving]', '[data-strike-banner]', 'span[data-strobe]', 'svg[data-sprite^="hit-burst"]', 'span[data-pip-pop]']) {
+      for (const sel of ['[data-moving]', 'span[data-strobe]', 'svg[data-sprite^="hit-burst"]', 'span[data-pip-pop]']) {
         expect(q(sel), `${sel} is on screen under reduced motion`).toBeNull()
+      }
+      const banner = q('[data-block-moment]')
+      if (banner) {
+        expect(banner.className, 'the block moment makes its entrance under reduced motion').not.toMatch(/dc-banner-in/)
+        expect(banner.querySelector('.dc-stamp-pop'), "the block moment's shield pops under reduced motion").toBeNull()
       }
       // The delta chip stands still beside the score with motion off (v1.6
       // R1): there, but never floating.
       expect(q('span[data-mai-drop]')?.className ?? '', 'the delta chip floats under reduced motion').not.toMatch(/dc-mai-float/)
-      // The lock-on's brackets rest still on the card's tile (v1.3 R3
+      // The lock-on's brackets rest still on a result's tile (v1.3 R3
       // fresh-eyes review: under reduced motion nothing marked it), with
-      // none of the strike's motion on them.
+      // none of the strike's motion on them; only a move still waiting for
+      // its response is locked on rather than at rest.
+      const responding = !!q('section[data-night-card="respond"]')
       for (const mark of container.querySelectorAll('svg[data-sprite="lock-on"]')) {
-        expect(mark.closest('button')?.getAttribute('data-struck'), 'a lock-on under reduced motion that is not the still mark').toBe('rest')
-        expect(mark.getAttribute('class') ?? '', 'the still mark animates').not.toMatch(/dc-lock-on/)
+        const struck = mark.closest('button')?.getAttribute('data-struck')
+        expect(struck, 'a lock-on under reduced motion that is neither the still mark nor a move awaiting its response').toBe(responding ? 'lock' : 'rest')
+        if (!responding) expect(mark.getAttribute('class') ?? '', 'the still mark animates').not.toMatch(/dc-lock-on/)
+      }
+      if (responding && q('[data-move-name]')?.textContent === name) {
+        // The move waits for its answer: the tile is marked and unchanged,
+        // and nothing on the board runs.
+        const tile = q(`button[data-asset-id="${hit.targetAssetId}"]`)!
+        expect(tile.getAttribute('data-struck'), 'the tile of the move on the response card is not marked').toBe('lock')
+        expect(tile.getAttribute('aria-label'), 'the tile changed before the answer').toContain(`integrity ${hit.integrityBefore}%`)
+        expect(running(q('[data-board]')!, keyframeNames(applyCss(true).all)), 'animations running on the board under reduced motion, on the response card').toEqual([])
+        asked = true
+        return
       }
       const card = q('section[data-night-card="hit"]')
-      if (!card || q('[data-move-name]')?.textContent !== DEFAULT_SCENARIO.events.find((e) => e.id === hit.eventId)!.name.split(' (')[0]) return
+      if (!card || q('[data-move-name]')?.textContent !== name) return
       // The hit's card is up, and the tile under it already shows the hit.
       const tile = q(`button[data-asset-id="${hit.targetAssetId}"]`)!
       expect(tile.getAttribute('aria-label'), 'the tile did not change before its card').toContain(`integrity ${hit.integrityAfter}%`)
@@ -849,6 +919,7 @@ describe('GUARD R3 (e): under reduced motion nothing strobes, bursts, pops or fl
       seen = true
       return true
     }, 10)
+    expect(asked, 'the response card for the hit never arrived').toBe(true)
     expect(seen, 'the hit card never arrived').toBe(true)
   })
 

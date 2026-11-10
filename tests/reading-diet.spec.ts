@@ -14,8 +14,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
+import { RESPONSE_TEXT } from '../src/content/responseText'
 import { briefFree, gnssDenied, newGame, resolveTurn } from '../src/engine/reducer'
 import { planFor } from '../src/engine/campaign'
+import { playNight, responseOptions, type Responder } from '../src/engine/responses'
 import { briefActive, countersAfter, eventById } from '../src/engine/rules'
 import { coverage, maiScore } from '../src/engine/scoring'
 import { turnRng } from '../src/engine/rng'
@@ -66,11 +68,12 @@ import {
 import { callSigns } from '../src/ui/board/board'
 import { coverageFigure } from '../src/ui/labels'
 import { howToLines } from '../src/ui/systemControls'
-import { HitCard } from '../src/ui/night/cards'
+import { HitCard, ResponseCard } from '../src/ui/night/cards'
 import { stopsKnown } from '../src/ui/night/nightModel'
 import { DebrisCall, DebrisResult, EndOfTurn, OpportunityCard } from '../src/ui/night/closeCards'
 import * as nightCopy from '../src/ui/night/nightCopy'
 import { defensesFor, nightOf, type NightStep } from '../src/ui/night/nightModel'
+import { sensible } from './policies'
 import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
@@ -124,8 +127,29 @@ const WORST_CARD_HEADLINE = 12
 // station's on the same line, seed 2, at 40 with its headline (33 and 44
 // before it, 35 and 45 before R6). 29 since v1.6 R1, when each seed plays
 // its own order: the same line, turn 5 on Easy, seed 8, prepared.
+//
+// Still 29 and 40 in v1.7 R1, measured again over more: the REDUCED line
+// now ends with the PROCURE sentence as the UNDEFENDED one does, and after
+// a response the line opens "The lasting answer:" (the answered campaigns
+// below). Neither runs past the UNDEFENDED line's worst.
 const WORST_HELPED_LINE = 29
 const WORST_HIT_CARD_HEADLINE_AND_LINE = 40
+
+// THE RESPONSE CARD (v1.7 R1), a card with no budget before this round
+// because it did not exist: the whole card's words, and each answer's.
+// The worst card measured is 71 words: the insider move with two answers
+// (the mixed line, answering, seed 11, turn 5). A chained move says the
+// chain in a tag, "GNSS DENIED · CHAIN +1": the hit card's 19-word
+// sentence stood there first and pushed the card past a 375x667 screen.
+// The budget is the measured worst plus room for a
+// longer answer, well under the deciding board's 150: the card is one
+// decision, read with nothing else on screen. An answer is bounded at 10
+// words, a line and a half of its button at 375; the longest in the deck
+// is 9 ("Cut the segments apart and restore from offline backups").
+const RESPONSE_CARD_WORD_BUDGET = 80
+const WORST_RESPONSE_CARD = 71
+const RESPONSE_LABEL_WORD_BUDGET = 10
+const WORST_RESPONSE_LABEL = 9
 
 // The deciding board's reading at its longest over the swept lines of play
 // (v1.3 R2), pinned so a change that moves it comes here and says so;
@@ -200,10 +224,15 @@ const LINES: [string, Record<number, TurnActions>][] = [
   ['passive', LOSS_SCRIPT],
 ]
 
-function* playTurns(seed: number, script: Record<number, TurnActions>, difficulty: Difficulty = 'standard') {
+// Every move is ridden out unless a responder is named (v1.7 R1): the
+// lines of play are orders, and the copy they are measured for is mostly
+// the board's. The tests that read the night's cards after a response
+// play their own answered campaigns (see ANSWERED).
+function* playTurns(seed: number, script: Record<number, TurnActions>, difficulty: Difficulty = 'standard', respond?: Responder) {
   let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
   while (state.status === 'playing') {
-    const next = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+    const orders = script[state.turn] ?? NO_OP
+    const next = respond ? playNight(state, orders, respond) : resolveTurn(state, orders, turnRng(state.seed, state.turn))
     yield { before: state, after: next }
     state = next
   }
@@ -277,8 +306,12 @@ function nightCards(before: GameState, after: GameState): NightCard[] {
   const night = nightOf(before, after)
   const out: NightCard[] = []
   for (const step of night.steps) {
-    if (step.kind === 'threat') out.push({ kind: 'hit', head: nightCopy.hitHeader(night.turn), heading: shortName(step.def), step })
-    else if (step.kind === 'debris') {
+    if (step.kind === 'threat') {
+      // A move that would land stops the night for the player's response
+      // first (v1.7 R1), under its own header and the move's name.
+      if (step.ev.room !== undefined) out.push({ kind: 'respond', head: nightCopy.incomingHeader(night.turn), heading: shortName(step.def), step })
+      out.push({ kind: 'hit', head: nightCopy.hitHeader(night.turn), heading: shortName(step.def), step })
+    } else if (step.kind === 'debris') {
       const d = step.ev.debris!
       out.push({ kind: 'call', head: nightCopy.callHeader(night.turn), heading: shortName(step.def), step })
       out.push({ kind: 'debris', head: nightCopy.conjunctionHeader(night.turn), heading: nightCopy.debrisTitle(d.lost, d.choice), step })
@@ -302,17 +335,42 @@ const lastTurnOf = (after: GameState) => after.history[after.history.length - 1]
 // The hit card's M3 line (critique row M3), in its outcome block since
 // v1.3 Round 3 (src/ui/night/cards.tsx, Outcome). On an UNDEFENDED block:
 // "What would have helped: <defense>, n CR. It stops <the move, and the
-// threats the defense answers that the player has met or named>." and,
-// before the last turn, "It is in PROCURE next turn with that written on
-// it." On a REDUCED block: "Would have finished it: <defense>, n CR." None
-// on a HELD block, or where the move lists no defense the player lacks.
+// threats the defense answers that the player has met or named>." On a
+// REDUCED block: "Would have finished it: <defense>, n CR." And, before
+// the last turn, either ends "It is in PROCURE next turn." None on a
+// block a defense made, or where the move lists no defense the player
+// lacks.
+//
+// v1.7 R1: one line serves every branch now, so the REDUCED line takes
+// the PROCURE sentence too (it had none); and after a response the line
+// opens "The lasting answer:" in place of either lead, since tonight is
+// covered and the defense covers every night. A move a response blocked
+// reads as held and still prints it: the defense was missing.
 function helpedLine(step: NightStep, known: ReadonlySet<string>, lastTurn: boolean): string | null {
   const { ev, def } = step
   const scenario = step.after.scenario
   const { held, missing } = defensesFor(def, step.after.counters, scenario)
-  if (!missing || (ev.outcome === 'held' && held)) return null
-  if (ev.outcome === 'reduced' && held) return nightCopy.finishedIt(missing.name, missing.cost).join('')
-  return `${nightCopy.wouldHaveHelped(missing.name, missing.cost).join('')} ${nightCopy.itStops(stopsKnown(missing, def, scenario, known))}${lastTurn ? '' : ` ${nightCopy.IN_PROCURE}`}`
+  if (!missing || (ev.outcome === 'held' && held && ev.response?.effect !== 'block')) return null
+  const lead = ev.response ? nightCopy.lastingAnswer : held ? nightCopy.finishedIt : nightCopy.wouldHaveHelped
+  const stops = held ? '' : ` ${nightCopy.itStops(stopsKnown(missing, def, scenario, known))}`
+  return `${lead(missing.name, missing.cost).join('')}${stops}${lastTurn ? '' : ` ${nightCopy.IN_PROCURE}`}`
+}
+
+// THE ANSWERED CAMPAIGNS (v1.7 R1): three of the lines again, with the
+// first response that fits taken on every night, for the tests that read
+// the night's cards. The five lines ride every move out, so no card of
+// theirs is a result after a response.
+const ANSWERED: [string, Record<number, TurnActions>][] = [
+  ['prepared, answering', WIN_SCRIPT],
+  ['mixed, answering', MIXED_SCRIPT],
+  ['passive, answering', LOSS_SCRIPT],
+]
+function playAnswered(): Campaign[] {
+  const out: Campaign[] = []
+  for (const [name, script] of ANSWERED)
+    for (const difficulty of DIFFS)
+      for (let seed = 1; seed <= EXTREME_SEEDS; seed += 1) out.push({ name, difficulty, seed, turns: [...playTurns(seed, script, difficulty, sensible)] })
+  return out
 }
 
 // A card as the night renders it, as markup (react-dom/server, since this
@@ -321,20 +379,29 @@ const noop = () => {}
 function renderCard(card: NightCard, before: GameState, after: GameState): string {
   const record = after.history[after.history.length - 1]
   if (card.kind === 'end') {
-    return renderToStaticMarkup(createElement(EndOfTurn, { record, state: after, scoreFrom: maiScore(before), reduced: true, play: noop, onNext: noop }))
+    return renderToStaticMarkup(createElement(EndOfTurn, { record, state: after, night: nightOf(before, after), reduced: true, play: noop, onNext: noop }))
   }
   const step = card.step!
+  const signs = new Map([...callSigns(before), ...callSigns(after)])
+  // The response card, with the options the engine offers on the move;
+  // the score under each answer is the night's to work out, and no test
+  // here reads it.
+  const options = step.ev.room !== undefined ? responseOptions(step.def, step.ev, before.difficulty) : []
+  if (card.kind === 'respond') {
+    return renderToStaticMarkup(createElement(ResponseCard, { step, turn: record.turn, of: record.events.length, signs, options, outcomes: new Map(), reduced: true, onRespond: noop }))
+  }
   if (card.kind === 'call') return renderToStaticMarkup(createElement(DebrisCall, { step, turn: record.turn, filed: false, reduced: true, onCall: noop }))
   const props = {
     step,
     turn: record.turn,
     lastTurn: lastTurnOf(after),
-    signs: new Map([...callSigns(before), ...callSigns(after)]),
+    signs,
     known: knownBy(after),
     first: true,
     reduced: true,
     play: noop,
     onContinue: noop,
+    options,
   }
   return renderToStaticMarkup(createElement(card.kind === 'hit' ? HitCard : card.kind === 'debris' ? DebrisResult : OpportunityCard, props))
 }
@@ -1120,7 +1187,8 @@ describe('reading diet: the intel brief', () => {
     const REDUCING: Record<number, TurnActions> = { 2: { ...NO_OP, buyCounters: ['groundZeroTrust'] }, 4: { ...NO_OP, buyCounters: ['insiderProgram'] } }
     for (const difficulty of DIFFS)
       for (let seed = 1; seed <= EXTREME_SEEDS; seed += 1) reducing.push({ name: 'reducing', difficulty, seed, turns: [...playTurns(seed, REDUCING, difficulty)] })
-    for (const { name, difficulty, seed, turns } of [...extremes, ...reducing]) {
+    // And the answered campaigns (v1.7 R1), for the line after a response.
+    for (const { name, difficulty, seed, turns } of [...extremes, ...reducing, ...playAnswered()]) {
       for (const { before, after } of turns) {
         const known = knownBy(after)
         const last = lastTurnOf(after)
@@ -1130,7 +1198,8 @@ describe('reading diet: the intel brief', () => {
           if (line === null) continue
           printed += 1
           const found: Case = { card, before, after, line }
-          const branch = card.step!.ev.outcome === 'reduced' ? 'reduced' : last ? 'undefended, last turn' : 'undefended'
+          const { ev } = card.step!
+          const branch = ev.response ? `after a ${ev.response.effect}` : ev.mitigation > 0 ? 'reduced' : last ? 'undefended, last turn' : 'undefended'
           if (!branchOf.has(branch)) branchOf.set(branch, found)
           const at = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}: "${card.head}" / "${card.heading}" / "${line}"`
           if (countWords(line) > worstLine) {
@@ -1148,20 +1217,65 @@ describe('reading diet: the intel brief', () => {
       }
     }
     expect(printed, 'no hit card in the sweep printed the line, so nothing was measured').toBeGreaterThan(0)
-    for (const branch of ['undefended', 'undefended, last turn', 'reduced']) {
+    for (const branch of ['undefended', 'undefended, last turn', 'reduced', 'after a block', 'after a halve']) {
       expect([...branchOf.keys()], `the sweep never reaches the ${branch} line`).toContain(branch)
     }
     // THE MIRROR IS THE CARD: each branch and each worst, rendered.
     for (const { card, before, after, line } of [...branchOf.values(), ...cases]) {
       const html = renderCard(card, before, after)
-      const shown =
-        pick(html, /<p data-would-have-helped="true"[^>]*>([\s\S]*?)<\/p>/) ??
-        pick(html, /<div data-outcome="reduced"[^>]*>[\s\S]*?<p[^>]*>[\s\S]*?<\/p><p[^>]*>([\s\S]*?)<\/p>/)
+      // One element in every branch since v1.7 R1 (the REDUCED block
+      // printed it as its second paragraph before).
+      const shown = pick(html, /<p data-would-have-helped="true"[^>]*>([\s\S]*?)<\/p>/)
       expect(shown, `turn ${before.turn}, ${card.step!.def.id}: the card prints "${shown}"`).toBe(line)
     }
     expect(worstLine, `worst line ${worstLine} words at ${worstLineAt}`).toBeLessThanOrEqual(structural)
     expect(worstLine, `worst line measured: ${worstLine} words at ${worstLineAt}`).toBe(WORST_HELPED_LINE)
     expect(worstCard, `worst headline and line measured: ${worstCard} words at ${worstCardAt}`).toBe(WORST_HIT_CARD_HEADLINE_AND_LINE)
+  })
+
+  it('bounds the response card, the one screen the night stops on for a decision (v1.7 R1)', () => {
+    // A new channel, so a new budget. The night stops on a move that would
+    // land and asks what to do about it: the header, the move and where it
+    // is aimed, what of it gets through, one or two answers and riding it
+    // out, each with its cost and what it does, and the budget. It is read
+    // under no clock, but it is read on every night something would land,
+    // so it is bounded like the board: every word the card prints, counted
+    // off the card itself as the night renders it, over the five lines
+    // ridden out (every answer on offer) and the answered campaigns (a
+    // second move the same night, whose answers say tonight's response is
+    // used). The worst is pinned, so a change that moves it comes here.
+    const wordsOn = (html: string) => countWords(decode(html.replace(/<[^>]+>/g, ' ')))
+    let worst = 0
+    let worstAt = ''
+    let cards = 0
+    let used = 0
+    for (const { name, difficulty, seed, turns } of [...extremes, ...playAnswered()]) {
+      for (const { before, after } of turns) {
+        for (const card of nightCards(before, after)) {
+          if (card.kind !== 'respond') continue
+          cards += 1
+          if ((card.step!.ev.answered ?? 0) > 0) used += 1
+          const words = wordsOn(renderCard(card, before, after))
+          if (words > worst) {
+            worst = words
+            worstAt = `${name}, turn ${before.turn}, ${difficulty}, seed ${seed}, ${card.step!.def.id}`
+          }
+        }
+      }
+    }
+    expect(cards, 'the sweep met no response card, so nothing was measured').toBeGreaterThan(1000)
+    expect(used, 'the sweep met no response card after tonight\'s response was used').toBeGreaterThan(0)
+    expect(worst, `worst response card measured: ${worst} words at ${worstAt}`).toBeLessThanOrEqual(RESPONSE_CARD_WORD_BUDGET)
+    expect(worst, `worst response card measured: ${worst} words at ${worstAt}`).toBe(WORST_RESPONSE_CARD)
+    // The answers themselves, at their structural maximum: every response
+    // of every threat in the deck, whether or not a sweep offers it.
+    const labels = DEFAULT_SCENARIO.events.flatMap((e) => (e.responses ?? []).map((r) => [e.id, r.id, RESPONSE_TEXT[e.id]?.[r.id] ?? ''] as const))
+    expect(labels.length, 'the deck offers no response').toBeGreaterThan(0)
+    for (const [event, id, label] of labels) {
+      expect(countWords(label), `${event}/${id}: "${label}"`).toBeGreaterThan(0)
+      expect(countWords(label), `${event}/${id}: "${label}"`).toBeLessThanOrEqual(RESPONSE_LABEL_WORD_BUDGET)
+    }
+    expect(Math.max(...labels.map(([, , label]) => countWords(label))), 'the longest answer in the deck').toBe(WORST_RESPONSE_LABEL)
   })
 
   it('says "mission assurance score" in SYSTEM\'s how to play, and never MAI', () => {

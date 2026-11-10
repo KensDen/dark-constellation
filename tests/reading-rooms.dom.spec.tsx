@@ -5,8 +5,8 @@
 // between the Daily Op and practice, and the title's Daily read-back.
 //
 // GUARD R4 (c): THE DOSSIER'S COUNT IS ITS FILED CARDS, AND SURVIVES A
-// RELOAD. Cards are filed the way a player files them, FILE IT on the
-// night's intel card, then the page is loaded again and the Dossier read
+// RELOAD. Cards are filed the way a player files them, FILE TO DOSSIER on
+// a move's result (v1.7 R1), then the page is loaded again and the Dossier read
 // from the title: its count, its filed cards and GOAL 2 agree with each
 // other and with what was filed.
 // GUARD R4 (e), the reading rooms' half: no retired word (section 4) on the
@@ -29,6 +29,7 @@ import { pairedEvents } from '../src/content/librarySchema'
 import { gradeFor } from '../src/engine/grade'
 import { glossaryEntries } from '../src/ui/reference'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
+import { FILED_BEAT_MS } from '../src/ui/night/cards'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 
@@ -134,14 +135,35 @@ function words(el: Element): string {
 const filed = () => JSON.parse(localStorage.getItem('dc-dossier') ?? '[]') as string[]
 const THREATS = DEFAULT_SCENARIO.events.filter((e) => (e.kind ?? 'threat') === 'threat')
 
-// One night through its cards as a player taps them, FILE IT included.
+// One night through its cards as a player taps them (v1.7 R1): every move
+// that would land is ridden out on THE RESPONSE, a block moment is ended by
+// its tap, and FILE TO DOSSIER files the card at once, its FILED stamp
+// standing for a beat of the fake clock before the night goes on by itself
+// (the full-screen Dossier card and its FILE IT are gone).
 async function playNight() {
   await tap(q('button[data-execute]')!)
   for (let i = 0; i < 40; i += 1) {
-    const way = q('[data-file-it]') ?? q('[data-call="hold"]') ?? q('[data-collect]') ?? q('[data-continue]') ?? q('[data-night-card="end"] button[data-begin]')
+    const way =
+      q('[data-responses] button[data-response="ride"]') ??
+      q('button[data-strike-tap]') ??
+      q('[data-call="hold"]') ??
+      q('[data-collect]') ??
+      q('[data-continue]') ??
+      q('[data-night-card="end"] button[data-begin]')
     expect(way, 'a card of the night has no way on').not.toBeNull()
     const last = way!.hasAttribute('data-begin')
+    const files = way!.hasAttribute('data-collect')
+    const count = filed().length
     await tap(way!)
+    if (files) {
+      // Filed on the tap, not after the beat, and the stamp says the count.
+      expect(filed(), 'FILE TO DOSSIER did not file the card at once').toHaveLength(count + 1)
+      expect(q('[data-filed-stamp]')?.textContent, 'the FILED stamp does not say the Dossier\'s count').toContain(`${count + 1} / 18`)
+      await act(async () => {
+        vi.advanceTimersByTime(FILED_BEAT_MS + 80)
+      })
+      expect(q('[data-filed-stamp]'), 'the FILED stamp never let the night go on').toBeNull()
+    }
     if (last) break
   }
 }
@@ -276,7 +298,10 @@ describe('the scoreboard, split by mode (M38)', () => {
     expect(q('[data-board="daily"]')!.textContent).toContain('STREAK 2')
     const practice = qa('[data-board="practice"] [data-practice-row]')
     expect(practice, 'the Daily Op posted before R4 is listed as practice').toHaveLength(2)
-    expect(practice.map((r) => r.querySelector('[data-grade]')!.textContent)).toEqual(['S', 'F'])
+    // 82.4 with its 2.0 bonus is 84.4: a B since v1.7 R1 raised the ladder
+    // (S 88, A 85.5, B 77.5), where it was an S.
+    expect(practice.map((r) => r.querySelector('[data-grade]')!.textContent)).toEqual(['B', 'F'])
+    expect(gradeFor({ status: 'won', finalMai: 82.4, bonus: 2 })).toBe('B')
     // Clearing empties practice only; the Daily Op's record is the streak.
     click(q('[data-ask-clear]')!)
     expect(qa('[data-practice-row]'), 'cleared before it was confirmed').toHaveLength(2)
@@ -300,7 +325,9 @@ describe("the title's Daily read-back (M32)", () => {
     )
     loadPage()
     await settle()
-    expect(q('[data-daily-line]')!.textContent).toBe('DONE · B · DAY STREAK 2')
+    // A won 76 is a C since v1.7 R1 raised the ladder (B from 77.5).
+    expect(q('[data-daily-line]')!.textContent).toBe('DONE · C · DAY STREAK 2')
+    expect(gradeFor({ status: 'won', finalMai: 76, bonus: 0 })).toBe('C')
     expect(q('[data-daily-countdown]')!.textContent).toBe('NEXT DAILY OP IN 14:00:00')
     act(() => {
       vi.advanceTimersByTime(1000)

@@ -57,6 +57,20 @@
 // seed at S (a C before) and 20260712 at B; LOSS_SCRIPT loses both under
 // the line; randomPolicy(1) still goes insolvent at turn 5, at 79.1.
 //
+// v1.7 R1 (the response): the share text's form did not change; the games
+// did. A hit costs 9 a point on the meters (5 before) and the night asks
+// what to do about a move that would land, so a line that rides every move
+// out no longer wins on STANDARD. The winning pins are WIN_SCRIPT's orders
+// with the night answered: by the `sensible` responder (the first response
+// that fits, tests/policies.ts) on the Daily seed, a B at 77.5, and by
+// the fixed WIN_RESPONSES (tests/scripts.ts) on 20260712, a B at 75.1 (the
+// grade thresholds rose with the scores a response makes reachable).
+// LOSS_SCRIPT and randomPolicy(1) still ride every move out, and lose
+// lower. LOSS_SCRIPT ends the Daily seed at 32.9, under the collapse line
+// on the last turn, so its D is an F (the pin below checks the reason),
+// and ends 20260712 on EASY at 45.6, a D; randomPolicy(1) still goes
+// insolvent at turn 5, at 65.7.
+//
 // v1.3 Round 4 (M37; QC G-056 and G-057): free play takes the Daily Op's
 // four lines. Its longer text said "survived 6 of 6 turns" on a loss, put
 // one technique in both its lists and seven beside eight hits; the four
@@ -69,20 +83,23 @@ import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { gradeOf, turnStrip } from '../src/engine/grade'
-import { newGame, resolveTurn } from '../src/engine/reducer'
-import { turnRng } from '../src/engine/rng'
+import { newGame } from '../src/engine/reducer'
+import { playNight, type Responder } from '../src/engine/responses'
 import type { GameState, TurnActions } from '../src/engine/types'
 import { startDailyOp } from '../src/ui/dailyOp'
 import { SHARE_SQUARE, SHARE_URL, shareText } from '../src/ui/reportCard'
-import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT, randomPolicy } from './scripts'
+import { ride, sensible } from './policies'
+import { LOSS_SCRIPT, NO_OP, WIN_RESPONSES, WIN_RESPONSES_SEED, WIN_SCRIPT, playFixed, randomPolicy } from './scripts'
 
 type Line = Record<number, TurnActions> | ((state: GameState) => TurnActions)
 
-// Plays a script (orders by turn) or a policy (orders from the state).
-function play(from: GameState, line: Line): GameState {
+// Plays a script (orders by turn) or a policy (orders from the state),
+// with a responder making the night's choices (v1.7 R1): every move is
+// ridden out unless the test names another.
+function play(from: GameState, line: Line, respond: Responder = ride): GameState {
   const orders = typeof line === 'function' ? line : (s: GameState) => line[s.turn] ?? NO_OP
   let state = from
-  while (state.status === 'playing') state = resolveTurn(state, orders(state), turnRng(state.seed, state.turn))
+  while (state.status === 'playing') state = playNight(state, orders(state), respond)
   return state
 }
 
@@ -97,12 +114,12 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     const op = startDailyOp(DAY)
     expect(op.daily).toEqual({ dateKey: '20260927', n: 1 })
     expect(op.state.seed).toBe(289227389)
-    const end = play(op.state, WIN_SCRIPT)
+    const end = play(op.state, WIN_SCRIPT, sensible)
     expect(shareText(end, { n: op.daily!.n, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade S · won T6 · score 76.0, win line 70',
-        '\u{1F7E8}\u{1F7E9}\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E8}',
+        'Grade B · won T6 · score 77.5, win line 70',
+        '\u{1F7E9}\u{1F7E8}\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E8}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )
@@ -110,11 +127,15 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
 
   it('says practice on its first line, and nowhere else, for a run that is not the official one', () => {
     const end = play(startDailyOp(DAY).state, LOSS_SCRIPT)
+    // An F on the last turn (v1.7 R1): the score fell under the collapse
+    // line as turn 6 closed, which ends a run as surely as an early turn.
+    expect(end.lossReason).toBe('maiCollapse')
+    expect(end.history).toHaveLength(end.scenario.totalTurns)
     expect(shareText(end, { n: 1, official: false })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1 (practice)',
-        'Grade D · lost T6 · score 54.1, win line 70',
-        '\u{1F7E8}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E8}\u{1F7E5}',
+        'Grade F · lost T6 · score 32.9, win line 70',
+        '\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )
@@ -129,7 +150,7 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: 1, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade F · lost T5 · budget below zero · score 79.1, win line 70',
+        'Grade F · lost T5 · budget below zero · score 65.7, win line 70',
         '\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -142,8 +163,14 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     // the screen would show. One line ends early, so a count of the
     // scenario's turns would not pass for a count of the turns played.
     let endedEarly = 0
-    for (const line of [WIN_SCRIPT, LOSS_SCRIPT, EARLY_END]) {
-      const end = play(startDailyOp(DAY).state, line)
+    let won = 0
+    for (const [line, respond] of [
+      [WIN_SCRIPT, sensible],
+      [LOSS_SCRIPT, ride],
+      [EARLY_END, ride],
+    ] as [Line, Responder][]) {
+      const end = play(startDailyOp(DAY).state, line, respond)
+      if (end.status === 'won') won += 1
       const lines = shareText(end, { n: 1, official: true }).split('\n')
       expect(lines[1].startsWith(`Grade ${gradeOf(end)} `)).toBe(true)
       expect(lines[1].split(' · ')[1], 'T is not the turn the run ended on').toBe(`${end.status === 'won' ? 'won' : 'lost'} T${end.history.length}`)
@@ -153,6 +180,7 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
       if (end.history.length < end.scenario.totalTurns) endedEarly += 1
     }
     expect(endedEarly, 'no line ended before the last turn').toBeGreaterThan(0)
+    expect(won, 'no line won, so "won T6" went unchecked').toBeGreaterThan(0)
   })
 })
 
@@ -177,13 +205,15 @@ describe('an insolvent F says why (v1.5 R1, R6 ledger G6-105)', () => {
 
 describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
   it('is exactly this for a won campaign', () => {
-    const end = play(newGame(DEFAULT_SCENARIO, 20260712, 'standard'), WIN_SCRIPT)
+    // The prepared line with its fixed answers (v1.7 R1, WIN_RESPONSES).
+    expect(WIN_RESPONSES_SEED).toBe(20260712)
+    const end = playFixed(WIN_RESPONSES_SEED, WIN_SCRIPT, WIN_RESPONSES)
     expect(end.status).toBe('won')
     expect(shareText(end)).toBe(
       [
         'DARK CONSTELLATION · Practice · Standard',
-        'Grade B · won T6 · score 72.7, win line 70',
-        '\u{1F7E8}\u{1F7E9}\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E8}',
+        'Grade B · won T6 · score 75.1, win line 70',
+        '\u{1F7E9}\u{1F7E8}\u{1F7E9}\u{1F7E5}\u{1F7E5}\u{1F7E8}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )
@@ -195,7 +225,7 @@ describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
     expect(shareText(end)).toBe(
       [
         'DARK CONSTELLATION · Practice · Easy',
-        'Grade D · lost T6 · score 62.2, win line 70',
+        'Grade D · lost T6 · score 45.6, win line 70',
         '\u{1F7E5}\u{1F7E8}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -208,10 +238,18 @@ describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
     // loss (G-056).
     let lost = 0
     let won = 0
+    let wonOnStandard = 0
     for (const difficulty of ['standard', 'easy'] as const) {
       for (let seed = 1; seed <= 12; seed += 1) {
-        for (const line of [WIN_SCRIPT, LOSS_SCRIPT, randomPolicy(seed)] as Line[]) {
-          const end = play(newGame(DEFAULT_SCENARIO, seed, difficulty), line)
+        // The prepared line twice since v1.7 R1: ridden out, as before, and
+        // with the night answered, which is how a STANDARD run wins now.
+        for (const [line, respond] of [
+          [WIN_SCRIPT, ride],
+          [WIN_SCRIPT, sensible],
+          [LOSS_SCRIPT, ride],
+          [randomPolicy(seed), ride],
+        ] as [Line, Responder][]) {
+          const end = play(newGame(DEFAULT_SCENARIO, seed, difficulty), line, respond)
           const text = shareText(end)
           const lines = text.split('\n')
           expect(lines, `${difficulty} seed ${seed}: not four lines`).toHaveLength(4)
@@ -223,11 +261,13 @@ describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
           expect(text, `${difficulty} seed ${seed}: says survived`).not.toMatch(/surviv/i)
           if (end.status === 'lost') lost += 1
           else won += 1
+          if (end.status === 'won' && difficulty === 'standard') wonOnStandard += 1
         }
       }
     }
     // The positive controls: the walk met both endings.
     expect(lost, 'no line lost, so the loss case is untested').toBeGreaterThan(0)
     expect(won, 'no line won').toBeGreaterThan(0)
+    expect(wonOnStandard, 'no line won on STANDARD').toBeGreaterThan(0)
   })
 })

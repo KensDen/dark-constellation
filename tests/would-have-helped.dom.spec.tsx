@@ -14,6 +14,13 @@
 // <defense>, n CR." The retainer advice (critique row M8) is on END OF
 // TURN, and the SSA service's on the debris result. Rendered in the real
 // game over real play, the night tapped through as a player does.
+//
+// v1.7 R1: the night stops on a move that would land for THE RESPONSE,
+// and these cases ride each one out, since the line they hold is the one
+// for a move nothing answered tonight (the engine's own resolution of the
+// empty cart). A move a defense stops plays THE BLOCK MOMENT before its
+// card, FILE TO DOSSIER goes on by itself after its stamp, and END OF
+// TURN keeps the retainer's line under DETAILS (the "?" is gone).
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -29,6 +36,7 @@ import { ASSET_HEAL_PER_TURN } from '../src/engine/rules'
 import type { GameState, ResolvedEvent, ThreatEvent, TurnActions } from '../src/engine/types'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { shortName, stopVerb } from '../src/ui/board/boardModel'
+import { FILED_BEAT_MS } from '../src/ui/night/cards'
 import { damaged } from '../src/ui/night/closeModel'
 import * as copy from '../src/ui/night/nightCopy'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
@@ -68,9 +76,11 @@ beforeAll(async () => {
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  // The FILED stamp is the night's one clock these cases meet (v1.7 R1).
+  vi.useFakeTimers()
   vi.stubGlobal('localStorage', memoryStorage())
-  // Reduced motion: the cards arrive at once, with no overlay and no
-  // strike to wait out.
+  // Reduced motion: the cards arrive at once, with no overlay to wait
+  // out.
   vi.stubGlobal('matchMedia', (query: string) => ({
     matches: query.includes('reduce'),
     media: query,
@@ -93,6 +103,7 @@ afterEach(() => {
   container.remove()
   resetAudioEngineForTests()
   removeFakeAudioContext()
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -147,15 +158,27 @@ async function tap(el: Element | null) {
   })
   await act(async () => {})
 }
-// The tap a card asks for: FILE IT, HOLD on the call, COLLECT or CONTINUE.
-const way = () => q('[data-file-it]') ?? q('[data-call="hold"]') ?? q('[data-collect]') ?? q('[data-continue]')
+// The tap a stage asks for (v1.7 R1): riding out a move that would land,
+// the tap that ends a block moment, HOLD on the call, FILE TO DOSSIER or
+// CONTINUE. FILE TO DOSSIER stamps the card FILED and the night goes on
+// by itself a beat later, so the clock is run past the stamp.
+const way = () => q('button[data-response="ride"]') ?? q('[data-strike-tap]') ?? q('[data-call="hold"]') ?? q('[data-collect]') ?? q('[data-continue]')
+async function onward() {
+  const el = way()
+  const filing = !!el?.hasAttribute('data-collect')
+  await tap(el)
+  if (!filing) return
+  expect(q('[data-filed-stamp]'), 'FILE TO DOSSIER left no FILED stamp').not.toBeNull()
+  await act(async () => void vi.advanceTimersByTime(FILED_BEAT_MS + 1))
+  await act(async () => {})
+}
 // EXECUTE with the empty cart, then on through the night until the hit
 // card for `def` is up.
 async function toHitCard(state: GameState, def: ThreatEvent) {
   render(state)
   await tap(q('[data-execute]'))
   const wanted = () => q('section[data-night-card="hit"] [data-move-name]')?.textContent === shortName(def)
-  for (let i = 0; i < 20 && !wanted() && !q('[data-night-card="end"]'); i += 1) await tap(way())
+  for (let i = 0; i < 30 && !wanted() && !q('[data-night-card="end"]'); i += 1) await onward()
   expect(wanted(), `the night never showed ${def.id}'s hit card`).toBe(true)
   return q('section[data-night-card="hit"]')!
 }
@@ -192,6 +215,9 @@ describe('the hit card (critique row M3)', () => {
     const f = threatWhere((ev, def, state) => ev.outcome === 'open' && ev.effectiveSeverity > 0 && def.counters.length > 0 && state.turn < DEFAULT_SCENARIO.totalTurns)
     const card = await toHitCard(f.state, f.def)
     expect(card.getAttribute('aria-label')).toBe(`${shortName(f.def)}: HIT`)
+    // Ridden out (v1.7 R1): the card says so, since the line under it is
+    // the lasting answer to a move nothing met tonight.
+    expect(card.querySelector('[data-response-taken]')?.getAttribute('data-response-taken')).toBe('ride')
     const block = card.querySelector('[data-outcome="open"]')
     expect(block, 'the hit card has no UNDEFENDED block').not.toBeNull()
     // UNDEFENDED stands in the result panel since v1.6 R3 (Ken's playtest
@@ -226,8 +252,14 @@ describe('the hit card (critique row M3)', () => {
     expect(card.querySelector('[data-result] [data-verdict]')?.textContent).toBe('PARTIAL')
     expect(card.querySelector('[data-result] [data-undefended]'), 'a partial is not undefended').toBeNull()
     expect(block!.textContent).toContain(`Would have finished it: ${nameOf(missing)}, ${costOf(missing)} CR.`)
-    // The UNDEFENDED line is for a move nothing answered.
-    expect(line()).toBeNull()
+    // The UNDEFENDED sentence is for a move nothing answered. Since v1.7
+    // R1 the partial's line stands in the same element as it (the lasting
+    // answer, data-would-have-helped), on the REDUCED block, so what is
+    // held is that it is the partial's sentence and not the open move's:
+    // no "What would have helped", and no list of what the defense stops.
+    expect(line()?.closest('[data-outcome]'), "the partial's line is not on the REDUCED block").toBe(block)
+    expect(line()!.textContent).toBe(`Would have finished it: ${nameOf(missing)}, ${costOf(missing)} CR.${f.state.turn >= DEFAULT_SCENARIO.totalTurns ? '' : ' It is in PROCURE next turn.'}`)
+    expect(card.textContent).not.toMatch(/What would have helped|It (stops|blunts) /)
   })
 
   it('says nothing on a move that was held, or once every applicable defense was owned', async () => {
@@ -283,12 +315,25 @@ describe('the retainer at the close (critique row M8)', () => {
     const end = q('[data-night-card="end"]')
     expect(end, 'the reload did not open END OF TURN').not.toBeNull()
     const figures = [ASSET_HEAL_PER_TURN, state.scenario.recovery.base, state.scenario.recovery.withIrRetainer] as const
-    // Behind the summary's "?" since v1.6 R4, which shows only over damage.
-    act(() => void q('[data-end-help]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-    expect(end!.textContent).toContain(copy.recoverySlow(...figures))
+    // Under DETAILS since v1.7 R1 (behind the summary's "?" from v1.6 R4
+    // until then, data-end-help, which is gone), on a line of its own that
+    // shows only over damage. jsdom keeps a closed disclosure's content in
+    // the DOM, so the line is read where it stands and its place is pinned:
+    // inside END OF TURN's one DETAILS disclosure, which opens on a tap.
+    const how = () => q('[data-night-card="end"] [data-end-how]')
+    const behindDetails = () => {
+      const details = how()?.closest('details') as HTMLDetailsElement | null
+      expect(details?.hasAttribute('data-end-details'), 'the recovery line is not under DETAILS').toBe(true)
+      expect(details!.querySelector('summary')!.textContent).toBe(copy.DETAILS)
+      details!.open = true
+    }
+    expect(how(), 'END OF TURN over a damaged board says nothing of recovery').not.toBeNull()
+    behindDetails()
+    expect(how()!.textContent).toBe(copy.recoverySlow(...figures))
+    expect(q('[data-end-help]'), 'the "?" is back beside DETAILS').toBeNull()
     render({ ...state, counters: [...state.counters, 'irRetainer'] }, 'aftermath')
-    act(() => void q('[data-end-help]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-    expect(q('[data-night-card="end"]')!.textContent).toContain(copy.recoveryFast(...figures))
+    behindDetails()
+    expect(how()!.textContent).toBe(copy.recoveryFast(...figures))
     expect(q('[data-night-card="end"]')!.textContent).not.toContain(copy.recoverySlow(...figures))
   })
 })
@@ -309,7 +354,7 @@ describe('the debris result', () => {
     it(`${owned ? 'says nothing of the SSA service once it is owned' : 'names the SSA service and its price when it was not owned'}`, async () => {
       render(callNight(owned))
       await tap(q('[data-execute]'))
-      for (let i = 0; i < 10 && !q('[data-night-card="debris"]'); i += 1) await tap(way())
+      for (let i = 0; i < 20 && !q('[data-night-card="debris"]'); i += 1) await onward()
       const card = q('[data-night-card="debris"]')
       expect(card, 'the night never showed the debris result').not.toBeNull()
       const lost = card!.querySelector('[data-outcome]')!.getAttribute('data-outcome') === 'open'

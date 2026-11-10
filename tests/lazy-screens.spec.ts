@@ -203,7 +203,10 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     // centered, with no three-column board). Five since v1.6 R3: the full
     // brief left the TONIGHT card for a sheet of its own (Ken's playtest
     // item 6), which Game opens like SYSTEM, from its chunk with brief.ts.
-    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(5)
+    // Six since v1.7 R1: the desktop's night log (./board/NightLog), which
+    // a phone never shows, left the first download when the response's
+    // code needed its room; a wide screen fetches it as the board mounts.
+    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(6)
     const graph = staticGraphFrom(ENTRY)
     const offenders: string[] = []
     for (const spec of gameSpecs) {
@@ -217,6 +220,31 @@ describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
     expect(gameSpecs).toContain('./Debrief')
     expect(gameSpecs).toContain('./board/FullBrief')
     expect(gameSpecs).toContain('./FieldLibrary')
+    expect(gameSpecs).toContain('./board/NightLog')
+  })
+
+  it("keeps the night log and the responses' words out of the first download (v1.7 R1)", () => {
+    // The night log is lazy in Game (above), and this names it, so that a
+    // static import of it from anywhere the entry reaches fails here by
+    // name. The words of the responses (src/content/responseText.ts) are
+    // read only by the night's response card, so they ride the night's
+    // deferred cards chunk (./night/cards, which Night.tsx fetches by
+    // dynamic import): content the first download never shows.
+    const LOG = join(SRC, 'ui', 'board', 'NightLog.tsx')
+    const WORDS = join(SRC, 'content', 'responseText.ts')
+    const CARDS = join(SRC, 'ui', 'night', 'cards.tsx')
+    const NIGHT = join(SRC, 'ui', 'night', 'Night.tsx')
+    for (const f of [LOG, WORDS, CARDS]) expect(existsSync(f), `${f.slice(SRC.length + 1)} is gone`).toBe(true)
+    // The positive controls: the cards do reach the words by static
+    // import, and the night fetches the cards by dynamic import, so a pass
+    // below is not a walk that found nothing.
+    expect(staticGraphFrom(CARDS).has(WORDS), "the night's cards no longer reach the responses' words").toBe(true)
+    expect(readFileSync(NIGHT, 'utf8'), 'the night no longer fetches its cards by dynamic import').toMatch(/\bimport\(\s*'\.\/cards'\s*\)/)
+    const graph = staticGraphFrom(ENTRY)
+    const offenders = [LOG, WORDS, CARDS]
+      .filter((f) => graph.has(f))
+      .map((f) => `${f.slice(SRC.length + 1)} is reachable statically: ${[...graph.get(f)!.slice(1), f].map((x) => x.slice(SRC.length + 1)).join(' -> ')}`)
+    expect(offenders.join('\n'), "the night log or the responses' words are in the first download").toBe('')
   })
 })
 

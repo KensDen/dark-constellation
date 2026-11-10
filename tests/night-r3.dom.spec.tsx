@@ -1,19 +1,23 @@
 // @vitest-environment jsdom
 //
 // THE NIGHT'S GUARDS (v1.3 brief 5.5 and section 4), each mutated once
-// when it was written (files/*_v1.3_R3_Report_v1.0.md):
-//   GUARD R3 (a), NOTHING ADVANCES WITHOUT A TAP but the 750ms overlay and
-//   the strike: a card, the intel card and END OF TURN wait a minute and
-//   are still there; one tap moves each on.
+// when it was written (files/*_v1.3_R3_Report_v1.0.md), and re-pointed in
+// v1.7 R1 at the night with a decision in it (THE RESPONSE, THE BLOCK
+// MOMENT, no full-screen Dossier card, no strike before a hit's card):
+//   GUARD R3 (a), NOTHING ADVANCES WITHOUT A TAP but the 750ms overlay,
+//   the block moment and the FILED stamp's beat: the response card, a
+//   result, the call and END OF TURN wait a minute and are still there;
+//   one tap moves each on.
 //   GUARD R3 (b), A FIRST MEETING SHOWS FILE TO DOSSIER (COLLECT INTEL CARD
-//   until v1.6 R3, Ken's playtest item 4), a repeat shows CONTINUE (and
-//   the IN YOUR DOSSIER row).
+//   until v1.6 R3, Ken's playtest item 4) and the NEW DOSSIER CARD row, a
+//   repeat shows CONTINUE and the IN YOUR DOSSIER row.
 //   GUARD R3 (c), FILE TO DOSSIER RAISES THE DOSSIER BY ONE AND SURVIVES A
-//   RELOAD: filed at the tap since v1.6 R3, the card arriving stamped
-//   FILED; the device's dossier, and GOAL 2's count of it, read again from
-//   storage.
+//   RELOAD: filed at the tap since v1.6 R3, the button becoming its FILED
+//   stamp with the Dossier's count since v1.7 R1; the device's dossier,
+//   and GOAL 2's count of it, read again from storage.
 //   GUARD R3 (d), END OF TURN'S ROWS ADD UP TO THE NEXT BUDGET THE ENGINE
-//   REPORTS, live and from a reload, on every turn of seeded games.
+//   REPORTS, live (with every move ridden out, and with a response paid
+//   for) and from a reload, on every turn of seeded games.
 //   GUARD R3 (e), BURN AND HOLD STATE THE SAME ODDS AS THE ODDS LINE, in
 //   its words, with the SSA service and without.
 //   GUARD R3 (f), NO RETIRED WORD IN ANY NIGHT CARD (section 4), over a
@@ -31,13 +35,16 @@ import Game from '../src/ui/Game'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { planFor } from '../src/engine/campaign'
 import { newGame, resolveTurn } from '../src/engine/reducer'
+import { playNight } from '../src/engine/responses'
 import { turnRng } from '../src/engine/rng'
 import type { GameState, TurnActions } from '../src/engine/types'
 import { dossier } from '../src/persistence'
 import { dossierCount } from '../src/ui/titleStatus'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
-import { LOCK_SHARE, STRIKE_HOLD_MS, STRIKE_MS } from '../src/ui/board/strike'
+import { BLOCK_MS } from '../src/ui/board/strike'
+import { FILED_BEAT_MS } from '../src/ui/night/cards'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
+import { sensible } from './policies'
 import { NO_OP, WIN_SCRIPT, a, debrisTurnOf } from './scripts'
 
 declare global {
@@ -74,6 +81,10 @@ beforeAll(async () => {
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   reduced = true
+  callChoice = 'hold'
+  // The night's clocks (the overlay, the block moment, the FILED stamp)
+  // run on the fake one, so each guard says when they pass (v1.7 R1).
+  vi.useFakeTimers()
   vi.stubGlobal('localStorage', memoryStorage())
   vi.stubGlobal('matchMedia', (query: string) => ({
     matches: query.includes('reduce') ? reduced : false,
@@ -132,91 +143,172 @@ function words(el: Element): string {
   while (walk.nextNode()) out.push(walk.currentNode.textContent ?? '')
   return out.join(' ')
 }
-const stage = () =>
-  q('[data-intel-file]') ? 'intel' : (q('[data-night-card]')?.getAttribute('data-night-card') ?? (q('[data-moving]') ? 'moving' : q('[data-strike-banner]') ? 'strike' : q('[data-dock]') ? 'board' : 'none'))
+// Where the night is: a card by its kind (respond, hit, call, debris,
+// opportunity, end), the overlay, the block moment, or back on the board.
+const stage = () => q('[data-night-card]')?.getAttribute('data-night-card') ?? (q('[data-moving]') ? 'moving' : q('[data-block-moment]') ? 'block' : q('[data-dock]') ? 'board' : 'none')
 async function order(ids: string[]) {
   if (!ids.length) return
   await tap(q('[data-action="procure"]'))
   for (const id of ids) await tap(q(`[data-procure-defense="${id}"]`))
   await tap(q('[data-confirm]'))
 }
-// The tap a card asks for: FILE IT, the call, COLLECT or CONTINUE, BEGIN.
-const way = () => q('[data-file-it]') ?? q(`[data-call="${callChoice}"]`) ?? q('[data-collect]') ?? q('[data-continue]') ?? q('[data-begin]')
+// The clock, in steps short enough that a stage's second timer starts when
+// its first ends, and what it sets off, settled.
+async function pass(ms: number, every = 10) {
+  for (let left = ms; left > 0; left -= every) await act(async () => void vi.advanceTimersByTime(Math.min(every, left)))
+  await act(async () => {})
+}
+// The answer these guards give a move that would land: ride it out, which
+// is the night the engine resolves from the orders alone, unless a guard
+// says otherwise.
+let respond: () => Element | null = () => q('button[data-response="ride"]')
+const strongest = () => q('button[data-response][data-effect]:not([disabled])') ?? q('button[data-response="ride"]')
+// The tap a card asks for: the response, the call, FILE TO DOSSIER or
+// CONTINUE, BEGIN.
+const way = () => (q('[data-responses]') ? respond() : null) ?? q(`[data-call="${callChoice}"]`) ?? q('[data-collect]') ?? q('[data-continue]') ?? q('[data-begin]')
 let callChoice: 'burn' | 'hold' = 'hold'
+// One step on through the night: the block moment by its tap, a card by
+// its way on, and the FILED stamp's beat after FILE TO DOSSIER.
+async function onward() {
+  if (q('[data-block-moment]')) return tap(q('[data-strike-tap]'))
+  const el = way()
+  const filing = !!el?.hasAttribute('data-collect')
+  await tap(el)
+  if (filing) await pass(FILED_BEAT_MS + 1, FILED_BEAT_MS + 1)
+}
 
-describe('GUARD R3 (a): nothing in the night advances without a tap but the overlay and the strike', () => {
-  it('plays the overlay and the strike on their own, then waits on every card', async () => {
+describe('GUARD R3 (a): nothing in the night advances without a tap but the overlay, the block moment and the FILED stamp', () => {
+  it('plays the overlay, the block moment and the stamp on their own, then waits on every card', async () => {
     reduced = false
-    vi.useFakeTimers()
-    render(gameAt(1))
+    // The first night of the prepared line with a move a defense stops and
+    // a move that would land, so both the moment that plays by itself and
+    // the card that waits for an answer are met. Until v1.7 R1 this was
+    // turn 1 and its strike, which stood STRIKE_HOLD_MS before a hit's
+    // card; a hit has no strike now, and waits on THE RESPONSE instead.
+    const state = (() => {
+      for (let turn = 1; turn <= DEFAULT_SCENARIO.totalTurns; turn += 1) {
+        const s = gameAt(turn)
+        if (s.status !== 'playing' || s.turn !== turn) break
+        const events = resolveTurn(s, NO_OP, turnRng(s.seed, s.turn)).history.at(-1)!.events
+        const threats = events.filter((e) => !e.debris && (DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)!.kind ?? 'threat') === 'threat')
+        if (threats.some((e) => e.effectiveSeverity === 0) && threats.some((e) => e.room !== undefined)) return s
+      }
+      throw new Error('no night of the prepared line has both a block and a move that would land')
+    })()
+    render(state)
     await tap(q('[data-execute]'))
     expect(stage(), 'EXECUTE did not open COLDVEIL IS MOVING').toBe('moving')
-    await act(async () => void vi.advanceTimersByTime(749))
+    await pass(749, 749)
     expect(stage()).toBe('moving')
-    await act(async () => void vi.advanceTimersByTime(2))
-    await act(async () => {})
-    expect(stage(), 'the overlay did not give way to the strike').toBe('strike')
-    // The strike's two clocks: the lock-on, then the landing.
-    await act(async () => void vi.advanceTimersByTime(STRIKE_MS * LOCK_SHARE + 1))
-    await act(async () => {})
-    expect(stage()).toBe('strike')
-    await act(async () => void vi.advanceTimersByTime((STRIKE_HOLD_MS - STRIKE_MS * LOCK_SHARE) + 1))
-    await act(async () => {})
-    expect(stage(), 'the strike did not give way to the hit card').toBe('hit')
-    // From here every card waits: a minute passes and the same one is up.
+    await pass(2, 2)
+    expect(stage(), 'the overlay did not give way to the first move').not.toBe('moving')
+    const label = () => q('[data-night-card]')?.getAttribute('aria-label')
     const seen: string[] = []
-    for (let i = 0; i < 12 && stage() !== 'board'; i += 1) {
+    for (let i = 0; i < 40 && stage() !== 'board'; i += 1) {
       const before = stage()
-      const label = (q('[data-intel-file]') ?? q('[data-night-card]'))?.getAttribute('aria-label') ?? q('[data-intel-file]')?.getAttribute('data-intel-file')
-      await act(async () => void vi.advanceTimersByTime(60_000))
-      await act(async () => {})
-      expect(stage(), `${before} moved on without a tap`).toBe(before)
-      expect((q('[data-intel-file]') ?? q('[data-night-card]'))?.getAttribute('aria-label') ?? q('[data-intel-file]')?.getAttribute('data-intel-file')).toBe(label)
       seen.push(before)
-      await tap(way())
+      if (before === 'block') {
+        // The block moment: on its own, inside a second, and no sooner
+        // than its BLOCK_MS.
+        const moment = q('[data-block-moment]')
+        await pass(BLOCK_MS - 20)
+        expect(q('[data-block-moment]'), 'the block moment left before its time').toBe(moment)
+        await pass(40)
+        expect(q('[data-block-moment]'), 'the block moment did not move on by itself').not.toBe(moment)
+        continue
+      }
+      // Every card waits: a minute passes and the same one is up.
+      const at = label()
+      await pass(60_000, 1000)
+      expect(stage(), `${before} moved on without a tap`).toBe(before)
+      expect(label()).toBe(at)
+      const el = way()
+      const filing = !!el?.hasAttribute('data-collect')
+      await tap(el)
+      if (!filing) continue
+      // FILE TO DOSSIER: the stamp stands on the same card for its beat,
+      // and then the night goes on with no second tap.
+      seen.push('filed')
+      expect(q('[data-filed-stamp]'), 'FILE TO DOSSIER left no stamp').not.toBeNull()
+      expect(label()).toBe(at)
+      await pass(FILED_BEAT_MS - 20)
+      expect(q('[data-filed-stamp]'), 'the FILED stamp left before its beat').not.toBeNull()
+      expect(label()).toBe(at)
+      await pass(40)
+      expect(q('[data-filed-stamp]'), 'the night did not go on after the FILED stamp').toBeNull()
     }
-    expect(seen, 'the night met no card, intel card or END OF TURN').toEqual(expect.arrayContaining(['hit', 'intel', 'end']))
-    expect(stage(), 'BEGIN TURN 2 did not reach the board').toBe('board')
-  })
+    expect(seen, 'the night met no response, result, block moment, FILED stamp or END OF TURN').toEqual(expect.arrayContaining(['respond', 'hit', 'block', 'filed', 'end']))
+    // The response's result is the same screen: the answer brings the
+    // result up at once, with nothing between them.
+    seen.forEach((at, i) => {
+      if (at === 'respond') expect(seen[i + 1], 'an answer did not bring up its result').toBe('hit')
+    })
+    expect(stage(), `BEGIN TURN ${state.turn + 1} did not reach the board`).toBe('board')
+  }, 30_000)
 })
 
 describe('GUARD R3 (b): a first meeting shows FILE TO DOSSIER and a repeat shows CONTINUE', () => {
-  it('offers FILE TO DOSSIER for a threat not yet filed, and CONTINUE with the dossier row for one that is', async () => {
+  it('offers FILE TO DOSSIER and the NEW DOSSIER CARD row for a threat not yet filed, and CONTINUE with the IN YOUR DOSSIER row for one that is', async () => {
     render(gameAt(1))
     await tap(q('[data-execute]'))
+    // Turn 1 owns no defense, so its first move would land: the night
+    // stops on THE RESPONSE, and the result follows the answer (v1.7 R1).
+    expect(stage()).toBe('respond')
+    expect(q('[data-collect]') ?? q('[data-continue]'), 'the response card has a way on besides an answer').toBeNull()
+    await tap(respond())
     expect(stage()).toBe('hit')
     expect(q('[data-collect]')?.textContent).toBe('FILE TO DOSSIER')
     expect(q('[data-continue]')).toBeNull()
-    expect(q('[data-dossier-row]')).toBeNull()
+    // The row is on every result since v1.7 R1 (a first meeting had none,
+    // and opened the full-screen Dossier card instead): here it says the
+    // card is new.
+    const fresh = q('[data-night-card="hit"] details[data-dossier-row]')!
+    expect(fresh, 'a first meeting has no dossier row').not.toBeNull()
+    expect(fresh.hasAttribute('data-fresh')).toBe(true)
+    expect(fresh.querySelector('summary')!.textContent).toContain('NEW DOSSIER CARD')
     // The same night, with both of turn 1's moves already filed: the seed's
     // own two (v1.6 R1, its opening).
     localStorage.setItem('dc-dossier', JSON.stringify(planFor(gameAt(1), 1)!.slots[0].drawFrom))
     render(gameAt(1))
     await tap(q('[data-execute]'))
+    expect(stage()).toBe('respond')
+    await tap(respond())
     expect(stage()).toBe('hit')
     expect(q('[data-continue]')?.textContent).toBe('CONTINUE')
     expect(q('[data-collect]')).toBeNull()
-    expect(q('[data-dossier-row]')).not.toBeNull()
+    const row = q('[data-night-card="hit"] details[data-dossier-row]')!
+    expect(row).not.toBeNull()
+    expect(row.hasAttribute('data-fresh')).toBe(false)
+    expect(row.querySelector('summary')!.textContent).toContain('IN YOUR DOSSIER')
   })
 })
 
 describe('GUARD R3 (c): FILE TO DOSSIER raises the dossier by one and survives a reload', () => {
-  it('files the card on the device at the tap, stamps it FILED, and GOAL 2 counts it after a reload', async () => {
+  it('files the card on the device at the tap, stamps it FILED with the count, goes on by itself, and GOAL 2 counts it after a reload', async () => {
     render(gameAt(1))
     const before = dossierCount().filed
     await tap(q('[data-execute]'))
+    await tap(respond())
+    const id = q('[data-night-card="hit"] [data-dossier-row]')!.getAttribute('data-dossier-row')!
+    const card = q('[data-night-card]')!.getAttribute('aria-label')
+    expect(dossier().has(id), 'filed before FILE TO DOSSIER').toBe(false)
     await tap(q('[data-collect]'))
-    expect(stage()).toBe('intel')
-    const id = q('[data-intel-file]')!.getAttribute('data-intel-file')!
     // Filed at the tap that names it (Ken's playtest item 4: no second
-    // FILE IT), the card arriving with FILED stamped on it.
+    // FILE IT). Since v1.7 R1 the button itself becomes the stamp, with
+    // the Dossier's count, on the same card; the full-screen Dossier card
+    // and its CONTINUE are gone.
     expect(dossier().has(id), 'not filed at FILE TO DOSSIER').toBe(true)
     expect(dossierCount().filed).toBe(before + 1)
-    expect(q('[data-filed-stamp]')?.textContent).toBe('FILED')
-    expect(q('[data-dossier-count]')!.textContent).toBe(`${before + 1} / ${dossierCount().total}`)
-    expect(q('[data-file-it]')!.textContent).toBe('CONTINUE')
-    await tap(q('[data-file-it]'))
-    expect(stage()).not.toBe('intel')
+    expect(stage()).toBe('hit')
+    expect(q('[data-night-card]')!.getAttribute('aria-label')).toBe(card)
+    const stamp = q('[data-filed-stamp]')
+    expect(stamp?.textContent).toBe(`FILED · ${before + 1} / ${dossierCount().total}`)
+    expect(stamp!.getAttribute('role')).toBe('status')
+    expect(q('[data-collect]') ?? q('[data-continue]'), 'a second tap is asked for after FILE TO DOSSIER').toBeNull()
+    // Then the night goes on by itself, and nothing is filed twice.
+    await pass(FILED_BEAT_MS + 1)
+    expect(q('[data-filed-stamp]'), 'the night stood on the FILED stamp').toBeNull()
+    expect(q('[data-night-card]')?.getAttribute('aria-label'), 'the night did not go on to its next stage').not.toBe(card)
     expect(dossierCount().filed).toBe(before + 1)
     // A reload: nothing held in memory, only what storage kept.
     act(() => root.unmount())
@@ -242,9 +334,32 @@ describe("GUARD R3 (d): END OF TURN's rows add up to the next budget the engine 
     const state = gameAt(2)
     render(state)
     await tap(q('[data-execute]'))
-    for (let i = 0; i < 12 && stage() !== 'end'; i += 1) await tap(way())
+    for (let i = 0; i < 30 && stage() !== 'end'; i += 1) await onward()
     expect(stage()).toBe('end')
     check(resolveTurn(state, { ...NO_OP, debris: 'hold' }, turnRng(state.seed, state.turn)), 'turn 2, live')
+    // Every move was ridden out, so nothing was spent in the night.
+    expect(q('[data-ledger-row="responses"]'), 'a night of moves ridden out bills a response').toBeNull()
+  })
+  it('adds up live with a response paid for in the night (v1.7 R1)', async () => {
+    // The same night answered as the sweep's sensible line answers it: the
+    // strongest response the budget can meet, which the card lists first
+    // among those it does not disable. The engine's own night with that
+    // responder is the oracle, and the ledger has a row for what it spent.
+    const state = gameAt(2)
+    const next = playNight(state, { ...NO_OP, debris: 'hold' }, sensible)
+    const spent = next.history.at(-1)!.ledger.responses ?? 0
+    expect(spent, 'the fixture answers nothing, so the row proves nothing').toBeGreaterThan(0)
+    respond = strongest
+    try {
+      render(state)
+      await tap(q('[data-execute]'))
+      for (let i = 0; i < 30 && stage() !== 'end'; i += 1) await onward()
+    } finally {
+      respond = () => q('button[data-response="ride"]')
+    }
+    expect(stage()).toBe('end')
+    check(next, 'turn 2, live, answered')
+    expect(Number(q('[data-ledger-row="responses"]')?.getAttribute('data-value')), 'the ledger does not bill the response').toBe(-spent)
   })
   it('adds up from a reload, on every turn of three seeded games', () => {
     for (const [seed, script] of [
@@ -271,7 +386,7 @@ describe('GUARD R3 (e): BURN and HOLD state the same odds as the odds line', () 
       const state = gameAt(debrisTurnOf(20260712), 20260712, { 1: a({}), 2: a({}), 3: a({ buyCounters: ssa ? ['ssaManeuver'] : [] }) })
       render(state)
       await tap(q('[data-execute]'))
-      for (let i = 0; i < 6 && stage() !== 'call'; i += 1) await tap(way())
+      for (let i = 0; i < 20 && stage() !== 'call'; i += 1) await onward()
       expect(stage(), 'the night never made the call').toBe('call')
       const odds = q('[data-odds]')!.textContent!
       expect(odds).toBe(ssa ? '35 percent' : '20 to 60 percent')
@@ -302,30 +417,53 @@ describe('GUARD R3 (f): no retired word in any night card', () => {
     ['slot', /\bslot\b/i],
     ['in this build', /in this build/i],
   ]
-  it('finds none on a hit, a block, a partial, an opportunity, the debris call and its result, the intel card and every END OF TURN', async () => {
+  it('finds none on the response, a hit, a block and its moment, a partial, a halved move, an opportunity, the debris call and its result, and every END OF TURN', async () => {
     // Seed 32 on STANDARD, with these orders, meets every kind of card
     // (scripts/phone-layout.mjs, NIGHT_PLAN, plays the same operation), on
     // the campaign's other order. Seed 1 until v1.6 R1, when each seed
     // began to play its own order; seed 24, with three on turn 2, until
     // v1.4's one new defense a night.
+    //
+    // v1.7 R1: the full-screen Dossier card is gone (its words are in each
+    // result's Dossier row, which is read with the card), and the night
+    // now has the response card, the block moment and three ways a result
+    // can read after an answer. So the walk answers too: it halves the
+    // first move it can, blocks the next, and rides the rest out.
     const plan: Record<number, string[]> = { 1: ['antiJam'], 2: ['encryptedBackhaul'], 3: ['linkAuth'], 4: ['pntAuth'], 5: ['sensorFusion'], 6: ['groundZeroTrust'] }
     render(newGame(DEFAULT_SCENARIO, 32, 'standard'))
     const seen = new Set<string>()
-    for (let turn = 1; turn <= 6; turn += 1) {
-      await order(plan[turn] ?? [])
-      await tap(q('[data-execute]'))
-      for (let i = 0; i < 20 && stage() !== 'board'; i += 1) {
-        const s = stage()
-        const card = q('[data-intel-file]') ?? q('[data-night-card]')
-        if (!card) break
-        seen.add(s === 'hit' ? `hit:${q('[data-result]')!.getAttribute('data-result')}` : s)
-        const text = words(card)
-        for (const [word, re] of RETIRED) expect(re.test(text), `${word} on ${s}, turn ${turn}: "${text.match(re)?.[0]}"`).toBe(false)
-        const last = s === 'end' && q('[data-begin]')!.textContent === 'DEBRIEF'
-        await tap(way())
-        if (last) break
+    const took = new Set<string>()
+    respond = () => {
+      for (const effect of ['halve', 'block']) {
+        const button = took.has(effect) ? null : q(`button[data-response][data-effect="${effect}"]:not([disabled])`)
+        if (button) {
+          took.add(effect)
+          return button
+        }
       }
+      return q('button[data-response="ride"]')
     }
-    expect([...seen].sort()).toEqual(['call', 'debris', 'end', 'hit:blocked', 'hit:hit', 'hit:partial', 'intel', 'opportunity'])
+    try {
+      for (let turn = 1; turn <= 6; turn += 1) {
+        await order(plan[turn] ?? [])
+        await tap(q('[data-execute]'))
+        for (let i = 0; i < 40 && stage() !== 'board'; i += 1) {
+          const s = stage()
+          const card = q('[data-night-card]') ?? q('[data-block-moment]')
+          if (!card) break
+          seen.add(s === 'hit' ? `hit:${q('[data-result]')!.getAttribute('data-result')}${q('[data-response-taken]') && q('[data-response-taken]')!.getAttribute('data-response-taken') !== 'ride' ? ':answered' : ''}` : s)
+          // Everything the card says, the closed Dossier row and END OF
+          // TURN's DETAILS with it, and each response button's spoken name.
+          const text = [words(card), ...[...card.querySelectorAll('[aria-label]')].map((el) => el.getAttribute('aria-label'))].join(' ')
+          for (const [word, re] of RETIRED) expect(re.test(text), `${word} on ${s}, turn ${turn}: "${text.match(re)?.[0]}"`).toBe(false)
+          const last = s === 'end' && q('[data-begin]')!.textContent === 'DEBRIEF'
+          await onward()
+          if (last) break
+        }
+      }
+    } finally {
+      respond = () => q('button[data-response="ride"]')
+    }
+    expect([...seen].sort()).toEqual(['block', 'call', 'debris', 'end', 'hit:blocked', 'hit:blocked:answered', 'hit:halved:answered', 'hit:hit', 'hit:partial', 'opportunity', 'respond'])
   })
 })

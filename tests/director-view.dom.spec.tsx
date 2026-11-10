@@ -10,10 +10,12 @@
 //
 // v1.3 R3 (brief 5.5) retired the director and its view for THE NIGHT
 // (src/ui/night/), and the guarantees went with the behaviour:
-// - the hidden page: the night's cards wait for a tap, and its two clocks
-//   (the 750ms overlay and the strike) stop while the tab is hidden and
-//   finish when it comes back (brief 8.3), so what was on screen when the
-//   phone locked is what is on screen when it wakes;
+// - the hidden page: the night's cards wait for a tap, and its clocks (the
+//   750ms overlay, the block moment and the FILED stamp since v1.7 R1,
+//   where the strike before a hit card gave way to the response card) stop
+//   while the tab is hidden and finish when it comes back (brief 8.3), so
+//   what was on screen when the phone locked is what is on screen when it
+//   wakes;
 // - the badge restart, which was about a repeated element keeping what the
 //   last beat left on it: each move now gets a card of its own, so nothing
 //   the player opened on one card is still open on the next;
@@ -37,9 +39,12 @@ import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState, TurnActions } from '../src/engine/types'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
-import { LOCK_SHARE, STRIKE_HOLD_MS, STRIKE_MS } from '../src/ui/board/strike'
+import { playNight } from '../src/engine/responses'
+import { BLOCK_MS, LOCK_SHARE } from '../src/ui/board/strike'
+import { FILED_BEAT_MS } from '../src/ui/night/cards'
 import { nightOf } from '../src/ui/night/nightModel'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
+import { sensible } from './policies'
 import { NO_OP, WIN_SCRIPT, debrisTurnOf } from './scripts'
 
 declare global {
@@ -142,14 +147,27 @@ function setHidden(hidden: boolean) {
     document.dispatchEvent(new Event('visibilitychange'))
   })
 }
-const stage = () =>
-  q('[data-intel-file]') ? 'intel' : (q('[data-night-card]')?.getAttribute('data-night-card') ?? (q('[data-moving]') ? 'moving' : q('[data-strike-banner]') ? 'strike' : q('[data-dock]') ? 'board' : 'none'))
-// What is up, by name: the card's label, the intel card's threat, or the
-// stage.
-const onScreen = () => (q('[data-intel-file]') ?? q('[data-night-card]'))?.getAttribute('aria-label') ?? q('[data-intel-file]')?.getAttribute('data-intel-file') ?? stage()
-// The tap a card asks for: FILE IT, the call, COLLECT or CONTINUE, BEGIN.
+// v1.7 R1: the full-screen Dossier card is gone, so a stage is a card, the
+// overlay, the block moment (the one strike left) or the board.
+const stage = () => q('[data-night-card]')?.getAttribute('data-night-card') ?? (q('[data-moving]') ? 'moving' : q('[data-block-moment]') ? 'strike' : q('[data-dock]') ? 'board' : 'none')
+// What is up, by name: the card's label, or the stage.
+const onScreen = () => q('[data-night-card]')?.getAttribute('aria-label') ?? stage()
+// The tap a stage asks for: an answer on the response card (v1.7 R1), the
+// tap that ends a block moment, the call, FILE TO DOSSIER or CONTINUE,
+// BEGIN. `answer` is how the response is met: ridden out, or the first
+// answer the budget can meet, which is what the `sensible` responder of
+// tests/policies.ts takes.
 let callChoice: 'burn' | 'hold' = 'hold'
-const way = () => q('[data-file-it]') ?? q(`[data-call="${callChoice}"]`) ?? q('[data-collect]') ?? q('[data-continue]') ?? q('[data-begin]')
+let answer: 'ride' | 'sensible' = 'ride'
+const respondWay = () => (answer === 'sensible' ? q('[data-responses] button[data-effect]:not([disabled])') : null) ?? q('[data-responses] button[data-response="ride"]')
+const way = () => respondWay() ?? q('[data-strike-tap]') ?? q(`[data-call="${callChoice}"]`) ?? q('[data-collect]') ?? q('[data-continue]') ?? q('[data-begin]')
+// One step of a night under fake timers: the tap the stage asks for, or,
+// with nothing to tap (the overlay, the FILED stamp), the time it takes.
+async function onward() {
+  const el = way()
+  if (el) await tap(el)
+  else await advance(FILED_BEAT_MS + 1)
+}
 async function order(ids: string[]) {
   if (!ids.length) return
   await tap(q('[data-action="procure"]'))
@@ -158,20 +176,36 @@ async function order(ids: string[]) {
 }
 
 describe('the night: the behaviour the source pins could only spell', () => {
-  it('waits for the player on every card, hidden page or not, and stops its two clocks while the page is hidden', async () => {
+  it('waits for the player on every card, hidden page or not, and stops its clocks while the page is hidden', async () => {
     // Until v1.3 Round 0 this case proved the hidden-page pause of the
     // director's dwell; until R3, that the beat on screen waited for a tap
-    // with the page hidden or not. In the night two things still run on
-    // their own, the overlay and the strike, and they stop while the page
-    // is hidden and finish their time when it comes back (brief 8.3); every
-    // card waits for a tap. So the phone locks right after EXECUTE, in the
-    // middle of the strike, and on the card; a minute passes each time, far
-    // past either clock. A clock that ran on behind the hidden page fails
-    // the first two halves, a card that moved on its own the third, and
-    // the tap at the end is the control that shows the night can move.
+    // with the page hidden or not. Through v1.6 the night's two clocks were
+    // the overlay and the strike. Since v1.7 R1 no strike stands before a
+    // hit card: three things run on their own, the overlay, the block
+    // moment (a move a defense stops) and the FILED stamp, and they stop
+    // while the page is hidden and finish their time when it comes back
+    // (brief 8.3); every card waits for a tap. So the phone locks right
+    // after EXECUTE, in the middle of the block moment, on the card, and on
+    // the stamp; a minute passes each time, far past any clock. A clock
+    // that ran on behind the hidden page fails its half, a card that moved
+    // on its own fails the card's, and the tap is the control that shows
+    // the night can move.
+    //
+    // Turn 3 of the prepared line on the anchor seed, with its order placed
+    // through PROCURE: both of its moves are stopped by the defenses the
+    // line owns by then, and neither is in the Dossier, so
+    // the night is a block moment, its card to file, and another block
+    // moment.
     reduced = false
     vi.useFakeTimers()
-    render(gameAt(1))
+    const state = gameAt(3)
+    const steps = nightOf(state, resolveTurn(state, WIN_SCRIPT[3], turnRng(state.seed, state.turn))).steps
+    expect(
+      steps.map((x) => x.kind === 'threat' && x.ev.effectiveSeverity === 0 && x.ev.room === undefined),
+      'the fixture changed: turn 3 no longer opens on two moves that defenses stop',
+    ).toEqual([true, true])
+    render(state)
+    await order(WIN_SCRIPT[3].buyCounters)
     await tap(q('[data-execute]'))
     expect(stage(), 'EXECUTE did not open COLDVEIL IS MOVING').toBe('moving')
     setHidden(true)
@@ -180,64 +214,131 @@ describe('the night: the behaviour the source pins could only spell', () => {
     setHidden(false)
     await advance(751)
     expect(stage(), 'the overlay did not finish once the page came back').toBe('strike')
+    expect(q('[data-block-moment] [data-strike-word="held"]')?.textContent, 'the block moment does not say BLOCKED').toBe('BLOCKED')
 
     // Mid lock-on, the page hides again.
     await advance(100)
-    const locked = () => !!q('button[data-struck="lock"], button[data-shield="lock"]')
-    expect(locked(), 'the strike is not locking on').toBe(true)
+    const locked = () => !!q('button[data-shield="lock"]')
+    expect(locked(), 'the block moment is not locking on').toBe(true)
     setHidden(true)
     await advance(60_000)
-    expect(stage(), 'the strike ran on behind a hidden page').toBe('strike')
-    expect(locked(), 'the strike landed behind a hidden page').toBe(true)
+    expect(stage(), 'the block moment ran on behind a hidden page').toBe('strike')
+    expect(locked(), 'the shield landed behind a hidden page').toBe(true)
     setHidden(false)
-    await advance(STRIKE_MS * LOCK_SHARE + 1)
-    expect(locked(), 'the strike did not land once the page came back').toBe(false)
-    await advance((STRIKE_HOLD_MS - STRIKE_MS * LOCK_SHARE) + 1)
-    expect(stage(), 'the strike did not give way to its card').toBe('hit')
+    await advance(BLOCK_MS * LOCK_SHARE + 1)
+    expect(locked(), 'the shield did not land once the page came back').toBe(false)
+    expect(stage(), 'the block moment ended as it landed').toBe('strike')
+    // Landed, the page hides once more: the rest of its time waits too.
+    setHidden(true)
+    await advance(60_000)
+    expect(stage(), 'the landed block moment ran on behind a hidden page').toBe('strike')
+    setHidden(false)
+    await advance(BLOCK_MS * (1 - LOCK_SHARE) + 1)
+    expect(stage(), 'the block moment did not give way to its card to file').toBe('hit')
 
     // The card waits, hidden or not.
     const opening = onScreen()
+    expect(q('[data-collect]'), 'a threat met for the first time offers no FILE TO DOSSIER').not.toBeNull()
     setHidden(true)
     await advance(60_000)
     expect(onScreen(), 'the card moved on behind a hidden page').toBe(opening)
     setHidden(false)
     await advance(60_000)
     expect(onScreen(), 'the card moved on without the player once the page came back').toBe(opening)
-    await tap(way())
-    expect(onScreen(), 'a tap on the way on did not move the night on').not.toBe(opening)
+    expect(q('[data-collect]'), 'the card filed itself').not.toBeNull()
+
+    // FILE TO DOSSIER: the stamp, whose beat is the third clock.
+    await tap(q('[data-collect]'))
+    expect(q('[data-filed-stamp]')?.textContent, 'FILE TO DOSSIER did not stamp the card').toBe(`FILED · 1 / ${DEFAULT_SCENARIO.events.filter((e) => e.kind !== 'opportunity').length}`)
+    expect(q('[data-collect]'), 'the button stayed beside its stamp').toBeNull()
+    setHidden(true)
+    await advance(60_000)
+    expect(q('[data-filed-stamp]'), 'the FILED stamp ran on behind a hidden page').not.toBeNull()
+    expect(onScreen()).toBe(opening)
+    setHidden(false)
+    await advance(FILED_BEAT_MS + 1)
+    expect(q('[data-filed-stamp]'), 'the FILED stamp did not finish once the page came back').toBeNull()
+    expect(stage(), 'the night did not go on by itself after the stamp').toBe('strike')
+    expect(onScreen(), 'the night did not move on').not.toBe(opening)
+  })
+
+  it('waits on the response card until the player answers, hidden page or not (v1.7 R1)', async () => {
+    // The response card replaced the strike's hold before a hit: nothing
+    // advances until one of its buttons is clicked, and the answer turns
+    // the same screen into the result. Turn 1 on the anchor seed, with no
+    // orders: one move, which would land.
+    reduced = false
+    vi.useFakeTimers()
+    render(gameAt(1))
+    await tap(q('[data-execute]'))
+    await advance(751)
+    expect(stage(), 'a move that would land did not stop the night on THE RESPONSE').toBe('respond')
+    const asked = onScreen()
+    expect(q('[data-responses]')?.getAttribute('role')).toBe('group')
+    expect(q('[data-responses] button[data-response="ride"]'), 'no RIDE IT OUT on the response card').not.toBeNull()
+    expect(q('[data-responses] button[data-effect]'), 'the response card offers no answer').not.toBeNull()
+    setHidden(true)
+    await advance(60_000)
+    expect(onScreen(), 'the response card moved on behind a hidden page').toBe(asked)
+    setHidden(false)
+    await advance(60_000)
+    expect(onScreen(), 'the response card answered itself').toBe(asked)
+    await tap(q('[data-responses] button[data-response="ride"]'))
+    expect(stage(), 'the answer did not turn the screen into the result').toBe('hit')
+    expect(q('[data-response-taken]')?.getAttribute('data-response-taken')).toBe('ride')
+    // And the result waits in its turn.
+    const result = onScreen()
+    await advance(60_000)
+    expect(onScreen(), 'the result moved on without the player').toBe(result)
+    // FILE TO DOSSIER, its stamp's beat, and the night goes on by itself:
+    // to END OF TURN, this being the night's one move.
+    await tap(q('[data-collect]'))
+    expect(q('[data-filed-stamp]'), 'FILE TO DOSSIER did not stamp the card').not.toBeNull()
+    await advance(FILED_BEAT_MS + 1)
+    expect(stage(), 'the night did not go on after the stamp').toBe('end')
   })
 
   it('gives every move a card of its own, so nothing opened on one is still open on the next', async () => {
     // The defect this replaces: the layer badge's pulse was a class on a
     // node that never remounted, so two consecutive beats on the same layer
     // at the same tone left a finished animation in place. The night's case
-    // is two hit cards in a row: one component, the same classes, and a
-    // card the player can change (the IN YOUR DOSSIER row opens). Without a
-    // card per move React would reconcile the second into the first's
-    // nodes, and the row the player opened would arrive open on a card
-    // about another threat. Reduced motion, so no strike stands between
-    // the two, and both threats filed, so no intel card does.
+    // is two result cards in one night: one component, the same classes,
+    // and a card the player can change (the IN YOUR DOSSIER row opens).
+    // Without a card per move the row the player opened would arrive open
+    // on a card about another threat. Since v1.7 R1 each of the two is
+    // reached through its response card, ridden out here, and the result
+    // takes the response's place on the same screen. Reduced motion, so no
+    // overlay stands before them, and both threats filed, so each offers
+    // CONTINUE.
     const turn = (() => {
       for (let t = 1; t <= DEFAULT_SCENARIO.totalTurns; t += 1) {
         const state = gameAt(t)
         if (state.status !== 'playing') break
         const steps = nightOf(state, resolveTurn(state, NO_OP, turnRng(state.seed, state.turn))).steps
-        if (steps.length >= 2 && steps[0].kind === 'threat' && steps[1].kind === 'threat' && steps[0].def.id !== steps[1].def.id) return { state, ids: [steps[0].def.id, steps[1].def.id] }
+        const lands = (k: number) => steps[k].kind === 'threat' && steps[k].ev.room !== undefined
+        if (steps.length >= 2 && lands(0) && lands(1) && steps[0].def.id !== steps[1].def.id) return { state, ids: [steps[0].def.id, steps[1].def.id] }
       }
-      throw new Error('no night of the prepared line opens on two hit cards in a row')
+      throw new Error('no night of the prepared line opens on two moves that would land')
     })()
     localStorage.setItem('dc-dossier', JSON.stringify(turn.ids))
     render(turn.state)
     await tap(q('[data-execute]'))
+    const asked = q('section[data-night-card="respond"]')!
+    expect(asked, 'the night did not open on the response card').not.toBeNull()
+    await tap(q('[data-responses] button[data-response="ride"]'))
     const first = q('section[data-night-card="hit"]')!
-    expect(first, 'the night did not open on a hit card').not.toBeNull()
+    expect(first, 'the answer did not bring the result card').not.toBeNull()
+    expect(asked.isConnected, 'the response card is still up under its result').toBe(false)
     const row = first.querySelector<HTMLDetailsElement>(`details[data-dossier-row="${turn.ids[0]}"]`)!
     expect(row, 'the first card has no dossier row').not.toBeNull()
+    expect(row.hasAttribute('data-fresh'), 'a filed threat reads as a new Dossier card').toBe(false)
     row.open = true
     await tap(q('[data-continue]'))
+    expect(first.isConnected, 'the first card survived the move change').toBe(false)
+    expect(q('section[data-night-card="respond"]'), 'the second move did not stop the night on its response card').not.toBeNull()
+    await tap(q('[data-responses] button[data-response="ride"]'))
     const second = q('section[data-night-card="hit"]')!
     expect(second, 'the second move has no hit card').not.toBeNull()
-    expect(first.isConnected, 'the first card survived the move change').toBe(false)
     expect(second, 'the second card is the same element as the first').not.toBe(first)
     const next = second.querySelector<HTMLDetailsElement>('details[data-dossier-row]')!
     expect(next.getAttribute('data-dossier-row')).toBe(turn.ids[1])
@@ -248,25 +349,41 @@ describe('the night: the behaviour the source pins could only spell', () => {
     // This was "the deciding turn ends on an outcome beat" (MISSION
     // ASSURED) in the director battery. The night ends on END OF TURN,
     // whose last edition says how the operation ended and offers DEBRIEF
-    // in place of BEGIN TURN (brief 5.5 item 6). The prepared line wins on
-    // the anchor seed. Its last night ordered nothing until v1.4; with one
-    // new defense a night it has one left to place, which goes in through
-    // PROCURE as a player places it.
-    const state = gameAt(DEFAULT_SCENARIO.totalTurns)
-    expect(resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn)).status, 'the fixture no longer wins').toBe('won')
-    render(state)
-    const last = WIN_SCRIPT[state.turn]?.buyCounters ?? []
-    if (last.length > 0) {
-      await tap(q('[data-action="procure"]'))
-      for (const id of last) await tap(q(`[data-procure-defense="${id}"]`))
-      await tap(q('[data-confirm]'))
+    // in place of BEGIN TURN (brief 5.5 item 6). Since v1.7 R1 nobody wins
+    // with every move ridden out, so the prepared line gets here answering
+    // each night with the first response its budget can meet (the
+    // `sensible` responder), and answers the last night the same way on
+    // the response card; that wins on the anchor seed. Its last night has
+    // one defense left to place, which goes in through PROCURE as a player
+    // places it.
+    let state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
+    while (state.status === 'playing' && state.turn < DEFAULT_SCENARIO.totalTurns) state = playNight(state, WIN_SCRIPT[state.turn] ?? NO_OP, sensible)
+    expect(state.status, 'the fixture ended before its last turn').toBe('playing')
+    expect(playNight(state, WIN_SCRIPT[state.turn] ?? NO_OP, sensible).status, 'the fixture no longer wins').toBe('won')
+    // The control: the same orders with every move ridden out lose, so the
+    // win below is the answers' doing.
+    expect(gameAt(DEFAULT_SCENARIO.totalTurns + 1).status, 'the prepared line wins unanswered, so the responses prove nothing').toBe('lost')
+    vi.useFakeTimers()
+    answer = 'sensible'
+    try {
+      render(state)
+      await order(WIN_SCRIPT[state.turn]?.buyCounters ?? [])
+      await tap(q('[data-execute]'))
+      let answers = 0
+      for (let i = 0; i < 40 && stage() !== 'end'; i += 1) {
+        if (q('[data-responses] button[data-effect]:not([disabled])')) answers += 1
+        await onward()
+      }
+      expect(answers, 'the deciding night offered no answer the budget could meet').toBeGreaterThan(0)
+    } finally {
+      answer = 'ride'
     }
-    await tap(q('[data-execute]'))
-    for (let i = 0; i < 20 && stage() !== 'end'; i += 1) await tap(way())
     expect(stage(), 'the deciding night never reached END OF TURN').toBe('end')
     const ending = q('[data-night-card="end"] [data-ending]')
     expect(ending?.getAttribute('data-ending')).toBe('won')
     expect(ending!.textContent).toBe(`MISSION HELDThe architecture held through turn ${DEFAULT_SCENARIO.totalTurns}.`)
+    // The one line of advice is for a next turn, and there is none.
+    expect(q('[data-end-fix]'), 'the last END OF TURN still advises on a next turn').toBeNull()
     expect(q('button[data-begin]')!.textContent).toBe('DEBRIEF')
     await tap(q('button[data-begin]'))
     await act(async () => {})

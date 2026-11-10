@@ -33,7 +33,7 @@ vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
 import Game from '../src/ui/Game'
 import { ACTIONS, resolveLabel } from '../src/ui/board/actions'
 import { SYSTEM_CONTROLS } from '../src/ui/board/SystemSheet'
-import { STRIKE_HOLD_MS } from '../src/ui/board/strike'
+import { BLOCK_MS } from '../src/ui/board/strike'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
@@ -151,17 +151,24 @@ async function tap(el: Element) {
 }
 // END OF TURN's way on: BEGIN TURN n+1, or DEBRIEF on the last.
 const begin = () => container.querySelector('[data-night-card="end"] button[data-begin]') as HTMLButtonElement | null
-// Play the night out to END OF TURN (v1.3 R3, brief 5.5): only the
-// 750ms overlay and the strikes play on their own, so the timers run a
-// strike's length whenever no card is up, and every card is tapped on, as
-// a player does (FILE IT, HOLD on the debris call, COLLECT or CONTINUE).
+// Play the night out to END OF TURN (v1.3 R3, brief 5.5; v1.7 R1). Only
+// the 750ms overlay, the block moment and the FILED stamp play on their
+// own, so the timers run a block moment's length whenever nothing is there
+// to tap, and everything else is tapped on, as a player does: RIDE IT OUT
+// on a response, HOLD on the debris call, FILE TO DOSSIER or CONTINUE.
+// v1.7 R1: the response card replaced the strike's hold before a hit, and
+// the FILED stamp replaced the full-screen Dossier card and its FILE IT.
 async function playOut() {
   for (let i = 0; i < 100 && !begin(); i++) {
-    const way = container.querySelector('[data-file-it]') ?? container.querySelector('[data-call="hold"]') ?? container.querySelector('[data-collect]') ?? container.querySelector('[data-continue]')
+    const way =
+      container.querySelector('[data-responses] button[data-response="ride"]') ??
+      container.querySelector('[data-call="hold"]') ??
+      container.querySelector('[data-collect]') ??
+      container.querySelector('[data-continue]')
     if (way) await tap(way)
     else
       await act(async () => {
-        vi.advanceTimersByTime(STRIKE_HOLD_MS)
+        vi.advanceTimersByTime(BLOCK_MS)
       })
   }
   expect(begin(), 'the night did not reach END OF TURN').not.toBeNull()
@@ -296,7 +303,7 @@ describe('EXECUTE says what it does (v1.2 R2b, a tap since v1.3 Round 0)', () =>
     }
     const state = gameAt(2)
     render(state, 'brief')
-    const night = () => container.querySelector('[data-moving], [data-strike-banner], [data-night-card], [data-intel-file]')
+    const night = () => container.querySelector('[data-moving], [data-block-moment], [data-night-card]')
     expect(night(), 'the turn is playing before EXECUTE was pressed').toBeNull()
     // A tap, not a hold: one click resolves the turn and the night is up,
     // COLDVEIL IS MOVING first.

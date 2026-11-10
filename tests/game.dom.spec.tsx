@@ -64,6 +64,7 @@ import { gnssDenied, newGame, resolveTurn } from '../src/engine/reducer'
 import { planFor } from '../src/engine/campaign'
 import { eventById } from '../src/engine/rules'
 import { maiScore } from '../src/engine/scoring'
+import { playNight as resolveNight } from '../src/engine/responses'
 import { turnRng } from '../src/engine/rng'
 import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
 import { glossaryEntries } from '../src/ui/reference'
@@ -73,6 +74,7 @@ import { DISCLOSURE_WORD_BUDGETS, briefCopy, countWords, coverageLine, fullBrief
 import { BRIEF_LABEL, HELP_LABEL, INTEL_ROW, chainLine } from '../src/ui/board/boardModel'
 import type { AssetKind, GameState, TurnActions, TurnRecord } from '../src/engine/types'
 import { CONDITION_CUES, MOMENT_CUES, SECTION_6_ROWS, VISUAL_CLASS, outcomeSound, strikeSound, type Moment, type SoundCue } from '../src/cues'
+import { BLOCK_MS } from '../src/ui/board/strike'
 import { nightOf, resultOf } from '../src/ui/night/nightModel'
 import { ENDING, INSOLVENT_LINE } from '../src/ui/night/nightCopy'
 import { SOUND_TOGGLE_LABELS, chromeCopy, firstInputCopy } from '../src/ui/brief'
@@ -80,7 +82,7 @@ import { getAudioEngine, installGestureUnlock, resetAudioEngineForTests } from '
 import { CROSSING_SOUND } from '../src/ui/cues/Meter'
 import { FakeAudioContext, installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT, a } from './scripts'
-import { POLICIES } from './policies'
+import { POLICIES, sensible } from './policies'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -325,16 +327,19 @@ async function openFullBrief() {
   expect(container.querySelector('[data-sheet="brief"]'), 'the full brief did not open').not.toBeNull()
 }
 
-// THE COMMIT AND THE NIGHT (v1.3 Round 3, brief 5.5). EXECUTE is a plain
-// button that ends the turn on a click; the hold-to-resolve control and
-// its keyboard path left in Round 0. A synthetic keydown does not click a
-// plain button in jsdom, so the fixture clicks it, as a player taps it.
-// What follows is THE NIGHT, which retired the v1.1 director's beats this
-// round: COLDVEIL IS MOVING for 750ms, then per event a strike on the
-// board and its card, the intel card on a first meeting, and END OF TURN
-// with BEGIN TURN n+1 or DEBRIEF. Only the overlay and the strike run on
-// timers; every card waits for a tap, so the fixture taps the night
-// through by the one way on each card offers, as a player does.
+// THE COMMIT AND THE NIGHT (v1.3 Round 3, brief 5.5; v1.7 R1). EXECUTE is
+// a plain button that ends the turn on a click; the hold-to-resolve control
+// and its keyboard path left in Round 0. A synthetic keydown does not click
+// a plain button in jsdom, so the fixture clicks it, as a player taps it.
+// What follows is THE NIGHT: COLDVEIL IS MOVING for 750ms, then per move
+// THE RESPONSE on one that would land, whose answer turns the same screen
+// into the result, or THE BLOCK MOMENT on one a defense stops, and END OF
+// TURN with BEGIN TURN n+1 or DEBRIEF. Only the overlay, the block moment
+// and the FILED stamp run on timers; every card waits for a tap, so the
+// fixture taps the night through by the way on each card offers, as a
+// player does. (Through v1.6 a strike stood before each hit card and a
+// first meeting had a full-screen Dossier card with FILE IT; v1.7 R1
+// replaced them with the response card and the FILED stamp.)
 //
 // The night renders from chunks the board fetched ahead, so a tap that
 // changes its stage is awaited and settled before anything is read.
@@ -345,22 +350,22 @@ async function tap(el: Element) {
   })
   await act(async () => {})
 }
-// Where the night is: the intel card (over the hit card it came from), a
-// night card by its kind, the overlay or the strike; or off the night, on
-// the deciding board (its dock) or the score screen (its save code).
-type Stage = 'intel' | 'hit' | 'call' | 'debris' | 'opportunity' | 'end' | 'moving' | 'strike' | 'board' | 'score' | 'none'
+// Where the night is: a night card by its kind (the response card is
+// 'respond', a move's result 'hit'), the overlay or the block moment
+// ('strike', the one strike v1.7 R1 left); or off the night, on the
+// deciding board (its dock) or the score screen (its save code).
+type Stage = 'respond' | 'hit' | 'call' | 'debris' | 'opportunity' | 'end' | 'moving' | 'strike' | 'board' | 'score' | 'none'
 function nightStage(): Stage {
-  if (container.querySelector('div[data-intel-file]')) return 'intel'
   const card = container.querySelector('section[data-night-card]')
   if (card) return card.getAttribute('data-night-card') as Stage
   if (container.querySelector('div[data-moving]')) return 'moving'
-  if (container.querySelector('div[data-strike-banner]')) return 'strike'
+  if (container.querySelector('div[data-block-moment]')) return 'strike'
   if (container.querySelector('nav[data-dock]')) return 'board'
   if (container.querySelector('textarea[data-outcome-save-code]')) return 'score'
   return 'none'
 }
 const inNight = () => !['board', 'score', 'none'].includes(nightStage())
-// The night's two clocks, run in steps a caller can sample between.
+// The night's clocks, run in steps a caller can sample between.
 const NIGHT_STEP_MS = 300
 async function wait(ms: number, sample?: () => void) {
   for (let left = ms; left > 0; left -= NIGHT_STEP_MS) {
@@ -371,29 +376,52 @@ async function wait(ms: number, sample?: () => void) {
     sample?.()
   }
 }
-// Tap the night on screen through to its end. The overlay and each strike
-// are given their time; a card is given `dwell` first, when the caller
-// wants what it plays on its own clock (its result tiles tick, and a new
-// condition's alarm and a streak's fanfare sound, after it arrives, and a
-// tap takes the card away before they can); then its way on is tapped:
-// FILE IT, the call (HOLD unless told otherwise), COLLECT INTEL CARD or
-// CONTINUE, and BEGIN TURN or DEBRIEF, which ends the night. With
-// `stopAt: 'end'` it stops on END OF TURN, untapped. Returns every card
-// it met, in order, and the taps it took.
+// The answer the fixture gives on the response card (v1.7 R1): RIDE IT
+// OUT, or, as the `sensible` responder of tests/policies.ts does, the
+// first answer the budget can meet, and RIDE IT OUT when none fits.
+type Answer = 'ride' | 'sensible'
+function responseWay(answer: Answer): HTMLButtonElement | null {
+  const group = container.querySelector('div[data-responses]')
+  if (!group) return null
+  const fits = answer === 'sensible' ? group.querySelector('button[data-effect]:not([disabled])') : null
+  return (fits ?? group.querySelector('button[data-response="ride"]')) as HTMLButtonElement | null
+}
+// Tap the night on screen through to its end. The overlay, each block
+// moment and each FILED stamp are given their time; a card is given
+// `dwell` first, when the caller wants what it plays on its own clock (its
+// result tiles tick, and a new condition's alarm and a streak's fanfare
+// sound, after it arrives, and a tap takes the card away before they can);
+// then its way on is tapped: an answer on the response card (RIDE IT OUT
+// unless told otherwise), the call (HOLD unless told otherwise), FILE TO
+// DOSSIER or CONTINUE, and BEGIN TURN or DEBRIEF, which ends the night.
+// With `stopAt: 'end'` it stops on END OF TURN, untapped. Returns every
+// card it met, in order, and the taps it took.
 interface NightOpts {
   sample?: () => void
   onCard?: (stage: Stage) => void
+  // What passes on its own clock, as each arrives: a block moment's banner
+  // and a FILED stamp.
+  onPassing?: (kind: 'strike' | 'filed', el: Element) => void
   call?: 'burn' | 'hold'
+  respond?: Answer
   dwell?: number
   stopAt?: 'end'
 }
 async function playNight(opts: NightOpts = {}): Promise<{ seen: Stage[]; taps: number }> {
   const seen: Stage[] = []
   let taps = 0
-  for (let i = 0; i < 120; i += 1) {
+  let passing: Element | null = null
+  for (let i = 0; i < 160; i += 1) {
     if (nightStage() === 'none') await settle()
     const stage = nightStage()
-    if (stage === 'moving' || stage === 'strike') {
+    // The FILED stamp stands on its card for a beat, with nothing to tap,
+    // and the night goes on by itself.
+    const stamp = container.querySelector('p[data-filed-stamp]')
+    const moment = stage === 'strike' ? container.querySelector('div[data-block-moment]') : null
+    const now = stamp ?? moment
+    if (now && now !== passing) opts.onPassing?.(stamp ? 'filed' : 'strike', now)
+    passing = now
+    if (stage === 'moving' || stage === 'strike' || stamp) {
       await wait(NIGHT_STEP_MS, opts.sample)
       continue
     }
@@ -403,7 +431,7 @@ async function playNight(opts: NightOpts = {}): Promise<{ seen: Stage[]; taps: n
     if (stage === 'end' && opts.stopAt === 'end') break
     if (opts.dwell) await wait(opts.dwell, opts.sample)
     const way =
-      container.querySelector('button[data-file-it]') ??
+      responseWay(opts.respond ?? 'ride') ??
       container.querySelector(`button[data-call="${opts.call ?? 'hold'}"]`) ??
       container.querySelector('button[data-collect]') ??
       container.querySelector('button[data-continue]') ??
@@ -501,8 +529,9 @@ async function declarationSweep(order: () => void, motion: 'motion' | 'reduced')
     await tap(execute)
     if (!inNight()) return null
     // EXECUTE commits on a tap since v1.3 Round 0, and the night is tapped
-    // through card by card, sampled between the steps of the overlay and
-    // of each strike, and after every tap.
+    // through card by card (each response ridden out, so no answer's cost
+    // joins the budget's moves), sampled between the steps of the overlay
+    // and of each block moment, and after every tap.
     const sample = () => {
       if (!container.querySelector('span[aria-label^="BUDGET"]')) return
       steps.push({ credits: readBudget(), tone: tone() })
@@ -963,6 +992,36 @@ describe('the chrome the reading budget counts, asserted by execution', () => {
   })
 })
 
+describe('the HUD says the defense streak from its first block (v1.7 R1)', () => {
+  it('shows the streak chip at a streak of 1, and none at 0', () => {
+    // Through v1.6 the chip waited for the second block in a row. A block
+    // is a moment of its own since v1.7 R1, and the streak it starts shows
+    // at once. The states are the engine's own, searched for rather than
+    // built: the first board that stands on a streak of exactly 1, of the
+    // prepared line answering each night with the first response its
+    // budget can meet (a response that blocks a move extends the streak as
+    // a defense does), and a new operation, which has none.
+    const one = (() => {
+      for (let seed = 1; seed <= 200; seed += 1) {
+        let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
+        while (state.status === 'playing') {
+          state = resolveNight(state, WIN_SCRIPT[state.turn] ?? NO_OP, sensible)
+          if (state.status === 'playing' && state.streak === 1) return state
+        }
+      }
+      throw new Error('no board of the prepared line stands on a streak of 1')
+    })()
+    render(one, 'brief')
+    const chip = container.querySelector('header[data-hud] [data-streak]')
+    expect(chip, 'a streak of 1 shows no chip').not.toBeNull()
+    expect(chip!.textContent).toBe('×1 STREAK')
+    const fresh = newGame(DEFAULT_SCENARIO, one.seed, 'standard')
+    expect(fresh.streak).toBe(0)
+    render(fresh, 'brief')
+    expect(container.querySelector('[data-streak]'), 'a new operation shows a streak').toBeNull()
+  })
+})
+
 describe('reduced motion keeps the sequence (brief v1.2)', () => {
   it('enters the night with the preference set, its cards arriving at once', async () => {
     // The round's central claim, and until v1.2 it had no guard at all:
@@ -979,11 +1038,16 @@ describe('reduced motion keeps the sequence (brief v1.2)', () => {
     //
     // So this resolves a real turn with the preference on and asserts the
     // player reaches the night, which is the only place its rows can
-    // sound, and that the move's strike is heard there: under reduced
-    // motion the strike is skipped and its sound plays as the card
-    // arrives (brief 5.5).
+    // sound, and that the first move is heard there. Since v1.7 R1 the
+    // night's first stage on this turn is THE BLOCK MOMENT (the prepared
+    // line's anti-jam stops the first move): under reduced motion it
+    // arrives landed, standing still for its time, and its sound plays as
+    // it arrives; then its card, the threat being new to the Dossier.
+    // (Through v1.6 a block had a card of its own and no moment.)
     setReducedMotion(true)
     const state = gameAt(3)
+    const first = recordOf(state).events[0]
+    expect(first.effectiveSeverity === 0 && first.room === undefined, 'the fixture changed: a defense no longer stops turn 3-s first move').toBe(true)
     render(state, 'brief')
     const played = spyPlay()
     const execute = executeControl()
@@ -993,17 +1057,34 @@ describe('reduced motion keeps the sequence (brief v1.2)', () => {
     expect(
       nightStage(),
       'a reduced-motion turn skipped the night, so none of its cues can sound',
-    ).toBe('hit')
-    const first = recordOf(state).events[0]
-    expect(played, 'the first move-s strike was not heard as its card arrived').toContain(strikeSound(first.eventId, first.effectiveSeverity > 0))
+    ).toBe('strike')
+    expect(played, 'the first move-s block was not heard as its moment arrived').toContain(strikeSound(first.eventId, false))
+    // The moment reads without motion: the word, the move, the streak, and
+    // a line for a screen reader.
+    const moment = container.querySelector('div[data-block-moment]')!
+    expect(moment.querySelector('[data-strike-word="held"]')?.textContent).toBe('BLOCKED')
+    expect(moment.querySelector('[data-strike-name]')?.textContent, 'the block moment does not name the move').toBeTruthy()
+    expect(moment.querySelector('[data-block-streak]')?.textContent, 'the block moment does not say the streak').toBeTruthy()
+    expect(moment.querySelector('[role="status"]')?.textContent, 'the block moment says nothing to a screen reader').toBeTruthy()
     // And the cues really are static. Asserted at first as "no dc-card-in
     // on screen", which is vacuous: the opening beat never carried that
     // class in either mode, so deleting the reduced term from useCueClass
     // entirely would have passed. Measured instead against the same first
-    // card WITHOUT the preference (the next test), which is the only way
+    // stages WITHOUT the preference (the next test), which is the only way
     // to tell a static cue from a cue that was never there.
-    const cueClassesNow = classesOf(dcClassed()).filter(isMotion)
-    expect(cueClassesNow, `reduced motion still animated: ${cueClassesNow.join(', ')}`).toEqual([])
+    //
+    // The moment's own banner is what is measured here. The tile under it
+    // is not: as of v1.7 R1 it carries its strike classes in both modes
+    // (the stylesheet's reduced-motion rules still them), which was
+    // reported with this round's test repair rather than pinned.
+    const cueClassesNow = classesOf(dcClassed(moment)).filter(isMotion)
+    expect(cueClassesNow, `reduced motion still animated the block moment: ${cueClassesNow.join(', ')}`).toEqual([])
+    // It stands for its time and gives way to its card, which arrives at
+    // once and still.
+    await wait(BLOCK_MS + 1)
+    expect(nightStage(), 'the block moment did not give way to its card to file').toBe('hit')
+    const cardClasses = classesOf(dcClassed()).filter(isMotion)
+    expect(cardClasses, `reduced motion still animated the card: ${cardClasses.join(', ')}`).toEqual([])
   })
 
   it('does animate the same card when the preference is off, so the check above is not vacuous', async () => {
@@ -1014,16 +1095,26 @@ describe('reduced motion keeps the sequence (brief v1.2)', () => {
     render(gameAt(3), 'brief')
     await tap(executeControl()!)
     expect(nightStage(), 'EXECUTE did not open COLDVEIL IS MOVING').toBe('moving')
-    // On to the first card: the overlay and the strike run on their own.
-    for (let i = 0; i < 20 && (nightStage() === 'moving' || nightStage() === 'strike'); i += 1) await wait(NIGHT_STEP_MS)
+    // On to the block moment, which with motion allowed does move.
+    for (let i = 0; i < 20 && nightStage() === 'moving'; i += 1) await wait(NIGHT_STEP_MS)
+    expect(nightStage(), 'the overlay did not give way to the block moment').toBe('strike')
+    await wait(BLOCK_MS / 2)
+    expect(nightStage(), 'the block moment was over in half its time').toBe('strike')
+    const momentClasses = classesOf(dcClassed(container.querySelector('div[data-block-moment]')!)).filter(isMotion)
+    expect(momentClasses.length, 'the block moment-s banner animates nothing even with motion allowed').toBeGreaterThan(0)
+    // On to the first card: the block moment runs on its own.
+    for (let i = 0; i < 20 && nightStage() === 'strike'; i += 1) await wait(NIGHT_STEP_MS)
     const label = container.querySelector('section[data-night-card]')?.getAttribute('aria-label')
-    expect(label, 'the overlay and the strike never gave way to a card').toBeTruthy()
+    expect(label, 'the overlay and the block moment never gave way to a card').toBeTruthy()
     const cueClasses = classesOf(dcClassed()).filter(isMotion)
     expect(cueClasses.length, 'the first card animates nothing even with motion allowed').toBeGreaterThan(0)
-    // And it is the card the reduced-motion player gets at once.
+    // And it is the card the reduced-motion player gets, after the same
+    // block moment standing still.
     setReducedMotion(true)
     render(gameAt(3), 'brief')
     await tap(executeControl()!)
+    expect(nightStage(), 'reduced motion did not open on the block moment').toBe('strike')
+    await wait(BLOCK_MS + 1)
     expect(container.querySelector('section[data-night-card]')?.getAttribute('aria-label'), 'the two modes met different first cards').toBe(label)
   })
 
@@ -1035,15 +1126,22 @@ describe('reduced motion keeps the sequence (brief v1.2)', () => {
     // one tap to get there: a night that ended on its first tap would be a
     // skip by another name. Since v1.3 R3 that is a card for every event
     // the engine resolved, then END OF TURN, counted against the engine's
-    // own record of the turn.
+    // own record of the turn. Since v1.7 R1 a move that would land stops
+    // the night on its response card first, and a move a defense stops has
+    // a card only while its threat is new to the Dossier, which every
+    // threat is on this fresh device. (SKIP NIGHT, which v1.6 offered, is
+    // gone: there is no control that ends the night early.)
     setReducedMotion(true)
     const state = gameAt(3)
     render(state, 'brief')
     await tap(executeControl()!)
     expect(inNight(), 'the night did not start').toBe(true)
     const record = recordOf(state)
+    expect(buttons().some((b) => /skip/i.test(b.textContent ?? '') || /skip/i.test(b.getAttribute('aria-label') ?? '')), 'the night offers a way to skip it').toBe(false)
     const { seen, taps } = await playNight()
     expect(nightStage(), 'the night never handed back to the board').toBe('board')
+    expect(seen.filter((s) => s === 'respond').length, 'a move that would land did not stop the night on its response card').toBe(record.events.filter((e) => e.room !== undefined).length)
+    expect(record.events.some((e) => e.room !== undefined), 'no move of the turn would land, so the response card was never due').toBe(true)
     const cards = seen.filter((s) => s === 'hit' || s === 'debris' || s === 'opportunity')
     expect(cards.length, `the night ended without showing every event the engine resolved: met ${seen.join(', ')}`).toBe(record.events.length)
     expect(seen[seen.length - 1], 'the turn ended without END OF TURN').toBe('end')
@@ -1070,11 +1168,15 @@ describe('the operation ends on its last END OF TURN, from the player-s starting
 
   // Play a whole campaign under one script and stop on the turn that ends
   // it, so the ending is the one a player actually reaches.
-  function finalTurn(script: Record<number, TurnActions>, seeds = [20260712, 7, 1, 2, 3, 4041, 11, 13]) {
+  // `respond` is how each night's moves are met (v1.7 R1): ridden out, or
+  // with the first response the budget can meet, which is what the
+  // fixture then taps on the deciding night's response cards.
+  function finalTurn(script: Record<number, TurnActions>, respond: Answer = 'ride', seeds = [20260712, 7, 1, 2, 3, 4041, 11, 13]) {
     for (const seed of seeds) {
       let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
       while (state.status === 'playing') {
-        const after = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+        const actions = script[state.turn] ?? NO_OP
+        const after = respond === 'sensible' ? resolveNight(state, actions, sensible) : resolveTurn(state, actions, turnRng(state.seed, state.turn))
         if (after.status !== 'playing') return { before: state, after }
         state = after
       }
@@ -1088,7 +1190,7 @@ describe('the operation ends on its last END OF TURN, from the player-s starting
   // orders, when the script has any, go in through PROCURE as a player
   // places them: since v1.4 the prepared script orders a defense on its
   // last night (one new defense a night left it one to place).
-  async function playToEnd(before: GameState, orders: TurnActions = NO_OP) {
+  async function playToEnd(before: GameState, orders: TurnActions = NO_OP, respond: Answer = 'ride') {
     render(before, 'brief')
     if (orders.buyCounters.length > 0 || orders.buyAssets.length > 0) {
       openSheet('PROCURE')
@@ -1099,7 +1201,7 @@ describe('the operation ends on its last END OF TURN, from the player-s starting
     const played = spyPlay()
     await tap(executeControl()!)
     expect(inNight(), 'the deciding turn did not enter the night').toBe(true)
-    const { seen } = await playNight({ stopAt: 'end' })
+    const { seen } = await playNight({ stopAt: 'end', respond })
     return { end: container.querySelector('section[data-night-card="end"]'), seen, played }
   }
 
@@ -1132,14 +1234,22 @@ describe('the operation ends on its last END OF TURN, from the player-s starting
     // The positive control for the test above, and vice versa. Either one
     // alone passes against a card that always shows the other ending, or
     // none; together they cannot.
-    const { before, after } = finalTurn(WIN_SCRIPT)
+    // Since v1.7 R1 nobody wins with every move ridden out, so the
+    // prepared line answers each night with the first response its budget
+    // can meet, in the engine up to the deciding night and on the response
+    // cards through it.
+    expect(finalTurn(WIN_SCRIPT).after.status, 'the prepared line wins with every move ridden out, so the answers below prove nothing').toBe('lost')
+    const { before, after } = finalTurn(WIN_SCRIPT, 'sensible')
     expect(after.status, 'the prepared line lost this campaign').toBe('won')
-    const { end, seen, played } = await playToEnd(before, WIN_SCRIPT[before.turn])
+    const { end, seen, played } = await playToEnd(before, WIN_SCRIPT[before.turn], 'sensible')
+    expect(seen, 'the deciding night asked for no response').toContain('respond')
     expect(end, `a won campaign reached its end with no END OF TURN; met ${seen.join(', ') || 'nothing'}`).not.toBeNull()
     const ending = end!.querySelector('[data-ending]')
     expect(ending?.getAttribute('data-ending'), 'a won campaign showed a losing ending').toBe('won')
     expect(ending!.textContent, 'the winning ending does not say the mission held').toContain(ENDING.won.head)
     expect(ending!.textContent).toContain(ENDING.won.line(DEFAULT_SCENARIO.totalTurns))
+    // The line on what to fix is for a next turn, and there is none.
+    expect(end!.querySelector('[data-end-fix]'), 'the last END OF TURN still advises on a next turn').toBeNull()
     expect(end!.querySelector('button[data-begin]')?.textContent, 'the last END OF TURN does not lead to the debrief').toBe('DEBRIEF')
     expect(played, 'a won campaign did not sound the victory fanfare').toContain('victory-fanfare')
     expect(played, 'a won campaign sounded the defeat sting').not.toContain('defeat-sting')
@@ -1158,6 +1268,23 @@ describe('the operation ends on its last END OF TURN, from the player-s starting
     expect(end, 'turn 1 never reached END OF TURN').not.toBeNull()
     expect(end!.querySelector('[data-ending]'), 'an ordinary END OF TURN showed an ending').toBeNull()
     expect(end!.querySelector('button[data-begin]')?.textContent).toBe('BEGIN TURN 2')
+    // The simplified END OF TURN (v1.7 R1): the score's change and the
+    // budget's, one line on what to fix, and every line behind them under
+    // DETAILS, closed until asked for. The "?" that explained the old
+    // rows went with them.
+    expect(end!.querySelector('[data-score-lines] [data-end-score]')?.textContent, 'END OF TURN does not say the score from and to').toMatch(/^\d+\.\d → \d+\.\d$/)
+    expect(end!.querySelector('[data-ledger] [data-ledger-row="total"]')?.getAttribute('data-value'), 'END OF TURN does not carry the budget it ends on').toMatch(/^-?\d+$/)
+    const fix = end!.querySelector('[data-end-fix]')
+    expect(fix?.getAttribute('data-end-fix'), 'a night a move landed on has no line on what to fix').toBe('warn')
+    expect(fix!.textContent!.length, 'the line on what to fix is empty').toBeGreaterThan(10)
+    const details = end!.querySelector('details[data-end-details]') as HTMLDetailsElement | null
+    expect(details, 'END OF TURN has no DETAILS').not.toBeNull()
+    expect(details!.open, 'DETAILS arrived open').toBe(false)
+    expect(details!.querySelector('summary')?.textContent).toBe('DETAILS')
+    expect(details!.querySelector('[data-score-row="moves"]'), 'DETAILS has no row for the moves that landed').not.toBeNull()
+    expect(details!.querySelector('[data-ledger-row="funding"]'), 'DETAILS has no funding row').not.toBeNull()
+    expect(end!.querySelectorAll('[data-score-row], [data-ledger-row]').length - details!.querySelectorAll('[data-score-row], [data-ledger-row]').length, 'rows other than the two totals stand outside DETAILS').toBe(2)
+    expect(end!.querySelector('[data-end-help]'), 'the old help key is back on END OF TURN').toBeNull()
     expect(played, 'an ordinary END OF TURN did not sound its chime').toContain(MOMENT_CUES['end-of-turn'].sound)
     for (const voice of ['victory-fanfare', 'defeat-sting']) expect(played, `an ordinary END OF TURN sounded ${voice}`).not.toContain(voice)
   })
@@ -1175,7 +1302,9 @@ describe('the operation ends on its last END OF TURN, from the player-s starting
     for (const seed of [20260712, 7, 1, 2, 3, 4041]) {
       let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
       while (state.status === 'playing') {
-        const after = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+        // Answered as the fixture answers on the cards (v1.7 R1): ridden
+        // out, the prepared line no longer wins.
+        const after = resolveNight(state, WIN_SCRIPT[state.turn] ?? NO_OP, sensible)
         if (after.status === 'won' && maiScore(after).toFixed(1) !== after.meters.linkAvailability.toFixed(1)) {
           fixture = { before: state, after }
           break
@@ -1188,7 +1317,7 @@ describe('the operation ends on its last END OF TURN, from the player-s starting
       fixture,
       'no won campaign in the sweep has a score that differs from link availability, so this cannot discriminate',
     ).not.toBeNull()
-    const { end } = await playToEnd(fixture!.before, WIN_SCRIPT[fixture!.before.turn])
+    const { end } = await playToEnd(fixture!.before, WIN_SCRIPT[fixture!.before.turn], 'sensible')
     expect(end, 'the night never reached the last END OF TURN').not.toBeNull()
     const shown = end!.querySelector('[data-end-score] b')?.textContent
     expect(shown, 'the last END OF TURN shows no score').toBeTruthy()
@@ -1209,8 +1338,12 @@ describe('each card of the night says the same under reduced motion (Round 5)', 
   // INFORMATION is on screen in both modes, and only its arrival differs.
   // It was written for Round 5's scenes, which retired with the director;
   // the night's cards make the same promise (brief 5.5: under reduced
-  // motion the overlay and the strike are skipped and the cards arrive at
-  // once), so it runs over every card of an operation that meets each kind.
+  // motion the overlay is skipped and the cards arrive at once), so it
+  // runs over every card of an operation that meets each kind. Since v1.7
+  // R1 that is the response card and its result in place of the strike and
+  // the full-screen Dossier card, and two things that pass on their own
+  // clock are held to the same promise: the block moment, which under
+  // reduced motion stands still for its time, and the FILED stamp.
   const words = (t: string) => t.replace(/[\d.]+/g, '#').replace(/\s+/g, ' ').trim()
 
   async function cardsUnder(reduced: boolean) {
@@ -1223,7 +1356,7 @@ describe('each card of the night says the same under reduced motion (Round 5)', 
     // operation).
     const plan: Record<number, string[]> = { 2: ['antiJam', 'pntAuth', 'groundZeroTrust'], 3: ['linkAuth'] }
     render(newGame(DEFAULT_SCENARIO, 24, 'standard'), 'brief')
-    const cards: { stage: Stage; text: string; animated: number }[] = []
+    const cards: { stage: Stage | 'filed'; text: string; animated: number }[] = []
     for (let turn = 1; turn <= DEFAULT_SCENARIO.totalTurns && executeControl(); turn += 1) {
       if (plan[turn]) {
         openSheet('PROCURE')
@@ -1232,9 +1365,10 @@ describe('each card of the night says the same under reduced motion (Round 5)', 
       await tap(executeControl()!)
       await playNight({
         onCard: (stage) => {
-          const el = container.querySelector(stage === 'intel' ? 'div[data-intel-file]' : 'section[data-night-card]')!
+          const el = container.querySelector('section[data-night-card]')!
           cards.push({ stage, text: words(el.textContent ?? ''), animated: classesOf(dcClassed(el)).filter(isMotion).length })
         },
+        onPassing: (stage, el) => cards.push({ stage, text: words(el.textContent ?? ''), animated: classesOf(dcClassed(el)).filter(isMotion).length }),
       })
     }
     return cards
@@ -1244,12 +1378,12 @@ describe('each card of the night says the same under reduced motion (Round 5)', 
     const moving = await cardsUnder(false)
     const still = await cardsUnder(true)
     expect([...new Set(moving.map((c) => c.stage))].sort(), 'the operation did not meet every kind of card').toEqual(
-      ['call', 'debris', 'end', 'hit', 'intel', 'opportunity'],
+      ['call', 'debris', 'end', 'filed', 'hit', 'opportunity', 'respond', 'strike'],
     )
     expect(still.map((c) => c.stage), 'reduced motion met a different night').toEqual(moving.map((c) => c.stage))
     for (const [i, card] of moving.entries()) {
-      // The words are the information. Digits are masked, because the
-      // intel card's count ticks up as it arrives with motion allowed.
+      // The words are the information. Digits are masked, as they were
+      // for the count that ticked up on the v1.6 Dossier card.
       expect(still[i].text, `${card.stage} card ${i} says something different under reduced motion`).toBe(card.text)
       // And the positive control, which is what stops this being vacuous:
       // with motion allowed the card really does carry an entrance, so "no
@@ -1786,6 +1920,42 @@ describe('a loaded campaign is not a campaign that was played here', () => {
     expect(scores().length, 'a campaign played to its end here posted no score').toBeGreaterThan(0)
   })
 
+  it('posts the last turn-s score once its response is answered, not at EXECUTE, and posts the answered result (v1.7 R1)', async () => {
+    // EXECUTE commits the turn with every move ridden out, and commits it
+    // again after each response. On the deciding turn the ridden-out
+    // resolution is already an ending, so an effect that posted on "this
+    // state is finished" would post the loss the player has not chosen
+    // yet, and then never post the one they did. The prepared line,
+    // answered each night as the `sensible` responder answers, reaches its
+    // last night on the anchor seed with the operation ending either way,
+    // on a different score ridden out than answered.
+    let state = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
+    while (state.status === 'playing' && state.turn < DEFAULT_SCENARIO.totalTurns) state = resolveNight(state, WIN_SCRIPT[state.turn] ?? NO_OP, sensible)
+    expect(state.status, 'this line ended early, so the last turn is not the one being played').toBe('playing')
+    const orders = WIN_SCRIPT[state.turn] ?? NO_OP
+    const answeredEnd = resolveNight(state, orders, sensible)
+    const riddenEnd = resolveTurn(state, orders, turnRng(state.seed, state.turn))
+    expect(answeredEnd.status, 'the fixture no longer wins answered').toBe('won')
+    expect(riddenEnd.status, 'ridden out, the last night does not end the operation, so EXECUTE has nothing to post early').not.toBe('playing')
+    const maiOf = (end: GameState) => end.history[end.history.length - 1].maiScore
+    expect(maiOf(riddenEnd), 'the answer changes nothing, so the two posts cannot be told apart').not.toBe(maiOf(answeredEnd))
+    render(state, 'brief')
+    openSheet('PROCURE')
+    for (const id of orders.buyCounters) click(container.querySelector(`button[data-procure-defense="${id}"]`)!)
+    click(container.querySelector('button[data-confirm]')!)
+    await tap(executeControl()!)
+    for (let i = 0; i < 20 && nightStage() !== 'respond'; i += 1) await wait(NIGHT_STEP_MS)
+    expect(nightStage(), 'the deciding night never asked for a response').toBe('respond')
+    expect(scores(), 'the score was posted with a response still open').toHaveLength(0)
+    expect(container.querySelector('[data-ending]'), 'the operation ended with a response still open').toBeNull()
+    await playNight({ respond: 'sensible' })
+    expect(nightStage(), 'the final turn never reached the score screen').toBe('score')
+    const posted = scores() as { outcome: string; mai: number }[]
+    expect(posted, 'the deciding turn posted more or fewer than one score').toHaveLength(1)
+    expect(posted[0].outcome).toBe('won')
+    expect(posted[0].mai, 'the posted score is the ridden-out night-s, not the answered one-s').toBe(maiOf(answeredEnd))
+  })
+
   it('posts no score when a finished code is PASTED, which is the path a player takes', async () => {
     // THE PATH THE DEFECT IS ON. The guard above mounts Game with a
     // finished campaign as `initial`, which covers the constructor half.
@@ -1975,8 +2145,9 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     // The player's own button is not the game answering back.
     playback: Set<string>
     // Each sound the night played, with the cue classes on screen either
-    // side of it: the pair join for a sound two rows share.
-    heardWith: { sound: string; classes: Set<string> }[]
+    // side of it, and the night cards up either side of it by kind: the
+    // pair join for a sound two rows share.
+    heardWith: { sound: string; classes: Set<string>; cards: Set<string> }[]
     // The cue classes on screen at each step with a night card up.
     onCards: Set<string>[]
     // The tiles the shield landed on, anything else it landed on, and the
@@ -2022,13 +2193,14 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     await tap(execute!)
 
     // Tap the night through and sample the screen between the steps of the
-    // overlay and of each strike, through each card's dwell and after each
-    // tap. The cue classes on screen are the visuals the registry
+    // overlay, of each block moment and of each FILED stamp, through each
+    // card's dwell and after each tap. The cue classes on screen are the visuals the registry
     // resolved; whatever the spy caught since the last sample is the sound
     // that went with them, and it is paired with the screen either side of
-    // it: a sound a tap plays answers what the player tapped (COLLECT
-    // INTEL CARD glows until it is pressed, and the press takes the glow
-    // away with the card's way on) as much as what the tap brought.
+    // it: a sound a tap plays answers what the player tapped (FILE TO
+    // DOSSIER glows until it is pressed, and the press takes the glow
+    // away with the button, which becomes its stamp) as much as what the
+    // tap brought.
     //
     // `mark` is drained HERE, after the commit, so nothing the player's own
     // buttons played can enter the playback set or the pairing. The first
@@ -2036,16 +2208,20 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     // with the entire procurement phase.
     let mark = played.length
     let before = new Set<string>()
+    let cardBefore: string | null = null
     const sample = () => {
       const classes = new Set(classesOf(dcClassed()).filter((c) => CUE_CLASSES.has(c)))
       const around = new Set([...before, ...classes])
       before = classes
+      const cardNow = container.querySelector('section[data-night-card]')?.getAttribute('data-night-card') ?? null
+      const cards = new Set([cardBefore, cardNow].filter((k): k is string => !!k))
+      cardBefore = cardNow
       const fresh = played.slice(mark)
       mark = played.length
       for (const s of fresh) {
         d.sounds.add(s)
         d.playback.add(s)
-        d.heardWith.push({ sound: s, classes: around })
+        d.heardWith.push({ sound: s, classes: around, cards })
       }
       for (const c of classes) d.visuals.add(c)
       for (const c of around) for (const s of fresh) d.pairs.add(`${c}|${s}`)
@@ -2110,12 +2286,16 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
   // plays it with, from the night's own model of the turn
   // (src/ui/night/nightModel.ts, which tests/night-model.spec.ts proves
   // against the engine) and the registry's own voice for each. A threat
-  // strikes (a hit, the deck's voice; a block, the block's), its tiles
-  // tick (up for a blocked point, down for one through), a new condition
-  // sounds its alarm and a block from the second in a row the streak; a
-  // threat met for the first time is collected and filed; the call, an
-  // opportunity; END OF TURN and the next turn's start, or the outcome on
-  // the last. Returns the lowest score the HUD shows on the way.
+  // strikes (a hit, the deck's voice; a block, the block's); on its card
+  // its tiles tick (up for a blocked point, down for one through), a new
+  // condition sounds its alarm and a block from the second in a row the
+  // streak; a threat met for the first time is collected and filed; the
+  // call, an opportunity; END OF TURN and the next turn's start, or the
+  // outcome on the last. Since v1.7 R1 a move a defense stops has a card
+  // only while its threat is still to file (its block moment is all of it
+  // otherwise), so its tiles and its streak sound only then; a move a
+  // response blocked always has its card. Returns the lowest score the HUD
+  // shows on the way.
   function presents(before: GameState, after: GameState, filed: Set<string>, out: Map<Moment, Set<SoundCue>>): number {
     const add = (m: Moment, s: SoundCue) => {
       if (!out.has(m)) out.set(m, new Set())
@@ -2135,10 +2315,13 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
       else {
         const r = resultOf(ev)
         add(r.through > 0 ? 'strike-hit' : 'strike-block', strikeSound(ev.eventId, r.through > 0))
-        if (r.blocked > 0) add('result-tiles', 'tick-up')
-        if (r.through > 0) add('result-tiles', 'tick-down')
-        if (ev.condition) add('condition', CONDITION_CUES[ev.eventId]?.sound ?? MOMENT_CUES.condition.sound)
-        if (r.through === 0 && step.streak >= 2) add('streak', MOMENT_CUES.streak.sound)
+        const carded = ev.effectiveSeverity > 0 || !!ev.response || !filed.has(ev.eventId)
+        if (carded) {
+          if (r.blocked > 0) add('result-tiles', 'tick-up')
+          if (r.through > 0) add('result-tiles', 'tick-down')
+          if (ev.condition) add('condition', CONDITION_CUES[ev.eventId]?.sound ?? MOMENT_CUES.condition.sound)
+          if (r.through === 0 && step.streak >= 2) add('streak', MOMENT_CUES.streak.sound)
+        }
       }
       if (!filed.has(ev.eventId)) {
         filed.add(ev.eventId)
@@ -2156,19 +2339,23 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
   // The first seed on which a scripted line's opening presents every
   // moment in `want`, found by the engine so the drive that replays the
   // same orders through the controls lands where the search said it would.
-  function firstSeedShowing(script: Record<number, TurnActions>, want: Moment[], who: string): number {
+  // With `under`, the score the HUD shows must also go under the win line
+  // on the way (v1.7 R1, where three nights of moves landing take it
+  // there).
+  function firstSeedShowing(script: Record<number, TurnActions>, want: Moment[], who: string, under = false): number {
     for (let seed = 1; seed <= 400; seed += 1) {
       let st = newGame(DEFAULT_SCENARIO, seed, 'standard')
       const shown = new Map<Moment, Set<SoundCue>>()
       const filed = new Set<string>()
+      let floor = Infinity
       for (let t = 0; t < 3 && st.status === 'playing'; t += 1) {
         const next = resolveTurn(st, script[st.turn] ?? NO_OP, turnRng(st.seed, st.turn))
-        presents(st, next, filed, shown)
+        floor = Math.min(floor, presents(st, next, filed, shown))
         st = next
       }
-      if (want.every((m) => shown.has(m))) return seed
+      if (want.every((m) => shown.has(m)) && (!under || floor < DEFAULT_SCENARIO.winThreshold)) return seed
     }
-    throw new Error(`no seed in 400 lets ${who} see ${want.join(', ')} inside three turns`)
+    throw new Error(`no seed in 400 lets ${who} see ${want.join(', ')}${under ? ' and the score under the win line' : ''} inside three turns`)
   }
 
   // THE EXCUSES, COMPUTED FROM v1.3 PLAY rather than written down. Until
@@ -2179,7 +2366,9 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
   // ends a campaign in insolvency), and the hand-written list kept
   // excusing them. So a row is excused here only when no line of play the
   // suite knows reaches it inside three turns: every script in
-  // tests/scripts.ts and every policy of the sweep gate, over 120 seeds.
+  // tests/scripts.ts, its moves ridden out as the drives below ride them,
+  // and every policy of the sweep gate with the responder it is swept
+  // with (v1.7 R1), over 120 seeds.
   // A row the night carries is reached when a night presents one of its
   // moments, with one of the row's own sounds where two rows share the
   // moment; the score row is reached when the score the HUD shows, step by
@@ -2188,11 +2377,11 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
   // checked against the drives below, so a sweep too narrow to reach a
   // row the drives meet fails rather than excusing it.
   function openingExcuses(): Set<string> {
-    const lines: ((s: GameState) => TurnActions)[] = [
+    const lines: ((s: GameState) => GameState)[] = [
       ...[WIN_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, LAZY_SCRIPT, TOP_INTEL_SCRIPT].map(
-        (script) => (s: GameState) => script[s.turn] ?? NO_OP,
+        (script) => (s: GameState) => resolveTurn(s, script[s.turn] ?? NO_OP, turnRng(s.seed, s.turn)),
       ),
-      ...POLICIES.map((p) => p.policy),
+      ...POLICIES.map((p) => (s: GameState) => resolveNight(s, p.policy(s), p.respond)),
     ]
     const presented = new Map<Moment, Set<SoundCue>>()
     let floor = Infinity
@@ -2201,7 +2390,7 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
         let st = newGame(DEFAULT_SCENARIO, seed, 'standard')
         const filed = new Set<string>()
         for (let t = 0; t < 3 && st.status === 'playing'; t += 1) {
-          const next = resolveTurn(st, line(st), turnRng(st.seed, st.turn))
+          const next = line(st)
           floor = Math.min(floor, presents(st, next, filed, presented))
           st = next
         }
@@ -2265,7 +2454,7 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     const waitScript: Record<number, TurnActions> = Object.fromEntries(
       [1, 2, 3].map((t) => [t, a({ buyAssets: [{ kind: 'drone' }] })]),
     )
-    const waitSeed = firstSeedShowing(waitScript, ['strike-hit', 'condition'], 'a waiting player')
+    const waitSeed = firstSeedShowing(waitScript, ['strike-hit', 'condition'], 'a waiting player', true)
     const preparedSeed = firstSeedShowing(WIN_SCRIPT, ['strike-block', 'streak', 'opportunity'], 'a prepared player')
     const waits = await driveOpening(3, { seed: waitSeed, script: waitScript })
     const prepared = await driveOpening(3, { seed: preparedSeed, script: WIN_SCRIPT })
@@ -2279,15 +2468,19 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     // rows still deferred. A row added later is required by default: one
     // the opening cannot reach changes the computed set and fails the pin
     // below until it is excused on purpose. Today the computation excuses
-    // the score row (the lowest score the HUD shows, over the sweep, stays
-    // above the win line), "Campaign won" (the plan is six turns) and,
-    // since v1.3 R3, "BLACKOUT CHAIN fires": the director met that row
+    // "Campaign won" (the plan is six turns) and, since v1.3 R3, "BLACKOUT
+    // CHAIN fires": the director met that row
     // when the chain was ARMED, a beat that retired with it, and the night
     // meets it only when the chain itself strikes, which is turn 6's fixed
     // move. "The debris call and its result" joined with its row in v1.3
     // R3: the conjunction is turn 4's fixed move, past the opening.
     // "Surge token spent", excused here until v1.3 Round 0, left the table
-    // with SURGE.
+    // with SURGE. Re-pinned for v1.7 R1: "Mission assurance crosses below
+    // the win line" was excused through v1.6, when the lowest score the
+    // HUD showed over the sweep stayed above the line; a point of strength
+    // through now costs a meter 9 where it cost 5, so three nights of
+    // moves landing take the score under it, and the row is required of
+    // the drives below.
     const excused = openingExcuses()
     // THE COMPUTED EXCUSES ARE PINNED. openingExcuses() decides a row is
     // reached from the night's model and the registry's voices, the same
@@ -2303,7 +2496,7 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     expect(
       [...excused].sort(),
       'the excused rows changed: re-measure and re-pin deliberately',
-    ).toEqual(['BLACKOUT CHAIN fires', 'Campaign won', 'Mission assurance crosses below the win line', 'The debris call and its result'])
+    ).toEqual(['BLACKOUT CHAIN fires', 'Campaign won', 'The debris call and its result'])
     // THE EXCUSE LIST IS CHECKED IN BOTH DIRECTIONS, the way the sibling
     // breadth file checks its own. A hand-written set that subtracts from
     // a required set is granted for free otherwise: adding Round 7b's own
@@ -2317,6 +2510,15 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     // listed: data-burst (BEGIN TURN and COLLECT) and resolve-chime (an
     // opportunity and END OF TURN) are the live cases today, and the next
     // one should not need this comment edited.
+    //
+    // Since v1.7 R1 a hit strikes as its card arrives (the strike before
+    // it gave way to the response card), so the hit's voice, which the
+    // debris result shares when the satellite is lost, now sounds with a
+    // card's entrance on screen. Where a row's own class is one every card
+    // carries, the class cannot say which card rose, so the row is
+    // credited only with its own card up: the call or its result, an
+    // opportunity.
+    const RISES_AS: Partial<Record<Moment, string>> = { 'debris-call': 'call', 'debris-result': 'debris', opportunity: 'opportunity' }
     const heardWith = turns.flatMap((t) => t.heardWith)
     const onCards = turns.flatMap((t) => t.onCards)
     expect(onCards.length, 'the drives never sampled a night card').toBeGreaterThan(0)
@@ -2328,7 +2530,11 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
       const sharers = SECTION_6_ROWS.filter((r) => r !== row && r.sound === row.sound)
       if (sharers.length) {
         const others = sharers.map((r) => VISUAL_CLASS[r.visual]).filter((c) => c && c !== cls && !everyCard.has(c))
-        return !!cls && heardWith.some((h) => sounds.includes(h.sound) && h.classes.has(cls) && !others.some((o) => h.classes.has(o)))
+        const rises = everyCard.has(cls) ? (row.moments ?? []).flatMap((m) => RISES_AS[m] ?? []) : []
+        return (
+          !!cls &&
+          heardWith.some((h) => sounds.includes(h.sound) && h.classes.has(cls) && !others.some((o) => h.classes.has(o)) && (rises.length === 0 || rises.some((k) => h.cards.has(k))))
+        )
       }
       return sounds.some((snd) => heard.has(snd))
     }
@@ -2344,7 +2550,26 @@ describe('the opening shows the vocabulary (Round 7b)', () => {
     // twelve of thirteen required rows: the pair join was advertised and
     // not used.
     const required = SECTION_6_ROWS.filter((r) => !r.deferred && !excused.has(r.beat))
-    const missed = required.filter((row) => !met(row))
+    // A VOICE WITH NO VISUAL (v1.7 R1). `met` credits a row by its sound
+    // unless another row shares it, so a row whose class is painted
+    // nowhere passes on its voice alone. Every required row's class is
+    // therefore looked for on the screens the drives sampled, and the rows
+    // whose class no screen carried are pinned, in both directions like
+    // the excuses. One is: the HUD's score readout is toneless, and a
+    // toneless readout never takes the strobe (src/ui/cues/Meter.tsx), so
+    // the crossing under the win line is heard and not strobed. It is
+    // older than this round and only surfaced now that its row is
+    // required; when the registry or the HUD is brought in step, this pin
+    // fails and comes out.
+    const painted = new Set(turns.flatMap((t) => [...t.visuals]))
+    const unpainted = required.filter((r) => VISUAL_CLASS[r.visual] && !painted.has(VISUAL_CLASS[r.visual])).map((r) => r.beat)
+    expect(unpainted.sort(), 'the rows whose visual no screen of the opening carried changed: re-measure and re-pin deliberately').toEqual(['Mission assurance crosses below the win line'])
+    // An unpainted row cannot be told from the row it shares a voice with
+    // by its class, so the night's two are credited by the card their
+    // voice sounded on; the score's, which is no card's, by its voice.
+    const SOUNDS_ON: Record<string, string> = { 'End of turn': 'end', 'FILED stamp': 'hit' }
+    const heardOn = (row: (typeof SECTION_6_ROWS)[number]) => heardWith.some((h) => h.sound === row.sound && h.cards.has(SOUNDS_ON[row.beat]))
+    const missed = required.filter((row) => (SOUNDS_ON[row.beat] && unpainted.includes(row.beat) ? !heardOn(row) : !met(row)))
     expect(
       missed.map((r) => `${r.beat} (${r.sound})`).join('\n'),
       `heard across three turns: ${[...heard].sort().join(', ')}`,

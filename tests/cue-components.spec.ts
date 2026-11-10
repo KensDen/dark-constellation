@@ -415,30 +415,62 @@ describe('the prelude controls', () => {
     expect(at > dockTag!.index && at < dockTag!.index + dockTag![0].length, 'the one resolve is not inside EXECUTE').toBe(
       true,
     )
-    // And the engine resolves the turn nowhere else in the file: every
-    // call to resolveTurn sits inside execute's own body (two of them on a
-    // night with the debris call, one per answer to it). A resolveTurn
-    // reached from some other handler would be a second way to end the
-    // turn that never sweeps, however the count above reads.
-    const declared = /\bconst execute = \(\) => \{/.exec(code)
-    expect(declared, 'Game.tsx no longer declares execute where this guard expects it').not.toBeNull()
-    let depth = 0
-    let end = -1
-    for (let i = code.indexOf('{', declared!.index + declared![0].length - 1); i < code.length; i += 1) {
-      if (code[i] === '{') depth += 1
-      else if (code[i] === '}') {
-        depth -= 1
-        if (depth === 0) {
-          end = i
-          break
+    // And the engine opens a turn nowhere else in the file. Through v1.6
+    // every call to resolveTurn sat inside execute's own body. Since v1.7
+    // R1 the night resolves again as each response is made (the engine
+    // takes the responses with the orders), so the one resolveTurn is in
+    // resolveNight, which execute calls with the board's state and orders,
+    // and which the night's two handlers, onRespond and previewResponse,
+    // call only with the night EXECUTE opened (night.before, night.orders)
+    // and only while there is one. A resolve of the board's own orders
+    // from some other handler would be a second way to end the turn that
+    // never sweeps, however the count above reads.
+    const bodyOf = (declaration: RegExp, what: string): [number, number] => {
+      const declared = declaration.exec(code)
+      expect(declared, `Game.tsx no longer declares ${what} where this guard expects it`).not.toBeNull()
+      let depth = 0
+      for (let i = code.indexOf('{', declared!.index + declared![0].length - 1); i < code.length; i += 1) {
+        if (code[i] === '{') depth += 1
+        else if (code[i] === '}') {
+          depth -= 1
+          if (depth === 0) return [declared!.index, i]
         }
       }
+      throw new Error(`${what} is unterminated`)
     }
-    const calls = [...code.matchAll(/\bresolveTurn\(/g)].map((m) => m.index!)
+    const inside = (at: number, [from, to]: [number, number]) => at > from && at < to
+    // One resolveTurn, in resolveNight, which hands the engine the turn's
+    // own stream.
+    const resolver = /\bconst resolveNight = \([^\n]*\): GameState =>\s*resolveTurn\([^\n]*turnRng\(before\.seed, before\.turn\)\)/.exec(code)
+    expect(resolver, 'Game.tsx no longer resolves the night through resolveNight').not.toBeNull()
+    const engineCalls = [...code.matchAll(/\bresolveTurn\(/g)].map((m) => m.index!)
+    expect(engineCalls.length, 'the engine resolves the turn outside resolveNight').toBe(1)
+    expect(inside(engineCalls[0], [resolver!.index, resolver!.index + resolver![0].length])).toBe(true)
+    const inExecute = bodyOf(/\bconst execute = \(\) => \{/, 'execute')
+    const inNight = [
+      bodyOf(/\bconst onRespond = \([^)]*\) => \{/, 'onRespond'),
+      bodyOf(/\bconst previewResponse = \([^)]*\)[^=]*=> \{/, 'previewResponse'),
+    ]
+    const calls = [...code.matchAll(/\bresolveNight\(([^,]*),([^,]*),/g)].filter((m) => !inside(m.index!, [resolver!.index, resolver!.index + resolver![0].length]))
     expect(calls.length, 'Game.tsx never resolves the turn, so the bound below proves nothing').toBeGreaterThan(0)
+    let opened = 0
     for (const call of calls) {
-      expect(call > declared!.index && call < end, 'the engine resolves the turn outside EXECUTE\'s handler').toBe(true)
+      const from = `${call[1].trim()}, ${call[2].trim()}`
+      if (inside(call.index!, inExecute)) {
+        opened += 1
+        expect(from, 'EXECUTE resolves something other than the board and its orders').toBe('state, actions')
+      } else {
+        expect(inNight.some((body) => inside(call.index!, body)), 'the engine resolves the turn outside EXECUTE and the night\'s response handlers').toBe(true)
+        expect(from, 'a response resolves something other than the night EXECUTE opened').toBe('night.before, night.orders')
+      }
     }
+    expect(opened, 'EXECUTE no longer resolves the turn').toBeGreaterThan(0)
+    // The night's handlers do nothing without a night, and only EXECUTE
+    // makes one from the board.
+    for (const body of inNight) expect(code.slice(body[0], body[1]), 'a response handler runs without a night').toMatch(/=> \{\s*if \(!night\b[^\n]*\) return/)
+    const sessions = [...code.matchAll(/\bsetNight\(\{ before:/g)].map((m) => m.index!)
+    expect(sessions.length, 'a night is opened from a second place, or from none').toBe(1)
+    expect(inside(sessions[0], inExecute), 'the night is opened outside EXECUTE').toBe(true)
     // The playback dim that stood here (dc-phase-dim, keyed to the turn
     // being played) retired with the director in v1.3 Round 3. The night
     // enters through COLDVEIL IS MOVING instead, and that is proved by

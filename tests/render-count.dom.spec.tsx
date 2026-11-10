@@ -30,7 +30,7 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { AssetKind, GameState } from '../src/engine/types'
-import { STRIKE_HOLD_MS } from '../src/ui/board/strike'
+import { BLOCK_MS } from '../src/ui/board/strike'
 import { ASSET_MAPS, assetSprite } from '../src/ui/sprites/assets'
 import { spriteRects, type Sprite } from '../src/ui/sprites/sprite'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
@@ -206,11 +206,13 @@ describe('render counts on the board (v1.2 R2 fix, v1.3 R2 strip)', () => {
         // strip's tile carries).
         cardSprites += card.querySelectorAll('[data-result-tiles] svg').length
       }
-      const way = container.querySelector('[data-file-it]') ?? container.querySelector('[data-collect]') ?? container.querySelector('[data-continue]')
+      const way = container.querySelector('[data-collect]') ?? container.querySelector('[data-continue]')
       if (way) await tap(way)
       else
         await act(async () => {
-          vi.advanceTimersByTime(STRIKE_HOLD_MS)
+          // The block moment (v1.7 R1) and the FILED stamp are the clocks
+          // now, each well inside this step.
+          vi.advanceTimersByTime(BLOCK_MS / 2)
         })
     }
     expect(container.querySelector('button[data-begin]'), 'the night never reached END OF TURN').not.toBeNull()

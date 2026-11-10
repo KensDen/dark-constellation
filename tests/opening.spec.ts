@@ -370,8 +370,13 @@ describe('the opening: breadth across seeds (Round 7b)', () => {
 //
 // 'The debris call and its result' joined in v1.3 Round 3 with its row:
 // the conjunction is turn 4's fixed move (brief 6.2), past the opening.
+//
+// 'Mission assurance crosses below the win line' left in v1.7 R1, withdrawn
+// by its own test below: at 9 meter damage a point (5 before), a new player
+// who orders nothing and rides every move out is under the win line inside
+// three turns (66 against 70 on STANDARD in this sweep), so the opening can
+// produce the row and the excuse had stopped being true.
 const NOT_IN_OPENING = new Set<string>([
-  'Mission assurance crosses below the win line',
   'BLACKOUT CHAIN fires',
   'Campaign won',
   'Campaign lost',
@@ -413,10 +418,21 @@ describe('the opening: the excuses are computed, not granted (Round 7b)', () => 
         }
       }
     }
+    // Computed, like the chain row's (v1.7 R1): through v1.6 no opening
+    // could reach the win line, and this asserted only that. Since the
+    // response a hit costs 9 a point on the meters, and a player who does
+    // nothing crosses the line inside three turns, so the row is excused
+    // exactly while the engine cannot reach it, and required to be off the
+    // excuse list once it can.
+    const row = 'Mission assurance crosses below the win line'
+    expect(SECTION_6_ROWS.some((r) => r.beat === row), 'the row this excuse was written for is gone').toBe(true)
+    const reachable = floor < DEFAULT_SCENARIO.winThreshold
     expect(
-      floor > DEFAULT_SCENARIO.winThreshold,
-      `the score reached ${floor} against a win line of ${DEFAULT_SCENARIO.winThreshold} inside the opening; the row is no longer excused`,
-    ).toBe(true)
+      NOT_IN_OPENING.has(row),
+      reachable
+        ? `the score reached ${floor} against a win line of ${DEFAULT_SCENARIO.winThreshold} inside the opening; the row is no longer excused`
+        : `the score never fell under ${DEFAULT_SCENARIO.winThreshold} inside the opening (lowest ${floor}) and the row is required anyway`,
+    ).toBe(!reachable)
   })
 
   it('excuses the two outcome rows only while no campaign can end in three turns', () => {

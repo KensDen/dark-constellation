@@ -29,12 +29,12 @@ import { callSigns } from '../src/ui/board/board'
 import { frameworkLabels, techniqueLabel } from '../src/ui/labels'
 import { shortName } from '../src/ui/board/boardModel'
 import { LearnMore } from '../src/ui/learnMore'
-import { HitCard, IntelFile } from '../src/ui/night/cards'
+import { HitCard } from '../src/ui/night/cards'
 import { nightOf } from '../src/ui/night/nightModel'
 import { realWorldFor } from '../src/ui/realWorldLine'
 import { glossaryEntries } from '../src/ui/reference'
 import { shareText } from '../src/ui/reportCard'
-import { NO_OP, TOP_INTEL_SCRIPT, WIN_SCRIPT } from './scripts'
+import { NO_OP, TOP_INTEL_SCRIPT, WIN_RESPONSES, WIN_RESPONSES_SEED, WIN_SCRIPT } from './scripts'
 
 const DIFFICULTIES = ['easy', 'standard', 'expert'] as const
 const SEEDS = [1, 11, 41, 104, 238, 277, 20260712]
@@ -125,8 +125,8 @@ describe('the technique tag resolves to a glossary entry', () => {
 // writes it into history, which the determinism snapshot hashes), so the
 // spelling is a display mapping, and this block sweeps these surfaces for
 // the enum: the GLOSSARY term, body and link labels, the REAL WORLD line,
-// the night's cards (the intel card and the hit card's dossier row, since
-// v1.3 R3 retired the director's playback card), and the share text. The
+// the night's cards (the result card's dossier row, new and filed, since
+// v1.7 R1 folded the intel card into it), and the share text. The
 // intel brief's tag and the debrief render techniqueLabel, which the
 // GLOSSARY term already exercises, and are not swept here.
 describe('the frameworks are spelled as their owners spell them', () => {
@@ -172,67 +172,71 @@ describe('the frameworks are spelled as their owners spell them', () => {
   })
 
   it('never shows the enum on the night\'s cards or in the share text', () => {
-    // The prepared line on the snapshot's win seed, where two ATT&CK
-    // techniques land and one is resisted (tests/share-text.spec.ts). The
-    // night shows each threat's technique twice (v1.3 R3): on the intel
-    // card a first meeting opens, and in the IN YOUR DOSSIER row of the hit
-    // card for one already filed. Both are rendered here for every threat
-    // the line meets, as the night builds them from its own model.
+    // The prepared line on the snapshot's win seed, with its fixed answers
+    // in the night (WIN_RESPONSES, tests/scripts.ts). Since v1.7 R1 the
+    // night shows each threat's technique in one place, the Dossier row of
+    // the move's result card, which holds the whole card closed: NEW
+    // DOSSIER CARD on a first meeting and IN YOUR DOSSIER once filed. The
+    // full-screen Dossier card (IntelFile) that named it a second time is
+    // gone, and its LEARN MORE lives in the row. Both forms of the row are
+    // rendered here for every threat the line meets, as the night builds
+    // them from its own model.
     const read = (markup: string) => markup.replace(/<[^>]+>/g, ' ').replaceAll('&amp;', '&').replace(/\s+/g, ' ')
     const techniqueRow = (markup: string) => read(/TECHNIQUE<\/dt><dd[^>]*>(.*?)<\/dd>/.exec(markup)?.[1] ?? '').trim()
-    let state: GameState = newGame(DEFAULT_SCENARIO, 20260712, 'standard')
+    let state: GameState = newGame(DEFAULT_SCENARIO, WIN_RESPONSES_SEED, 'standard')
     const tags: string[] = []
     let cards = 0
     while (state.status === 'playing') {
-      const after = resolveTurn(state, WIN_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+      const orders = { ...(WIN_SCRIPT[state.turn] ?? NO_OP), responses: WIN_RESPONSES[state.turn] ?? [] }
+      const after = resolveTurn(state, orders, turnRng(state.seed, state.turn))
       const night = nightOf(state, after)
       for (const step of night.steps) {
         if (step.kind !== 'threat') continue
         const ref = step.def.techniqueRefs[0]
-        const hit = renderToStaticMarkup(
-          createElement(HitCard, {
-            step,
-            turn: night.turn,
-            lastTurn: false,
-            signs: callSigns(step.before),
-            known: new Set([step.def.id]),
-            first: false,
-            reduced: true,
-            play: () => {},
-            onContinue: () => {},
-          }),
-        )
-        const intel = renderToStaticMarkup(
-          createElement(
-            LearnMore.Provider,
-            { value: () => {} },
-            createElement(IntelFile, { def: step.def, stoppedBy: [], filed: 0, total: 18, reduced: true, onFile: () => {} }),
-          ),
-        )
+        const card = (first: boolean) =>
+          renderToStaticMarkup(
+            createElement(
+              LearnMore.Provider,
+              { value: () => {} },
+              createElement(HitCard, {
+                step,
+                turn: night.turn,
+                lastTurn: false,
+                signs: callSigns(step.before),
+                known: new Set([step.def.id]),
+                first,
+                reduced: true,
+                play: () => {},
+                onContinue: () => {},
+              }),
+            ),
+          )
         // Swept where the card names the technique, not the whole card: the
         // vector tag says "RF ATTACK", which is the word, not the enum.
-        for (const [where, markup] of [
-          ['hit card', hit],
-          ['intel card', intel],
+        for (const [where, markup, heading] of [
+          ['filed card', card(false), 'IN YOUR DOSSIER'],
+          ['new card', card(true), 'NEW DOSSIER CARD'],
         ] as const) {
           const row = techniqueRow(markup)
           expect(row, `${step.def.id}: the ${where} names no technique`).toBe(`${techniqueLabel(ref)} ${ref.name}`)
           expect(row, `${step.def.id}: the ${where}`).not.toMatch(RAW)
           tags.push(techniqueLabel(ref))
+          // The dossier row's head names the framework, and its LEARN MORE
+          // carries the label for a screen reader.
+          const head = new RegExp(`${heading} · (\\S+)`).exec(read(markup))?.[1] ?? ''
+          expect(head, `${step.def.id}: the ${where}'s row names no framework`).toBe(frameworkLabels[ref.framework].split(' ')[0])
+          expect(head).not.toMatch(RAW)
+          const sr = /in the Field Library: ([^<]*)</.exec(markup)?.[1].replaceAll('&amp;', '&') ?? ''
+          // LEARN MORE names the threat it opens at (R6 question 13).
+          expect(sr, `${step.def.id}: LEARN MORE on the ${where}`).toBe(shortName(step.def))
+          expect(sr).not.toMatch(RAW)
         }
-        // The dossier row's head names the framework, and the intel card's
-        // LEARN MORE carries the label for a screen reader.
-        const head = /IN YOUR DOSSIER · (\S+)/.exec(read(hit))?.[1] ?? ''
-        expect(head, `${step.def.id}: the dossier row names no framework`).toBe(frameworkLabels[ref.framework].split(' ')[0])
-        expect(head).not.toMatch(RAW)
-        const sr = /in the Field Library: ([^<]*)</.exec(intel)?.[1].replaceAll('&amp;', '&') ?? ''
-        // LEARN MORE names the threat it opens at (R6 question 13).
-        expect(sr, `${step.def.id}: LEARN MORE`).toBe(shortName(step.def))
-        expect(sr).not.toMatch(RAW)
         cards += 1
       }
       state = after
     }
+    // A won game, as the snapshot's is, so the share text below is a win's.
+    expect(state.status).toBe('won')
     expect(cards, 'the line met no threat, so no card was read').toBeGreaterThan(0)
     expect(tags.some((t) => t.startsWith('ATT&CK ')), 'no card on this line carried an ATT&CK technique').toBe(true)
     // Each tag is a label techniqueLabel gives some ref, so the card cannot
