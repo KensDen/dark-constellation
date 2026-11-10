@@ -10,7 +10,7 @@
 // console error, every button named and at least 44px to the thumb, the
 // frame's draw calls, and the frame rate the loop holds.
 //
-//   node scripts/slice3d-bot.mjs --out <dir> [--video]
+//   node scripts/slice3d-bot.mjs --out <dir> [--video] [--only <run>] [--sheets]
 //
 // Run `npm run build` first; dist/ is served at the GitHub Pages base
 // path. Exit codes: 0 pass, 1 a check failed, 2 no Chrome on this machine.
@@ -296,17 +296,24 @@ async function record(b, ffmpeg, file, play) {
   if (frames.length < 2) return 0
   // Screencast frames come when the page changes; the film is 30 a second.
   const FPS_OUT = 30
-  const proc = spawn(ffmpeg, ['-loglevel', 'error', '-f', 'image2pipe', '-c:v', 'mjpeg', '-r', `${FPS_OUT}`, '-i', 'pipe:0', '-y', '-an', '-c:v', 'vp8', '-qmin', '4', '-qmax', '40', '-crf', '10', '-b:v', '2M', '-deadline', 'good', file], { stdio: ['pipe', 'ignore', 'inherit'] })
+  const proc = spawn(ffmpeg, ['-loglevel', 'error', '-f', 'image2pipe', '-c:v', 'mjpeg', '-r', `${FPS_OUT}`, '-i', 'pipe:0', '-y', '-an', '-c:v', 'libvpx-vp9', '-crf', '32', '-b:v', '0', '-deadline', 'realtime', '-cpu-used', '6', '-row-mt', '1', file], { stdio: ['pipe', 'ignore', 'inherit'] })
+  // An encoder that refuses its input closes the pipe; that is a missing
+  // video, said in the log, not a crash of the run.
+  let dead = false
+  proc.stdin.on('error', () => (dead = true))
+  proc.on('close', () => (dead = true))
   const t0 = frames[0].t
   const total = Math.ceil((frames[frames.length - 1].t - t0) * FPS_OUT)
   let k = 0
   for (let f = 0; f <= total; f += 1) {
     while (k + 1 < frames.length && frames[k + 1].t - t0 <= f / FPS_OUT) k += 1
-    if (!proc.stdin.write(frames[k].data)) await new Promise((r) => proc.stdin.once('drain', r))
+    if (dead) return 0
+    if (!proc.stdin.write(frames[k].data)) await Promise.race([new Promise((r) => proc.stdin.once('drain', r)), new Promise((r) => proc.once('close', r))])
   }
+  if (dead) return 0
+  const closed = new Promise((r) => proc.once('close', r))
   proc.stdin.end()
-  await new Promise((r) => proc.on('close', r))
-  return frames.length
+  return (await closed) === 0 ? frames.length : 0
 }
 
 function sheet(title, shots) {
@@ -315,9 +322,29 @@ function sheet(title, shots) {
   return `<!doctype html><meta charset="utf-8"><title>${title}</title>
 <style>body{margin:0;padding:24px;background:#0b0f14;color:#e6edf3;font:13px/1.4 system-ui,sans-serif}h1{font-size:20px;margin:0 0 4px}h2{font-size:14px;margin:26px 0 10px;color:#7cff9b;letter-spacing:.08em}
 .row{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0;width:var(--w)}img{display:block;width:100%;border-radius:8px;border:1px solid #243041}figcaption{margin-top:5px;color:#8b98a8;font-size:11px}figcaption b{color:#e6edf3}
-.phone{--w:190px}.desktop{--w:440px}</style>
+.phone{--w:198px}.desktop{--w:494px}</style>
 <h1>${title}</h1><p>Every capture of the bot's runs, in order. Phone runs are 390x844, desktop runs 1440x900.</p>
 ${runs.map((r) => `<h2>${r}</h2><div class="row ${r.startsWith('390') ? 'phone' : 'desktop'}">${shots.filter((s) => s.run === r).map(cell).join('')}</div>`).join('\n')}`
+}
+
+// The contact sheets: the index page photographed whole, one sheet a
+// viewport, wide enough that a night reads across in two or three rows.
+async function contactSheets(b) {
+  await b.send('Emulation.setEmulatedMedia', { features: [] })
+  for (const [kind, file] of [
+    ['phone', 'contact-sheet_390x844.png'],
+    ['desktop', 'contact-sheet_1440x900.png'],
+  ]) {
+    await b.send('Emulation.setDeviceMetricsOverride', { width: 2560, height: 1200, deviceScaleFactor: 1, mobile: false })
+    await b.send('Page.navigate', { url: pathToFileURL(join(OUT, 'index.html')).href })
+    await waitFor(b, 'document.readyState === "complete" && [...document.images].every((i) => i.complete)', 60000)
+    await b.evaluate(`(() => { for (const row of document.querySelectorAll('.row')) if (!row.classList.contains(${JSON.stringify(kind)})) { row.previousElementSibling.remove(); row.remove() } return true })()`)
+    const size = await b.evaluate('({ w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight })')
+    await b.send('Emulation.setDeviceMetricsOverride', { width: size.w, height: Math.min(size.h, 16000), deviceScaleFactor: 1, mobile: false })
+    await sleep(500)
+    const png = await b.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+    writeFileSync(join(OUT, file), Buffer.from(png.data, 'base64'))
+  }
 }
 
 const VIEWS = [
@@ -340,6 +367,17 @@ async function main() {
     process.exit(2)
   }
   mkdirSync(join(OUT, 'shots'), { recursive: true })
+  if (flag('--sheets')) {
+    // The sheets again, from the index a run already wrote.
+    const b = await browser(chrome)
+    try {
+      await b.send('Page.enable')
+      await contactSheets(b)
+    } finally {
+      b.close()
+    }
+    return
+  }
   const server = await serve()
   const base = `http://127.0.0.1:${server.address().port}/dark-constellation/`
   const b = await browser(chrome)
@@ -377,20 +415,11 @@ async function main() {
         const frames = await record(b, ffmpeg, join(OUT, '390x844_one-night.webm'), () => run(b, base, VIEWS[0], { ...PLANS[0], name: 'video', again: false }, [], film))
         for (const s of film) rmSync(join(OUT, 'shots', s.file), { force: true })
         console.log(`${frames} frames`)
-        log.push(`\nVideo: 390x844_one-night.webm, night (a) at 390x844, ${frames} screencast frames at 30 a second.`)
+        log.push(frames ? `\nVideo: 390x844_one-night.webm, night (a) at 390x844, ${frames} screencast frames at 30 a second.` : '\nThe video could not be encoded on this machine.')
       }
     }
     writeFileSync(join(OUT, 'index.html'), sheet('Dark Constellation: the 3D slice, every beat', shots))
-    // The contact sheet: the same page, photographed whole.
-    await b.send('Emulation.setEmulatedMedia', { features: [] })
-    await b.send('Emulation.setDeviceMetricsOverride', { width: 1500, height: 900, deviceScaleFactor: 1, mobile: false })
-    await b.send('Page.navigate', { url: pathToFileURL(join(OUT, 'index.html')).href })
-    await waitFor(b, 'document.readyState === "complete" && [...document.images].every((i) => i.complete)', 30000)
-    const size = await b.evaluate('({ w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight })')
-    await b.send('Emulation.setDeviceMetricsOverride', { width: size.w, height: Math.min(size.h, 15000), deviceScaleFactor: 1, mobile: false })
-    await sleep(400)
-    const png = await b.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
-    writeFileSync(join(OUT, 'contact-sheet.png'), Buffer.from(png.data, 'base64'))
+    await contactSheets(b)
   } finally {
     b.close()
     server.close()
