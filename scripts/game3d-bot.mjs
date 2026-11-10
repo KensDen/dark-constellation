@@ -1,16 +1,20 @@
 #!/usr/bin/env node
-// THE 3D SLICE'S BOT (experiment, exp/3d-slice). Plays the 3D turn in a
-// real headless Chrome over the built game, at 390x844 and 1440x900, and
-// captures each beat: the title's way in, the world before the night, a
-// tile with its defense ordered, each strike with its response standing
-// beside the target, the block or the hit, the result with the Dossier
-// card open and filed, and the dawn. Three nights a viewport, so every
-// kind of answer is taken (block, halve, ride it out), and one more under
-// Reduce Motion. It also checks what a capture cannot show: no page or
+// THE 3D GAME'S BOT (v2.0 R1; the 3D slice's bot before it). Plays whole
+// six-night games in a real headless Chrome over the built game, at
+// 390x844 and 1440x900, the way four kinds of player would (a first-time
+// player on EASY, the Daily Op, a deliberately poor line, a beginner who
+// only taps), using the game's own hands: the scan (tapped, and dragged as
+// a lens), a defense dragged onto an asset, an answer dragged onto its
+// target, a link rerouted, an asset isolated, the timed tap, the debris
+// call. It captures every beat (the opening, each night's plan, each
+// strike's answer, impact and result, each dawn, the debrief, the replay
+// and the Dossier), and checks what a capture cannot show: no page or
 // console error, every button named and at least 44px to the thumb, the
-// frame's draw calls, and the frame rate the loop holds.
+// dock's height, the frame's draw calls and the frame rate the loop holds.
+// It writes a contact sheet a game, a log, a playtest table, and with
+// --video one whole phone game as a film.
 //
-//   node scripts/slice3d-bot.mjs --out <dir> [--video] [--only <run>] [--sheets]
+//   node scripts/game3d-bot.mjs --out <dir> [--video] [--only <run>] [--sheets]
 //
 // Run `npm run build` first; dist/ is served at the GitHub Pages base
 // path. Exit codes: 0 pass, 1 a check failed, 2 no Chrome on this machine.
@@ -27,7 +31,7 @@ import { findChrome, serve } from './phone-layout.mjs'
 const args = process.argv.slice(2)
 const flag = (name) => args.includes(name)
 const value = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback)
-const OUT = resolve(value('--out', 'slice3d-captures'))
+const OUT = resolve(value('--out', 'game3d-captures'))
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 async function freePort() {
@@ -111,38 +115,83 @@ async function waitFor(b, expression, ms = 15000) {
   return false
 }
 
+const root = (key) => `(document.querySelector('.t3-root')?.dataset.${key} ?? '')`
 const stageIs = (stage, step) => `document.querySelector('[data-t3-stage="${stage}"]${step === undefined ? '' : `[data-t3-step="${step}"]`}')`
-const click = (b, selector) => b.evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return false; e.click(); return true })()`)
+const click = (b, selector) => b.evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e || e.disabled) return false; e.click(); return true })()`)
+const exists = (b, selector) => b.evaluate(`!!document.querySelector(${JSON.stringify(selector)})`)
+const centre = (b, selector) =>
+  b.evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null; e.scrollIntoView?.({ block: 'nearest', inline: 'center' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`)
 
-// Every button the slice shows: named, and big enough for a thumb.
+// A finger (the page hears it as a pointer): down on one thing, across the
+// world in steps, and up on another, with a rest before letting go.
+async function dragTo(b, from, to, rest = 120) {
+  const a = typeof from === 'string' ? await centre(b, from) : from
+  const z = typeof to === 'string' ? await centre(b, to) : to
+  if (!a || !z) return false
+  const mouse = (type, x, y) => b.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1, pointerType: 'mouse' })
+  await mouse('mousePressed', a.x, a.y)
+  const steps = 14
+  for (let i = 1; i <= steps; i += 1) {
+    await mouse('mouseMoved', a.x + ((z.x - a.x) * i) / steps, a.y + ((z.y - a.y) * i) / steps)
+    await sleep(18)
+  }
+  await sleep(rest)
+  await mouse('mouseReleased', z.x, z.y)
+  return true
+}
+async function press(b, x, y) {
+  await b.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 })
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 })
+}
+
+// Every button the game shows: named, and big enough for a thumb.
 const AUDIT = `(() => {
   const bad = []
-  for (const e of document.querySelectorAll('.t3-root button')) {
+  for (const e of document.querySelectorAll('.t3-root button, .t3-root a.t3-btn')) {
     const r = e.getBoundingClientRect()
     if (r.width < 1 || r.height < 1 || getComputedStyle(e).visibility === 'hidden') continue
     const name = (e.getAttribute('aria-label') || e.textContent || '').trim()
     if (!name) bad.push('unnamed button ' + e.className)
     if (r.width < 43.5 || r.height < 43.5) bad.push('small target ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' "' + name.slice(0, 30) + '"')
-    if (!e.disabled && (r.left < -0.5 || r.right > innerWidth + 0.5 || r.top < -0.5 || r.bottom > innerHeight + 0.5) && !e.closest('.t3-tags')) bad.push('off screen "' + name.slice(0, 30) + '" ' + Math.round(r.left) + ',' + Math.round(r.top) + ' ' + Math.round(r.right) + ',' + Math.round(r.bottom))
+    const scroller = e.closest('.t3-tray, .t3-debrief, .t3-room')
+    if (!e.disabled && !scroller && (r.left < -0.5 || r.right > innerWidth + 0.5 || r.top < -0.5 || r.bottom > innerHeight + 0.5) && !e.closest('.t3-tags')) bad.push('off screen "' + name.slice(0, 30) + '" ' + Math.round(r.left) + ',' + Math.round(r.top) + ' ' + Math.round(r.right) + ',' + Math.round(r.bottom))
   }
   const dock = document.querySelector('[data-t3-dock]')?.getBoundingClientRect()
-  if (dock && dock.height > innerHeight * 0.72) bad.push('the dock covers ' + Math.round((dock.height / innerHeight) * 100) + '% of the height')
+  if (dock && innerWidth < 1000 && dock.height > innerHeight * 0.72) bad.push('the dock covers ' + Math.round((dock.height / innerHeight) * 100) + '% of the height')
   if (document.documentElement.scrollWidth > innerWidth + 1) bad.push('the page scrolls sideways')
   return bad
 })()`
 
 const FPS = `new Promise((done) => { let n = 0; const t0 = performance.now(); const f = (t) => { n += 1; if (t - t0 < 2000) requestAnimationFrame(f); else done(Math.round((n * 1000) / (t - t0))) }; requestAnimationFrame(f) })`
 
-async function run(b, base, view, plan, log, shots) {
+// What is over the fleet before a night: each signature, whether the scan
+// has named it, and what COLDVEIL does with it.
+const CONTACTS = `[...document.querySelectorAll('[data-t3-contact]')].map((e) => ({ id: e.dataset.t3Contact, known: e.dataset.known === 'true', favor: e.dataset.favor, held: e.classList.contains('is-held'), asset: e.closest('.t3-tag')?.querySelector('[data-t3-asset]')?.dataset.t3Asset }))`
+
+// A stream of the bot's own, so a line that flips coins replays.
+function rng(seed) {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+async function run(b, base, view, plan, log, shots, table) {
   const [w, h, dsf, tag] = view
   const failures = []
   const name = `${tag}_${plan.name}`
+  const quick = !!plan.reduced
+  const coin = rng(plan.seed ?? 7)
   await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: dsf, mobile: w < 700 })
   await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: plan.reduced ? 'reduce' : 'no-preference' }] })
   let n = 0
   const shot = async (label, note = '') => {
     n += 1
-    const file = `${name}_${String(n).padStart(2, '0')}_${label}.png`
+    const file = `${name}_${String(n).padStart(3, '0')}_${label}.png`
     const r = await b.send('Page.captureScreenshot', { format: 'png' })
     writeFileSync(join(OUT, 'shots', file), Buffer.from(r.data, 'base64'))
     const stage = await b.evaluate(`document.querySelector('.t3-root')?.dataset.t3Stage ?? 'title'`)
@@ -151,123 +200,344 @@ async function run(b, base, view, plan, log, shots) {
     const bad = await b.evaluate(AUDIT)
     for (const x of bad) failures.push(`${name} ${label}: ${x}`)
   }
+  const fail = (m) => failures.push(`${name}: ${m}`)
 
   log.push(`\n## ${name}: ${plan.what}\n`)
   await b.send('Page.navigate', { url: 'about:blank' })
   await sleep(150)
   await b.send('Storage.clearDataForOrigin', { origin: new URL(base).origin, storageTypes: 'local_storage' })
-  if (plan.fromTitle) {
-    // The way in a player takes: the title's own button.
-    await b.send('Page.navigate', { url: base })
-    if (!(await waitFor(b, 'document.querySelector("[data-try3d]")'))) return [`${name}: the title has no TRY 3D button`]
-    await sleep(600)
-    await b.evaluate('document.querySelector("[data-try3d]").scrollIntoView({ block: "center" })')
-    await sleep(200)
-    await shot('title', 'TRY 3D (EXPERIMENT) on the title')
-    await click(b, '[data-try3d]')
-  } else await b.send('Page.navigate', { url: `${base}?view=3d&seed=${plan.seed}` })
-  if (!(await waitFor(b, stageIs('plan')))) return [`${name}: the slice never reached its plan`]
-  if (plan.fromTitle) {
-    await sleep(2600)
-    await shot('plan-from-title', 'the slice as it opens from the title, on a seed of its own')
-    await click(b, '[data-t3-back]')
-    if (!(await waitFor(b, 'document.querySelector("[data-try3d]")'))) failures.push(`${name}: BACK did not return to the title`)
-    return failures
+  await b.send('Page.navigate', { url: base })
+  if (!(await waitFor(b, 'document.querySelector("[data-play]")'))) return [`${name}: the title never showed PLAY`]
+  // What the device already has: nothing for a first visit; otherwise the
+  // briefing seen, the guide done, and the difficulty set.
+  await b.evaluate(`(() => {
+    ${plan.fresh ? '' : `localStorage.setItem('dc-intro-seen', '1'); localStorage.setItem('dc-3d-prefs', JSON.stringify({ guideSeen: true, assist: ${!!plan.assist} }));`}
+    ${plan.difficulty ? `localStorage.setItem('dc-difficulty', '${plan.difficulty}');` : ''}
+    return true
+  })()`)
+  await b.send('Page.reload')
+  if (!(await waitFor(b, 'document.querySelector("[data-play]")'))) return [`${name}: the title never showed PLAY`]
+  await sleep(quick ? 300 : 900)
+  await shot('title', plan.daily ? 'the title: DAILY OP' : 'the title: PLAY goes to the 3D game')
+  const started = Date.now()
+  if (plan.daily) {
+    await click(b, '[data-daily]')
+  } else if (plan.seed && !plan.fresh) {
+    // A seed of its own, through the address a share would carry.
+    await b.send('Page.navigate', { url: `${base}?view=3d&seed=${plan.seed}` })
+  } else await click(b, '[data-play]')
+  if (!(await waitFor(b, 'document.querySelector(".t3-root canvas")', 20000))) return [`${name}: the 3D game never opened`]
+
+  if (plan.fresh) {
+    // The briefing, in the world: four shots, then the watch.
+    if (!(await waitFor(b, stageIs('opening')))) fail('a first visit did not open on the briefing')
+    for (let i = 0; i < 4; i += 1) {
+      await waitFor(b, `document.querySelector('[data-t3-beat="${i}"]')`)
+      await sleep(quick ? 250 : 2600)
+      await shot(`opening-${i + 1}`, 'the briefing in the world: the watch officer, and the camera on what is said')
+      await click(b, '[data-t3-opening-next]')
+      await sleep(120)
+      if (await exists(b, `[data-t3-beat="${i}"]`)) await click(b, '[data-t3-opening-next]')
+    }
   }
-  await sleep(plan.reduced ? 400 : 700)
-  await shot('opening', 'the camera settling, the lines drawing in')
-  await sleep(plan.reduced ? 500 : 2300)
-  await shot('plan', 'before the night: the moves aimed at their targets')
-  const fps = await b.evaluate(FPS)
-  const stats = await b.evaluate('window.__dc3d ? window.__dc3d.stats() : null')
-  log.push(`- frame: ${fps} fps over 2 s, ${stats ? `${stats.calls} draw calls, ${stats.triangles} triangles, ${stats.points} points` : 'no stats'}`)
-  if (fps < 50 && !plan.reduced) failures.push(`${name}: ${fps} fps at the plan`)
+  if (!(await waitFor(b, stageIs('plan')))) return [...failures, `${name}: the game never reached its first plan`]
+  log.push(`- ${await b.evaluate(`document.querySelector('[data-t3-night]')?.textContent`)}, status ${await b.evaluate(root('t3Status'))}`)
 
-  // Tap the first aimed tile: its card stands beside it.
-  if (!(await click(b, '.t3-asset.is-aimed'))) failures.push(`${name}: no aimed tile to tap`)
-  await sleep(plan.reduced ? 400 : 1300)
-  await shot('tile', 'a tile tapped: what is aimed at it, and the defense that answers it')
-  if (plan.defense) {
-    // Order the defense from whichever tile offers it.
-    let ordered = await click(b, `[data-t3-order="${plan.defense}"]`)
-    for (const sel of ordered ? [] : await b.evaluate(`[...document.querySelectorAll('[data-t3-asset]')].map((e) => '[data-t3-asset="' + e.dataset.t3Asset + '"]')`)) {
-      await click(b, sel)
-      await sleep(150)
-      ordered = await click(b, `[data-t3-order="${plan.defense}"]`)
-      if (ordered) break
-      await click(b, sel)
-    }
-    if (!ordered) failures.push(`${name}: could not order ${plan.defense}`)
-    await sleep(plan.reduced ? 400 : 1100)
-    await shot('defense-ordered', `${plan.defense} ordered: the shield goes up and the line stops on it`)
-  }
-  await b.evaluate(`document.querySelector('.t3-asset.is-on')?.click()`)
-  await sleep(plan.reduced ? 400 : 1300)
-  await shot('before-the-night', 'the whole theater with the orders in')
+  const stats = { scans: 0, lens: 0, placed: 0, dragged: 0, rerouted: 0, isolated: 0, shielded: 0, tapped: 0, perfect: 0, good: 0, rode: 0, burned: 0, held: 0 }
+  let fpsLogged = false
 
-  await click(b, '[data-t3-begin]')
-  await sleep(plan.reduced ? 300 : 1100)
-  await shot('nightfall', 'COLDVEIL IS MOVING: night falls on the area of operations')
-
-  for (let i = 0; i < 4; i += 1) {
-    const reached = await waitFor(b, `${stageIs('launch', i)} || ${stageIs('choose', i)} || ${stageIs('land', i)} || ${stageIs('result', i)} || ${stageIs('dawn')}`, 12000)
-    if (!reached) {
-      failures.push(`${name}: strike ${i + 1} never started`)
-      break
+  // ---------------------------------------------------------- one night
+  const planNight = async (night) => {
+    await sleep(quick ? 400 : 2100)
+    if (await exists(b, '[data-t3-guide]')) await shot(`n${night}-guide`, 'the guide: one line, in the world, and a way to skip it')
+    await shot(`n${night}-dusk`, 'before the night: unidentified signatures over the fleet, the stakes, the scan, the pieces')
+    if (!fpsLogged) {
+      fpsLogged = true
+      const fps = await b.evaluate(FPS)
+      const st = await b.evaluate('window.__dc3d ? window.__dc3d.stats() : null')
+      log.push(`- frame: ${fps} fps over 2 s, ${st ? `${st.calls} draw calls, ${st.triangles} triangles, ${st.points} points` : 'no stats'}`)
+      table.fps.push({ run: name, fps, calls: st?.calls ?? 0, triangles: st?.triangles ?? 0 })
+      if (fps < 50 && !plan.reduced && !plan.lowPower) fail(`${fps} fps at the plan`)
     }
-    if (await b.evaluate(`!!${stageIs('dawn')}`)) break
-    if (await b.evaluate(`!!${stageIs('launch', i)}`)) {
-      await sleep(plan.reduced ? 500 : 1150)
-      await shot(`strike-${i + 1}-incoming`, 'the strike leaves COLDVEIL for its target')
-    }
-    await waitFor(b, `${stageIs('choose', i)} || ${stageIs('land', i)} || ${stageIs('result', i)}`)
-    if (await b.evaluate(`!!${stageIs('choose', i)}`)) {
-      await sleep(plan.reduced ? 300 : 900)
-      await shot(`strike-${i + 1}-response`, 'the strike holds short of the tile; the answers stand beside it')
-      const want = plan.answers[i] ?? 'ride'
-      const sel = want === 'ride' ? '[data-t3-response="ride"]' : `[data-t3-response][data-effect="${want}"]:not(:disabled)`
-      if (!(await click(b, sel))) {
-        failures.push(`${name}: strike ${i + 1} offered no ${want}`)
-        await click(b, '[data-t3-response="ride"]')
+    // THE SCAN.
+    let contacts = await b.evaluate(CONTACTS)
+    const unknown = () => contacts.filter((c) => !c.known)
+    let scanned = 0
+    while (plan.scan !== 'none' && unknown().length > 0) {
+      const c = unknown()[plan.scan === 'second' && scanned === 0 && unknown().length > 1 ? 1 : 0]
+      const left = Number(await b.evaluate(root('t3Pulses')))
+      if (!(left > 0)) break
+      let byLens = false
+      if (plan.scan === 'lens' && scanned === 0) {
+        // The lens, dragged over the signature and held there.
+        await click(b, '[data-t3-close]')
+        await sleep(150)
+        await dragTo(b, '[data-t3-lens]', `[data-t3-contact="${c.id}"]`, 780)
+        byLens = await waitFor(b, `document.querySelector('[data-t3-contact="${c.id}"][data-known="true"]')`, 2500)
+        if (byLens) stats.lens += 1
       }
-      log.push(`- strike ${i + 1}: answered with ${want}`)
+      if (!byLens) {
+        await click(b, `[data-t3-contact="${c.id}"]`)
+        await sleep(quick ? 200 : 700)
+        if (scanned === 0 && night <= 2) await shot(`n${night}-unidentified`, 'a signature in hand: its look, its track, and the scan')
+        await click(b, `[data-t3-scan="${c.id}"]`)
+      }
+      if (!(await waitFor(b, `document.querySelector('[data-t3-contact="${c.id}"][data-known="true"]')`, 6000))) {
+        fail(`night ${night}: the scan did not identify ${c.id}`)
+        break
+      }
+      scanned += 1
+      stats.scans += 1
+      await sleep(quick ? 150 : 500)
+      if (scanned === 1 && night <= 3) await shot(`n${night}-identified`, 'identified: the name, what COLDVEIL does with it, what it would take, and the pieces that answer it')
+      contacts = await b.evaluate(CONTACTS)
     }
-    await waitFor(b, `${stageIs('land', i)} || ${stageIs('result', i)}`)
-    // The impact: a few frames around it, since a still can miss a flash.
-    await waitFor(b, `document.querySelector('.t3-float') || ${stageIs('result', i)}`, 6000)
-    await shot(`strike-${i + 1}-impact`, 'the moment it lands')
-    await sleep(140)
-    await shot(`strike-${i + 1}-impact-after`, 'a beat later')
-    if (!(await waitFor(b, stageIs('result', i)))) {
-      failures.push(`${name}: strike ${i + 1} never showed its result`)
+    await click(b, '[data-t3-close]')
+    contacts = await b.evaluate(CONTACTS)
+    // THE PIECE.
+    if (plan.place === 'smart') {
+      const want = contacts.filter((c) => c.known && !c.held && c.favor !== 'unlikely')
+      for (const c of want) {
+        await click(b, `[data-t3-contact="${c.id}"]`)
+        await sleep(quick ? 150 : 450)
+        const piece = await b.evaluate(`document.querySelector('[data-t3-order]:not(:disabled)[aria-pressed="false"]')?.dataset.t3Order ?? null`)
+        if (!piece) {
+          await click(b, '[data-t3-close]')
+          continue
+        }
+        if (plan.hands && night % 2 === 1) {
+          // Dragged from the tray onto the asset under the signature.
+          await click(b, '[data-t3-close]')
+          await sleep(200)
+          await b.evaluate(`document.querySelector('[data-t3-piece="${piece}"]')?.scrollIntoView({ inline: 'center', block: 'nearest' })`)
+          await sleep(150)
+          await dragTo(b, `[data-t3-piece="${piece}"]`, `[data-t3-asset="${c.asset}"]`, 260)
+          stats.dragged += 1
+        } else await click(b, `[data-t3-order="${piece}"]`)
+        if (await waitFor(b, `document.querySelector('[data-t3-piece="${piece}"].is-ordered')`, 3000)) stats.placed += 1
+        else fail(`night ${night}: ${piece} was not placed`)
+        await sleep(quick ? 200 : 900)
+        await shot(`n${night}-placed`, `${piece} placed on the asset: the shield stands, and COLDVEIL reads it`)
+        break
+      }
+    } else if (plan.place === 'random') {
+      const free = await b.evaluate(`[...document.querySelectorAll('[data-t3-piece][data-state="free"]')].map((e) => e.dataset.t3Piece)`)
+      if (free.length && coin() < 0.85) {
+        const piece = free[Math.floor(coin() * free.length)]
+        await click(b, `[data-t3-piece="${piece}"]`)
+        await sleep(quick ? 150 : 450)
+        if (night <= 2) await shot(`n${night}-piece`, 'a piece in hand: its formal name, what it answers tonight, and where it can go')
+        if (await click(b, '[data-t3-place]')) stats.placed += 1
+        await sleep(quick ? 150 : 600)
+      }
+    }
+    if (plan.fleet && night === 1) {
+      await click(b, '[data-t3-fleet]')
+      await sleep(quick ? 150 : 400)
+      await click(b, '[data-t3-asset-order="drone"]')
+      await sleep(quick ? 150 : 400)
+      await shot(`n${night}-fleet`, 'the fleet: a drone ordered, arriving at dawn')
+    }
+    await click(b, '[data-t3-close]')
+    await sleep(quick ? 300 : 1200)
+    await shot(`n${night}-orders`, 'the whole theater with tonight’s orders in')
+    log.push(`- night ${night}: ${await b.evaluate(`(document.querySelector('[data-t3-order-line]')?.textContent ?? '').trim()`)}; ${await b.evaluate(`(document.querySelector('[data-t3-stakes]')?.textContent ?? '').replace(/\\s+/g, ' ').trim()`)}`)
+    if (!(await click(b, '[data-t3-begin]'))) fail(`night ${night}: no BEGIN THE NIGHT`)
+  }
+
+  const answer = async (night, i) => {
+    await sleep(quick ? 300 : 900)
+    await shot(`n${night}-s${i + 1}-answer`, 'the strike holds short of its target with its signature on it; the answers stand beside it')
+    const options = await b.evaluate(`[...document.querySelectorAll('[data-t3-response]:not(:disabled)')].map((e) => ({ id: e.dataset.t3Response, effect: e.dataset.effect, gesture: e.dataset.gesture ?? null }))`)
+    const real = options.filter((o) => o.id !== 'ride')
+    let pick = null
+    if (plan.respond === 'best') pick = real.find((o) => o.effect === 'block') ?? real[0] ?? null
+    if (plan.respond === 'careless') pick = coin() < 2 / 3 ? (real[0] ?? null) : null
+    const target = await b.evaluate(root('t3Target'))
+    if (!pick) {
+      await click(b, '[data-t3-response="ride"]')
+      stats.rode += 1
+      log.push(`- night ${night} strike ${i + 1}: rode it out`)
+      return
+    }
+    let how = 'tapped'
+    if (plan.hands && pick.gesture === 'isolate') {
+      // The asset itself: a tap isolates it.
+      how = (await click(b, `[data-t3-asset="${target}"]`)) ? 'isolated on the world' : how
+      if (how !== 'tapped') stats.isolated += 1
+    } else if (plan.hands && pick.gesture === 'reroute') {
+      const relay = await b.evaluate(`[...document.querySelectorAll('[data-t3-asset]')].filter((e) => e.dataset.t3Asset !== ${JSON.stringify(target)} && e.dataset.t3Kind !== 'drone' && getComputedStyle(e.closest('.t3-tag')).visibility !== 'hidden' && !e.classList.contains('is-lost')).map((e) => e.dataset.t3Asset)[0] ?? null`)
+      if (relay && (await dragTo(b, `[data-t3-asset="${target}"]`, `[data-t3-asset="${relay}"]`, 240))) {
+        how = 'link dragged to a relay'
+        stats.rerouted += 1
+      }
+    } else if (plan.hands) {
+      if (await dragTo(b, `[data-t3-response="${pick.id}"]`, `[data-t3-asset="${target}"]`, 240)) {
+        how = 'dragged onto the target'
+        stats.shielded += 1
+      }
+    }
+    await sleep(120)
+    // The tap is every gesture's alternative, and the fallback here.
+    if (await b.evaluate(`!!${stageIs('choose', i)}`)) {
+      await click(b, `[data-t3-response="${pick.id}"]`)
+      how = how === 'tapped' ? 'tapped' : `${how} (missed; tapped)`
+    }
+    log.push(`- night ${night} strike ${i + 1}: ${pick.effect} by ${pick.id}, ${how}`)
+  }
+
+  const night = async (nightNo) => {
+    await planNight(nightNo)
+    await sleep(quick ? 300 : 1100)
+    await shot(`n${nightNo}-nightfall`, 'COLDVEIL IS MOVING: night falls, and live conditions press')
+    for (let i = 0; i < 5; i += 1) {
+      const any = `${stageIs('launch', i)} || ${stageIs('choose', i)} || ${stageIs('call', i)} || ${stageIs('land', i)} || ${stageIs('impact', i)} || ${stageIs('result', i)} || ${stageIs('dawn')}`
+      if (!(await waitFor(b, any, 15000))) {
+        fail(`night ${nightNo}: step ${i + 1} never started`)
+        return false
+      }
+      if (await b.evaluate(`!!${stageIs('dawn')}`)) break
+      if (await b.evaluate(`!!${stageIs('launch', i)}`)) {
+        await sleep(quick ? 400 : 1000)
+        await shot(`n${nightNo}-s${i + 1}-incoming`, 'the strike leaves COLDVEIL with its own look and sound')
+      }
+      await waitFor(b, `${stageIs('choose', i)} || ${stageIs('call', i)} || ${stageIs('land', i)} || ${stageIs('impact', i)} || ${stageIs('result', i)}`, 15000)
+      if (await b.evaluate(`!!${stageIs('choose', i)}`)) await answer(nightNo, i)
+      if (await b.evaluate(`!!${stageIs('call', i)}`)) {
+        await sleep(quick ? 300 : 900)
+        await shot(`n${nightNo}-s${i + 1}-call`, 'the debris call, in the world: burn the satellite off the crossing orbit, or hold')
+        const burn = plan.debris === 'burn' || (plan.debris === 'coin' && coin() < 0.5)
+        if (burn && plan.hands) {
+          const target = await b.evaluate(root('t3Target'))
+          const at = await centre(b, `[data-t3-asset="${target}"]`)
+          if (at) await dragTo(b, at, { x: at.x - 90, y: at.y - 30 }, 200)
+        }
+        if (await b.evaluate(`!!${stageIs('call', i)}`)) await click(b, `[data-t3-call="${burn ? 'burn' : 'hold'}"]`)
+        stats[burn ? 'burned' : 'held'] += 1
+        log.push(`- night ${nightNo}: debris call, ${burn ? 'BURN' : 'HOLD'}`)
+        await sleep(quick ? 300 : 1300)
+        await shot(`n${nightNo}-s${i + 1}-pass`, burn ? 'the satellite burns along its orbit and the debris crosses behind it' : 'the debris crosses the orbit')
+      }
+      // THE TIMED TAP: the ring closes on the target as the strike lands.
+      if (await waitFor(b, `document.querySelector('[data-t3-tap]') || ${stageIs('impact', i)} || ${stageIs('result', i)}`, 9000)) {
+        if (await exists(b, '[data-t3-tap]')) {
+          if (plan.timing === 'aim') {
+            await sleep(560)
+            await shot(`n${nightNo}-s${i + 1}-ring`, 'the ring closing on the target: tap as it meets the strike')
+            await sleep(Math.max(0, 300 - 120))
+            await press(b, Math.round(w * 0.5), Math.round(h * 0.2))
+            stats.tapped += 1
+          } else if (plan.timing === 'button') {
+            await sleep(700 + Math.floor(coin() * 420))
+            await b.evaluate(`document.querySelector('[data-t3-tap]')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`)
+            stats.tapped += 1
+          }
+        }
+      }
+      await waitFor(b, `document.querySelector('.t3-float') || ${stageIs('result', i)}`, 9000)
+      await shot(`n${nightNo}-s${i + 1}-impact`, 'the moment it lands')
+      if (!(await waitFor(b, stageIs('result', i), 12000))) {
+        fail(`night ${nightNo}: step ${i + 1} never showed its result`)
+        return false
+      }
+      await sleep(quick ? 250 : 600)
+      const verdict = await b.evaluate(`document.querySelector('[data-t3-verdict]')?.dataset.t3Verdict ?? 'windfall'`)
+      const tapline = await b.evaluate(`(document.querySelector('[data-t3-tapline]')?.textContent ?? '').trim()`)
+      if (tapline.startsWith('PERFECT')) stats.perfect += 1
+      if (tapline.startsWith('GOOD')) stats.good += 1
+      log.push(`- night ${nightNo} step ${i + 1}: ${verdict}${tapline ? `, ${tapline}` : ''}; ${await b.evaluate(`(document.querySelector('[data-t3-helped]')?.textContent ?? '').trim()`)}`)
+      await shot(`n${nightNo}-s${i + 1}-result-${verdict}`, 'the result: what happened, why a defense held, what would have helped, the Dossier card')
+      if ((await exists(b, '[data-t3-file]')) && (await click(b, '.t3-dossier-head'))) {
+        await sleep(300)
+        await shot(`n${nightNo}-s${i + 1}-card`, 'READ THE CARD: the Dossier card, in place')
+        await click(b, '.t3-dossier-head')
+        await sleep(120)
+      }
+      if (!(await click(b, '[data-t3-file]'))) await click(b, '[data-t3-continue]')
+    }
+    if (!(await waitFor(b, stageIs('dawn'), 15000))) {
+      fail(`night ${nightNo} never reached dawn`)
+      return false
+    }
+    await sleep(quick ? 500 : 2700)
+    await shot(`n${nightNo}-dawn`, 'dawn: the score against the win line, the watch ring, arrivals, the budget, and what to fix')
+    log.push(`- dawn ${nightNo}: ${await b.evaluate(`(document.querySelector('[data-t3-scoreline]')?.textContent ?? '').trim()`)} | ${await b.evaluate(`(document.querySelector('[data-t3-ledger]')?.textContent ?? '').trim()`)}`)
+    return true
+  }
+
+  for (let nightNo = 1; nightNo <= 6; nightNo += 1) {
+    if (!(await night(nightNo))) break
+    const over = (await b.evaluate(root('t3Status'))) !== 'playing'
+    await click(b, '[data-t3-next]')
+    if (over) break
+    if (!(await waitFor(b, stageIs('plan'), 8000))) {
+      fail(`night ${nightNo + 1} never opened`)
       break
     }
-    await sleep(plan.reduced ? 250 : 600)
-    const verdict = await b.evaluate(`document.querySelector('[data-t3-verdict]')?.dataset.t3Verdict ?? 'windfall'`)
-    log.push(`- strike ${i + 1}: ${verdict}; ${await b.evaluate(`(document.querySelector('[data-t3-helped]')?.textContent ?? '').trim()`)}`)
-    await shot(`strike-${i + 1}-result-${verdict}`, 'the result in place: what happened, what would have helped, the Dossier card')
-    if (await click(b, '.t3-dossier-head')) {
-      await sleep(350)
-      await shot(`strike-${i + 1}-dossier-card`, 'READ THE CARD: the whole Dossier card, in place')
-      await click(b, '.t3-dossier-head')
-      await sleep(150)
-    }
-    if (await click(b, '[data-t3-file]')) {
-      await sleep(180)
-      await shot(`strike-${i + 1}-filed`, 'FILE TO DOSSIER: filed, and counted')
-      if (!(await b.evaluate(`JSON.parse(localStorage.getItem('dc-dossier') ?? '[]').length > 0`))) failures.push(`${name}: FILE TO DOSSIER filed nothing`)
-    } else await click(b, '[data-t3-continue]')
   }
-  if (!(await waitFor(b, stageIs('dawn'), 12000))) failures.push(`${name}: the night never reached dawn`)
-  await sleep(plan.reduced ? 500 : 2600)
-  await shot('dawn', 'dawn: the score and the budget, and what to fix')
-  log.push(`- dawn: ${await b.evaluate(`(document.querySelector('[data-t3-final]')?.textContent ?? '').trim()`)}; ${await b.evaluate(`(document.querySelector('[data-t3-ledger]')?.textContent ?? '').trim()`)}`)
-  if (plan.again) {
-    await click(b, '[data-t3-again]')
-    if (!(await waitFor(b, stageIs('plan')))) failures.push(`${name}: PLAY ANOTHER NIGHT did not start one`)
-    await sleep(plan.reduced ? 400 : 2200)
-    await shot('another-night', 'PLAY ANOTHER NIGHT: a fresh board on a new seed')
+
+  // --------------------------------------------------------- the debrief
+  if (!(await waitFor(b, 'document.querySelector("[data-t3-debrief]")', 10000))) return [...failures, `${name}: the game never reached its debrief`]
+  const seconds = Math.round((Date.now() - started) / 1000)
+  await sleep(quick ? 400 : 1700)
+  await shot('debrief', 'the debrief: the grade, the final score against the line, the nights, NEXT TIME')
+  const result = await b.evaluate(`(() => { const d = document.querySelector('[data-t3-debrief]'); const stat = (label) => [...d.querySelectorAll('[data-t3-stats] div')].find((x) => x.querySelector('dt')?.textContent === label)?.querySelector('dd')?.textContent.trim() ?? ''; return { grade: d.dataset.t3Grade, score: d.querySelector('[data-t3-final-score] b')?.textContent ?? '', head: d.querySelector('h2')?.textContent ?? '', blocks: stat('MOVES BLOCKED'), hits: stat('HITS TAKEN'), streak: stat('BEST STREAK'), time: stat('TIME'), next: (d.querySelector('[data-t3-next-time] p')?.textContent ?? '').trim(), earned: [...d.querySelectorAll('[data-t3-earned] p:not(.t3-hint)')].map((x) => x.textContent) } })()`)
+  log.push(`- result: ${result.head}, grade ${result.grade}, score ${result.score}, blocks ${result.blocks}, hits ${result.hits}, best streak ${result.streak}, time on the game's clock ${result.time}, the bot's wall clock ${seconds}s`)
+  log.push(`- NEXT TIME: ${result.next}`)
+  if (result.earned.length) log.push(`- earned: ${result.earned.join('; ')}`)
+  log.push(`- hands: ${JSON.stringify(stats)}`)
+  table.games.push({ run: name, what: plan.label, ...result, seconds, stats })
+  await b.evaluate(`document.querySelector('.t3-debrief').scrollTo(0, 99999)`)
+  await sleep(250)
+  await shot('debrief-foot', 'the debrief’s foot: what was earned, PLAY AGAIN, the Dossier, SHARE and the save code')
+  if (plan.daily) {
+    await b.evaluate(`navigator.share = undefined; navigator.clipboard.writeText = async (t) => { window.__shared = t }`)
+    await click(b, '[data-t3-share]')
+    await sleep(300)
+    const shared = await b.evaluate('window.__shared ?? ""')
+    log.push(`- shared: ${JSON.stringify(shared)}`)
+    if (!/Daily Op #\d+/.test(shared)) fail('the Daily Op’s share text did not name the Daily Op')
   }
+  // THE AFTER-ACTION REPLAY.
+  await b.evaluate(`document.querySelector('.t3-debrief').scrollTo(0, 0)`)
+  await click(b, '[data-t3-replay]')
+  if (!(await waitFor(b, 'document.querySelector("[data-t3-card=replay] [data-t3-scrub]")', 6000))) fail('the replay did not open')
+  else {
+    await sleep(quick ? 500 : 2600)
+    await shot('replay-you', 'the after-action replay: night 1 played in the world, each move and what would have helped')
+    const nights = await b.evaluate(`document.querySelectorAll('[data-t3-replay-pick]').length`)
+    await click(b, `[data-t3-replay-pick="${Math.min(3, nights)}"]`)
+    await sleep(quick ? 500 : 3200)
+    await shot('replay-night', 'scrubbed to a later night')
+    await click(b, '[data-t3-who="ghost"]')
+    await sleep(quick ? 500 : 3200)
+    await shot('replay-ghost', 'the ghost run on the same night: NEXT TIME, watched')
+    log.push(`- replay: ${await b.evaluate(`[...document.querySelectorAll('.t3-seg button')].map((e) => e.textContent).join(' | ')`)}`)
+    await click(b, '[data-t3-replay-back]')
+  }
+  // THE DOSSIER.
+  await waitFor(b, 'document.querySelector("[data-t3-debrief]")')
+  await click(b, '[data-t3-dossier-open]')
+  if (!(await waitFor(b, 'document.querySelector("[data-t3-room=dossier]")', 5000))) fail('the Dossier did not open')
+  else {
+    await sleep(quick ? 300 : 900)
+    await shot('dossier', 'the Dossier: every threat’s signature in miniature, filed or not, and where it hit')
+    await click(b, '[data-t3-dcard][data-filed] .t3-dcard-head')
+    await sleep(300)
+    await shot('dossier-card', 'a filed card open: the blurb, what stops it, the technique, every source, LEARN MORE')
+    const sources = await b.evaluate(`document.querySelectorAll('[data-t3-source]').length`)
+    if (sources < 1) fail('a filed Dossier card shows no source link')
+    log.push(`- Dossier: ${await b.evaluate(`document.querySelector('[data-t3-dossier-count]')?.textContent`)}; the open card lists ${sources} source link${sources === 1 ? '' : 's'}`)
+    await click(b, '[data-t3-room-back]')
+  }
+  if (plan.system) {
+    await click(b, '[data-t3-menu]')
+    await waitFor(b, 'document.querySelector("[data-t3-room=system]")')
+    await sleep(300)
+    await shot('system', 'SYSTEM: Assist, Reduce motion, Low power, sound, and what finished games have earned')
+    await click(b, '[data-t3-room-back]')
+  }
+  // A reload on the debrief lands on the title: a finished game is not resumed.
   return failures
 }
 
@@ -290,7 +560,7 @@ async function record(b, ffmpeg, file, play) {
     frames.push({ data: Buffer.from(p.data, 'base64'), t: p.metadata.timestamp })
     void b.send('Page.screencastFrameAck', { sessionId: p.sessionId }).catch(() => {})
   })
-  await b.send('Page.startScreencast', { format: 'jpeg', quality: 80, everyNthFrame: 1 })
+  await b.send('Page.startScreencast', { format: 'jpeg', quality: 62, everyNthFrame: 2 })
   await play()
   await b.send('Page.stopScreencast')
   if (frames.length < 2) return 0
@@ -327,23 +597,24 @@ function sheet(title, shots) {
 ${runs.map((r) => `<h2>${r}</h2><div class="row ${r.startsWith('390') ? 'phone' : 'desktop'}">${shots.filter((s) => s.run === r).map(cell).join('')}</div>`).join('\n')}`
 }
 
-// The contact sheets: the index page photographed whole, one sheet a
-// viewport, wide enough that a night reads across in two or three rows.
-async function contactSheets(b) {
+// The contact sheets: the index page photographed a game at a time, so a
+// sheet is one game read left to right, small enough to look at closely.
+async function contactSheets(b, shots) {
   await b.send('Emulation.setEmulatedMedia', { features: [] })
-  for (const [kind, file] of [
-    ['phone', 'contact-sheet_390x844.png'],
-    ['desktop', 'contact-sheet_1440x900.png'],
-  ]) {
-    await b.send('Emulation.setDeviceMetricsOverride', { width: 2560, height: 1200, deviceScaleFactor: 1, mobile: false })
-    await b.send('Page.navigate', { url: pathToFileURL(join(OUT, 'index.html')).href })
-    await waitFor(b, 'document.readyState === "complete" && [...document.images].every((i) => i.complete)', 60000)
-    await b.evaluate(`(() => { for (const row of document.querySelectorAll('.row')) if (!row.classList.contains(${JSON.stringify(kind)})) { row.previousElementSibling.remove(); row.remove() } return true })()`)
+  mkdirSync(join(OUT, 'contact-sheets'), { recursive: true })
+  const runs = shots ? [...new Set(shots.map((s) => s.run))] : null
+  await b.send('Emulation.setDeviceMetricsOverride', { width: 2200, height: 1200, deviceScaleFactor: 1, mobile: false })
+  await b.send('Page.navigate', { url: pathToFileURL(join(OUT, 'index.html')).href })
+  await waitFor(b, 'document.readyState === "complete" && [...document.images].every((i) => i.complete)', 120000)
+  const names = runs ?? (await b.evaluate(`[...document.querySelectorAll('h2')].map((h) => h.textContent)`))
+  for (const run of names) {
+    await b.send('Emulation.setDeviceMetricsOverride', { width: 2200, height: 1200, deviceScaleFactor: 1, mobile: false })
+    await b.evaluate(`(() => { for (const h of document.querySelectorAll('h2')) { const on = h.textContent === ${JSON.stringify(run)}; h.style.display = on ? '' : 'none'; h.nextElementSibling.style.display = on ? '' : 'none' } return true })()`)
     const size = await b.evaluate('({ w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight })')
     await b.send('Emulation.setDeviceMetricsOverride', { width: size.w, height: Math.min(size.h, 16000), deviceScaleFactor: 1, mobile: false })
-    await sleep(500)
+    await sleep(400)
     const png = await b.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
-    writeFileSync(join(OUT, file), Buffer.from(png.data, 'base64'))
+    writeFileSync(join(OUT, 'contact-sheets', `${run}.png`), Buffer.from(png.data, 'base64'))
   }
 }
 
@@ -351,15 +622,14 @@ const VIEWS = [
   [390, 844, 2, '390x844'],
   [1440, 900, 1, '1440x900'],
 ]
-// Three nights, so every kind of answer is taken, and the way in.
-const PLANS = [
-  { name: 'a-shield-and-block', what: 'anti-jam ordered: strike 1 breaks on its shield, strike 2 is blocked by a response; both cards filed', seed: 11, defense: 'antiJam', answers: ['block', 'block'], again: true },
-  { name: 'b-halve-then-hit', what: 'no defense: strike 1 halved by a response, strike 2 ridden out with the response used', seed: 1, defense: null, answers: ['halve', 'ride'] },
-  { name: 'c-reroute-and-ride', what: 'encrypted backhaul ordered, COLDVEIL reroutes: strike 1 ridden out, strike 2 blocked by a response', seed: 12345, defense: 'encryptedBackhaul', answers: ['ride', 'block'] },
-  { name: 'd-reduced-motion', what: 'Reduce Motion: the same night as (a), one framing, no shake', seed: 11, defense: 'antiJam', answers: ['block', 'block'], reduced: true },
-  { name: 'e-from-title', what: 'the way in: TRY 3D (EXPERIMENT) on the title, and BACK', fromTitle: true },
+// The four players of the brief, and a fifth for Reduce Motion and Assist.
+const GAMES = [
+  { name: 'a-first-time-easy', label: 'First-time EASY (hands on)', what: 'a first visit: the briefing in the world, the guide, then a careful game on EASY with every gesture made by hand', fresh: true, seed: 3, scan: 'lens', place: 'smart', hands: true, fleet: true, respond: 'best', timing: 'aim', debris: 'burn', system: true },
+  { name: 'b-daily-op', label: 'Daily Op (STANDARD, hands on)', what: 'the Daily Op from the title, on STANDARD, played carefully by hand, and shared', daily: true, seed: 5, scan: 'tap', place: 'smart', hands: true, respond: 'best', timing: 'aim', debris: 'burn' },
+  { name: 'c-poor', label: 'Deliberately poor (STANDARD)', what: 'nothing scanned, nothing placed, every move ridden out, HOLD on the debris', difficulty: 'standard', seed: 20261110, scan: 'none', place: 'none', respond: 'ride', timing: 'none', debris: 'hold' },
+  { name: 'd-beginner', label: 'Beginner (EASY, taps only)', what: 'a beginner on EASY who only taps: scans the first signatures, places a piece that looks good, answers 2 moves in 3, taps the TAP button late or early', difficulty: 'easy', seed: 77, scan: 'second', place: 'random', respond: 'careless', timing: 'button', debris: 'coin' },
 ]
-
+const EXTRA = [{ name: 'e-reduced-assist', label: 'Reduce Motion and Assist (EASY, taps only)', what: 'Reduce Motion with Assist: no camera travel, no timed tap, every action a plain activation', difficulty: 'easy', seed: 3, reduced: true, assist: true, scan: 'tap', place: 'smart', respond: 'best', timing: 'none', debris: 'burn', views: ['390x844'] }]
 async function main() {
   const chrome = findChrome()
   if (!chrome) {
@@ -372,7 +642,7 @@ async function main() {
     const b = await browser(chrome)
     try {
       await b.send('Page.enable')
-      await contactSheets(b)
+      await contactSheets(b, null)
     } finally {
       b.close()
     }
@@ -383,8 +653,9 @@ async function main() {
   const b = await browser(chrome)
   const failures = []
   const errors = []
-  const log = ['# The 3D slice: bot runs', '', `Build served from dist/. ${new Date().toISOString()}`]
+  const log = ['# Dark Constellation v2.0 R1: the 3D game, bot runs', '', `Build served from dist/. ${new Date().toISOString()}`]
   const shots = []
+  const table = { games: [], fps: [] }
   try {
     await b.send('Page.enable')
     await b.send('Runtime.enable')
@@ -398,10 +669,11 @@ async function main() {
     })
     const only = value('--only', '')
     for (const view of VIEWS) {
-      for (const plan of PLANS) {
+      for (const plan of [...GAMES, ...EXTRA]) {
+        if (plan.views && !plan.views.includes(view[3])) continue
         if (only && !`${view[3]}_${plan.name}`.includes(only)) continue
         process.stdout.write(`[3d-bot] ${view[3]} ${plan.name} ... `)
-        const f = await run(b, base, view, plan, log, shots)
+        const f = await run(b, base, view, plan, log, shots, table)
         failures.push(...f)
         console.log(f.length ? `FAIL (${f.length})` : 'ok')
       }
@@ -412,21 +684,28 @@ async function main() {
       else {
         process.stdout.write('[3d-bot] video 390x844 ... ')
         const film = []
-        const frames = await record(b, ffmpeg, join(OUT, '390x844_one-night.webm'), () => run(b, base, VIEWS[0], { ...PLANS[0], name: 'video', again: false }, [], film))
+        const frames = await record(b, ffmpeg, join(OUT, '390x844_full-game.webm'), () => run(b, base, VIEWS[0], { ...GAMES[0], name: 'video' }, [], film, { games: [], fps: [] }))
         for (const s of film) rmSync(join(OUT, 'shots', s.file), { force: true })
         console.log(`${frames} frames`)
-        log.push(frames ? `\nVideo: 390x844_one-night.webm, night (a) at 390x844, ${frames} screencast frames at 30 a second.` : '\nThe video could not be encoded on this machine.')
+        log.push(frames ? `\nVideo: 390x844_full-game.webm, game (a) whole at 390x844, ${frames} screencast frames at 30 a second.` : '\nThe video could not be encoded on this machine.')
       }
     }
-    writeFileSync(join(OUT, 'index.html'), sheet('Dark Constellation: the 3D slice, every beat', shots))
-    await contactSheets(b)
+    writeFileSync(join(OUT, 'index.html'), sheet('Dark Constellation v2.0 R1: the 3D game, every beat', shots))
+    writeFileSync(join(OUT, 'playtest.json'), JSON.stringify(table, null, 1))
+    await contactSheets(b, shots)
   } finally {
     b.close()
     server.close()
   }
   log.push('\n## Checks\n')
   log.push(errors.length ? errors.map((e) => `- ${e}`).join('\n') : '- No page error and no console error in any run.')
-  log.push(failures.length ? failures.map((f) => `- FAIL ${f}`).join('\n') : '- Every button named, at least 44px, and on screen in every capture; every run reached dawn.')
+  log.push(failures.length ? failures.map((f) => `- FAIL ${f}`).join('\n') : '- Every button named, at least 44px, and on screen in every capture; every game reached its debrief.')
+  log.push('\n## Playtest table\n')
+  log.push('| game | grade | result | score | moves blocked | hits | best streak | time on the game clock | bot wall clock |')
+  log.push('|---|---|---|---|---|---|---|---|---|')
+  for (const g of table.games) log.push(`| ${g.run}: ${g.what} | ${g.grade} | ${g.head} | ${g.score} | ${g.blocks} | ${g.hits} | ${g.streak} | ${g.time} | ${g.seconds}s |`)
+  log.push('\n## Frames\n')
+  for (const f of table.fps) log.push(`- ${f.run}: ${f.fps} fps, ${f.calls} draw calls, ${f.triangles} triangles`)
   writeFileSync(join(OUT, 'log.md'), `${log.join('\n')}\n`)
   console.log(`[3d-bot] ${shots.length} captures in ${OUT}`)
   for (const e of errors) console.log(`  ${e}`)
