@@ -46,6 +46,17 @@
 // draw or number moved: the same games, the same scores, one name
 // re-cased in the history: win 2ce7480c..., loss 37c25780..., file sha1
 // 112140af.
+//
+// AND IN v1.7 R1, FOR THE RESPONSE: the night now asks the player what to
+// do about a move that would land (a block or a halve, paid in credits),
+// meter damage is 9 a point (5 before), and the record lost its notes. With
+// every move ridden out nobody wins on STANDARD any more, so the win game
+// is no longer WIN_SCRIPT alone: it is WIN_SCRIPT's orders with a fixed
+// list of responses (WIN_RESPONSES, tests/scripts.ts), a won game again,
+// and the loss game is LOSS_SCRIPT with every move ridden out, as before.
+// The snapshot file and its sha1 below are regenerated once, at the end of
+// the round, for those two games: win fed2ea6a..., loss 4d988547..., file
+// sha1 96e819db.
 
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -72,14 +83,19 @@ import { turnRng } from '../src/engine/rng'
 import { planFor } from '../src/engine/campaign'
 import { worstCase } from '../src/engine/worstCase'
 import { COVERAGE_PER_KIND, coverage, maiScore } from '../src/engine/scoring'
+import { playNight } from '../src/engine/responses'
 import type { GameState, TurnActions } from '../src/engine/types'
-import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT, a, debrisTurnOf } from './scripts'
+import { sensible } from './policies'
+import { LOSS_SCRIPT, NO_OP, WIN_RESPONSES, WIN_RESPONSES_SEED, WIN_SCRIPT, a, debrisTurnOf, playFixed } from './scripts'
 
 const SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), 'determinism.snap.json')
 
 // WIN_SEED is a confirmed win for the prepared line; LOSS_SEED a confirmed
 // loss for the do-nothing line. Both anchor the determinism snapshot.
-const WIN_SEED = 20260712
+// Since v1.7 R1 the prepared line's win is its orders with its answers in
+// the night (playWin, below): the seed is the one WIN_RESPONSES was written
+// down on.
+const WIN_SEED = WIN_RESPONSES_SEED
 const LOSS_SEED = 4041
 
 function playGame(seed: number, script: Record<number, TurnActions>, difficulty: GameState['difficulty'] = 'standard'): GameState {
@@ -87,6 +103,10 @@ function playGame(seed: number, script: Record<number, TurnActions>, difficulty:
   while (state.status === 'playing') state = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
   return state
 }
+
+// The won game (v1.7 R1): WIN_SCRIPT's orders and WIN_RESPONSES' answers,
+// both fixed lists, through plain resolveTurn.
+const playWin = (): GameState => playFixed(WIN_SEED, WIN_SCRIPT, WIN_RESPONSES)
 
 function gameLogHash(state: GameState): string {
   const log = { seed: state.seed, status: state.status, lossReason: state.lossReason ?? null, history: state.history }
@@ -99,19 +119,25 @@ const event = (id: string) => DEFAULT_SCENARIO.events.find((e) => e.id === id)!
 describe('determinism', () => {
   it('same seed and actions produce the identical log hash', () => {
     expect(gameLogHash(playGame(WIN_SEED, WIN_SCRIPT))).toBe(gameLogHash(playGame(WIN_SEED, WIN_SCRIPT)))
+    // And with the night's answers among the actions (v1.7 R1).
+    expect(gameLogHash(playWin())).toBe(gameLogHash(playWin()))
+    expect(gameLogHash(playWin()), 'the responses changed nothing in the log').not.toBe(gameLogHash(playGame(WIN_SEED, WIN_SCRIPT)))
   })
 
   it('fixed-seed full-game replays match the committed snapshot', () => {
-    const actual = { win: gameLogHash(playGame(WIN_SEED, WIN_SCRIPT)), loss: gameLogHash(playGame(LOSS_SEED, LOSS_SCRIPT)) }
+    // The win is the prepared line with its fixed responses since v1.7 R1
+    // (the header says why); the loss rides every move out.
+    const actual = { win: gameLogHash(playWin()), loss: gameLogHash(playGame(LOSS_SEED, LOSS_SCRIPT)) }
     if (process.env.UPDATE_SNAPSHOTS) writeFileSync(SNAPSHOT_PATH, JSON.stringify(actual, null, 2) + '\n')
     expect(actual).toEqual(JSON.parse(readFileSync(SNAPSHOT_PATH, 'utf8')))
     // The committed file, pinned, so a regenerated snapshot is an edit to
     // this line as well as to the file: the snapshot moves deliberately or
     // not at all. be6509e3 was the v1.3 Round 0 move; 2a5966f1 the Round
     // 6b move; ab375fc0 the v1.4.0 move; b5017102 the v1.6 R1 move;
-    // 112140af is the v1.6 R2 move (see the header).
+    // 112140af the v1.6 R2 move; 96e819db is the v1.7 R1 move (see the
+    // header).
     expect(createHash('sha1').update(readFileSync(SNAPSHOT_PATH, 'utf8')).digest('hex'), 'the committed snapshot file changed').toBe(
-      '112140afc7c3f5b2905d5852534f2ee660ca7979',
+      '96e819db23897f1c518056a015d63cb59f1622bc',
     )
   })
 
@@ -136,15 +162,18 @@ describe('determinism', () => {
 
   it('GUARD R3 (a), the engine half: damage lands only on the tile an event names, and the record says how much', () => {
     let damaging = 0
-    for (const [seed, script] of [
-      [WIN_SEED, WIN_SCRIPT],
-      [LOSS_SEED, LOSS_SCRIPT],
-      [7, LOSS_SCRIPT],
-      [11, WIN_SCRIPT],
-    ] as const) {
+    // The first game answers in the night (v1.7 R1), so a halved hit's
+    // integrity is held to the record too; the others ride every move out.
+    let halvedOnATile = 0
+    for (const [seed, script, responses] of [
+      [WIN_SEED, WIN_SCRIPT, WIN_RESPONSES],
+      [LOSS_SEED, LOSS_SCRIPT, {}],
+      [7, LOSS_SCRIPT, {}],
+      [11, WIN_SCRIPT, {}],
+    ] as [number, Record<number, TurnActions>, Record<number, (string | null)[]>][]) {
       let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
       while (state.status === 'playing') {
-        const actions = script[state.turn] ?? NO_OP
+        const actions = { ...(script[state.turn] ?? NO_OP), responses: responses[state.turn] ?? [] }
         // Replay the night by hand: every integrity the record says an
         // event left must be the asset's integrity at that moment, and no
         // asset may lose integrity that no event names.
@@ -154,6 +183,7 @@ describe('determinism', () => {
         for (const ev of record.events) {
           if (ev.integrityAfter === undefined) continue
           damaging += 1
+          if (ev.response?.effect === 'halve') halvedOnATile += 1
           expect(ev.targetAssetId, `${ev.eventId} on turn ${record.turn} records a hit but names no tile`).toBeDefined()
           expect(integrity.get(ev.targetAssetId!), `${ev.eventId} on turn ${record.turn}: integrity before`).toBe(ev.integrityBefore)
           integrity.set(ev.targetAssetId!, ev.integrityAfter)
@@ -171,6 +201,7 @@ describe('determinism', () => {
       }
     }
     expect(damaging, 'the sweep saw too few hits to mean anything').toBeGreaterThan(10)
+    expect(halvedOnATile, 'no halved hit damaged a tile, so the halve went unchecked').toBeGreaterThan(0)
   })
 
   it('resolveTurn does not mutate its input state', () => {
@@ -442,9 +473,18 @@ describe('the v1.3 rules (brief 6.1)', () => {
 
 describe('reachability by real play', () => {
   it('the prepared-architect line wins', () => {
-    const end = playGame(WIN_SEED, WIN_SCRIPT)
+    // With its answers in the night (v1.7 R1): the orders alone, every
+    // move ridden out, no longer win on STANDARD.
+    const end = playWin()
     expect(end.status).toBe('won')
     expect(end.history).toHaveLength(DEFAULT_SCENARIO.totalTurns)
+    // WIN_RESPONSES is real play, not a list that happens to win: it is
+    // what a player who takes the first response that fits chooses on this
+    // seed, night by night, so the fixed game and the played one are one.
+    let played = newGame(DEFAULT_SCENARIO, WIN_SEED)
+    while (played.status === 'playing') played = playNight(played, WIN_SCRIPT[played.turn] ?? NO_OP, sensible)
+    expect(gameLogHash(end)).toBe(gameLogHash(played))
+    expect(end.history.flatMap((r) => r.events).filter((e) => e.response).length, 'the won game took no response').toBeGreaterThan(0)
   })
 
   it('the do-nothing line loses', () => {
