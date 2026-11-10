@@ -1034,6 +1034,20 @@ a.t3-btn {
   bottom: calc(100% - 14px);
   flex-direction: column-reverse;
 }
+/* Beside the asset, where under it and over it are both taken. */
+.t3-tag[data-flip='l'] .t3-sign {
+  left: auto;
+  right: calc(100% - 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  align-items: flex-end;
+}
+.t3-tag[data-flip='r'] .t3-sign {
+  left: calc(100% - 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  align-items: flex-start;
+}
 .t3-tag:has(.t3-float) .t3-contacts {
   opacity: 0;
 }

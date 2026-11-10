@@ -279,15 +279,27 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       // as on each other.
       const w = Math.max(60, sign?.offsetWidth ?? 70) + 14
       const h = Math.max(22, sign?.offsetHeight ?? 26) + 4
-      const under: Box = [a.x - w / 2, a.y + 20, a.x + w / 2, a.y + 20 + h]
-      const above: Box = [a.x - w / 2, a.y - 20 - h, a.x + w / 2, a.y - 20]
-      // It stays where it is unless the other side is clearly better.
-      const was = a.el.dataset.flip === '1'
-      const flip = was ? cost(above, i) < cost(under, i) + 60 : cost(above, i) < cost(under, i) - 12
-      taken.push(flip ? above : under)
-      signs.push({ flip, h })
-      const want = flip ? '1' : ''
-      if (a.el.dataset.flip !== want) a.el.dataset.flip = want
+      // Under the asset, over it, or to either side of it.
+      const spots: [string, Box, number][] = [
+        ['', [a.x - w / 2, a.y + 20, a.x + w / 2, a.y + 20 + h], 0],
+        ['1', [a.x - w / 2, a.y - 20 - h, a.x + w / 2, a.y - 20], 12],
+        ['l', [a.x - 22 - w, a.y - h / 2, a.x - 22, a.y + h / 2], 30],
+        ['r', [a.x + 22, a.y - h / 2, a.x + 22 + w, a.y + h / 2], 30],
+      ]
+      // It stays where it is unless another side is clearly better.
+      const was = a.el.dataset.flip ?? ''
+      let best = spots.find((sp) => sp[0] === was) ?? spots[0]
+      let bestCost = cost(best[1], i) - 60
+      for (const sp of spots) {
+        const c = cost(sp[1], i) + sp[2]
+        if (c < bestCost) {
+          best = sp
+          bestCost = c
+        }
+      }
+      taken.push(best[1])
+      signs.push({ flip: best[0] === '1', h: best[0] === 'l' || best[0] === 'r' ? 0 : h })
+      if (was !== best[0]) a.el.dataset.flip = best[0]
     })
     chipAt.current.clear()
     list.forEach((a, i) => {
@@ -297,7 +309,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       const h = chips.offsetHeight
       const { flip, h: sh } = signs[i]
       const up = -30 - (flip ? sh : 0) - h
-      const down = 30 + (flip ? 0 : sh)
+      const down = 30 + (flip ? 0 : sh) - (sh === 0 ? 0 : 4)
       // Where the block's corner can stand, from the asset's centre: over
       // it, beside it, under it, and the corners between.
       const spots: [number, number][] = [
