@@ -815,7 +815,12 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           return
         }
         const asks = cur.open === stage.i
-        const can = asks && choicesFor(g, ordersRef.current, inputsRef.current, stage.i, s).some((c) => c.id !== null && c.fits)
+        // The night stops on a move it can be answered on, and on one the
+        // budget cannot meet too: the answers stand there greyed with why,
+        // so a strike never lands unanswered without a word. (With
+        // tonight's one response used, it does not stop: the banner says.)
+        const offered = asks ? choicesFor(g, ordersRef.current, inputsRef.current, stage.i, s).filter((c) => c.id !== null) : []
+        const can = offered.some((c) => c.fits || c.why === 'budget')
         const chain = s.def.id === 'blackout-chain'
         stopMotif = playMotif(play, s.def.id)
         setSay(`Incoming: ${shortName(s.def)} on ${names.get(target) ?? 'the fleet'}.`)
@@ -832,8 +837,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           setStage({ at: 'choose', i: stage.i })
           setGuide((gd) => (gd === null && !readPrefs().guideSeen && g.turn === 1 ? 'respond' : gd))
         } else {
-          // Tonight's one response is used, or the budget cannot meet one:
-          // the move is ridden out, and the result says so.
+          // Tonight's one response is used: the move is ridden out, and
+          // the banner says so.
           if (asks) answer(withResponse(inputsRef.current, stage.i, null))
           setStage({ at: 'land', i: stage.i })
         }
@@ -921,6 +926,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const target = step.ev.targetAssetId
     const choice = choicesFor(game, orders, inputs, stage.i, step).find((c) => c.id === id)
     if (!choice || !choice.fits) return play('denied-buzz')
+    if (id === null) play('soft-tick')
     const t = world.current
     if (id && target && t) {
       // The answer goes up as it was made: a link through a relay, a ring
@@ -1482,6 +1488,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
               <p title={c3.worstNote(stakes.worst)}>
                 <span>{c3.WORST}</span>
                 <b className={stakes.worst < 0 ? 't3-bad' : ''}>{stakes.worst} CR</b>
+                <small>{stakes.worst < 0 ? c3.WORST_BAD : c3.WORST_OK}</small>
               </p>
               <button
                 type="button"

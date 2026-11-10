@@ -115,6 +115,8 @@ export const coverageOf = (n: number) => `+${n} coverage`
 export const AT_STAKE = 'AT STAKE TONIGHT'
 export const upTo = (d: number) => (d < -0.05 ? `up to ${d.toFixed(1)}` : 'nothing')
 export const WORST = 'WORST CASE'
+export const WORST_OK = 'free for answers'
+export const WORST_BAD = 'budget at risk'
 export const worstNote = (n: number) => (n < 0 ? 'A bad night would break the budget.' : 'The budget survives a bad night.')
 export const BEGIN = 'BEGIN THE NIGHT'
 export const BEGIN_AT_RISK = 'BEGIN AT RISK'

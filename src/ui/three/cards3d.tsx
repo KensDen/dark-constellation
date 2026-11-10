@@ -339,7 +339,7 @@ export function ChoiceCard({
         {choices.map((c, k) => {
           const label = c.id ? (RESPONSE_TEXT[def.id]?.[c.id] ?? c.id) : copy.RIDE_IT_OUT
           const effect = c.fits ? copy.effectLine(c.effect, c.score, c.repair) : copy.EFFECT_WORD[c.effect]
-          const why = c.fits ? '' : c.why === 'used' ? copy.ALREADY_ANSWERED : 'Not enough budget tonight'
+          const why = c.fits ? '' : c.why === 'used' ? copy.ALREADY_ANSWERED : copy.cannotAfford(ev.room ?? 0)
           const cost = c.id ? copy.crFace(c.cost) : copy.FREE
           const how = c.gesture && c.fits ? ` ${c3.GESTURE[c.gesture]}, or tap.` : ''
           return (

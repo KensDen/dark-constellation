@@ -1241,6 +1241,10 @@ a.t3-btn {
 .t3-stakes b {
   font: 700 16px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+.t3-stakes small {
+  font-size: 9.5px;
+  color: var(--t3-dim);
+}
 .t3-lens {
   display: flex;
   flex-direction: column;
