@@ -45,7 +45,15 @@ import type { GameState } from '../engine/types'
 // a v4 save may meet different moves ahead than it would have met on the
 // build that wrote it (as a v2 save did under v3's deck stream). v1 to v3
 // stay refused.
-export const SAVE_VERSION = 5
+// v6 (v1.7 R1, Ken's ruling of 9 November 2026): responses in the night.
+// A record's events may carry the response taken and the room it had, and
+// its ledger what the responses cost; all optional, so the shape a v5
+// reader meets is a superset. The rules moved with it (meter damage, one
+// response a night, WORST CASE's hold for later nights). A v4 or v5 save
+// LOADS and resumes under them: the turns already played keep their
+// history, and every turn after the save is played by the new rules, as a
+// v4 save was under v5's campaign order.
+export const SAVE_VERSION = 6
 // The oldest version a load resumes.
 export const OLDEST_RESUMABLE = 4
 

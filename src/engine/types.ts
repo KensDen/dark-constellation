@@ -119,6 +119,17 @@ export interface ThreatCondition {
   turns: number
 }
 
+// THE RESPONSE (v1.7 R1): what the player can do in the night when a move
+// would land. A response blocks the move or halves its damage, for a cost
+// the rules set (src/engine/rules.ts); riding it out is always free and is
+// not listed. The words the player reads are content
+// (src/content/responseText.ts), joined to these by id.
+export type ResponseEffect = 'block' | 'halve'
+export interface ThreatResponse {
+  id: string
+  effect: ResponseEffect
+}
+
 export interface ThreatEvent {
   id: string
   name: string
@@ -138,6 +149,9 @@ export interface ThreatEvent {
   // The kinds of tile it strikes when the player holds one (G-028).
   prefersKinds?: AssetKind[]
   benefit?: OpportunityBenefit
+  // The responses the night offers when this move would land (v1.7 R1),
+  // strongest first. The debris call and opportunities have none.
+  responses?: ThreatResponse[]
   blurb: string // plain-English why-this-matters, one paragraph
   learnMoreCards: LearnMoreCard[]
 }
@@ -284,6 +298,16 @@ export interface ResolvedEvent {
   // The condition this event left, when it landed with one.
   condition?: ThreatCondition
   debris?: DebrisCall
+  // THE RESPONSE (v1.7 R1). `room` is set when the move would have landed
+  // and had a response to offer: the budget a response and this move's own
+  // repair bill could draw on at that moment, with tonight's other bills
+  // and the upkeep held back (rules.ts, responseRoom). `response` is the
+  // one the player took; absent, the move was ridden out.
+  room?: number
+  // How many responses the player had already taken tonight when this
+  // move arrived (rules.ts, RESPONSES_PER_NIGHT). Absent for none.
+  answered?: number
+  response?: { id: string; effect: ResponseEffect; cost: number }
   // The score as this event found it and as it left it (v1.3 R6, the
   // per-event score): the hit card's figure reads these, not a replay.
   scoreBefore: number
@@ -310,7 +334,10 @@ export interface TurnLedger {
   fuel: number
   // Credits an opportunity brought in during the night.
   windfall: number
-  // "Left after tonight's orders": start - ordered - fuel + windfall.
+  // Spent on responses during the night (v1.7 R1). Absent on a record from
+  // before responses.
+  responses?: number
+  // "Left after tonight's orders": start - ordered - fuel - responses + windfall.
   afterNight: number
   repairs: number
   // What each repair bill was for: the tile, or the event when it hit no tile.
@@ -394,4 +421,8 @@ export interface TurnActions {
   // The call on a conjunction night (brief 5.5 item 5). HOLD when absent,
   // which is what doing nothing is.
   debris?: DebrisChoice
+  // THE RESPONSES (v1.7 R1): for each of tonight's moves, in the order
+  // they come, the id of the response taken, or nothing to ride it out.
+  // Part of the orders, so a seed and the player's choices replay exactly.
+  responses?: (string | null | undefined)[]
 }

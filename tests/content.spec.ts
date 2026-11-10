@@ -13,10 +13,14 @@ import {
   SCENARIOS,
   THREAT_EVENT_COUNT,
 } from '../src/content'
+import { RESPONSE_TEXT } from '../src/content/responseText'
 import { scenarioSchema } from '../src/content/schemas'
 
 const threats = DEFAULT_SCENARIO.events.filter((e) => (e.kind ?? 'threat') === 'threat')
 const opportunities = DEFAULT_SCENARIO.events.filter((e) => e.kind === 'opportunity')
+// The attacks (v1.7 R1): every threat but the debris conjunction, which is
+// the player's call and not a move a response answers.
+const attacks = threats.filter((e) => e.effect.special !== 'debrisStrike')
 
 describe('content integrity', () => {
   it('every scenario passes its zod schema', () => {
@@ -163,5 +167,98 @@ describe('content integrity', () => {
       expect(cm.cost).toBeGreaterThanOrEqual(5)
       expect(cm.cost).toBeLessThanOrEqual(15)
     }
+  })
+
+  // THE RESPONSES (v1.7 R1): what the night offers when a move would land.
+  // The ids and effects are the deck's (src/content/threats.ts), the words
+  // a module of their own (src/content/responseText.ts), joined by id, so
+  // the join is held here in both directions.
+  it('gives every attack one or two responses with ids of their own, and none to the debris call or an opportunity', () => {
+    expect(attacks.length, 'the deck has no attack').toBeGreaterThan(0)
+    for (const ev of attacks) {
+      const ids = (ev.responses ?? []).map((r) => r.id)
+      expect(ids.length, `${ev.id} offers ${ids.length} responses`).toBeGreaterThanOrEqual(1)
+      expect(ids.length, `${ev.id} offers ${ids.length} responses`).toBeLessThanOrEqual(2)
+      expect(new Set(ids).size, `${ev.id} names a response twice`).toBe(ids.length)
+      for (const r of ev.responses ?? []) expect(['block', 'halve'], `${ev.id}/${r.id}`).toContain(r.effect)
+    }
+    const others = DEFAULT_SCENARIO.events.filter((e) => !attacks.includes(e))
+    // The positive control: the debris call and the opportunities exist.
+    expect(others.some((e) => e.effect.special === 'debrisStrike')).toBe(true)
+    expect(others.some((e) => e.kind === 'opportunity')).toBe(true)
+    for (const ev of others) expect(ev.responses, `${ev.id} carries responses`).toBeUndefined()
+  })
+
+  it('lists a block before a halve wherever a threat offers both, and never two of a kind', () => {
+    // Strongest first (src/engine/types.ts): the card draws them in this
+    // order, and a responder that takes the first that fits takes the
+    // block when the budget allows.
+    // Two of a kind would be one answer twice: the rules price and resolve
+    // a response by its effect alone (src/engine/rules.ts).
+    let both = 0
+    for (const ev of attacks) {
+      const effects = (ev.responses ?? []).map((r) => r.effect)
+      expect(new Set(effects).size, `${ev.id} offers two responses that do the same`).toBe(effects.length)
+      if (!effects.includes('block')) continue
+      expect(effects[0], `${ev.id} lists its block after its halve`).toBe('block')
+      if (effects.includes('halve')) both += 1
+    }
+    expect(both, 'no threat offers both, so the order was never tested').toBeGreaterThan(0)
+  })
+
+  it('has exactly one line of words for every response, and no line for a response that does not exist', () => {
+    const offered = new Set(attacks.flatMap((ev) => (ev.responses ?? []).map((r) => `${ev.id}/${r.id}`)))
+    const worded = new Set(Object.entries(RESPONSE_TEXT).flatMap(([event, lines]) => Object.keys(lines).map((id) => `${event}/${id}`)))
+    expect(offered.size).toBeGreaterThan(0)
+    expect([...offered].filter((k) => !worded.has(k)), 'responses with no words').toEqual([])
+    expect([...worded].filter((k) => !offered.has(k)), 'words for a response no threat offers').toEqual([])
+    // No entry for a threat that offers nothing, even an empty one.
+    const ids = new Set(attacks.map((e) => e.id))
+    expect(Object.keys(RESPONSE_TEXT).filter((id) => !ids.has(id)), 'words keyed by an id that is no attack').toEqual([])
+    for (const [event, lines] of Object.entries(RESPONSE_TEXT)) {
+      for (const [id, line] of Object.entries(lines)) {
+        expect(typeof line, `${event}/${id}`).toBe('string')
+        expect(line.trim().length, `${event}/${id} is empty`).toBeGreaterThan(0)
+        expect(line, `${event}/${id} carries stray space`).toBe(line.trim())
+        expect(line, `${event}/${id} is more than one line`).not.toMatch(/[\n\r]/)
+      }
+      // Two answers to one move must not read the same.
+      expect(new Set(Object.values(lines)).size, `${event} says two responses in the same words`).toBe(Object.values(lines).length)
+    }
+  })
+
+  it('writes no response with an em or en dash', () => {
+    for (const [event, lines] of Object.entries(RESPONSE_TEXT)) {
+      for (const [id, line] of Object.entries(lines)) expect(line, `${event}/${id}: "${line}"`).not.toMatch(/[\u2013\u2014]/)
+    }
+  })
+
+  it('has the schema refuse a threat without responses, and a debris call or an opportunity with them', () => {
+    const withEvents = (events: unknown[]) => scenarioSchema.safeParse({ ...DEFAULT_SCENARIO, events })
+    const swap = (id: string, change: (ev: (typeof DEFAULT_SCENARIO.events)[number]) => unknown) =>
+      withEvents(DEFAULT_SCENARIO.events.map((ev) => (ev.id === id ? change(ev) : ev)))
+    // The positive control: the deck as it is passes through the same path.
+    expect(withEvents([...DEFAULT_SCENARIO.events]).success).toBe(true)
+    const attack = attacks[0]
+    const debris = DEFAULT_SCENARIO.events.find((e) => e.effect.special === 'debrisStrike')!
+    const opportunity = opportunities[0]
+    const one = [{ id: 'anything', effect: 'block' }]
+    const messageOf = (result: ReturnType<typeof withEvents>) => (result.success ? '' : result.error.message)
+    // A threat with none, and with an empty list.
+    const bare = swap(attack.id, ({ responses: _dropped, ...rest }) => rest)
+    expect(bare.success, 'a threat with no responses passed').toBe(false)
+    expect(messageOf(bare)).toContain(`threat ${attack.id} offers no response`)
+    expect(swap(attack.id, (ev) => ({ ...ev, responses: [] })).success, 'a threat with an empty list passed').toBe(false)
+    // The debris call and an opportunity with one.
+    for (const ev of [debris, opportunity]) {
+      const given = swap(ev.id, (e) => ({ ...e, responses: one }))
+      expect(given.success, `${ev.id} passed with a response`).toBe(false)
+      expect(messageOf(given)).toContain(`${ev.id} must not carry responses`)
+    }
+    // And the shape of one: an id used twice, an effect the rules do not
+    // know, a field the type does not have.
+    expect(swap(attack.id, (ev) => ({ ...ev, responses: [{ id: 'same', effect: 'block' }, { id: 'same', effect: 'halve' }] })).success, 'an id used twice passed').toBe(false)
+    expect(swap(attack.id, (ev) => ({ ...ev, responses: [{ id: 'x', effect: 'dodge' }] })).success, 'an unknown effect passed').toBe(false)
+    expect(swap(attack.id, (ev) => ({ ...ev, responses: [{ id: 'x', effect: 'block', cost: 1 }] })).success, 'a response with a cost of its own passed').toBe(false)
   })
 })

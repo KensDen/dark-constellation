@@ -52,9 +52,28 @@ import { briefFree, chainBonusOf, countersAfter, defenseOpen, eventById, gnssDen
 import { planFor } from '../src/engine/campaign'
 import { worstCase } from '../src/engine/worstCase'
 import { WIN_SCRIPT } from './scripts'
+import type { Responder } from '../src/engine/responses'
 import type { AssetKind, CountermeasureId, GameState, TurnActions } from '../src/engine/types'
 
 export type Policy = (state: GameState) => TurnActions
+
+// HOW EACH LINE ANSWERS IN THE NIGHT (v1.7 R1): when a move would land,
+// the night offers its responses (src/engine/responses.ts) and the line's
+// responder picks one, or rides it out.
+//   - RIDE: never answers. Nothing's, and the prepared script's, which is
+//     one written order of defenses and nothing else.
+//   - SENSIBLE: the strongest response the budget can meet, a block before
+//     a halving. Prepared's and Buy everything's.
+//   - CARELESS: answers two moves in three, on a stream of its own, with
+//     the strongest response the budget can meet, and rides the third out.
+//     Novice's and Random legal's: a beginner who taps the answer that
+//     sounds best most nights, with no eye on what it leaves for later.
+export const ride: Responder = () => null
+export const sensible: Responder = ({ options }) => options.find((o) => o.fits)?.id ?? null
+export const careless: Responder = ({ state, index, options }) => {
+  const r = mulberry32((Math.imul(state.seed ^ 0x5eedbead, 2654435761) ^ Math.imul(state.turn * 8 + index + 1, 40503)) >>> 0)
+  return r.chance(2 / 3) ? (options.find((o) => o.fits)?.id ?? null) : null
+}
 export type PolicyName = 'buyEverything' | 'prepared' | 'novice' | 'randomLegal' | 'nothing'
 
 export const NO_ORDERS: TurnActions = { buyAssets: [], buyCounters: [], intelBrief: false }
@@ -206,24 +225,31 @@ export const randomLegal: Policy = (state) => {
 // retainer's recovery at 4, it is gated again (tests/sweep.spec.ts) and
 // back in the grade calibration's population (Ken, 24 October 2026).
 // `reported` marks a line the sweep plays outside the gate.
-export const POLICIES: readonly { name: PolicyName; label: string; policy: Policy; reported?: true }[] = [
-  { name: 'buyEverything', label: 'Buy everything', policy: buyEverything },
-  { name: 'prepared', label: 'Prepared', policy: prepared },
-  { name: 'novice', label: 'Novice', policy: novice },
-  { name: 'randomLegal', label: 'Random legal', policy: randomLegal },
-  { name: 'nothing', label: 'Nothing', policy: nothing },
+export const POLICIES: readonly { name: PolicyName; label: string; policy: Policy; respond: Responder; reported?: true }[] = [
+  { name: 'buyEverything', label: 'Buy everything', policy: buyEverything, respond: sensible },
+  { name: 'prepared', label: 'Prepared', policy: prepared, respond: sensible },
+  { name: 'novice', label: 'Novice', policy: novice, respond: careless },
+  { name: 'randomLegal', label: 'Random legal', policy: randomLegal, respond: careless },
+  { name: 'nothing', label: 'Nothing', policy: nothing, respond: ride },
 ]
 
 // Lines the sweep plays and reports beside the gated ones, outside the
 // gate's targets and outside the grade calibration's population
 // (tests/grade.spec.ts reads POLICIES): measurements for a ruling, not
 // part of the balance yet.
-export const REPORTED: readonly { name: string; label: string; policy: Policy }[] = [
-  { name: 'preparedFollow', label: 'Prepared, following the flag (R0b)', policy: preparedFollow },
+export const REPORTED: readonly { name: string; label: string; policy: Policy; respond: Responder }[] = [
+  { name: 'preparedFollow', label: 'Prepared, following the flag (R0b)', policy: preparedFollow, respond: sensible },
+  // Prepared's orders with every move ridden out (v1.7 R1): what the
+  // responses are worth to a player who orders well.
+  { name: 'preparedRide', label: 'Prepared, riding every move out', policy: prepared, respond: ride },
+  // No orders at all, and the strongest response every time (v1.7 R1):
+  // whether the night's answers alone carry a game. The gate holds it
+  // under Novice (tests/sweep.spec.ts): orders have to matter.
+  { name: 'respondOnly', label: 'Orders nothing, answers every move', policy: nothing, respond: sensible },
   // THE PREPARED SCRIPT (tests/scripts.ts WIN_SCRIPT), one written order of
   // six defenses played on every seed whatever TONIGHT says. It won all
   // 500 seeds on STANDARD through v1.5; since v1.6 R1 (Ken's ruling of 26
   // October 2026, each seed plays its own order of the campaign) the
   // sweep holds it to no more wins than Prepared (tests/sweep.spec.ts).
-  { name: 'preparedScript', label: 'Prepared script (one written order)', policy: (state) => WIN_SCRIPT[state.turn] ?? NO_ORDERS },
+  { name: 'preparedScript', label: 'Prepared script (one written order)', policy: (state) => WIN_SCRIPT[state.turn] ?? NO_ORDERS, respond: ride },
 ]

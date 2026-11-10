@@ -16,14 +16,16 @@
 // One function; the dock, the FIRST ORDERS check and the battery all call
 // it (brief 6.4).
 
-import { burnFuel, chainBonusOf, countersAfter, eventById, gnssDenied, lossReviewBill, mitigationOf, orderCost, repairBill } from './rules'
+import { burnFuel, chainBonusOf, countersAfter, eventById, gnssDenied, lossReviewBill, mitigationOf, orderCost, repairBill, worstBillOf } from './rules'
 import { planFor } from './campaign'
-import type { GameState, TurnActions } from './types'
+import type { CountermeasureId, GameState, TurnActions } from './types'
 
 export interface WorstCase {
   remaining: number
   repairs: number
   upkeep: number
+  // Held for the nights ahead (v1.7 R1, heldForLater below).
+  later: number
   value: number
 }
 
@@ -52,5 +54,36 @@ export function worstCase(state: GameState, actions: TurnActions): WorstCase {
     if (jams) denied = true
   }
   const upkeep = counters.length * scenario.upkeepPerDefense
-  return { remaining, repairs, upkeep, value: remaining - repairs - upkeep }
+  const later = heldForLater(state, counters)
+  return { remaining, repairs, upkeep, later, value: remaining - repairs - upkeep - later }
+}
+
+// HELD FOR THE NIGHTS AHEAD (v1.7 R1). A response is paid in the night,
+// where the player cannot see the turns to come, so it may not spend what
+// those turns' bills could need: for each turn after this one, the largest
+// repair bill each of its slots could leave at the defenses owned now,
+// plus their upkeep, less the mission funding that arrives before it. The
+// running total's highest point is what stays held (0 on the last turn,
+// and whenever funding covers every night ahead). With it, a player who
+// answers every move tonight and then never orders again can ride every
+// later night out and stay solvent; without it, a response on turn 4
+// could end the run at turn 6's close, with nothing on screen to say so.
+// WORST CASE on the board holds orders to the same figure (worstCase,
+// above), so one number guards both: with money tight since responses, a
+// turn's orders could read 0 or more and still leave the next night's
+// bills unpayable before the player could do anything about it.
+export function heldForLater(state: Pick<GameState, 'scenario' | 'seed' | 'turn' | 'difficulty'>, counters: readonly CountermeasureId[]): number {
+  const { scenario, difficulty } = state
+  const upkeep = counters.length * scenario.upkeepPerDefense
+  let running = 0
+  let held = 0
+  for (let turn = state.turn + 1; turn <= scenario.totalTurns; turn += 1) {
+    let bills = 0
+    for (const slot of planFor(state, turn)?.slots ?? []) {
+      bills += Math.max(0, ...(slot.fixed ? [slot.fixed] : (slot.drawFrom ?? [])).map((id) => worstBillOf(eventById(scenario, id), counters, difficulty)))
+    }
+    running += bills + upkeep - scenario.incomePerTurn
+    held = Math.max(held, running)
+  }
+  return held
 }

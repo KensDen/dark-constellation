@@ -20,6 +20,7 @@ import { POLICIES, REPORTED, type PolicyName } from './policies'
 import { GRADES, SEEDS, median, playPolicy, type PolicyRun } from './sweep-run'
 
 const pct = (n: number, of: number) => (100 * n) / of
+const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 
 // The brief's targets, by policy and difficulty: win rate in percent,
 // inclusive, and whether insolvency must be zero. Only the rows the brief
@@ -31,13 +32,20 @@ const pct = (n: number, of: number) => (100 * n) / of
 // night, and its target is to win no more often than Prepared on the same
 // difficulty (the test after these). v1.4.0 reported it with no target, at
 // 99.6 percent; v1.5 R1's retainer recovery of 4 gates it again.
+// v1.7 R1 (Ken's rulings of 9 November 2026: a decision in the night, and
+// a game you can lose): each line now answers in the night as well
+// (tests/policies.ts, the responders), and the bands are that round's.
+// Prepared 70 to 85 on STANDARD; Novice 40 to 60 there, and most games on
+// EASY; Nothing never wins. The tests after these hold the round's other
+// targets: the medians, the usual grade on EASY, the budget Prepared ends
+// on, the share of moves a beginner stops, and that orders still matter.
 const TARGETS: { name: PolicyName; difficulty: Difficulty; label: string; min: number; max: number }[] = [
-  { name: 'prepared', difficulty: 'standard', label: 'Prepared', min: 65, max: 85 },
+  { name: 'prepared', difficulty: 'standard', label: 'Prepared', min: 70, max: 85 },
   { name: 'prepared', difficulty: 'easy', label: 'Prepared on EASY', min: 90, max: 100 },
-  { name: 'novice', difficulty: 'standard', label: 'Novice', min: 35, max: 60 },
+  { name: 'novice', difficulty: 'standard', label: 'Novice', min: 40, max: 60 },
   { name: 'novice', difficulty: 'easy', label: 'Novice on EASY', min: 70, max: 100 },
   { name: 'randomLegal', difficulty: 'standard', label: 'Random legal', min: 0, max: 30 },
-  { name: 'nothing', difficulty: 'standard', label: 'Nothing', min: 0, max: 10 },
+  { name: 'nothing', difficulty: 'standard', label: 'Nothing', min: 0, max: 0 },
 ]
 
 describe('the sweep gate (v1.3 brief 7)', () => {
@@ -50,8 +58,8 @@ describe('the sweep gate (v1.3 brief 7)', () => {
 
   beforeAll(() => {
     for (const difficulty of ['standard', 'easy'] as const) {
-      for (const p of POLICIES) runs.set(key(p.name, difficulty), playPolicy(p.policy, difficulty))
-      for (const p of REPORTED) reported.set(`${p.name}:${difficulty}`, playPolicy(p.policy, difficulty))
+      for (const p of POLICIES) runs.set(key(p.name, difficulty), playPolicy(p.policy, difficulty, p.respond))
+      for (const p of REPORTED) reported.set(`${p.name}:${difficulty}`, playPolicy(p.policy, difficulty, p.respond))
     }
     if (!process.env.SWEEP) return
     const rows: string[] = []
@@ -66,15 +74,15 @@ describe('the sweep gate (v1.3 brief 7)', () => {
       for (const { label, r } of lines) {
         const grades = GRADES.map((g) => `${g} ${r.grades[g]}`).join(' ')
         rows.push(
-          `| ${label} | ${difficulty.toUpperCase()} | ${pct(r.wins, SEEDS).toFixed(1)}% | ${r.insolvencies} | ${r.collapses} | ${r.belowLine} | ${median(r.finalScores)} | ${median(r.bestStreaks)} | ${share(r, 2)} | ${share(r, 3)} | ${blocks(r)} | ${median(r.met)} | ${grades} |`,
+          `| ${label} | ${difficulty.toUpperCase()} | ${pct(r.wins, SEEDS).toFixed(1)}% | ${r.insolvencies} | ${r.collapses} | ${r.belowLine} | ${median(r.finalScores)} | ${median(r.bestStreaks)} | ${share(r, 2)} | ${share(r, 3)} | ${blocks(r)} | ${median(r.met)} | ${grades} | ${(100 * mean(r.stopped) / mean(r.faced)).toFixed(0)}% of ${mean(r.faced).toFixed(1)} (${mean(r.halved).toFixed(1)} halved) | ${median(r.spentOnResponses)} | ${median(r.creditsLeft)} (${pct(r.creditsLeft.filter((c) => c < 40).length, SEEDS).toFixed(0)}% under 40) |`,
         )
       }
     }
     process.stderr.write(
       [
         `\nSweep gate, ${SEEDS} seeds a policy, scenario ${DEFAULT_SCENARIO.id}:`,
-        '| policy | difficulty | win rate | insolvent | collapse | below line | median final score | median best streak | best streak 2+ | best streak 3+ | threats blocked a run, of those played, strength 1 / 2 / 3 | median distinct threats met | grades |',
-        '|---|---|---|---|---|---|---|---|---|---|---|---|---|',
+        '| policy | difficulty | win rate | insolvent | collapse | below line | median final score | median best streak | best streak 2+ | best streak 3+ | threats blocked a run, of those played, strength 1 / 2 / 3 | median distinct threats met | grades | attacks stopped, of those faced a run | median CR on responses | median CR left |',
+        '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
         ...rows,
         '',
       ].join('\n') + '\n',
@@ -89,6 +97,54 @@ describe('the sweep gate (v1.3 brief 7)', () => {
       expect(rate, `${t.label} won ${rate.toFixed(1)} percent`).toBeLessThanOrEqual(t.max)
     })
   }
+
+  it('makes a game you can lose: Nothing ends under 50 and Novice within 5 of the line, on STANDARD (v1.7 R1)', () => {
+    const nothing = runs.get(key('nothing', 'standard'))!
+    expect(median(nothing.finalScores), 'Nothing: median final score').toBeLessThan(50)
+    // Not near it either: no run of Nothing's reaches the line.
+    expect(Math.max(...nothing.finalScores), 'Nothing: best final score').toBeLessThan(DEFAULT_SCENARIO.winThreshold)
+    const novice = median(runs.get(key('novice', 'standard'))!.finalScores)
+    expect(Math.abs(novice - DEFAULT_SCENARIO.winThreshold), `Novice: median final score ${novice}`).toBeLessThanOrEqual(5)
+  })
+
+  it('grades Novice on EASY B or A most often, not S (v1.7 R1)', () => {
+    const { grades } = runs.get(key('novice', 'easy'))!
+    const usual = GRADES.reduce((best, g) => (grades[g] > grades[best] ? g : best), 'S' as (typeof GRADES)[number])
+    expect(['A', 'B'], `Novice on EASY is graded ${usual} most often (${GRADES.map((g) => `${g} ${grades[g]}`).join(' ')})`).toContain(usual)
+    expect(grades.S, 'S on EASY').toBeLessThan(grades.A + grades.B)
+  })
+
+  it('leaves Prepared under 40 CR at the end of most games (v1.7 R1)', () => {
+    for (const difficulty of ['standard', 'easy'] as const) {
+      const left = runs.get(key('prepared', difficulty))!.creditsLeft
+      expect(pct(left.filter((c) => c < 40).length, SEEDS), `${difficulty}: games Prepared ends under 40 CR, percent`).toBeGreaterThan(50)
+    }
+  })
+
+  it('has a beginner stop about half the moves, and a prepared player more (v1.7 R1)', () => {
+    const share = (name: PolicyName) => {
+      const r = runs.get(key(name, 'standard'))!
+      return (100 * mean(r.stopped)) / mean(r.faced)
+    }
+    expect(share('novice'), 'Novice: moves stopped, percent').toBeGreaterThanOrEqual(35)
+    expect(share('novice')).toBeLessThanOrEqual(65)
+    expect(share('prepared'), 'Prepared stops more than Novice').toBeGreaterThan(share('novice'))
+    expect(share('nothing'), 'Nothing stops none').toBe(0)
+  })
+
+  it('keeps orders worth making: answering every move with no orders wins less than Novice (v1.7 R1)', () => {
+    // One response a night (src/engine/rules.ts RESPONSES_PER_NIGHT): with
+    // a response for every move this line won 89 percent on STANDARD,
+    // above Prepared.
+    for (const difficulty of ['standard', 'easy'] as const) {
+      const only = reported.get(`respondOnly:${difficulty}`)!.wins
+      const novice = runs.get(key('novice', difficulty))!.wins
+      expect(only, `${difficulty}: answers alone won ${pct(only, SEEDS).toFixed(1)} percent, Novice ${pct(novice, SEEDS).toFixed(1)}`).toBeLessThan(novice)
+    }
+    // And the answers are worth taking: Prepared's orders with every move
+    // ridden out win less than Prepared.
+    expect(reported.get('preparedRide:standard')!.wins).toBeLessThan(runs.get(key('prepared', 'standard'))!.wins)
+  })
 
   it('holds Buy everything to no more wins than Prepared, on each difficulty (v1.5 R1)', () => {
     for (const difficulty of ['standard', 'easy'] as const) {
@@ -108,7 +164,8 @@ describe('the sweep gate (v1.3 brief 7)', () => {
       const prepared = runs.get(key('prepared', difficulty))!.wins
       expect(script, `${difficulty}: the prepared script won ${pct(script, SEEDS).toFixed(1)} percent, Prepared ${pct(prepared, SEEDS).toFixed(1)}`).toBeLessThanOrEqual(prepared)
     }
-    // Not vacuous: on STANDARD the script loses some seeds.
+    // Not vacuous: on STANDARD the script loses some seeds. (Since v1.7 R1
+    // it rides every move out and loses them all there.)
     expect(reported.get('preparedScript:standard')!.wins, 'the prepared script still wins every seed').toBeLessThan(SEEDS)
   })
 

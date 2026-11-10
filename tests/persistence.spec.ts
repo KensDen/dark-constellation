@@ -130,12 +130,14 @@ describe('save robustness', () => {
   it('resumes a v4 save under the seed\'s order, and still refuses v1 to v3 (v1.6 R1)', () => {
     // v5's shape is v4's: only the campaign's order is new, drawn from the
     // seed, so a v4 save loads and plays on (src/persistence/codec.ts).
-    expect(SAVE_VERSION).toBe(5)
+    // v6 (v1.7 R1) is a superset again: responses on the record, optional.
+    expect(SAVE_VERSION).toBe(6)
     expect(OLDEST_RESUMABLE).toBe(4)
     const mid = playTo(SEED, 3, WIN_SCRIPT)
     const p = captureGame(mid, 'procure', '2026-10-26T00:00:00.000Z')
     const v4 = restoreGame({ ...p, version: 4 }).state
     expect(v4.history).toEqual(mid.history)
+    expect(restoreGame({ ...p, version: 5 }).state.history, 'a v5 save no longer loads').toEqual(mid.history)
     expect(() => resolveTurn(v4, NO_OP, turnRng(v4.seed, v4.turn))).not.toThrow()
   })
 

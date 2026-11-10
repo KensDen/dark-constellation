@@ -88,11 +88,23 @@ export const threatEventSchema = z
         expediteTurns: z.number().int().positive().optional(),
       })
       .optional(),
+    // The responses the night offers when the move would land (v1.7 R1).
+    responses: z.array(z.object({ id: z.string().min(1), effect: z.enum(['block', 'halve']) }).strict()).min(1).optional(),
     blurb: z.string().min(1),
     learnMoreCards: z.array(learnMoreCardSchema),
   })
   .superRefine((ev, ctx) => {
     const kind = ev.kind ?? 'threat'
+    // An attack carries at least one response, each id once; the debris
+    // call is the player's own choice already, and an opportunity is no
+    // attack, so neither has any.
+    const attack = kind === 'threat' && ev.effect.special !== 'debrisStrike'
+    if (attack !== !!ev.responses) {
+      ctx.addIssue({ code: 'custom', message: attack ? `threat ${ev.id} offers no response` : `${ev.id} must not carry responses` })
+    }
+    if (ev.responses && new Set(ev.responses.map((r) => r.id)).size !== ev.responses.length) {
+      ctx.addIssue({ code: 'custom', message: `threat ${ev.id} lists a response twice` })
+    }
     if (kind === 'threat') {
       // Every threat teaches: at least one framework ref and one sourced card.
       if (ev.techniqueRefs.length === 0) {

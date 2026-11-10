@@ -8,10 +8,10 @@
 // in tests/policies.ts.
 
 import { DEFAULT_SCENARIO } from '../src/content'
-import { NEW_DEFENSES_PER_NIGHT, resolveTurn } from '../src/engine/reducer'
+import { NEW_DEFENSES_PER_NIGHT, newGame, resolveTurn } from '../src/engine/reducer'
 import { campaignFor, variantFor } from '../src/engine/campaign'
 import { mulberry32, turnRng } from '../src/engine/rng'
-import type { AssetKind, GameState, TurnActions } from '../src/engine/types'
+import type { AssetKind, Difficulty, GameState, TurnActions } from '../src/engine/types'
 
 export const NO_OP: TurnActions = {
   buyAssets: [],
@@ -42,6 +42,48 @@ export const WIN_SCRIPT: Record<number, TurnActions> = {
   4: a({ buyCounters: ['pntAuth'], debris: 'burn' }),
   5: a({ buyCounters: ['sensorFusion'] }),
   6: a({ buyCounters: ['groundZeroTrust'] }),
+}
+
+// THE PREPARED LINE'S ANSWERS (v1.7 R1). Since responses, a game with every
+// move ridden out is lost on STANDARD: WIN_SCRIPT through plain resolveTurn
+// loses seed 20260712, which it won through v1.6. A won game answers in
+// the night, so the win that anchors the determinism snapshot
+// (tests/engine.spec.ts) is WIN_SCRIPT's orders with these responses, on
+// this seed and on STANDARD: by turn, for each of the night's moves in the
+// order they come, the id of the response taken, or null to ride it out.
+// They are what the `sensible` responder of tests/policies.ts chooses on
+// that game (the first response that fits), written down as literals so
+// that the snapshot's game is a fixed list of choices and cannot move when
+// a responder is retuned. The game they play: turn 1's time spoof blocked,
+// turn 2's phishing halved, turn 3 held by the defenses with nothing to
+// answer, turn 4's insider blocked and the LiDAR blinding ridden out
+// (tonight's response was spent), turn 5's debris burned and the implant
+// halved, turn 6's chain halved; won at 75.1.
+export const WIN_RESPONSES_SEED = 20260712
+export const WIN_RESPONSES: Record<number, (string | null)[]> = {
+  1: ['onboard-clock'],
+  2: ['revoke-reset'],
+  3: [null, null],
+  4: ['suspend-account', null],
+  5: [null, 'isolate-reflash'],
+  6: ['ground-squadron', null],
+}
+
+// A script played with fixed responses, through plain resolveTurn: each
+// turn's orders with that turn's list of answers, nothing chosen as the
+// night goes. A turn the list does not name is ridden out, so
+// playFixed(seed, LOSS_SCRIPT) is the do-nothing game.
+export function playFixed(
+  seed: number,
+  script: Record<number, TurnActions>,
+  responses: Record<number, (string | null)[]> = {},
+  difficulty: Difficulty = 'standard',
+): GameState {
+  let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
+  while (state.status === 'playing') {
+    state = resolveTurn(state, { ...(script[state.turn] ?? NO_OP), responses: responses[state.turn] ?? [] }, turnRng(state.seed, state.turn))
+  }
+  return state
 }
 
 export const LOSS_SCRIPT: Record<number, TurnActions> = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [i + 1, NO_OP]))

@@ -21,6 +21,7 @@
 import { adversaryPicks } from './adversary'
 import { candidatesTonight, planFor } from './campaign'
 import { turnRng, type Rng } from './rng'
+import { heldForLater } from './worstCase'
 import {
   ASSET_DAMAGE_PER_SEVERITY,
   ASSET_HEAL_PER_TURN,
@@ -29,7 +30,9 @@ import {
   DEPLOY_TURNS,
   METER_DAMAGE_PER_SEVERITY,
   NEW_DEFENSES_PER_NIGHT,
+  RESPONSE_DAMAGE_SHARE,
   RIDESHARE_RESELL_CREDITS,
+  billAfter,
   briefActive,
   briefFree,
   briefLocked,
@@ -43,8 +46,10 @@ import {
   lossReviewBill,
   mitigationOf,
   newDefenses,
-  repairBill,
+  responseCost,
+  responseFits,
   scaled,
+  worstBillOf,
 } from './rules'
 import { METER_CAP, coverage, maiRaw, maiScore } from './scoring'
 import type {
@@ -79,6 +84,8 @@ export {
   METER_DAMAGE_PER_SEVERITY,
   NEW_DEFENSES_PER_NIGHT,
   PRIMARY_MITIGATION,
+  RESPONSE_COST_PER_POINT,
+  RESPONSE_DAMAGE_SHARE,
   RIDESHARE_RESELL_CREDITS,
   SECONDARY_MITIGATION,
   briefActive,
@@ -86,13 +93,17 @@ export {
   briefLocked,
   briefOrdered,
   countersAfter,
+  damageShare,
   debrisTarget,
   defenseOpen,
+  exposedOf,
   gnssDenied,
   hasRetainer,
   mitigationOf,
   newDefenses,
   orderCost,
+  responseCost,
+  responseFits,
   scaled,
   type DifficultyProfile,
 } from './rules'
@@ -215,15 +226,27 @@ function maiAfterHit(state: GameState, ev: ThreatEvent, target: Asset | undefine
 // stamps the score it found and left (the per-event score).
 type Unscored = Omit<ResolvedEvent, 'scoreBefore' | 'scoreAfter'>
 
-function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng): Unscored {
+// `choice` is the response the orders name for this move, and `room` what
+// a response may draw on as it arrives (rules.ts, responseFits). A choice
+// the move does not offer, or one the room cannot meet, is ridden out: the
+// night never offers either, and a turn resolved both ways for the debris
+// call must not stop on one.
+function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng, choice: string | null | undefined, room: number, earlier: number): Unscored {
   const { scenario, difficulty } = state
   const notes: string[] = []
   const chainBonus = chainBonusOf(ev, gnssDenied(state.conditions, scenario))
-  if (chainBonus > 0) notes.push('GNSS is denied, so the squadron flies on LiDAR alone. The chain added a point before the defenses saw it.')
   const strength = ev.baseSeverity + chainBonus
   const mitigation = mitigationOf(ev, state.counters)
-  const effectiveSeverity = Math.max(0, strength - mitigation)
-  const outcome = effectiveSeverity === 0 ? 'held' : mitigation > 0 ? 'reduced' : 'open'
+  const exposed = Math.max(0, strength - mitigation)
+  const offered = exposed > 0 && !!ev.responses?.length
+  const taken = offered && choice ? ev.responses!.find((r) => r.id === choice && responseFits(ev, r, exposed, room, difficulty, earlier)) : undefined
+  const share = taken ? RESPONSE_DAMAGE_SHARE[taken.effect] : 1
+  // A blocked move lets nothing through, whether a defense or a response
+  // blocked it; a halved one lands at its strength and does half.
+  const effectiveSeverity = share === 0 ? 0 : exposed
+  const outcome = effectiveSeverity === 0 ? 'held' : mitigation > 0 || taken ? 'reduced' : 'open'
+  const response = taken ? { id: taken.id, effect: taken.effect, cost: responseCost(taken.effect, exposed) } : undefined
+  if (response) state.credits -= response.cost
 
   // The tile it is aimed at: a live asset on its layers, held or not, and
   // of a kind the move prefers when the player holds one (G-028: the
@@ -240,23 +263,17 @@ function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng): Unscored {
   let integrityAfter: number | undefined
   if (effectiveSeverity > 0) {
     for (const m of ev.effect.meters) {
-      state.meters[m] = Math.max(0, state.meters[m] - scaled(METER_DAMAGE_PER_SEVERITY * effectiveSeverity, difficulty))
+      state.meters[m] = Math.max(0, state.meters[m] - scaled(METER_DAMAGE_PER_SEVERITY * effectiveSeverity * share, difficulty))
     }
     if (struck) {
       integrityBefore = struck.integrity
-      struck.integrity = Math.max(0, struck.integrity - scaled(ASSET_DAMAGE_PER_SEVERITY * effectiveSeverity, difficulty))
+      struck.integrity = Math.max(0, struck.integrity - scaled(ASSET_DAMAGE_PER_SEVERITY * effectiveSeverity * share, difficulty))
       integrityAfter = struck.integrity
-      notes.push(
-        struck.integrity === 0
-          ? `${kindLabel[struck.kind]} ${struck.id} disabled.`
-          : `${kindLabel[struck.kind]} ${struck.id} degraded to ${struck.integrity} percent integrity.`,
-      )
     }
     if (ev.condition) {
       const existing = state.conditions.find((c) => c.eventId === ev.id)
       if (existing) {
         existing.remainingTurns = Math.max(existing.remainingTurns, ev.condition.turns)
-        notes.push(`${ev.condition.name} renewed for ${ev.condition.turns} turns.`)
       } else {
         state.conditions.push({
           instanceId: `${ev.id}-t${state.turn}`,
@@ -266,11 +283,8 @@ function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng): Unscored {
           remainingTurns: ev.condition.turns,
           baseSeverity: ev.baseSeverity,
         })
-        notes.push(`${ev.condition.name} for ${ev.condition.turns} turns: a condition that presses every turn it stays.`)
       }
     }
-  } else {
-    notes.push('Posture held. The attempt was mitigated below effect threshold.')
   }
   const saved = round1(Math.max(0, fullLoss - (before - maiRaw(state))))
 
@@ -283,10 +297,12 @@ function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng): Unscored {
     state.streak = 0
   }
   state.saved = round1(state.saved + saved)
+  // What the player can now say is about defenses: a move a response
+  // blocked still names the defense that would have met it (missed).
   const owned = ev.counters.filter((c) => state.counters.includes(c))
   const missing = ev.counters.filter((c) => !state.counters.includes(c))
-  if (owned.length > 0) learn(state, owned[0], ev.id, outcome === 'held' ? 'held' : 'reduced')
-  if (effectiveSeverity > 0 && missing.length > 0) learn(state, missing[0], ev.id, 'missed')
+  if (owned.length > 0) learn(state, owned[0], ev.id, exposed === 0 ? 'held' : 'reduced')
+  if (exposed > 0 && missing.length > 0) learn(state, missing[0], ev.id, 'missed')
 
   return {
     eventId: ev.id,
@@ -295,7 +311,7 @@ function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng): Unscored {
     chainBonus,
     mitigation,
     effectiveSeverity,
-    repairCost: repairBill(ev, effectiveSeverity, difficulty),
+    repairCost: billAfter(ev, exposed, share, difficulty),
     notes,
     firedTechniqueRefs: effectiveSeverity > 0 ? ev.techniqueRefs : [],
     outcome,
@@ -304,6 +320,8 @@ function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng): Unscored {
     integrityBefore,
     integrityAfter,
     condition: effectiveSeverity > 0 ? ev.condition : undefined,
+    ...(offered ? { room, ...(earlier > 0 ? { answered: earlier } : {}) } : {}),
+    ...(response ? { response } : {}),
   }
 }
 
@@ -323,22 +341,16 @@ function resolveDebris(state: GameState, ev: ThreatEvent, choice: DebrisChoice, 
   let repairCost = 0
   let integrityBefore: number | undefined
   if (!sat) {
-    notes.push('No satellite was on the crossing orbit. The debris passed through empty sky.')
+    // No satellite on the crossing orbit: the debris passes through empty sky.
   } else if (choice === 'burn') {
     fuel = burnFuel(ssa)
     state.credits -= fuel
     offStation.add(sat.id)
-    notes.push(
-      `${kindLabel[sat.kind]} ${sat.id} burned out of the corridor and is off station tonight.${ssa ? ' The fuel was already budgeted.' : ` Unbudgeted fuel: ${fuel} credits.`}`,
-    )
   } else if (rng.chance(DEBRIS_LOSS_CHANCE)) {
     lost = true
     integrityBefore = sat.integrity
     sat.integrity = 0
     repairCost = lossReviewBill(ev, state.difficulty)
-    notes.push(`Conjunction with uncontrolled debris. ${kindLabel[sat.kind]} ${sat.id} lost.`)
-  } else {
-    notes.push(`Closest approach was a miss. ${kindLabel[sat.kind]} ${sat.id} held its orbit.`)
   }
   // Learned as held only when the satellite came through (R6 question 7):
   // owning SSA and choosing HOLD can still lose it, and then SSA neither
@@ -365,16 +377,21 @@ function resolveDebris(state: GameState, ev: ThreatEvent, choice: DebrisChoice, 
   }
 }
 
+// THE RECORD'S NOTES (v1.7 R1). Through v1.6 every step of a turn wrote a
+// sentence into the record's notes (a hit's damage, a condition's arrival,
+// the close's bills), about twenty in all. Nothing read them: the night's
+// cards say all of it from the record's own figures, in the night's words.
+// They rode in the first download and in every save code, so they went
+// when the first download ran out of room; the one kept is the rideshare's,
+// which END OF TURN reads for the asset it moved up.
 function resolveOpportunity(state: GameState, ev: ThreatEvent): Unscored {
   const notes: string[] = []
   const b = ev.benefit ?? {}
   if (b.credits) {
     state.credits += b.credits
-    notes.push(`+${b.credits} credits appropriated to the program.`)
   }
   if (b.briefTurns) {
     state.briefFreeThrough = Math.max(state.briefFreeThrough, state.turn + b.briefTurns)
-    notes.push(`Allied tracking data: the intel brief is free for the next ${b.briefTurns} turns.`)
   }
   if (b.expediteTurns) {
     // Only an item still more than a turn out can actually arrive sooner;
@@ -385,7 +402,6 @@ function resolveOpportunity(state: GameState, ev: ThreatEvent): Unscored {
       notes.push(`${kindLabel[soonest.kind]} ${soonest.id} manifested on the rideshare: arrival moved up a turn.`)
     } else {
       state.credits += RIDESHARE_RESELL_CREDITS
-      notes.push(`No deployment far enough out to expedite; the slot resold for +${RIDESHARE_RESELL_CREDITS} credits.`)
     }
   }
   return {
@@ -434,22 +450,31 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
       for (const m of def.effect.meters) {
         next.meters[m] = Math.max(0, next.meters[m] - scaled(CONDITION_PRESSURE_PER_SEVERITY * severity, difficulty))
       }
-      notes.push(`${cond.name} continues: sustained pressure on the mission.`)
-    } else {
-      notes.push(`${cond.name} continues, but current defenses hold it below effect threshold.`)
     }
   }
 
   // 3. The adversary plays each slot, reading the defenses owned now.
   const offStation = new Set<string>()
   const resolved: ResolvedEvent[] = []
-  for (const read of adversaryPicks(next, next.counters, deck)) {
-    const ev = eventById(scenario, read.pick)
+  // What a response may draw on as each move arrives (rules.ts,
+  // responseFits): the budget, less the bills already queued, the worst
+  // each move still to come could leave, the upkeep at the close, and what
+  // the nights ahead could need (worstCase.ts, heldForLater).
+  const picks = adversaryPicks(next, next.counters, deck).map((read) => eventById(scenario, read.pick))
+  const upkeepDue = next.counters.length * scenario.upkeepPerDefense + heldForLater(next, next.counters)
+  picks.forEach((ev, i) => {
     const scoreBefore = maiScore(next)
-    const r = ev.effect.special === 'debrisStrike' ? resolveDebris(next, ev, actions.debris ?? 'hold', rng, offStation) : resolveThreat(next, ev, rng)
+    const queued = resolved.reduce((n, r) => n + r.repairCost, 0)
+    const toCome = picks.slice(i + 1).reduce((n, later) => n + worstBillOf(later, next.counters, difficulty), 0)
+    const room = next.credits - queued - toCome - upkeepDue
+    const r =
+      ev.effect.special === 'debrisStrike'
+        ? resolveDebris(next, ev, actions.debris ?? 'hold', rng, offStation)
+        : resolveThreat(next, ev, rng, actions.responses?.[i], room, resolved.filter((r) => r.response).length)
     resolved.push({ ...r, scoreBefore, scoreAfter: maiScore(next) })
-  }
+  })
   const fuel = resolved.reduce((n, r) => n + (r.debris?.fuel ?? 0), 0)
+  const responses = resolved.reduce((n, r) => n + (r.response?.cost ?? 0), 0)
 
   // 4. The rare opportunity, from the deck stream.
   const plan = planFor(next, next.turn)
@@ -470,23 +495,18 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
   const upkeep = defensesKept * scenario.upkeepPerDefense
   next.credits -= repairs + upkeep
   const insolvent = next.credits < 0
-  if (repairs > 0) notes.push(`Repairs paid: -${repairs} credits.`)
-  if (upkeep > 0) notes.push(`Keeping ${defensesKept} defense${defensesKept === 1 ? '' : 's'}: -${upkeep} credits.`)
 
   const due = next.pipeline.filter((p) => p.etaTurns <= 1)
   next.pipeline = next.pipeline.filter((p) => p.etaTurns > 1)
   for (const p of next.pipeline) p.etaTurns -= 1
   for (const a of due) {
     next.assets.push({ id: a.id, kind: a.kind, layer: layerFor(a.kind), integrity: 100 })
-    notes.push(`${kindLabel[a.kind]} ${a.id} arrived on station and is operational.`)
   }
 
   const bonusCoverage = coverage(next.assets, offStation)
   const funding = insolvent ? 0 : scenario.incomePerTurn
   const coverageBonus = !insolvent && bonusCoverage >= scenario.slaBonus.coverageMin ? scenario.slaBonus.credits : 0
   next.credits += funding + coverageBonus
-  if (insolvent) notes.push('Repairs and defense costs are paid before funding arrives, and the budget could not cover them. Funding is frozen.')
-  else notes.push(`Mission funding: +${funding} credits.${coverageBonus > 0 ? ` Coverage bonus: +${coverageBonus} credits.` : ''}`)
 
   const recovery = hasRetainer(next) ? scenario.recovery.withIrRetainer : scenario.recovery.base
   for (const key of METER_KEYS) next.meters[key] = Math.min(METER_CAP, next.meters[key] + recovery)
@@ -498,7 +518,6 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
     cond.remainingTurns -= 1
     if (cond.remainingTurns <= 0) {
       next.conditions = next.conditions.filter((c) => c.instanceId !== cond.instanceId)
-      notes.push(`${cond.name} subsided. The condition has lifted.`)
     }
   }
 
@@ -507,6 +526,7 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
     ordered,
     fuel,
     windfall,
+    ...(responses > 0 ? { responses } : {}),
     afterNight,
     repairs,
     repaired,

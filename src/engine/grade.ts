@@ -31,8 +31,19 @@ export type Grade = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
 // percentile 77.8 and at the 75th 76.5. S at 77.9 gives 5.0 percent of
 // wins and A at 76.5 21.9; B keeps 75 and holds 21.0. The old 81 and 76.9
 // gave S 1.4 and A 11.7 on the new numbers.
+//
+// RECALIBRATED IN v1.7 R1 (Ken, 9 November 2026), by the same method, with
+// responses in the night and meter damage at 9: a game's blocks now come
+// mostly from the night's answers, so the wins spread from just over the
+// line to 90, where v1.6's sat within 8 points of it. 819 wins on
+// STANDARD over the five policies, each answering as tests/policies.ts
+// has it; graded score at the 95th percentile 88.0 and at the 75th 85.5.
+// B moves for the first time, from 75 to 77.5, about the 25th percentile
+// of those wins, so C is a win that scraped the line. On EASY the same
+// thresholds give Novice S 26, A 40, B 243, C 117 of its 426 wins (it
+// took S on 176 of 429 at v1.6's thresholds): the usual grade is B.
 // tests/grade.spec.ts re-runs the sweep and holds S and A to their shares.
-export const GRADE_THRESHOLDS = { S: 77.9, A: 76.5, B: 75 } as const
+export const GRADE_THRESHOLDS = { S: 88, A: 85.5, B: 77.5 } as const
 
 // What a grade reads: how the campaign ended, its final mission assurance,
 // and the defense bonus it earned.

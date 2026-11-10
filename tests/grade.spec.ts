@@ -10,11 +10,12 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { GRADE_THRESHOLDS, TURN_STRIP, gradeFor, gradeOf, hitsTaken, knockoutsByTurn, stripColour, turnStrip, type Grade } from '../src/engine/grade'
 import { defenseBonus } from '../src/engine/learning'
 import { newGame, resolveTurn } from '../src/engine/reducer'
+import { playNight, type Responder } from '../src/engine/responses'
 import { ASSET_DAMAGE_PER_SEVERITY } from '../src/engine/rules'
 import { maiScore } from '../src/engine/scoring'
 import { turnRng } from '../src/engine/rng'
 import type { Difficulty, GameState, TurnActions } from '../src/engine/types'
-import { POLICIES } from './policies'
+import { POLICIES, ride, sensible } from './policies'
 import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT, randomPolicy } from './scripts'
 
 // The smallest step the MAI takes: it is shown to one decimal place.
@@ -52,17 +53,20 @@ describe('the grade', () => {
     // at the line, and insolvency (v1.3: repairs and upkeep can now break
     // the budget). The win is one whose defense bonus moves its grade, so a
     // reading that dropped the bonus (brief 6.8) would fail here.
+    // The prepared line answers in the night (v1.7 R1): with every move
+    // ridden out no line wins on STANDARD, and the won case went missing.
+    // The other lines ride every move out, as they always played.
     type Ending = 'won' | 'belowThreshold' | 'insolvency' | 'maiCollapse'
-    const lines: ((seed: number) => (s: GameState) => TurnActions)[] = [
-      () => (s) => WIN_SCRIPT[s.turn] ?? NO_OP,
-      () => (s) => MIXED_SCRIPT[s.turn] ?? NO_OP,
-      () => (s) => LOSS_SCRIPT[s.turn] ?? NO_OP,
-      (seed) => randomPolicy(seed),
+    const lines: [(seed: number) => (s: GameState) => TurnActions, Responder][] = [
+      [() => (s) => WIN_SCRIPT[s.turn] ?? NO_OP, sensible],
+      [() => (s) => MIXED_SCRIPT[s.turn] ?? NO_OP, ride],
+      [() => (s) => LOSS_SCRIPT[s.turn] ?? NO_OP, ride],
+      [(seed) => randomPolicy(seed), ride],
     ]
     const cases: [GameState, Ending][] = []
     for (let seed = 1; seed <= 40 && cases.length < 3; seed += 1) {
-      for (const line of lines) {
-        const end = play(seed, line(seed))
+      for (const [line, respond] of lines) {
+        const end = play(seed, line(seed), respond)
         const how: Ending = end.status === 'won' ? 'won' : end.lossReason!
         const finalMai = end.history[end.history.length - 1].maiScore
         const bonusMoves = gradeFor({ status: end.status, finalMai }) !== gradeFor({ status: end.status, finalMai, bonus: defenseBonus(end.bestStreak, end.saved) })
@@ -70,10 +74,12 @@ describe('the grade', () => {
         if (how !== 'maiCollapse' && !cases.some((c) => c[1] === how)) cases.push([end, how])
       }
     }
-    // A collapse: no script, sweep policy or seed reaches one in six turns
-    // (from 87.4 the score cannot fall under 35 that fast in real play), so
-    // the campaign is built by hand: the trust meters worn down before
-    // turn 1, then a real turn played on them.
+    // A collapse: through v1.6 no script, sweep policy or seed reached one
+    // in six turns. Since v1.7 R1 (9 meter damage a point) a line that
+    // orders nothing and rides every move out can, on its last turn
+    // (tests/share-text.spec.ts pins one). The case here is still built by
+    // hand, so that it is a collapse on an early turn: the trust meters
+    // worn down before turn 1, then a real turn played on them.
     const worn: GameState = { ...newGame(DEFAULT_SCENARIO, 1, 'standard'), meters: { linkAvailability: 20, dataIntegrity: 20, sensorIntegrity: 20 } }
     const collapsed = resolveTurn(worn, NO_OP, turnRng(worn.seed, worn.turn))
     expect(collapsed.lossReason, 'the hand-built campaign did not collapse').toBe('maiCollapse')
@@ -153,9 +159,11 @@ describe('the grade is calibrated (brief 7.2)', () => {
     'gives S to about the top 5 percent of wins and A to about the next 20',
     () => {
       const grades: Grade[] = []
-      for (const { policy } of POLICIES) {
+      // Each line answers in the night as the sweep has it (v1.7 R1).
+      for (const { policy, respond } of POLICIES) {
         for (let seed = 1; seed <= 500; seed += 1) {
-          const end = play(seed, policy)
+          let end = newGame(DEFAULT_SCENARIO, seed, 'standard')
+          while (end.status === 'playing') end = playNight(end, policy(end), respond)
           if (end.status === 'won') grades.push(gradeOf(end))
         }
       }
@@ -321,8 +329,10 @@ describe("a run's knockouts, hits and strip, derived from its history (v1.2 Roun
   })
 })
 
-function play(seed: number, policy: (s: GameState) => TurnActions): GameState {
+// A line of orders with a responder making the night's choices (v1.7 R1):
+// every move is ridden out unless a test names another responder.
+function play(seed: number, policy: (s: GameState) => TurnActions, respond: Responder = ride): GameState {
   let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
-  while (state.status === 'playing') state = resolveTurn(state, policy(state), turnRng(state.seed, state.turn))
+  while (state.status === 'playing') state = playNight(state, policy(state), respond)
   return state
 }

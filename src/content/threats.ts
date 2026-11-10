@@ -25,6 +25,7 @@ export const THREATS: ThreatEvent[] = [
     chainsWith: ['blackout-chain'],
     effect: { meters: ['linkAvailability'], special: 'jamsGnss', repairCostPerSeverity: 2 },
     condition: { name: 'GNSS DENIED', turns: 2 },
+    responses: [{ id: 'backup-nav', effect: 'block' }, { id: 'fly-degraded', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -62,6 +63,7 @@ export const THREATS: ThreatEvent[] = [
     counters: ['antiJam'],
     effect: { meters: ['linkAvailability'], repairCostPerSeverity: 2 },
     condition: { name: 'JAMMED', turns: 2 },
+    responses: [{ id: 'backup-link', effect: 'block' }, { id: 'stored-plans', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -99,6 +101,7 @@ export const THREATS: ThreatEvent[] = [
     counters: ['pntAuth'],
     effect: { meters: ['sensorIntegrity'], repairCostPerSeverity: 3 },
     condition: { name: 'SPOOFED', turns: 2 },
+    responses: [{ id: 'cross-check', effect: 'block' }, { id: 'holding-pattern', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -141,6 +144,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 2,
     counters: ['pntAuth'],
     effect: { meters: ['dataIntegrity', 'linkAvailability'], repairCostPerSeverity: 2 },
+    responses: [{ id: 'onboard-clock', effect: 'block' }, { id: 'hold-commands', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -185,6 +189,7 @@ export const THREATS: ThreatEvent[] = [
     prefersKinds: ['rpoSat'],
     counters: ['sensorFusion'],
     effect: { meters: ['sensorIntegrity'], repairCostPerSeverity: 3 },
+    responses: [{ id: 'other-sensors', effect: 'block' }, { id: 'abort-approach', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -223,6 +228,7 @@ export const THREATS: ThreatEvent[] = [
     counters: ['sensorFusion'],
     chainsWith: ['pnt-jamming'],
     effect: { meters: ['sensorIntegrity'], special: 'chainExploit', repairCostPerSeverity: 3 },
+    responses: [{ id: 'cross-check', effect: 'block' }, { id: 'slow-down', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'ATLAS',
@@ -267,6 +273,7 @@ export const THREATS: ThreatEvent[] = [
     counters: ['sensorFusion'],
     chainsWith: ['pnt-jamming'],
     effect: { meters: ['sensorIntegrity'], special: 'chainExploit', repairCostPerSeverity: 3 },
+    responses: [{ id: 'other-sensors', effect: 'block' }, { id: 'surveyed-routes', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'ATLAS',
@@ -316,6 +323,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 2,
     counters: ['mlPipelineIntegrity'],
     effect: { meters: ['sensorIntegrity'], assetDamage: false, repairCostPerSeverity: 3 },
+    responses: [{ id: 'hold-retrain', effect: 'block' }, { id: 'roll-back', effect: 'halve' }],
     techniqueRefs: [
       // ATLAS first (R6 question 1): the move is a backdoored perception
       // model, which AML.T0020 describes; DE-0003.12 poisons a security
@@ -363,6 +371,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 3,
     counters: ['tierAAttestation'],
     effect: { meters: ['sensorIntegrity', 'dataIntegrity'], repairCostPerSeverity: 4 },
+    responses: [{ id: 'isolate-reflash', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -407,6 +416,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 3,
     counters: ['linkAuth', 'groundZeroTrust'],
     effect: { meters: ['linkAvailability', 'dataIntegrity'], repairCostPerSeverity: 3 },
+    responses: [{ id: 'rotate-keys', effect: 'block' }, { id: 'primary-only', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -443,6 +453,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 1,
     counters: ['linkAuth'],
     effect: { meters: ['dataIntegrity'], assetDamage: false, repairCostPerSeverity: 1 },
+    responses: [{ id: 'check-freshness', effect: 'block' }],
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -486,6 +497,7 @@ export const THREATS: ThreatEvent[] = [
     counters: ['encryptedBackhaul'],
     effect: { meters: ['dataIntegrity'], assetDamage: false, repairCostPerSeverity: 1 },
     condition: { name: 'TAPPED', turns: 2 },
+    responses: [{ id: 'stop-clear', effect: 'block' }],
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -538,6 +550,7 @@ export const THREATS: ThreatEvent[] = [
     counters: ['encryptedBackhaul'],
     effect: { meters: ['dataIntegrity'], assetDamage: false, repairCostPerSeverity: 2 },
     condition: { name: 'LEAKING', turns: 2 },
+    responses: [{ id: 'link-down', effect: 'block' }, { id: 'reroute', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'SPARTA',
@@ -590,6 +603,7 @@ export const THREATS: ThreatEvent[] = [
     counters: ['groundZeroTrust'],
     effect: { meters: ['dataIntegrity'], repairCostPerSeverity: 5 },
     condition: { name: 'RANSOMED', turns: 2 },
+    responses: [{ id: 'segment-restore', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'ATTACK',
@@ -626,6 +640,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 1,
     counters: ['groundZeroTrust'],
     effect: { meters: ['dataIntegrity'], repairCostPerSeverity: 2 },
+    responses: [{ id: 'revoke-reset', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'ATTACK',
@@ -662,6 +677,7 @@ export const THREATS: ThreatEvent[] = [
     baseSeverity: 2,
     counters: ['insiderProgram'],
     effect: { meters: ['dataIntegrity'], assetDamage: false, repairCostPerSeverity: 2 },
+    responses: [{ id: 'suspend-account', effect: 'block' }, { id: 'limit-audit', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'ATTACK',
@@ -740,6 +756,7 @@ export const THREATS: ThreatEvent[] = [
     counters: ['sensorFusion'],
     chainsWith: ['pnt-jamming'],
     effect: { meters: ['sensorIntegrity', 'dataIntegrity'], special: 'chainExploit', repairCostPerSeverity: 4 },
+    responses: [{ id: 'ground-squadron', effect: 'halve' }],
     techniqueRefs: [
       {
         framework: 'SPARTA',
