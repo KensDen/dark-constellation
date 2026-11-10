@@ -258,9 +258,11 @@ export const HAPTIC_PATTERNS: Record<SoundCue, HapticStrength> = {
   placeholder: 'none',
   silent: 'none',
   'data-burst': 'none',
-  // A block (v1.3 R3). The win is on the screen and in the chime; the hand
-  // stays still, so a buzz never makes a block feel like a hit.
-  'all-clear': 'none',
+  // A block. Through v1.6 the hand stayed still, so a buzz never made a
+  // block feel like a hit. Since v1.7 R1 (Ken's ruling of 9 November 2026:
+  // a block gets its own moment) it is one light tick, the shortest
+  // pattern there is, where a hit is a medium pulse.
+  'all-clear': 'light',
   'buy-click': 'light',
   'denied-buzz': 'double',
   'execute-sweep': 'medium',
@@ -519,7 +521,7 @@ export const SECTION_6_ROWS: Section6Row[] = [
     visual: 'shield',
     where: 'ui/board/AssetStrip.tsx (the shield on the tile it was aimed at) and ui/night/Night.tsx (BLOCKED)',
     sound: 'all-clear',
-    haptic: 'none',
+    haptic: 'light',
     soundWhere: 'ui/night/Night.tsx',
   },
   {
@@ -544,14 +546,16 @@ export const SECTION_6_ROWS: Section6Row[] = [
   {
     // v1.3 R3 (brief 5.5 item 5): the call arrives quietly, and its result
     // sounds like a block when the satellite is safe and like a hit when
-    // it is lost.
+    // it is lost. The safe result ticks as a block does since v1.7 R1:
+    // it is the block's own voice (all-clear), which now carries 'light'
+    // in HAPTIC_PATTERNS, and one cue has one haptic.
     beat: 'The debris call and its result',
     moments: ['debris-call', 'debris-result'],
     visual: 'card-rise',
     where: 'ui/night/cards.tsx (the call and its result rise as cards)',
     sound: 'all-clear',
     soundPartners: ['hit-stab'],
-    haptic: 'none',
+    haptic: 'light',
     soundWhere: 'ui/night/closeCards.tsx',
   },
   {

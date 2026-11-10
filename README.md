@@ -22,8 +22,9 @@ and PROCURE, the night, the debrief, the Dossier and LIBRARY.
 
 ## How to play
 
-Each turn you read what COLDVEIL could hit tonight, order fleet and one new defense, then EXECUTE
-and see what your posture absorbed. The adversary reacts: it takes the move you have covered least.
+Each turn you read what COLDVEIL could hit tonight, order fleet and one new defense, then EXECUTE.
+In the night, each move that would land stops for your response: block it or halve it for CR, one
+response a night, or ride it out. The adversary reacts: it takes the move you have covered least.
 Finish turn 6 with the mission assurance score at 70 or higher to win; let it collapse, or run the budget
 below zero at a turn close, and the operation ends early. Every defense carries upkeep, repairs
 come due at the turn close, and coverage, trust, and redundancy trade off against each other. Each
@@ -70,6 +71,11 @@ record (Ken, 27 October 2026).
 - **Upkeep and WORST CASE.** Every defense needs upkeep in CR each turn, and repairs come out of
   the budget at the turn close before funding arrives. The WORST CASE line on the board's dock
   says, before you EXECUTE, whether a bad night could end the operation; tap it for the sum.
+- **A response in the night.** A move no defense stops pauses the night on one screen with two or
+  three answers, each real practice for that threat with its cost and its effect in numbers: a
+  block, a halving, or riding it out for nothing. One response a night, so on a night of two moves
+  the defense you ordered is what meets the other. A response never spends what tonight's bills
+  and the nights ahead could need.
 - **Defense streak.** Moves blocked in a row and the points your defenses saved add a small bonus
   to the grade.
 - **Difficulty.** Easy scales damage and repair costs by 0.75. Standard is the tuned campaign.
@@ -117,11 +123,12 @@ value, and each beat carries its own visual cue and its own sound.
   no seam. The briefing builds the same bed slide by slide and hands it on to the title or to turn 1.
 - **Three toggles, Sound, Music and Motion**, all remembered between visits. Nothing plays until
   your first tap or click.
-- **Tapped through.** Every card of the night waits for a tap. Each strike holds about 2.5 seconds
-  on the board before its card; a tap ends it, and SKIP NIGHT plays the rest of the night without
-  strikes, stopping only for a move met for the first time, whose card files it to the Dossier, and
-  for the debris call. Reduced motion is honored as a motion preference: the cards come up with no
-  strike, every cue takes its static form, and the sound is unchanged.
+- **Tapped through.** The night waits for you: each move that would land stops for your response
+  and shows its result on the same screen, with its Dossier card's headline and FILE TO DOSSIER
+  the first time you meet it. A move a defense stops plays its block on its own, in under a
+  second: the shield on the tile, BLOCKED, the streak, its own sound and a haptic tick. Reduced
+  motion is honored as a motion preference: the block stands still for its moment, every cue takes
+  its static form, and the sound is unchanged.
 - **Haptics** on Chrome-family Android browsers that support vibration. Nothing fires on iPhone,
   by design.
 

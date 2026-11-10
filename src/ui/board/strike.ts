@@ -19,11 +19,11 @@ import type { GameState, Layer, ResolvedEvent, Scenario } from '../../engine/typ
 // since (Ken's playtest item 2: "the night plays too fast"). The
 // stylesheet reads it as --dc-beat.
 export const STRIKE_MS = 1500
-// How long a strike stands before its card, from the lock-on: about 2.5
-// s (Ken's ruling of 27 October 2026, tuned at 375x667 and 390x844), so
-// the landed result reads before the card comes up. A tap ends it early,
-// and SKIP NIGHT plays the rest of the night without strikes.
-export const STRIKE_HOLD_MS = 2500
+// THE BLOCK MOMENT (v1.7 R1): a move a defense stops plays on its own and
+// moves on, with no card to tap, so it is short: the shield breaks the
+// strike on its tile, BLOCKED and the streak stand, and the night goes on,
+// all inside a second.
+export const BLOCK_MS = 950
 export const LOCK_SHARE = 0.35
 // How much of the strike the score's count takes once the move lands.
 export const COUNT_SHARE = 0.35
@@ -48,7 +48,7 @@ export interface Trace {
   // What it came to, for the desktop's night log: blocked, partly or wholly
   // through, or the debris passing clear or taking the satellite; and the
   // score's change across it.
-  result: 'blocked' | 'partial' | 'hit' | 'clear' | 'lost'
+  result: 'blocked' | 'partial' | 'halved' | 'hit' | 'clear' | 'lost'
   delta: number
 }
 
@@ -67,9 +67,11 @@ export function tracesOf(turn: number, events: readonly ResolvedEvent[], scenari
         : 'clear'
       : ev.effectiveSeverity === 0
         ? 'blocked'
-        : ev.effectiveSeverity < ev.baseSeverity + ev.chainBonus
-          ? 'partial'
-          : 'hit'
+        : ev.response
+          ? 'halved'
+          : ev.effectiveSeverity < ev.baseSeverity + ev.chainBonus
+            ? 'partial'
+            : 'hit'
     const delta = Math.round((ev.scoreAfter - ev.scoreBefore) * 10) / 10
     out.push({ id: `t${turn}-${i}`, eventId: ev.eventId, assetId: ev.targetAssetId ?? ev.debris?.assetId, layers: def.layers, hit, result, delta })
   })

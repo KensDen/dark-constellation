@@ -606,12 +606,6 @@ details[open] .dc-open-turn {
    and the sections that explain the game run down the right, each a
    readable line; the way on spans both. In the stylesheet rather than the
    debrief's chunk, which sits near its 10,000-byte cap. */
-/* The strike's card names the move on a phone (v1.6 R1), so the banner's
-   own line steps aside there; the desktop shows the line, not the card. */
-[data-strike-banner]:has([data-strike-card]) [data-strike-name] {
-  display: none;
-}
-
 @media (min-width: 1100px) {
   [data-debrief-screen] {
     max-width: 1200px;
@@ -831,18 +825,6 @@ details[open] .dc-open-turn {
      move plays out on the playfield beside it. */
   [data-board] [data-board-play] [data-strike-banner] {
     position: absolute;
-  }
-  /* SKIP NIGHT at the foot of the night's column, not over the log. */
-  [data-board] [data-board-play] [data-skip-night] {
-    position: absolute;
-  }
-  /* The strike's card is the phone's (v1.6 R1): the night's log says it
-     here, so the banner keeps the move's name instead. */
-  [data-board] [data-strike-banner] [data-strike-card] {
-    display: none;
-  }
-  [data-board] [data-strike-banner] [data-strike-name] {
-    display: block;
   }
   /* The side panel: the sheets, in place, the board beside them live. */
   [data-board] [data-sheet] {

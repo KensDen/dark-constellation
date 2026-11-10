@@ -4,11 +4,11 @@
 // stays inside the deferred cap (brief 10); the per-event loop (the
 // overlay, the strike, the hit card and the intel card) is in ./cards.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { GameState, TurnRecord } from '../../engine/types'
 import { EVENT_CUES, MOMENT_CUES, outcomeSound } from '../../cues'
-import { shortName } from '../board/boardModel'
-import { ICON_DOWN, ICON_HELP, ICON_UP, tinted } from '../sprites/icons'
+import { shortName, stopVerb } from '../board/boardModel'
+import { ICON_DOWN, ICON_UP, tinted } from '../sprites/icons'
 import { callSigns } from '../board/board'
 import { LogRows } from '../board/LogRows'
 import { tracesOf } from '../board/strike'
@@ -17,7 +17,7 @@ import { Card, DossierRow, Named, Officer, Onward, Signed, Tag, type StepCardPro
 import { callTerms, damaged, ledgerRows, opportunityLines, scoreRows, type LedgerRow } from './closeModel'
 import { BLOCK_TONE, CHOICE, HEAD_TONE, PRIMARY, fmtScore, useOnce, type Play } from './kit'
 import * as copy from './nightCopy'
-import { scoreDelta, type Night, type NightStep } from './nightModel'
+import { defensesFor, scoreDelta, type Night, type NightStep } from './nightModel'
 import { maiScore } from '../../engine/scoring'
 import { ASSET_HEAL_PER_TURN } from '../../engine/rules'
 
@@ -78,13 +78,13 @@ export function DebrisCall({
           ),
         )}
       </p>
-      {filed && <DossierRow def={step.def} />}
+      {filed && <DossierRow def={step.def} scenario={step.before.scenario} />}
     </Card>
   )
 }
 
 // The call's result (brief 5.5 item 5: "Then the result card").
-export function DebrisResult({ step, turn, signs, first, reduced, play, onContinue }: StepCardProps) {
+export function DebrisResult({ step, turn, signs, first, filed, reduced, play, onContinue }: StepCardProps) {
   const d = step.ev.debris!
   const sat = d.assetId ? signs.get(d.assetId) : undefined
   const scenario = step.after.scenario
@@ -98,7 +98,7 @@ export function DebrisResult({ step, turn, signs, first, reduced, play, onContin
       head={copy.conjunctionHeader(turn)}
       right={<Tag tone={d.lost ? 'hostile' : 'go'}>{copy.debrisChip(d.lost, d.choice)}</Tag>}
       reduced={reduced}
-      foot={<Onward first={first} reduced={reduced} onContinue={onContinue} />}
+      foot={<Onward first={first} filed={filed} reduced={reduced} onContinue={onContinue} />}
     >
       <div>
         <h3 className="text-lg font-bold leading-tight">{copy.debrisTitle(d.lost, d.choice)}</h3>
@@ -128,7 +128,7 @@ export function DebrisResult({ step, turn, signs, first, reduced, play, onContin
       )}
       {d.fuel > 0 && <p className="font-mono text-[11px] text-dc-ink/75">{copy.fuelNow(d.fuel)}</p>}
       {step.ev.repairCost > 0 && <p className="font-mono text-[11px] text-dc-ink/75">{copy.reviewQueued(step.ev.repairCost)}</p>}
-      {!first && <DossierRow def={step.def} />}
+      <DossierRow def={step.def} fresh={first} scenario={scenario} />
     </Card>
   )
 }
@@ -159,8 +159,28 @@ export function OpportunityCard({ step, turn, signs, reduced, play, onContinue }
   )
 }
 
-// END OF TURN n (brief 5.5 item 6): every line that made the budget, the
-// score with its change, and BEGIN TURN n+1 or DEBRIEF.
+// WHAT TO FIX (v1.7 R1): one line for END OF TURN, from the night's own
+// record. The move that cost the most tonight, and the defense that
+// answers it and is not owned yet; with every defense for it owned, that
+// it wants an answer in the night; and on a night nothing got through,
+// that.
+function fixLine(record: TurnRecord, state: GameState): { parts: readonly string[]; tone: 'go' | 'warn' } {
+  const landed = record.events.filter((e) => e.effectiveSeverity > 0 && !e.debris)
+  const worst = landed.reduce<(typeof landed)[number] | null>((w, e) => (!w || e.scoreAfter - e.scoreBefore < w.scoreAfter - w.scoreBefore ? e : w), null)
+  if (!worst) return { parts: [copy.NOTHING_THROUGH], tone: 'go' }
+  const def = state.scenario.events.find((e) => e.id === worst.eventId)!
+  const { missing } = defensesFor(def, state.counters, state.scenario)
+  if (!missing) return { parts: [copy.fixRespond(shortName(def))], tone: 'warn' }
+  return { parts: copy.fixDefense(missing.name, missing.cost, shortName(def), stopVerb(missing.id, def) === 'stops' ? 'stops' : 'blunts'), tone: 'warn' }
+}
+
+// END OF TURN n (brief 5.5 item 6; simplified in v1.7 R1, Ken's ruling of
+// 9 November 2026): the score's change, the budget's change, and one line
+// on what to fix. Every line that made the two (the conditions, the moves,
+// the recovery; the orders, the responses, the repairs, the upkeep, the
+// funding and the coverage bonus) is under DETAILS, with the night's rows
+// and a line on what upkeep and the coverage bonus are. Then BEGIN TURN
+// n+1 or DEBRIEF.
 export function EndOfTurn({
   record,
   state,
@@ -187,13 +207,6 @@ export function EndOfTurn({
   const ref = useRef<HTMLButtonElement | null>(null)
   useEffect(() => ref.current?.focus({ preventScroll: true }), [])
   useOnce(() => play(over ? outcomeSound(state.status === 'won') : MOMENT_CUES['end-of-turn'].sound))
-  // THE TURN SUMMARY (v1.6 R4, Ken's ruling of 27 October 2026: a turn's
-  // summary, not a ledger). Two panels side by side with their numbers in
-  // one column each: the score's move (where it started, what the night
-  // took, what came back) and the budget's (what the orders spent, the
-  // bills, the funding, the bonus), each topped by where it lands; then
-  // what hit tonight, as the night's own rows; then one line of what would
-  // reach the coverage bonus. The rule for recovery stands behind "?".
   const scores = night ? scoreRows(night).filter((r) => r.key !== 'from' && r.key !== 'to') : []
   const from = night ? scoreRows(night).find((r) => r.key === 'from')!.value : null
   const total = rows.find((r) => r.key === 'total')!
@@ -202,23 +215,14 @@ export function EndOfTurn({
   const signs = useMemo(() => new Map([...(night ? callSigns(night.before) : []), ...callSigns(state)]), [night, state])
   const log = tracesOf(record.turn, record.events, state.scenario)
   const recovery = damaged(state) && !record.ledger.insolvent && state.scenario.recovery.withIrRetainer > state.scenario.recovery.base
-  const [help, setHelp] = useState(false)
   const ledgerValue = (row: LedgerRow) => (row.word ? row.word : row.key === 'left' ? `-${record.ledger.ordered}` : row.value > 0 ? `+${row.value}` : row.value < 0 ? `-${-row.value}` : '0')
   const tone = (n: number) => (n < 0 ? 'text-dc-hostile' : n > 0 ? 'text-dc-go' : 'text-dc-muted')
+  const fix = fixLine(record, state)
   return (
     <Card
       kind="end"
       label={copy.endHeader(record.turn)}
       head={copy.endHeader(record.turn)}
-      right={
-        recovery ? (
-          <button type="button" data-end-help aria-label={copy.END_HELP} aria-expanded={help} onClick={() => setHelp((h) => !h)} className="-my-3 flex min-h-11 min-w-11 items-center justify-center">
-            <span className={`flex h-6 w-6 items-center justify-center border-2 ${help ? 'border-dc-friendly bg-dc-friendly/15' : 'border-dc-line'}`}>
-              <PixelSprite sprite={tinted(ICON_HELP, help ? 'friendly' : 'ink')} scale={1} name="end-help" />
-            </span>
-          </button>
-        ) : undefined
-      }
       reduced={reduced}
       foot={
         <button ref={ref} type="button" data-begin onClick={onNext} className={PRIMARY}>
@@ -250,17 +254,10 @@ export function EndOfTurn({
           </div>
         )
       )}
-      {help && recovery && (
-        <p data-end-how className="border-l-2 border-dc-friendly/60 pl-2 text-[12px] leading-snug text-dc-muted">
-          {(state.counters.includes('irRetainer') ? copy.recoveryFast : copy.recoverySlow)(ASSET_HEAL_PER_TURN, state.scenario.recovery.base, state.scenario.recovery.withIrRetainer)}
-        </p>
-      )}
       <div className="grid grid-cols-2 gap-2">
-        {/* The score's move. */}
-        <section data-score-lines aria-label={copy.SCORE_LINES} className="flex flex-col bg-dc-chrome px-2.5 py-2">
+        {/* The score's change. */}
+        <section data-score-lines aria-label={copy.SCORE_LINES} className={`flex flex-col bg-dc-chrome px-2.5 py-2 ${reduced ? '' : 'dc-row-in'}`}>
           <p className="font-mono text-[10px] tracking-widest text-dc-muted">{copy.SCORE_PANEL}</p>
-          {/* The change is the big number; where it landed is the HUD's,
-              so here it is the end of a line from where it started. */}
           {/* From a reload there is no night to measure, so the score. */}
           {from === null ? (
             <p className="mt-0.5 font-display text-[20px] leading-none text-dc-ink">{fmtScore(score)}</p>
@@ -274,57 +271,79 @@ export function EndOfTurn({
             {from !== null && <span data-score-row="from">{fmtScore(from)} → </span>}
             <b className="font-normal text-dc-ink">{fmtScore(score)}</b>
           </p>
-          <dl className="mt-1.5 grid grid-cols-[1fr_auto] gap-x-2 gap-y-0.5 font-mono text-[11px]">
-            {scores.map((row) => (
-              <div key={row.key} data-score-row={row.key} className="col-span-2 grid grid-cols-subgrid">
-                <dt className="min-w-0 text-dc-ink/85">{copy.SCORE_SHORT[row.key]}</dt>
-                <dd className={`text-right ${tone(row.value)}`}>{row.value > 0 ? `+${row.value.toFixed(1)}` : row.value.toFixed(1)}</dd>
-              </div>
-            ))}
-          </dl>
+          {/* What made the change, when more than the moves did (v1.7 R1's
+              fresh eyes: a -0.7 hit closed as 0.2 with nothing to say why). */}
+          {scores.length > 1 && (
+            <p data-score-parts className="mt-0.5 font-mono text-[10px] leading-snug text-dc-muted">
+              {copy.scoreParts(scores)}
+            </p>
+          )}
         </section>
-        {/* The budget's move. */}
-        <section data-ledger aria-label={copy.BUDGET_LINES} className="flex flex-col bg-dc-chrome px-2.5 py-2">
+        {/* The budget's change. */}
+        <section data-ledger aria-label={copy.BUDGET_LINES} style={reduced ? undefined : { animationDelay: '90ms' }} className={`flex flex-col bg-dc-chrome px-2.5 py-2 ${reduced ? '' : 'dc-row-in'}`}>
           <p className="font-mono text-[10px] tracking-widest text-dc-muted">{copy.budgetPanel(record.turn, over)}</p>
           <p className={`mt-0.5 flex items-center gap-1 font-display text-[20px] leading-none ${tone(budgetChange)}`}>
             {budgetChange !== 0 && <PixelSprite sprite={tinted(budgetChange < 0 ? ICON_DOWN : ICON_UP, budgetChange < 0 ? 'hostile' : 'go')} scale={2} name={budgetChange < 0 ? 'budget-down' : 'budget-up'} />}
             {budgetChange !== 0 ? Math.abs(budgetChange) : copy.NO_CHANGE}
             <span className="font-mono text-[11px]">CR</span>
           </p>
-          <p data-ledger-row="total" data-value={total.value} className={`mt-1 font-mono text-[11px] text-dc-muted ${reduced ? '' : 'dc-row-in'}`}>
+          <p data-ledger-row="total" data-value={total.value} className="mt-1 font-mono text-[11px] text-dc-muted">
             {record.ledger.start} → <b className={`font-normal ${total.value < 0 ? 'text-dc-hostile' : 'text-dc-ink'}`}>{total.value}</b> CR
           </p>
-          <dl className="mt-1.5 grid grid-cols-[1fr_auto] gap-x-2 gap-y-0.5 font-mono text-[11px]">
-            {rows
-              .filter((r) => r.key !== 'total')
-              .map((row, i) => (
-                <div
-                  key={row.key}
-                  data-ledger-row={row.key}
-                  data-value={row.value}
-                  style={reduced ? undefined : { animationDelay: `${i * 90}ms` }}
-                  className={`col-span-2 grid grid-cols-subgrid ${reduced ? '' : 'dc-row-in'}`}
-                >
-                  <dt className="min-w-0 text-dc-ink/85">{copy.LEDGER_SHORT[row.key]}</dt>
-                  <dd className={`text-right ${row.word ? 'text-dc-muted' : row.key === 'left' ? tone(-record.ledger.ordered) : tone(row.value)}`}>{ledgerValue(row)}</dd>
-                </div>
-              ))}
-          </dl>
         </section>
       </div>
-      {/* What hit tonight, as the night's own rows. */}
-      {log.length > 0 && (
-        <div data-end-tonight>
-          <p className="font-mono text-[10px] tracking-widest text-dc-muted">{copy.TONIGHT_ROWS}</p>
-          <ol className="mt-1 flex flex-col gap-1">
-            <LogRows scenario={state.scenario} log={log} signs={signs} size="text-[13px]" delta={false} />
-          </ol>
-        </div>
+      {/* The one line on what to fix; none once the operation is over. */}
+      {!over && (
+        <p data-end-fix={fix.tone} className={`border-l-4 p-2.5 text-[13px] leading-snug ${BLOCK_TONE[fix.tone]}`}>
+          {fix.tone === 'warn' && <span className={`mr-1.5 font-mono text-[10px] tracking-widest ${HEAD_TONE.warn}`}>{copy.FIX_LABEL}</span>}
+          <Named parts={fix.parts} />
+        </p>
       )}
-      {/* What would reach the coverage bonus, when it was missed: the one
-          line on the card that says what to do. */}
-      {bonus?.word && bonus.detail && <p data-end-hint className="text-[12px] leading-snug text-dc-ink/80">{copy.bonusHint(bonus.detail)}</p>}
+      {/* Every line behind the two figures, on demand. */}
+      <details data-end-details className="border-2 border-dc-line bg-dc-panel">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-2.5 font-mono text-[11px] tracking-widest text-dc-muted [&::-webkit-details-marker]:hidden">
+          <span>{copy.DETAILS}</span>
+          <PixelSprite sprite={tinted(ICON_DOWN, 'ink')} scale={1} name="end-details-open" className="dc-open-turn flex-none" />
+        </summary>
+        <div className="flex flex-col gap-2.5 border-t border-dc-line px-2.5 py-2">
+          <div className="grid grid-cols-2 gap-x-4">
+            <dl className="grid grid-cols-[1fr_auto] content-start gap-x-2 gap-y-0.5 font-mono text-[11px]">
+              {scores.map((row) => (
+                <div key={row.key} data-score-row={row.key} className="col-span-2 grid grid-cols-subgrid">
+                  <dt className="min-w-0 text-dc-ink/85">{copy.SCORE_SHORT[row.key]}</dt>
+                  <dd className={`text-right ${tone(row.value)}`}>{row.value > 0 ? `+${row.value.toFixed(1)}` : row.value.toFixed(1)}</dd>
+                </div>
+              ))}
+            </dl>
+            <dl className="grid grid-cols-[1fr_auto] content-start gap-x-2 gap-y-0.5 font-mono text-[11px]">
+              {rows
+                .filter((r) => r.key !== 'total')
+                .map((row) => (
+                  <div key={row.key} data-ledger-row={row.key} data-value={row.value} className="col-span-2 grid grid-cols-subgrid">
+                    <dt className="min-w-0 text-dc-ink/85">{copy.LEDGER_SHORT[row.key]}</dt>
+                    <dd className={`text-right ${row.word ? 'text-dc-muted' : row.key === 'left' ? tone(-record.ledger.ordered) : tone(row.value)}`}>{ledgerValue(row)}</dd>
+                  </div>
+                ))}
+            </dl>
+          </div>
+          {/* What hit tonight, as the night's own rows. */}
+          {log.length > 0 && (
+            <div data-end-tonight>
+              <p className="font-mono text-[10px] tracking-widest text-dc-muted">{copy.TONIGHT_ROWS}</p>
+              <ol className="mt-1 flex flex-col gap-1">
+                <LogRows scenario={state.scenario} log={log} signs={signs} size="text-[13px]" delta={false} />
+              </ol>
+            </div>
+          )}
+          {bonus?.word && bonus.detail && <p data-end-hint className="text-[12px] leading-snug text-dc-ink/80">{copy.bonusHint(bonus.detail)}</p>}
+          <p data-end-notes className="text-[12px] leading-snug text-dc-muted">{copy.DETAIL_NOTES}</p>
+          {recovery && (
+            <p data-end-how className="text-[12px] leading-snug text-dc-muted">
+              {(state.counters.includes('irRetainer') ? copy.recoveryFast : copy.recoverySlow)(ASSET_HEAL_PER_TURN, state.scenario.recovery.base, state.scenario.recovery.withIrRetainer)}
+            </p>
+          )}
+        </div>
+      </details>
     </Card>
   )
 }
-

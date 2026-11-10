@@ -22,7 +22,7 @@
 // Pure, so the suite sweeps it without a DOM. Since v1.3 Round 3 it
 // replaces the v1.1 director's beat derivation (src/director, retired).
 
-import { CONDITION_PRESSURE_PER_SEVERITY, DEPLOY_TURNS, METER_DAMAGE_PER_SEVERITY, mitigationOf, scaled } from '../../engine/reducer'
+import { CONDITION_PRESSURE_PER_SEVERITY, DEPLOY_TURNS, METER_DAMAGE_PER_SEVERITY, damageShare, exposedOf, mitigationOf, scaled } from '../../engine/reducer'
 import { maiScore } from '../../engine/scoring'
 import type { AssetKind, Countermeasure, GameState, PendingAsset, ResolvedEvent, ThreatEvent, TurnRecord } from '../../engine/types'
 import { callIndex, shortName, stopVerb } from '../board/boardModel'
@@ -138,9 +138,12 @@ export function nightOf(before: GameState, after: GameState): Night {
       }
     } else {
       kind = 'threat'
+      // A response is paid for as the move arrives, and a halved move does
+      // its share (v1.7 R1).
+      next.credits -= ev.response?.cost ?? 0
       if (ev.effectiveSeverity > 0) {
         for (const m of def.effect.meters) {
-          next.meters[m] = Math.max(0, next.meters[m] - scaled(METER_DAMAGE_PER_SEVERITY * ev.effectiveSeverity, difficulty))
+          next.meters[m] = Math.max(0, next.meters[m] - scaled(METER_DAMAGE_PER_SEVERITY * ev.effectiveSeverity * damageShare(ev), difficulty))
         }
       }
       if (ev.integrityAfter !== undefined && ev.targetAssetId !== undefined) {
@@ -178,19 +181,30 @@ export interface Result {
   blocked: number
   through: number
   chained: boolean
+  // The points a response halved (v1.7 R1): every point that got through.
+  halved: number
   verdict: copy.Verdict
 }
 export function resultOf(ev: ResolvedEvent): Result {
   const strength = ev.baseSeverity + ev.chainBonus
   const through = ev.effectiveSeverity
+  const halved = ev.response?.effect === 'halve' ? through : 0
   return {
     strength,
     blocked: strength - through,
     through,
     chained: ev.chainBonus > 0,
-    verdict: through === 0 ? 'BLOCKED' : through < strength ? 'PARTIAL' : 'HIT',
+    halved,
+    verdict: through === 0 ? 'BLOCKED' : halved ? 'HALVED' : through < strength ? 'PARTIAL' : 'HIT',
   }
 }
+
+// Whether the night stops on a move for the player's response: it would
+// land, and it has a response to offer (the engine sets `room` then).
+export const offersResponse = (ev: ResolvedEvent) => ev.room !== undefined
+// Who stopped a blocked move: a response, or the defenses owned.
+export const blockedByResponse = (ev: ResolvedEvent) => ev.response?.effect === 'block'
+export { exposedOf }
 
 // The score a step cost, to one decimal: 0 when nothing got through.
 export const scoreDelta = (step: Pick<NightStep, 'scoreBefore' | 'scoreAfter'>) => Math.round((step.scoreAfter - step.scoreBefore) * 10) / 10

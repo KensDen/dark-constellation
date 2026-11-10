@@ -21,7 +21,7 @@ import { kindLabels } from './labels'
 
 const one = (n: number) => Math.round(n * 10) / 10
 
-const threatName = (state: GameState, id: string) => {
+export const threatName = (state: GameState, id: string) => {
   const def = state.scenario.events.find((e) => e.id === id)
   return def ? shortName(def) : id
 }
@@ -278,6 +278,20 @@ export type NextTime =
       final: number
       won: boolean
     }
+  // A RESPONSE (v1.7 R1): one move this game let through, answered in the
+  // night instead, every order the same; said when it ends the game
+  // higher than any defense ordered earlier would.
+  | {
+      kind: 'answer'
+      turn: number
+      // The move's event id and the response's, for their words.
+      move: string
+      response: string
+      cost: number
+      was: number
+      final: number
+      won: boolean
+    }
   | { kind: 'none' }
 
 // Each turn's orders as the record has them, as the engine takes them.
@@ -290,7 +304,10 @@ export function ordersOf(state: GameState): TurnActions[] {
       return kind ? [{ kind }] : []
     })
     const debris = r.events.find((e) => e.debris)?.debris?.choice
-    return { buyAssets, buyCounters, intelBrief: r.purchases.some((p) => p.startsWith('Intel brief (')), ...(debris ? { debris } : {}) }
+    // The responses too (v1.7 R1): each move's answer, or null for one
+    // ridden out, so the record replays to itself.
+    const responses = r.events.map((e) => e.response?.id ?? null)
+    return { buyAssets, buyCounters, intelBrief: r.purchases.some((p) => p.startsWith('Intel brief (')), ...(debris ? { debris } : {}), responses }
   })
 }
 
@@ -306,9 +323,43 @@ export function replay(state: GameState, orders: TurnActions[]): GameState | nul
   return s
 }
 
+// The best single answer the night offered and this game did not take:
+// each move that got through and had a response, played again with that
+// response and no other that night (one response a night), every order
+// the same.
+function bestAnswer(state: GameState, orders: TurnActions[], was: number): Extract<NextTime, { kind: 'answer' }> | null {
+  let best: Extract<NextTime, { kind: 'answer' }> | null = null
+  state.history.forEach((rec, t) => {
+    rec.events.forEach((ev, i) => {
+      if (ev.room === undefined || ev.effectiveSeverity === 0) return
+      const def = state.scenario.events.find((e) => e.id === ev.eventId)
+      for (const r of def?.responses ?? []) {
+        if (r.id === ev.response?.id) continue
+        const changed = orders.map((o, k) => (k === t ? { ...o, responses: rec.events.map((_, j) => (j === i ? r.id : null)) } : o))
+        const played = replay(state, changed)
+        const taken = played?.history[t]?.events[i]?.response
+        // A response the budget could not meet is ridden out by the engine.
+        if (!played || taken?.id !== r.id) continue
+        const final = played.history[played.history.length - 1].maiScore
+        if (final <= was || (best && final <= best.final)) continue
+        best = { kind: 'answer', turn: rec.turn, move: ev.eventId, response: r.id, cost: taken.cost, was, final, won: played.status === 'won' }
+      }
+    })
+  })
+  return best
+}
+
 export function nextTime(state: GameState): NextTime | null {
   const missed = [...new Set(state.learned.filter((l) => l.how === 'missed').map((l) => l.counter))]
-  if (missed.length === 0 || state.history.length === 0) return null
+  if (state.history.length === 0) return null
+  const answer = bestAnswer(state, ordersOf(state), state.history[state.history.length - 1].maiScore)
+  if (missed.length === 0) return answer
+  const earlier = defenseEarlier(state, missed)
+  if (answer && (!earlier || earlier.kind === 'none' || answer.final > earlier.final)) return answer
+  return earlier
+}
+
+function defenseEarlier(state: GameState, missed: CountermeasureId[]): NextTime | null {
   const orders = ordersOf(state)
   const was = state.history[state.history.length - 1].maiScore
   // The record replays to itself, or nothing here can be measured.
@@ -369,6 +420,7 @@ export interface Decision {
   turn: number
   orders: string[]
   spent: number
+  answered: string[]
   call: 'BURN' | 'HOLD' | null
 }
 
@@ -378,7 +430,9 @@ export const decisions = (state: GameState): Decision[] =>
     return {
       turn: rec.turn,
       orders: rec.purchases.map((p) => p.replace(/\s*\(-[^)]*\)$/, '')),
-      spent: rec.ledger.ordered,
+      spent: rec.ledger.ordered + (rec.ledger.responses ?? 0),
+      // The moves answered in the night (v1.7 R1), by event id.
+      answered: rec.events.filter((ev) => ev.response).map((ev) => ev.eventId),
       call: debris ? (debris.choice === 'burn' ? 'BURN' : 'HOLD') : null,
     }
   })

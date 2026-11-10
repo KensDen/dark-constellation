@@ -55,7 +55,6 @@ import { ACTIONS, resolveLabel } from './board/actions'
 import { FULL_BRIEF_TITLE, WIDE_BOARD, callIndex, tonightSlots, turnsLeft } from './board/boardModel'
 import Sheet from './board/Sheet'
 import SystemSheet from './board/SystemSheet'
-import NightLog from './board/NightLog'
 import ScrollCue from './board/ScrollCue'
 import { callSigns, conditionsOn, tilesByLayer, turnBudget } from './board/board'
 import { COUNT_SHARE, STRIKE_MS } from './board/strike'
@@ -64,6 +63,7 @@ import { briefActive, briefFree, briefLocked, defenseOpen, orderCost, resolveTur
 import { worstCase } from '../engine/worstCase'
 import { defenseBonus } from '../engine/learning'
 import { turnRng } from '../engine/rng'
+import { answered, openChoice } from '../engine/responses'
 import { assetPrice } from '../engine/scoring'
 import { LAYERS, type AssetKind, type DebrisChoice, type Difficulty, type GameState, type ThreatEvent, type TurnActions } from '../engine/types'
 import type { BoardView } from './night/Night'
@@ -102,6 +102,9 @@ const FieldLibrary = lazy(() => import('./FieldLibrary').catch(() => ({ default:
 // The full brief's sheet (v1.6 R3, Ken's playtest item 6), with ./brief.ts
 // in a chunk of its own, which the TONIGHT card fetches as it mounts.
 const FullBrief = lazy(() => import('./board/FullBrief').catch(() => ({ default: BriefUnavailable })))
+// The desktop's night log (v1.5 R2), in a chunk of its own since v1.7 R1:
+// a phone never shows it, and the first download had no room for it.
+const NightLog = lazy(() => import('./board/NightLog'))
 // THE NIGHT (v1.3 brief 5.5), in chunks of its own, all fetched as the
 // board opens so EXECUTE never waits on them, and rendered from the loaded
 // module rather than through React.lazy, whose first showing would hold
@@ -115,6 +118,8 @@ const loadNight = () => import('./night/Night').then((m) => (nightModule = m))
 const NightUnavailable = ({ burn, choice, onCall, onDone }: NightProps) => (
   <button
     type="button"
+    // Any move still waiting for an answer is ridden out, as the engine
+    // already resolved it.
     onClick={() => (burn && choice === null ? onCall('hold') : onDone())}
     className="mt-auto min-h-12 border-2 border-dc-go bg-dc-go font-display text-xs text-dc-ground"
   >
@@ -213,14 +218,25 @@ const EMPTY_CONDITIONS: GameState['conditions'] = []
 // back on the board deciding the same turn.
 type Phase = SavePhase | 'night'
 
-// The night EXECUTE opened: the state it resolved from, the engine's
-// resolution with HOLD, and with BURN when tonight has a call to make.
+// The night EXECUTE opened: the state it resolved from and the orders it
+// resolved, the responses answered so far (v1.7 R1), and the engine's
+// resolution of all of it with HOLD, and with BURN when tonight has a call
+// to make. A move not yet answered is resolved as ridden out.
 interface NightSession {
   before: GameState
+  orders: TurnActions
+  responses: (string | null)[]
   hold: GameState
   burn: GameState | null
   choice: DebrisChoice | null
 }
+const resolveNight = (before: GameState, orders: TurnActions, responses: readonly (string | null)[], debris: DebrisChoice): GameState =>
+  resolveTurn(before, { ...orders, responses: [...responses], debris }, turnRng(before.seed, before.turn))
+// The resolution the night is on, and whether anything in it still waits
+// for the player: the debris call, or a move's response.
+const nightNow = (night: NightSession): GameState => (night.choice === 'burn' && night.burn ? night.burn : night.hold)
+const nightOpen = (night: NightSession): boolean =>
+  (!!night.burn && night.choice === null) || openChoice(nightNow(night).history[nightNow(night).history.length - 1].events, night.responses) >= 0
 
 // The night saves as END OF TURN once the engine's turn is committed, and
 // as the board it left while the debris call is still to make.
@@ -443,11 +459,15 @@ export default function Game({
   // goes to the ledger, which says whether it is the date's official run:
   // the date is the one the run started on, from its identity, never the
   // clock at the finish (brief 7.1).
+  // A night with a move still to answer is not over, whatever the engine's
+  // ridden-out resolution of it says (v1.7 R1): the last turn's result is
+  // recorded once every choice in it is made.
+  const nightUnsettled = phase === 'night' && !!night && nightOpen(night)
   useEffect(() => {
     if (!state) return
     if (state.status === 'playing') {
       saveStore.autosave(state, persistPhase(phase, state, night), daily)
-    } else if (!recordedRef.current) {
+    } else if (!recordedRef.current && !nightUnsettled) {
       recordedRef.current = true
       saveStore.clearAutosave()
       const last = state.history[state.history.length - 1]
@@ -482,12 +502,12 @@ export default function Game({
         )
       }
     }
-  }, [state, phase, scenario, daily, night])
+  }, [state, phase, scenario, daily, night, nightUnsettled])
 
   // Fetch the debrief's chunk the moment a campaign ends, while its last
   // turn is still playing back. The same import the lazy declaration
   // makes, so it is the same chunk, fetched once.
-  const finished = !!state && state.status !== 'playing'
+  const finished = !!state && state.status !== 'playing' && !nightUnsettled
   useEffect(() => {
     if (finished) import('./Debrief').catch(() => undefined)
   }, [finished])
@@ -516,6 +536,10 @@ export default function Game({
       () => setNightReady('failed'),
     )
   }, [])
+  // The desktop's night log with it, where there is a desktop board.
+  useEffect(() => {
+    if (wide) import('./board/NightLog').catch(() => undefined)
+  }, [wide])
 
   const flash = (msg: string) => setNotice(msg)
 
@@ -717,9 +741,9 @@ export default function Game({
     // engine ever disagree, surface the reason instead of dying silently:
     // a throw inside an event handler never reaches an error boundary.
     try {
-      const hold = resolveTurn(state, { ...actions, debris: 'hold' }, turnRng(state.seed, state.turn))
-      const burn = callIndex(hold) >= 0 ? resolveTurn(state, { ...actions, debris: 'burn' }, turnRng(state.seed, state.turn)) : null
-      setNight({ before: state, hold, burn, choice: null })
+      const hold = resolveNight(state, actions, [], 'hold')
+      const burn = callIndex(hold) >= 0 ? resolveNight(state, actions, [], 'burn') : null
+      setNight({ before: state, orders: actions, responses: [], hold, burn, choice: null })
       setView(null)
       setChosenSpend(hold.history[hold.history.length - 1].ledger.ordered)
       setActions(EMPTY_ACTIONS)
@@ -739,6 +763,38 @@ export default function Game({
     if (!night || night.choice !== null) return
     setNight({ ...night, choice })
     commit(choice === 'burn' && night.burn ? night.burn : night.hold)
+  }
+
+  // THE RESPONSE (v1.7 R1): the player's answer to move `index`, null to
+  // ride it out. The engine resolves the night again with it, and the turn
+  // is committed again with it (unless the debris call is still to make),
+  // so a reload mid-night lands on END OF TURN with every unanswered move
+  // ridden out, never back on the board with tonight's moves known. The
+  // one exception is the last night while a response is open: a finished
+  // operation is not autosaved, so a reload there returns to turn 6's
+  // board, as a reload before the debris call always has.
+  const onRespond = (index: number, id: string | null) => {
+    if (!night || night.responses[index] !== undefined) return
+    try {
+      const responses = answered(night.responses, index, id)
+      const hold = resolveNight(night.before, night.orders, responses, 'hold')
+      const burn = night.burn ? resolveNight(night.before, night.orders, responses, 'burn') : null
+      const next = { ...night, responses, hold, burn }
+      setNight(next)
+      if (!burn || night.choice !== null) commit(nightNow(next))
+    } catch {
+      flash('This turn could not be played.')
+    }
+  }
+  // What the night would be were move `index` answered with `id`: for the
+  // figures on the response's buttons.
+  const previewResponse = (index: number, id: string | null): GameState | null => {
+    if (!night) return null
+    try {
+      return resolveNight(night.before, night.orders, answered(night.responses, index, id), night.choice ?? 'hold')
+    } catch {
+      return null
+    }
   }
 
   // BEGIN TURN n+1, or DEBRIEF: off the night and onto the next board, or
@@ -897,7 +953,7 @@ export default function Game({
   // of the next night shows until BEGIN TURN).
   const nightProps =
     phase === 'night' && night
-      ? { before: night.before, hold: night.hold, burn: night.burn, choice: night.choice }
+      ? { before: night.before, hold: night.hold, burn: night.burn, choice: night.choice, responses: night.responses, preview: previewResponse, onRespond }
       : phase === 'aftermath' && lastRecord
         ? { before: null, hold: state, burn: null, choice: null }
         : null
@@ -1029,7 +1085,9 @@ export default function Game({
           </Sheet>
         )}
         {nightLog && (
-          <NightLog turn={displayTurn} scenario={scenario} log={view?.log ?? []} moving={view?.moving} signs={callSigns(shown)} />
+          <Suspense fallback={null}>
+            <NightLog turn={displayTurn} scenario={scenario} log={view?.log ?? []} moving={view?.moving} signs={callSigns(shown)} />
+          </Suspense>
         )}
         {shownSheet === 'system' && (
           <SystemSheet

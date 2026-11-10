@@ -10,21 +10,21 @@
 // Everything a card states is the engine's record of the night, read
 // through ./nightModel; its words are ./nightCopy's.
 
-import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { BLOCK_TONE, HEAD_TONE, LABEL, PRIMARY, TAG_TONE, useMore, useOnce, type Play } from './kit'
-import type { ThreatEvent } from '../../engine/types'
+import { useContext, useEffect, useRef, type ReactNode } from 'react'
+import { BLOCK_TONE, CHOICE, HEAD_TONE, LABEL, PRIMARY, TAG_TONE, useMore, useOnce, type Play } from './kit'
+import { RESPONSE_TEXT } from '../../content/responseText'
+import type { ResponseOption } from '../../engine/responses'
+import { RESPONSE_DAMAGE_SHARE, billAfter } from '../../engine/rules'
+import type { Scenario, ThreatEvent } from '../../engine/types'
 import { CONDITION_CUES, MOMENT_CUES } from '../../cues'
-import { shortName, turnsLeft } from '../board/boardModel'
-import { LogRows } from '../board/LogRows'
-import type { Trace } from '../board/strike'
+import { shortName, stoppedByLine, turnsLeft } from '../board/boardModel'
 import { techniqueLabel } from '../labels'
 import { LearnMore } from '../learnMore'
 import { ICON_CHECK, ICON_CROSS, ICON_DOWN, ICON_HALF, ICON_SPARK, tinted } from '../sprites/icons'
 import PixelSprite from '../sprites/PixelSprite'
 import { EMBLEMS } from '../sprites/emblems'
-import DotField from './DotField'
 import * as copy from './nightCopy'
-import { defensesFor, resultOf, scoreDelta, stopsKnown, type NightStep } from './nightModel'
+import { blockedByResponse, defensesFor, exposedOf, resultOf, scoreDelta, stopsKnown, type NightStep } from './nightModel'
 
 export function Tag({ tone, cue, children }: { tone: keyof typeof TAG_TONE; cue?: string; children: ReactNode }) {
   return <span className={`inline-flex items-center whitespace-nowrap px-1.5 py-0.5 font-mono text-[10px] leading-none tracking-wider ${TAG_TONE[tone]} ${cue ?? ''}`}>{children}</span>
@@ -135,11 +135,12 @@ export function Named({ parts }: { parts: readonly string[] }) {
 // THE RESULT PANEL (brief 5.5 item 2): one tile per point of strength,
 // blocked first, then the verdict, "x of y blocked" and the streak, and
 // what it cost on the right.
-const RESULT_TONE = { BLOCKED: 'go', PARTIAL: 'warn', HIT: 'hostile' } as const
+const RESULT_TONE = { BLOCKED: 'go', PARTIAL: 'warn', HALVED: 'warn', HIT: 'hostile' } as const
 // v1.6 R3 (Ken's playtest item 3): on the hit card the panel also says
 // UNDEFENDED, which stood in a block of its own lower down, and the repair
 // bill the hit queued, which stood on a line of its own under it.
-function ResultPanel({ step, reduced, compact = false, undefended = false, repair = '' }: { step: NightStep; reduced: boolean; compact?: boolean; undefended?: boolean; repair?: string }) {
+function ResultPanel({ step, reduced, undefended = false, repair = '' }: { step: NightStep; reduced: boolean; undefended?: boolean; repair?: string }) {
+  const compact = false
   const r = resultOf(step.ev)
   const tone = RESULT_TONE[r.verdict]
   const d = scoreDelta(step)
@@ -161,14 +162,16 @@ function ResultPanel({ step, reduced, compact = false, undefended = false, repai
       <div data-result-tiles className="flex gap-1">
         {Array.from({ length: r.strength }, (_, k) => {
           const blocked = k < r.blocked
+          // A halved point is its own tile: through, at half (v1.7 R1).
+          const halved = !blocked && r.halved > 0
           return (
             <span
               key={k}
-              data-tile={blocked ? 'blocked' : 'through'}
+              data-tile={blocked ? 'blocked' : halved ? 'halved' : 'through'}
               style={reduced ? undefined : { animationDelay: `${250 + k * 220}ms` }}
-              className={`flex h-7 w-7 items-center justify-center ${blocked ? 'bg-dc-go' : 'bg-dc-hostile'} ${reduced ? '' : blocked ? 'dc-tile-in' : 'dc-tile-hit'}`}
+              className={`flex h-7 w-7 items-center justify-center ${blocked ? 'bg-dc-go' : halved ? 'bg-dc-warn' : 'bg-dc-hostile'} ${reduced ? '' : blocked ? 'dc-tile-in' : 'dc-tile-hit'}`}
             >
-              <PixelSprite sprite={tinted(blocked ? ICON_CHECK : ICON_CROSS, 'ground')} scale={2} name={blocked ? 'tile-blocked' : 'tile-through'} />
+              <PixelSprite sprite={tinted(blocked ? ICON_CHECK : halved ? ICON_HALF : ICON_CROSS, 'ground')} scale={2} name={blocked ? 'tile-blocked' : halved ? 'tile-halved' : 'tile-through'} />
             </span>
           )
         })}
@@ -190,7 +193,7 @@ function ResultPanel({ step, reduced, compact = false, undefended = false, repai
           </span>
         ) : (
           <span data-blocked-of className="font-mono text-[11px]">
-            {copy.blockedOf(r.blocked, r.strength, r.chained)}
+            {r.halved ? copy.halvedOf(r.halved, r.strength) : copy.blockedOf(r.blocked, r.strength, r.chained)}
           </span>
         )}
       </div>
@@ -220,96 +223,17 @@ function StreakLine({ step, reduced }: { step: NightStep; reduced: boolean }) {
   )
 }
 
-// THE STRIKE'S CARD (v1.6 R1, Ken's ruling of 26 October 2026): on a
-// phone, under the close-up and its banner while a move strikes, where
-// the screen stood empty. The hit card's own parts, still: the result
-// panel without its tiles' motion, so a still reads it, the move with the
-// tile it struck, and the defense that answers it, or that none is owned.
-// It is the strike's, so it changes with each move; the desktop's night
-// log says the same beside the playfield, and the stylesheet hides this
-// there.
-//
-// v1.6 R2 (R1's fresh eyes, F5): from 390 wide the card adds one line from
-// the hit card's outcome block (what would have helped, or what the player
-// can now say), and under it the night so far: which move of tonight's
-// this is, and the moves before it as the desktop's log writes them. The
-// list stands only where it fits under the card: at 375x667 a night's
-// later move can leave it no room, and the card never scrolls.
-// The room SKIP NIGHT's row takes at the foot of a phone's screen.
-const SKIP_ROW = 60
-export function StrikeCard({ step, signs, earlier, of }: { step: NightStep; signs: Map<string, string>; earlier: readonly Trace[]; of: number }) {
-  const { ev, def } = step
-  const asset = ev.targetAssetId === undefined ? undefined : step.before.assets.find((a) => a.id === ev.targetAssetId)
-  const scenario = step.after.scenario
-  const { held, missing, partner } = defensesFor(def, step.after.counters, scenario)
-  const tone = ev.effectiveSeverity === 0 ? 'go' : 'warn'
-  const line = ev.outcome === 'held' && held
-    ? partner ? copy.canNowSayWith(held.name, shortName(def), partner.name) : copy.canNowSay(held.name, shortName(def))
-    : missing
-      ? ev.outcome === 'reduced' ? copy.finishedIt(missing.name, missing.cost) : copy.wouldHaveHelped(missing.name, missing.cost)
-      : null
-  const list = useRef<HTMLDivElement | null>(null)
-  const [room, setRoom] = useState(true)
-  useLayoutEffect(() => {
-    const el = list.current
-    if (!el) return
-    // Where the list will rest: the banner rises 10px into place as the
-    // strike starts (dc-banner-in), so its offset now is taken off.
-    const banner = el.closest('[data-strike-banner]')
-    const rise = banner && typeof DOMMatrixReadOnly !== 'undefined' ? new DOMMatrixReadOnly(getComputedStyle(banner).transform === 'none' ? undefined : getComputedStyle(banner).transform).m42 : 0
-    // SKIP NIGHT stands in the screen's foot (v1.6 R3), so the list ends
-    // above its row.
-    setRoom(el.getBoundingClientRect().bottom - rise <= window.innerHeight - SKIP_ROW)
-  }, [])
-  return (
-    <div data-strike-card={ev.eventId} data-strike-moves={of} className="flex w-full max-w-[420px] flex-col gap-2 border-t-2 border-dc-line bg-dc-panel/95 p-2.5 text-dc-ink">
-      {/* Compact: at 375 the full card's sizes ran BLOCKED into NO LOSS
-          (v1.6 R1's fresh eyes, F1). */}
-      <ResultPanel step={step} reduced compact />
-      <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <b data-move-name className="text-[16px] font-bold leading-tight text-dc-ink">
-          {shortName(def)}
-        </b>
-        <Tag tone="muted">{copy.aimedTag(ev.effectiveSeverity > 0, asset?.layer ?? def.layers[0])}</Tag>
-        {asset && <Tag tone="muted">{signs.get(asset.id) ?? asset.id}</Tag>}
-      </p>
-      <p data-strike-defense={held ? tone : 'none'} className="flex items-center gap-1.5 text-[13px] leading-snug">
-        <span className={`${LABEL} text-dc-muted`}>{copy.DEFENSE_WORD}</span>
-        <PixelSprite sprite={tinted(held ? (tone === 'go' ? ICON_CHECK : ICON_HALF) : ICON_CROSS, held ? tone : 'hostile')} scale={1} name="strike-defense" className="flex-none" />
-        <span className={held ? (tone === 'go' ? 'text-dc-go' : 'text-dc-warn') : 'text-dc-hostile'}>{held ? held.name : copy.NO_DEFENSE_OWNED}</span>
-      </p>
-      {line && (
-        <p data-strike-outcome={ev.outcome} className="hidden text-[13px] leading-snug text-dc-ink/85 min-[390px]:block">
-          <Named parts={line} />
-        </p>
-      )}
-      {/* A night of one move has no "so far" to list (v1.6 R2's fresh
-          eyes, G9: its head stood over nothing). */}
-      {of > 1 && (
-        <div ref={list} data-strike-log={room ? 'shown' : 'no-room'} className={`border-t border-dc-line/70 pt-1.5 ${room ? '' : 'hidden'}`}>
-          <p className={`${LABEL} text-dc-muted`}>{copy.moveOf(earlier.length + 1, of)}</p>
-          {earlier.length > 0 && (
-            <ol className="mt-1 flex flex-col gap-1">
-              <LogRows scenario={scenario} log={earlier} signs={signs} size="text-[13px]" />
-            </ol>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // THE OUTCOME BLOCK (brief 5.5 item 2; M13 and M3): what would answer
 // the move. Since v1.6 R3 (Ken's playtest item 3, and the round's fresh
 // eyes, H8) it names the defense once, in its line: the panel above says
 // BLOCKED or PARTIAL and the count, and an open move's UNDEFENDED and
 // "Nothing you own answers this." moved into the panel as its one word.
-function Outcome({ step, known, lastTurn }: { step: NightStep; known: ReadonlySet<string>; lastTurn: boolean }) {
+function Outcome({ step, known, lastTurn, options }: { step: NightStep; known: ReadonlySet<string>; lastTurn: boolean; options: readonly ResponseOption[] }) {
   const { ev, def } = step
   const r = resultOf(ev)
   const scenario = step.after.scenario
   const { held, missing, partner } = defensesFor(def, step.after.counters, scenario)
-  if (ev.outcome === 'held' && held) {
+  if (ev.outcome === 'held' && held && !blockedByResponse(ev)) {
     return (
       <div data-outcome="held" className={`flex items-start gap-1.5 border-l-4 p-2.5 ${BLOCK_TONE.go}`}>
         <PixelSprite sprite={tinted(ICON_CHECK, 'go')} scale={1} name="outcome-held" className="mt-1 flex-none" />
@@ -319,60 +243,81 @@ function Outcome({ step, known, lastTurn }: { step: NightStep; known: ReadonlySe
       </div>
     )
   }
-  if (ev.outcome === 'reduced' && held) {
+  // The lasting answer: the defense that would have met it. After a
+  // response it is said in the response's tone (v1.7 R1): tonight is
+  // covered, and the defense covers every night.
+  // Ridden out: the answer the night offered and the budget could meet.
+  const could = ev.response ? undefined : options.find((o) => o.fits)
+  const helped = missing && (
+    <p data-would-have-helped className="text-[13px] text-dc-ink/85">
+      <Named parts={ev.response ? copy.lastingAnswer(missing.name, missing.cost) : held ? copy.finishedIt(missing.name, missing.cost) : copy.wouldHaveHelped(missing.name, missing.cost)} />
+      {held ? '' : ` ${copy.itStops(stopsKnown(missing, def, scenario, known))}`}
+      {lastTurn ? '' : ` ${copy.IN_PROCURE}`}
+    </p>
+  )
+  if (ev.response) {
+    const tone = ev.response.effect === 'block' ? 'go' : 'warn'
     return (
-      <div data-outcome="reduced" className={`flex items-start gap-1.5 border-l-4 p-2.5 ${BLOCK_TONE.warn}`}>
-        <PixelSprite sprite={tinted(ICON_HALF, 'warn')} scale={1} name="outcome-reduced" className="mt-1 flex-none" />
-        <div className="text-[13px]">
-          <p>
-            {copy.reducedLine(held.name)}
-            {r.chained ? ` ${copy.CHAIN_REDUCED}` : ''}
-          </p>
-          {missing && (
-            <p className="mt-1 text-dc-ink/85">
-              <Named parts={copy.finishedIt(missing.name, missing.cost)} />
-            </p>
-          )}
-        </div>
+      <div data-outcome="responded" className={`border-l-4 p-2.5 ${BLOCK_TONE[tone]}`}>
+        <p className="text-[13px]">{copy.TONIGHT_ONLY}</p>
+        {helped && <div className="mt-1">{helped}</div>}
       </div>
     )
   }
-  if (!missing && !r.chained) return null
+  if (!missing && !r.chained && !could && !held) return null
   return (
-    <div data-outcome="open" className={`border-l-4 p-2.5 ${BLOCK_TONE.hostile}`}>
-      {r.chained && <p className="text-[13px]">{copy.CHAIN_OPEN}</p>}
-      {missing && (
-        <p data-would-have-helped className={`${r.chained ? 'mt-1' : ''} text-[13px] text-dc-ink/85`}>
-          <Named parts={copy.wouldHaveHelped(missing.name, missing.cost)} /> {copy.itStops(stopsKnown(missing, def, scenario, known))}
-          {lastTurn ? '' : ` ${copy.IN_PROCURE}`}
+    <div data-outcome={held ? 'reduced' : 'open'} className={`border-l-4 p-2.5 ${BLOCK_TONE[held ? 'warn' : 'hostile']}`}>
+      {held && (
+        <p className="text-[13px]">
+          {copy.reducedLine(held.name)}
+          {r.chained ? ` ${copy.CHAIN_REDUCED}` : ''}
+        </p>
+      )}
+      {!held && r.chained && <p className="text-[13px]">{copy.CHAIN_OPEN}</p>}
+      {helped && <div className={held || r.chained ? 'mt-1' : ''}>{helped}</div>}
+      {could && (
+        <p data-could-have className="mt-1 text-[13px] text-dc-ink/85">
+          <Named parts={copy.couldHave(RESPONSE_TEXT[def.id]?.[could.id] ?? could.id, could.cost)} />
         </p>
       )}
     </div>
   )
 }
 
-// IN YOUR DOSSIER (brief 5.5 item 2; M26, M35): a threat already filed
-// keeps its card one tap away, closed.
-export function DossierRow({ def }: { def: ThreatEvent }) {
+// THE DOSSIER CARD'S HEADLINE (brief 5.5 item 2; M26, M35; v1.7 R1): the
+// card's hook on the move's own screen, and the whole card one tap away,
+// closed: the blurb, the technique, what stops it, the source and LEARN
+// MORE. A move met for the first time says NEW DOSSIER CARD, and FILE TO
+// DOSSIER under it files it; one already filed says so.
+export function DossierRow({ def, fresh = false, scenario, children }: { def: ThreatEvent; fresh?: boolean; scenario: Scenario; children?: ReactNode }) {
   const ref = def.techniqueRefs[0]
   const source = def.learnMoreCards[0]?.sources[0]
+  const learnMore = useContext(LearnMore)
+  const stoppedBy = stoppedByLine(def, scenario)
   return (
-    <details data-dossier-row={def.id} className="border-2 border-dc-friendly/60 bg-dc-friendly/5 shadow-press">
-      <summary className="flex min-h-11 cursor-pointer list-none flex-col justify-center px-2.5 py-1.5">
-        <span className={`flex items-center justify-between ${LABEL} text-dc-friendly`}>
-          <span>
-            {copy.IN_DOSSIER}
-            {ref ? ` · ${techniqueLabel(ref).split(' ')[0]}` : ''}
+    <details data-dossier-row={def.id} data-fresh={fresh || undefined} className="border-2 border-dc-friendly/60 bg-dc-friendly/5 shadow-press">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2.5 px-2.5 py-1.5">
+        {EMBLEMS[def.id] && <PixelSprite sprite={EMBLEMS[def.id]} scale={2} name={`emblem.${def.id}`} className="flex-none bg-dc-ground/60" />}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className={`flex items-center justify-between ${LABEL} ${fresh ? 'text-dc-go' : 'text-dc-friendly'}`}>
+            <span>
+              {fresh ? copy.NEW_DOSSIER : copy.IN_DOSSIER}
+              {ref ? ` · ${techniqueLabel(ref).split(' ')[0]}` : ''}
+            </span>
+            {/* A pixel arrow that turns as the row opens, not a "details ›"
+                (v1.6 R3: no text-link chevrons on the night's cards). */}
+            <span className="flex items-center gap-1">
+              <span>{copy.READ_CARD}</span>
+              <PixelSprite sprite={tinted(ICON_DOWN, 'friendly')} scale={1} name="dossier-row-open" className="dc-open-turn flex-none" />
+            </span>
           </span>
-          {/* A pixel arrow that turns as the row opens, not a "details ›"
-              (v1.6 R3: no text-link chevrons on the night's cards). */}
-          <PixelSprite sprite={tinted(ICON_DOWN, 'friendly')} scale={1} name="dossier-row-open" className="dc-open-turn flex-none" />
+          <span className="mt-0.5 text-sm font-bold">{copy.HOOK[def.id] ?? def.name}</span>
         </span>
-        <span className="mt-0.5 text-sm font-bold">{copy.HOOK[def.id] ?? def.name}</span>
       </summary>
-      <div className="border-t border-dc-line px-2.5 py-2 text-sm">
+      <div className="flex flex-col gap-2 border-t border-dc-line px-2.5 py-2 text-sm">
+        {children}
         <p>{def.blurb}</p>
-        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-1 font-mono text-[11px] text-dc-muted">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-1 font-mono text-[11px] text-dc-muted">
           {ref && (
             <>
               <dt>{copy.TECHNIQUE}</dt>
@@ -381,6 +326,8 @@ export function DossierRow({ def }: { def: ThreatEvent }) {
               </dd>
             </>
           )}
+          <dt>{stoppedBy.label}</dt>
+          <dd className="text-dc-ink">{stoppedBy.text}</dd>
           {source && (
             <>
               <dt>{copy.SOURCE}</dt>
@@ -388,15 +335,38 @@ export function DossierRow({ def }: { def: ThreatEvent }) {
             </>
           )}
         </dl>
+        {learnMore && ref && (
+          <button
+            type="button"
+            data-learn-more={def.id}
+            aria-haspopup="dialog"
+            onClick={(e) => learnMore(def.id, e.currentTarget)}
+            className="min-h-11 w-full border-2 border-dc-go bg-dc-go/10 font-display text-[11px] text-dc-go shadow-press"
+          >
+            LEARN MORE<span className="sr-only"> in the Field Library: {shortName(def)}</span>
+          </button>
+        )}
       </div>
     </details>
   )
 }
 
-// The way on: FILE TO DOSSIER on a first meeting, CONTINUE otherwise.
-export function Onward({ first, reduced, onContinue }: { first: boolean; reduced: boolean; onContinue: (collect: boolean) => void }) {
+// The way on: FILE TO DOSSIER on a first meeting, CONTINUE otherwise. FILE
+// TO DOSSIER files the card at once and the button becomes its stamp,
+// FILED with the Dossier's count, for a beat before the night goes on
+// (v1.7 R1: the stamp stood on a card of its own, a second tap away).
+export const FILED_BEAT_MS = 520
+export function Onward({ first, reduced, filed, onContinue }: { first: boolean; reduced: boolean; filed?: { n: number; total: number } | null; onContinue: (collect: boolean) => void }) {
   const ref = useRef<HTMLButtonElement | null>(null)
   useEffect(() => ref.current?.focus({ preventScroll: true }), [])
+  if (filed) {
+    return (
+      <p data-filed-stamp role="status" className={`flex min-h-12 w-full items-center justify-center gap-2 border-2 border-dc-go bg-dc-go/10 font-display text-xs text-dc-go ${reduced ? '' : 'dc-intel-in'}`}>
+        <PixelSprite sprite={tinted(ICON_CHECK, 'go')} scale={2} name="filed-check" />
+        {copy.filedCount(filed.n, filed.total)}
+      </p>
+    )
+  }
   return first ? (
     <button ref={ref} type="button" data-collect onClick={() => onContinue(true)} className={`${PRIMARY} ${reduced ? '' : 'dc-collect-glow'}`}>
       <PixelSprite sprite={tinted(ICON_SPARK, 'ground')} scale={2} name="collect-spark" />
@@ -418,13 +388,158 @@ export interface StepCardProps {
   // Whether this is the first time the player meets the threat: FILE TO
   // DOSSIER.
   first: boolean
+  // Set once FILE TO DOSSIER has filed it: the Dossier's count, stamped.
+  filed?: { n: number; total: number } | null
   reduced: boolean
   play: Play
   onContinue: (collect: boolean) => void
 }
 
-// THE HIT CARD (brief 5.5 item 2).
-export function HitCard({ step, turn, lastTurn, signs, known, first, reduced, play, onContinue }: StepCardProps) {
+// A move's name with where it is aimed and, on the result, the condition
+// it left.
+function MoveHead({ step, signs, landed, reduced, children }: { step: NightStep; signs: Map<string, string>; landed: boolean | null; reduced: boolean; children?: ReactNode }) {
+  const { ev, def } = step
+  const asset = ev.targetAssetId === undefined ? undefined : step.before.assets.find((a) => a.id === ev.targetAssetId)
+  return (
+    <div>
+      <h3 data-move-name className="text-lg font-bold leading-tight">
+        {shortName(def)}
+      </h3>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        <Tag tone="muted">{copy.aimedTag(landed === true, asset?.layer ?? def.layers[0])}</Tag>
+        {asset && <Tag tone="muted">{signs.get(asset.id) ?? asset.id}</Tag>}
+        {children}
+        {landed !== null && ev.condition && (
+          <Tag tone="warn" cue={reduced ? '' : 'dc-chip-in'}>
+            <span data-new-condition>{copy.conditionTag(ev.condition.name, turnsLeft({ remainingTurns: ev.condition.turns }, true))}</span>
+          </Tag>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// THE RESPONSE (v1.7 R1, Ken's ruling of 9 November 2026: a decision in
+// the night). The night stops on a move that would land, on one screen:
+// the move, what of it gets through, and two or three answers, each a
+// button that says its cost and what it does in numbers. Nothing else to
+// tap until the player chooses. `outcomes` is the score's change under
+// each answer, from the engine's own resolution of it (null first: ridden
+// out); an answer the budget cannot meet is shown and cannot be taken.
+export interface ResponseCardProps {
+  step: NightStep
+  turn: number
+  of: number
+  signs: Map<string, string>
+  options: readonly ResponseOption[]
+  // The score's change under each option, by id, and under riding it out.
+  outcomes: ReadonlyMap<string | null, { score: number; repair: number }>
+  reduced: boolean
+  onRespond: (id: string | null) => void
+}
+export function ResponseCard({ step, turn, of, signs, options, outcomes, reduced, onRespond }: ResponseCardProps) {
+  const { ev, def } = step
+  const exposed = exposedOf(ev)
+  const strength = ev.baseSeverity + ev.chainBonus
+  const { held } = defensesFor(def, step.before.counters, step.before.scenario)
+  const first = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => first.current?.focus({ preventScroll: true }), [])
+  // What the budget has free for an answer once tonight's bills are held.
+  const free = ev.room ?? 0
+  const rode = outcomes.get(null) ?? { score: 0, repair: 0 }
+  return (
+    <Card
+      kind="respond"
+      label={`${shortName(def)}: ${copy.YOUR_RESPONSE}`}
+      head={copy.incomingHeader(turn)}
+      right={of > 1 ? <span className="flex-none text-dc-muted">{copy.moveOf(step.index + 1, of).replace('TONIGHT · ', '')}</span> : undefined}
+      reduced={reduced}
+      // The answers stand in the card's foot, pinned under the thumb like
+      // the debris call's two, so every one of them and "Ride it out" is
+      // on screen on the shortest phone whatever the strip above takes
+      // (v1.7 R1's layout pass: at 375x667 with three drones up, "Ride it
+      // out" stood below the fold).
+      foot={
+        <>
+          <p className={`flex items-baseline justify-between gap-2 ${LABEL}`}>
+            <span className="text-dc-hostile">
+              {copy.YOUR_RESPONSE}
+              <span className="ml-2 text-dc-muted">{copy.ONE_A_NIGHT}</span>
+            </span>
+            <span data-response-budget className="flex-none text-dc-muted">
+              {copy.budgetNow(step.before.credits)}
+            </span>
+          </p>
+          <div data-responses role="group" aria-label={copy.YOUR_RESPONSE} className="flex flex-col gap-1.5">
+            {options.map((o, k) => {
+              const label = RESPONSE_TEXT[def.id]?.[o.id] ?? o.id
+              // An option that cannot be taken has no figure to state: the
+              // engine rides such a move out, so `outcomes` holds the full
+              // hit for it, and its name said "Blocks it: score -4.5" (v1.7
+              // R1 test repair). It says what it would do, and why not.
+              const effect = o.fits ? copy.effectLine(o.effect, outcomes.get(o.id)?.score ?? 0, outcomes.get(o.id)?.repair) : copy.EFFECT_WORD[o.effect]
+              // What is free for this option is the room less what is left of
+              // the move's own repair bill once it is taken (rules.ts,
+              // responseFits): the room alone read "12 CR ... 16 CR free" on a
+              // halving the engine refuses (v1.7 R1 test repair).
+              const why = o.fits ? '' : o.why === 'used' ? copy.ALREADY_ANSWERED : copy.cannotAfford(free - billAfter(def, exposed, RESPONSE_DAMAGE_SHARE[o.effect], step.before.difficulty))
+              return (
+                <button
+                  key={o.id}
+                  ref={k === 0 ? first : undefined}
+                  type="button"
+                  data-response={o.id}
+                  data-effect={o.effect}
+                  disabled={!o.fits}
+                  aria-label={`${label}. ${copy.crFace(o.cost)}. ${effect}.${why ? ` ${why}.` : ''}`}
+                  onClick={() => onRespond(o.id)}
+                  className={`${CHOICE} py-1.5! ${o.fits ? '' : 'opacity-60'}`}
+                >
+                  <span className="flex w-full items-start justify-between gap-2">
+                    <b className="text-[15px] font-bold leading-tight text-dc-ink">{label}</b>
+                    <span className={`flex-none font-display text-[11px] ${o.fits ? 'text-dc-ink' : 'text-dc-hostile'}`}>{copy.crFace(o.cost)}</span>
+                  </span>
+                  <span className={`${LABEL} ${o.fits ? (o.effect === 'block' ? 'text-dc-go' : 'text-dc-warn') : 'text-dc-hostile'}`}>{why || effect}</span>
+                </button>
+              )
+            })}
+            <button
+              type="button"
+              data-response="ride"
+              aria-label={`${copy.RIDE_IT_OUT}. ${copy.FREE}. ${copy.effectLine('ride', rode.score, rode.repair)}.`}
+              onClick={() => onRespond(null)}
+              className={`${CHOICE} py-1.5!`}
+            >
+              <span className="flex w-full items-start justify-between gap-2">
+                <b className="text-[15px] font-bold leading-tight text-dc-ink">{copy.RIDE_IT_OUT}</b>
+                <span className="flex-none font-display text-[11px] text-dc-muted">{copy.FREE}</span>
+              </span>
+              <span className={`${LABEL} text-dc-hostile`}>{copy.effectLine('ride', rode.score, rode.repair)}</span>
+            </button>
+          </div>
+        </>
+      }
+    >
+      {/* The chain's point is a tag: its sentence took the line that put
+          the card past a 375x667 screen (v1.7 R1's layout pass). */}
+      <MoveHead step={step} signs={signs} landed={null} reduced={reduced}>
+        {ev.chainBonus > 0 && (
+          <Tag tone="warn">
+            <span data-chain-tag>{copy.CHAIN_ADDS}</span>
+          </Tag>
+        )}
+      </MoveHead>
+      <p data-exposed className="text-[13px] text-dc-ink/85">
+        {copy.exposedLine(strength, exposed, held?.name)}
+      </p>
+    </Card>
+  )
+}
+
+// THE RESULT (brief 5.5 item 2; one screen a strike since v1.7 R1): what
+// the move did, what the player did about it, what would have helped, and
+// its Dossier card's headline, with FILE TO DOSSIER on a first meeting.
+export function HitCard({ step, turn, lastTurn, signs, known, first, filed, reduced, play, onContinue, options = [] }: StepCardProps & { options?: readonly ResponseOption[] }) {
   const { ev, def } = step
   const r = resultOf(ev)
   const asset = ev.targetAssetId === undefined ? undefined : step.before.assets.find((a) => a.id === ev.targetAssetId)
@@ -443,154 +558,44 @@ export function HitCard({ step, turn, lastTurn, signs, known, first, reduced, pl
     if (r.through === 0 && step.streak >= 2) ids.push(window.setTimeout(() => play(MOMENT_CUES.streak.sound), after))
     return () => ids.forEach((id) => window.clearTimeout(id))
   })
+  const defended = !!defensesFor(def, step.after.counters, step.after.scenario).held
   return (
     <Card
       kind="hit"
       label={`${shortName(def)}: ${r.verdict}`}
       head={copy.hitHeader(turn)}
       reduced={reduced}
-      foot={<Onward first={first} reduced={reduced} onContinue={onContinue} />}
+      foot={<Onward first={first} filed={filed} reduced={reduced} onContinue={onContinue} />}
     >
-      <ResultPanel
-        step={step}
-        reduced={reduced}
-        undefended={!((ev.outcome === 'held' || ev.outcome === 'reduced') && defensesFor(def, step.after.counters, step.after.scenario).held)}
-        repair={ev.repairCost > 0 ? copy.repairTag(ev.repairCost, ev.integrityAfter !== undefined) : ''}
-      />
-      <div>
-        <h3 data-move-name className="text-lg font-bold leading-tight">
-          {shortName(def)}
-        </h3>
-        {/* One tag for where it landed, and a second only for a condition
-            it left (Ken's playtest item 3: the move carried three). */}
-        <div className="mt-1 flex flex-wrap gap-1.5">
-          <Tag tone="muted">{copy.aimedTag(ev.effectiveSeverity > 0, asset?.layer ?? def.layers[0])}</Tag>
-          {ev.condition && (
-            <Tag tone="warn" cue={reduced ? '' : 'dc-chip-in'}>
-              <span data-new-condition>{copy.conditionTag(ev.condition.name, turnsLeft({ remainingTurns: ev.condition.turns }, true))}</span>
-            </Tag>
-          )}
-        </div>
-      </div>
+      <ResultPanel step={step} reduced={reduced} undefended={!defended && !ev.response} repair={ev.repairCost > 0 ? copy.repairTag(ev.repairCost, ev.integrityAfter !== undefined) : ''} />
+      <MoveHead step={step} signs={signs} landed={ev.effectiveSeverity > 0} reduced={reduced}>
+        {ev.room !== undefined && !ev.response && (
+          <Tag tone="muted">
+            <span data-response-taken="ride">{copy.RODE_OUT}</span>
+          </Tag>
+        )}
+      </MoveHead>
+      {/* What the player did about it (v1.7 R1): the answer and its cost
+          on a line; a move ridden out says so in a tag beside where it
+          hit, which keeps the card to one screen at 390x844. */}
+      {ev.response && (
+        <p data-response-taken={ev.response.id} className="text-[13px]">
+          <span className={`mr-1.5 ${LABEL} text-dc-muted`}>{copy.RESPONSE_WORD}</span>
+          {copy.youDid(RESPONSE_TEXT[def.id]?.[ev.response.id] ?? ev.response.id, ev.response.cost)}
+        </p>
+      )}
       <StreakLine step={step} reduced={reduced} />
-      {/* The watch officer's line for the move (M29); on a block, what the
-          defense did instead, since the attack's line reports a loss that
-          did not happen (fresh-eyes review). Either names the tile the
-          move was aimed at. Since v1.6 R3 (Ken's playtest item 5) a move
-          met again says it another way, and each night keeps its own
-          clock (nightModel's officerFor). */}
-      {officer && <Officer held={officer.held} line={officer.line} clock={officer.clock} />}
-      <Outcome step={step} known={known} lastTurn={lastTurn} />
-      {!first && <DossierRow def={def} />}
+      <Outcome step={step} known={known} lastTurn={lastTurn} options={options} />
+      {/* The Dossier card's headline stays on the screen with the result
+          (v1.7 R1). The watch officer's line for the move (M29) opens with
+          the card: beside the result, the response and what would have
+          helped it put the headline under the fold at 390x844. On a
+          defense's block it is what the defense did (fresh-eyes review);
+          a move met again says it another way, on the night's own clock
+          (v1.6 R3, nightCopy's officerFor). */}
+      <DossierRow def={def} fresh={first} scenario={step.after.scenario}>
+        {officer && <Officer held={officer.held} line={officer.line} clock={officer.clock} />}
+      </DossierRow>
     </Card>
-  )
-}
-
-// THE DOSSIER CARD (brief 5.5 item 3; the intel card until v1.6 R3): what
-// FILE TO DOSSIER shows. The tap has filed it on the device already (Ken's
-// playtest item 4: the button names the action, so the card does not ask
-// for a second FILE IT); the card arrives with the count ticking up and
-// FILED stamped across its corner, the Library's stamp, then CONTINUE.
-export function IntelFile({
-  def,
-  stoppedBy,
-  filed,
-  total,
-  reduced,
-  onContinue,
-}: {
-  def: ThreatEvent
-  // The names of the defenses that stop it, primary first.
-  stoppedBy: { label: string; text: string }
-  // Cards filed before this one.
-  filed: number
-  total: number
-  reduced: boolean
-  onContinue: () => void
-}) {
-  const [n, setN] = useState(reduced ? filed + 1 : filed)
-  useEffect(() => {
-    if (reduced) return
-    const id = window.setTimeout(() => setN(filed + 1), 450)
-    return () => window.clearTimeout(id)
-  }, [filed, reduced])
-  const ref = useRef<HTMLButtonElement | null>(null)
-  useEffect(() => ref.current?.focus({ preventScroll: true }), [])
-  const learnMore = useContext(LearnMore)
-  const body = useRef<HTMLDivElement | null>(null)
-  const more = useMore(body)
-  const techRef = def.techniqueRefs[0]
-  const source = def.learnMoreCards[0]?.sources[0]
-  return (
-    <div data-intel-file={def.id} className="fixed inset-0 z-40 flex items-center justify-center bg-dc-ground p-4" role="dialog" aria-modal="true" aria-labelledby="intel-file-title">
-      <div className={`relative flex max-h-full w-full max-w-[420px] flex-col border-2 border-dc-friendly bg-dc-panel shadow-hard ${reduced ? '' : 'dc-intel-in'}`}>
-        <span data-filed-stamp className={`dc-filed-stamp absolute right-3 top-3 z-10 bg-dc-ground/85 px-2 py-1 font-display text-[13px] text-dc-go ${reduced ? '' : 'dc-stamp-slam'}`}>
-          {copy.FILED}
-        </span>
-        <div className="relative flex h-24 flex-none flex-col justify-end overflow-hidden border-b border-dc-line bg-dc-chrome px-4 py-2.5">
-          <DotField token={def.vector === 'environmental' ? 'warn' : 'friendly'} mode="noise" />
-          <span className={`relative mb-auto self-start bg-dc-ground/80 px-2 py-0.5 ${LABEL} text-dc-go`}>{copy.NEW_CARD}</span>
-          <span className="relative font-display text-[22px] leading-none text-dc-ink">{copy.vectorWord(def.vector)}</span>
-          <span className="relative mt-1 font-mono text-xs tracking-widest">→ {def.layers.join(' · ')}</span>
-        </div>
-        <div ref={body} className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-4 py-3">
-          <div className={`flex items-baseline justify-between ${LABEL} text-dc-muted`}>
-            <span>{copy.DOSSIER_COUNT}</span>
-            <b data-dossier-count className="text-[15px] text-dc-go">
-              {n} / {total}
-            </b>
-          </div>
-          <div className="h-1.5 overflow-hidden bg-dc-chrome">
-            <i className="dc-bar-fill block h-full bg-dc-go" style={{ width: `${(n / total) * 100}%` }} />
-          </div>
-          {/* The card's emblem beside its name, as the Dossier will show it
-              (v1.5 R2). */}
-          <div className="flex items-center gap-3">
-            {EMBLEMS[def.id] && <PixelSprite sprite={EMBLEMS[def.id]} scale={3} name={`emblem.${def.id}`} className="flex-none bg-dc-ground/60" />}
-            <h2 id="intel-file-title" className="text-xl font-bold leading-tight">
-              {shortName(def)}
-            </h2>
-          </div>
-          <p className="text-[15px] font-semibold text-dc-go">{copy.HOOK[def.id]}</p>
-          <p className="text-[15px] leading-relaxed">{def.blurb}</p>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-1 border-t border-dc-line pt-2.5 font-mono text-[11px] text-dc-muted">
-            {techRef && (
-              <>
-                <dt>{copy.TECHNIQUE}</dt>
-                <dd className="text-dc-ink">
-                  {techniqueLabel(techRef)} {techRef.name}
-                </dd>
-              </>
-            )}
-            <dt>{stoppedBy.label}</dt>
-            <dd className="text-dc-ink">{stoppedBy.text}</dd>
-            {source && (
-              <>
-                <dt>{copy.SOURCE}</dt>
-                <dd className="text-dc-ink">{source.title}</dd>
-              </>
-            )}
-          </dl>
-        </div>
-        {more && <MoreBelow />}
-        {/* LEARN MORE and CONTINUE, pinned under the thumb (rule 4). */}
-        <div className="flex flex-none flex-col gap-2 border-t border-dc-line px-4 py-2.5">
-          {learnMore && techRef && (
-            <button
-              type="button"
-              data-learn-more={def.id}
-              aria-haspopup="dialog"
-              onClick={(e) => learnMore(def.id, e.currentTarget)}
-              className="min-h-11 w-full border-2 border-dc-go bg-dc-go/10 font-display text-[11px] text-dc-go shadow-press"
-            >
-              LEARN MORE<span className="sr-only"> in the Field Library: {shortName(def)}</span>
-            </button>
-          )}
-          <button ref={ref} type="button" data-file-it data-continue onClick={onContinue} className={PRIMARY}>
-            {copy.CONTINUE}
-          </button>
-        </div>
-      </div>
-    </div>
   )
 }

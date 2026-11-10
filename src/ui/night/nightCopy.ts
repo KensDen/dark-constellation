@@ -169,6 +169,9 @@ export function nightClock(seed: number, turn: number, index: number): string {
 export function officerFor(step: Pick<NightStep, 'ev' | 'before' | 'index'>, sign?: string): { line: string; held: boolean; clock: string } | null {
   const id = step.ev.eventId
   const met = step.before.history.reduce((n, r) => n + r.events.filter((e) => e.eventId === id).length, 0)
+  // A move a response blocked has no line: HELD's are the defenses' own,
+  // and the attack's reports a loss that did not happen.
+  if (step.ev.response?.effect === 'block') return null
   const held = step.ev.effectiveSeverity === 0 && !!HELD[id]
   const lines = held ? HELD[id] : OFFICER[id]
   if (!lines?.length) return null
@@ -182,10 +185,8 @@ export const attackTag = (v: Vector) => (v === 'environmental' ? 'DEBRIS' : `${v
 
 // The overlay EXECUTE opens on, and the strike's banner.
 export const MOVING = 'COLDVEIL IS MOVING'
-// The strike's two ways on (v1.6 R3, Ken's playtest item 2): a tap ends a
-// strike's hold, and SKIP NIGHT plays the rest without strikes.
+// A tap ends the block moment early.
 export const NEXT_STRIKE = 'Next'
-export const SKIP_NIGHT = 'SKIP NIGHT'
 // The HUD's label for a fall more than one live condition caused.
 export const CONDITIONS_WORD = 'CONDITIONS'
 // The strike's banner says the result (v1.6 R3, the open F22: it read
@@ -194,11 +195,64 @@ export const CONDITIONS_WORD = 'CONDITIONS'
 // mission's (Ken, 22 October: question 5 of the R5 report).
 export const STRIKE_WORD = { hit: 'HIT', reduced: 'PARTIAL', held: 'BLOCKED' } as const
 
+// THE RESPONSE (v1.7 R1): the night stops on a move that would land and
+// asks. Each option says what it costs and what it does, in numbers; the
+// option's own words are content (src/content/responseText.ts).
+export const incomingHeader = (turn: number) => `INCOMING · TURN ${turn}`
+export const YOUR_RESPONSE = 'YOUR RESPONSE'
+// One response a night (src/engine/rules.ts, RESPONSES_PER_NIGHT).
+export const ONE_A_NIGHT = 'ONE A NIGHT'
+export const ALREADY_ANSWERED = 'Your one response tonight is used'
+export const RIDE_IT_OUT = 'Ride it out'
+export const FREE = 'FREE'
+export const crFace = (n: number) => `${n} CR`
+export const scoreChange = (d: number) => (d < -0.05 ? `score ${d.toFixed(1)}` : 'no loss')
+export const EFFECT_WORD = { block: 'Blocks it', halve: 'Half damage', ride: 'Full hit' } as const
+// The repair bill the answer leaves is part of what it costs, so it is on
+// the button with the score (v1.7 R1's fresh eyes: FREE hid a 12 CR bill).
+export const effectLine = (effect: keyof typeof EFFECT_WORD, d: number, repair = 0) => `${EFFECT_WORD[effect]}: ${scoreChange(d)}${repair > 0 ? `, repair ${repair} CR` : ''}`
+// Why an option cannot be taken: the budget less what tonight's bills, the
+// upkeep and the nights ahead could need.
+export const cannotAfford = (free: number) => `Not enough budget: ${Math.max(0, free)} CR free after bills`
+export const exposedLine = (strength: number, through: number, defense?: string) =>
+  through === strength ? `Strength ${strength}. Nothing you own stops it.` : `Strength ${strength}. ${defense ?? 'Your defenses'} takes ${strength - through} off; ${through} gets through.`
+// The chain's extra point, on the response card, in a line.
+export const CHAIN_ADDS = 'GNSS DENIED · CHAIN +1'
+export const budgetNow = (credits: number) => `Budget ${credits} CR`
+// The result, on the same screen: what the player did, then what it cost.
+export const youDid = (label: string, cost: number) => `${label} · -${cost} CR`
+export const RODE_OUT = 'RODE IT OUT'
+export const RESPONSE_WORD = 'RESPONSE'
+// A response covers one night; the defense is the lasting answer.
+export const TONIGHT_ONLY = 'Your response covered tonight only.'
+export const lastingAnswer = (defense: string, price: number) => ['The lasting answer: ', defense, `, ${price} CR.`] as const
+export const couldHave = (label: string, cost: number) => ['Tonight’s answer: ', label, `, ${cost} CR.`] as const
+export const NEW_DOSSIER = 'NEW DOSSIER CARD'
+export const READ_CARD = 'READ THE CARD'
+export const filedCount = (n: number, total: number) => `FILED · ${n} / ${total}`
+// The block moment's line for a screen reader.
+export const blockedSay = (move: string, streak: number) => `Blocked: ${move}.${streak >= 2 ? ` Defense streak ${streak}.` : ''}`
+// END OF TURN, simplified (v1.7 R1): the score's change, the budget's, and
+// one line on what to fix; the rest is under DETAILS.
+export const DETAILS = 'DETAILS'
+// What made the score's change, in a line under it, so a night's net is
+// not a number no screen explains: "Moves -0.7 · Recovery +0.5".
+export const scoreParts = (rows: readonly { key: keyof typeof SCORE_SHORT; value: number }[]) =>
+  rows.map((r) => `${SCORE_SHORT[r.key]} ${r.value > 0 ? '+' : ''}${r.value.toFixed(1)}`).join(' · ')
+export const FIX_LABEL = 'FIX NEXT'
+export const fixDefense = (defense: string, price: number, move: string, verb: 'stops' | 'blunts') => ['', defense, `, ${price} CR, ${verb} `, move, '.'] as const
+export const fixRespond = (move: string) => `${move} got through. Answer it in the night when the budget allows.`
+export const NOTHING_THROUGH = 'Nothing got through tonight.'
+export const DETAIL_NOTES = 'Upkeep is what your defenses cost each turn. The coverage bonus pays when your fleet covers enough of the area.'
+
+
 // The hit card (brief 5.5 item 2).
 export const hitHeader = (turn: number) => `COLDVEIL MOVES · TURN ${turn}`
-export type Verdict = 'BLOCKED' | 'PARTIAL' | 'HIT'
+export type Verdict = 'BLOCKED' | 'PARTIAL' | 'HALVED' | 'HIT'
 export const blockedOf = (blocked: number, strength: number, chained: boolean) =>
   `${blocked} of ${strength} blocked${chained ? ' · chain added 1' : ''}`
+// A halved move's count: the points that got through, at half.
+export const halvedOf = (halved: number, strength: number) => `${halved} of ${strength} halved`
 export const streakLine = (n: number) => `×${n} DEFENSE STREAK`
 export const NO_LOSS = 'NO LOSS'
 export const STRENGTH = 'STRENGTH'
@@ -340,6 +394,7 @@ export const REPAIRS = 'Repairs'
 // The night's own budget lines (R6 question 12): the burn's fuel and an
 // opportunity's windfall, each a row of its own.
 export const BURN_FUEL = 'Burn fuel'
+export const RESPONSES = 'Responses in the night'
 export const RESOLD = 'Rideshare seat resold'
 export const KEEPING = 'Keeping your defenses'
 export const keepingDetail = (n: number, upkeep: number) => `${n} × ${upkeep} CR`
@@ -377,7 +432,8 @@ export const NO_CHANGE = 'HELD'
 export const bonusHint = (detail: string) => `Bonus missed: ${detail}`
 export const budgetPanel = (turn: number, last: boolean) => (last ? 'FINAL BUDGET' : `BUDGET · TURN ${turn + 1}`)
 export const SCORE_SHORT: Record<'from' | 'conditions' | 'moves' | 'recovery' | 'to', string> = { from: 'Start', conditions: 'Conditions', moves: 'Moves', recovery: 'Recovery', to: 'End' }
-export const LEDGER_SHORT: Record<'left' | 'fuel' | 'windfall' | 'repairs' | 'keeping' | 'funding' | 'bonus' | 'total', string> = {
+export const LEDGER_SHORT: Record<'left' | 'fuel' | 'responses' | 'windfall' | 'repairs' | 'keeping' | 'funding' | 'bonus' | 'total', string> = {
+  responses: 'Responses',
   total: 'Next turn',
   left: 'Orders',
   fuel: 'Burn fuel',
@@ -388,7 +444,6 @@ export const LEDGER_SHORT: Record<'left' | 'fuel' | 'windfall' | 'repairs' | 'ke
   bonus: 'Bonus',
 }
 export const TONIGHT_ROWS = 'TONIGHT'
-export const END_HELP = 'How recovery works'
 export const BUDGET_LINES = 'BUDGET'
 export const SCORE_FROM = 'Start of turn'
 export const SCORE_CONDITIONS = 'Ongoing conditions'

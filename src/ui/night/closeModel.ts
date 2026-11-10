@@ -37,7 +37,7 @@ export function callTerms(state: GameState, ev: ResolvedEvent) {
 // the total add up to it; tests/night-r3.dom.spec.tsx holds the card to
 // that and to the engine's next budget.
 export interface LedgerRow {
-  key: 'left' | 'fuel' | 'windfall' | 'repairs' | 'keeping' | 'funding' | 'bonus' | 'total'
+  key: 'left' | 'fuel' | 'responses' | 'windfall' | 'repairs' | 'keeping' | 'funding' | 'bonus' | 'total'
   label: string
   detail?: string
   // Signed CR, or null where the row says a word instead (frozen, missed).
@@ -60,6 +60,7 @@ export function ledgerRows(record: TurnRecord, state: GameState): LedgerRow[] {
   // first row is the orders alone and every line that made the budget shows.
   const rows: LedgerRow[] = [{ key: 'left', label: copy.LEFT_AFTER, value: l.start - l.ordered }]
   if (l.fuel > 0) rows.push({ key: 'fuel', label: copy.BURN_FUEL, value: -l.fuel })
+  if (l.responses) rows.push({ key: 'responses', label: copy.RESPONSES, value: -l.responses })
   if (l.windfall !== 0) rows.push({ key: 'windfall', label: windfallOf(record, state), value: l.windfall })
   rows.push(
     { key: 'repairs', label: copy.REPAIRS, detail: bills.length ? bills.join('; ') : undefined, value: -l.repairs },

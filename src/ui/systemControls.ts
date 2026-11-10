@@ -4,7 +4,7 @@
 
 import { ADVERSARY } from '../config'
 import { ADVISORY_COUNT, COUNTERMEASURE_COUNT, DEFAULT_SCENARIO, FRAMEWORK_TECHNIQUE_COUNT, OPPORTUNITY_EVENT_COUNT, SOURCE_COUNT, THREAT_EVENT_COUNT } from '../content'
-import { NEW_DEFENSES_PER_NIGHT } from '../engine/rules'
+import { NEW_DEFENSES_PER_NIGHT, RESPONSES_PER_NIGHT } from '../engine/rules'
 
 // The two audio toggles (Round 4d), one word each, ON or OFF beside them
 // since the v1.3 R1 fixes.
@@ -54,6 +54,7 @@ export function howToLines(scenario = DEFAULT_SCENARIO): string[] {
     `Finish turn ${totalTurns} with the mission assurance score at ${winThreshold} or higher. You start above the win line, and ${ADVERSARY} spends ${totalTurns} turns eroding it.`,
     `Each turn TONIGHT names ${ADVERSARY}’s moves. They go for the move your defenses take the fewest points off. Tap a move to see what answers it.`,
     `PROCURE fleet and defenses, ${NEW_DEFENSES_PER_NIGHT} new defense a turn, then EXECUTE to play out the night. Each defense takes ${upkeepPerDefense} CR a turn to keep, and deployments take turns to arrive.`,
+    `In the night, a move that would land stops for your response: block it or halve it for CR, ${RESPONSES_PER_NIGHT} response a night, or ride it out. A defense you own blocks its move every night for free.`,
     `Some attacks become conditions that press every turn until they lift. A score under ${collapseThreshold} or a budget under 0 ends the operation.`,
   ]
 }

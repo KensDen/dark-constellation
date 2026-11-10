@@ -303,7 +303,10 @@ export const WORST_CASE = 'WORST CASE'
 
 export const OVER_BUDGET = 'Over budget. Cancel an order in PROCURE.'
 export const BELOW_ZERO = 'Below zero ends the operation.'
-export const worstSum = (w: WorstCase) => `${w.remaining} remaining - ${w.repairs} repairs if hit - ${w.upkeep} defense upkeep`
+// The nights ahead's share (v1.7 R1, src/engine/worstCase.ts heldForLater)
+// is said only when it holds anything back.
+export const worstSum = (w: WorstCase) =>
+  `${w.remaining} remaining - ${w.repairs} repairs if hit - ${w.upkeep} defense upkeep${w.later > 0 ? ` - ${w.later} held for later nights` : ''}`
 export type { WorstCase }
 
 // PROCURE (brief 5.4).

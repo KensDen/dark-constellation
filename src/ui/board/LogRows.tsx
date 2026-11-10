@@ -12,6 +12,7 @@ import type { Trace } from './strike'
 const RESULT: Record<Trace['result'], { word: string; icon: Sprite; token: Token }> = {
   blocked: { word: 'BLOCKED', icon: ICON_CHECK, token: 'go' },
   partial: { word: 'PARTIAL', icon: ICON_HALF, token: 'warn' },
+  halved: { word: 'HALVED', icon: ICON_HALF, token: 'warn' },
   hit: { word: 'HIT', icon: ICON_CROSS, token: 'hostile' },
   clear: { word: 'CLEAR', icon: ICON_BURN, token: 'friendly' },
   lost: { word: 'LOST', icon: ICON_CROSS, token: 'hostile' },

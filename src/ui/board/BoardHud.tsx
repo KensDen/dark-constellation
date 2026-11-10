@@ -1,7 +1,8 @@
 // THE HUD (v1.3 brief 5.3 item 1). OP FIRST LIGHT, the turn and SYSTEM on
 // one line; the MISSION ASSURANCE SCORE at display size with "/ 100", the
 // margin to the win line (amber under 6 above it, red below it), the
-// defense streak from 2 (on the label line since v1.6 R2), and the
+// defense streak (on the label line since v1.6 R2; from the first block
+// since v1.7 R1, so the counter is on the board as it starts), and the
 // floating delta of a hit; the BUDGET in CR
 // on the right; a bar with the win line marked and the scale
 // "0 · ▲ 70 WIN LINE · 100". On a Daily Op the line carries DAILY OP #n
@@ -108,7 +109,7 @@ export default function BoardHud({ shown, displayTurn, budget, dailyNumber, onSy
             (v1.6 R2's fresh eyes, G17: stacked under the margin line it
             made the HUD about 7px taller the moment it appeared, and the
             whole board moved down mid-strike). */}
-        {shown.streak >= 2 && (
+        {shown.streak >= 1 && (
           <span data-streak className="inline-flex items-center gap-1 whitespace-nowrap tracking-wider text-dc-go">
             <PixelSprite sprite={tinted(ICON_CHECK, 'go')} scale={1} name="status-blocked" />
             {streakChip(shown.streak)}

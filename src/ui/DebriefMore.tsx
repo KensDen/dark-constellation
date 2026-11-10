@@ -14,7 +14,8 @@
 import { Fragment, useEffect, useState } from 'react'
 import { turnStrip, type Grade, type StripColour } from '../engine/grade'
 import type { GameState, LearnedHow } from '../engine/types'
-import { canSay, decisions, gradeBlock, ladder, missedLead, nextTime, toNextGrade } from './debriefModel'
+import { RESPONSE_TEXT } from '../content/responseText'
+import { canSay, decisions, gradeBlock, ladder, missedLead, nextTime, toNextGrade, threatName } from './debriefModel'
 import { DEBRIEF_MOTION } from './debriefMotion'
 import { ICON_CHECK, ICON_CROSS, ICON_HALF, tinted } from './sprites/icons'
 import PixelSprite from './sprites/PixelSprite'
@@ -173,6 +174,12 @@ export default function DebriefMore({ state, block, anyBlocked, stage, restStage
                     read as a fix while still a loss). */}
                 {next.won ? (state.status !== 'won' ? ', and is won' : '') : `, still under the win line of ${state.scenario.winThreshold}`}.
               </p>
+            ) : next?.kind === 'answer' ? (
+              <p data-next-answer className="mt-1 text-[13px] leading-snug">
+                On turn {next.turn}, answer <b>{threatName(state, next.move)}</b> in the night: {RESPONSE_TEXT[next.move]?.[next.response] ?? next.response} ({next.cost} CR). Played again with every
+                order the same, this game ends at <b>{next.final.toFixed(1)}</b>, not {next.was.toFixed(1)}
+                {next.won ? (state.status !== 'won' ? ', and is won' : '') : `, still under the win line of ${state.scenario.winThreshold}`}.
+              </p>
             ) : (
               <p className="mt-1 text-[13px] leading-snug">
                 {next?.kind === 'none' ? NO_BETTER : anyBlocked ? 'Every move that got through met a defense you already had.' : 'Nothing got through.'}
@@ -242,6 +249,11 @@ export default function DebriefMore({ state, block, anyBlocked, stage, restStage
                   <b className="font-mono font-normal text-dc-ink">T{d.turn}</b>
                   <span className="flex flex-col">
                     {d.orders.length ? d.orders.map((o, i) => <span key={i}>{o}</span>) : <span className="text-dc-muted">nothing ordered</span>}
+                    {d.answered.map((id) => (
+                      <span key={id} data-decision-answer className="text-dc-muted">
+                        answered {threatName(state, id)}
+                      </span>
+                    ))}
                     {d.call && <span className="text-dc-muted">debris call: {d.call}</span>}
                   </span>
                   <span className="font-mono text-[12px] tabular-nums text-dc-muted">{d.spent > 0 ? `${d.spent} CR` : ''}</span>

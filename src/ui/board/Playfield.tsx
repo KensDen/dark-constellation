@@ -533,7 +533,7 @@ const NO_LABELS: readonly Trace[] = []
 // re-review: the board never said which move landed where, or what it
 // cost): its name and the score's change, or BLOCKED, in its result's
 // colour, on a dark backing, stacked when two land on one tile.
-const LABEL_TONE: Record<Trace['result'], Token> = { blocked: 'go', partial: 'warn', hit: 'hostile', clear: 'friendly', lost: 'hostile' }
+const LABEL_TONE: Record<Trace['result'], Token> = { blocked: 'go', partial: 'warn', halved: 'warn', hit: 'hostile', clear: 'friendly', lost: 'hostile' }
 function label(c: CanvasRenderingContext2D, t: Trace, at: Box, row: number, clip: Box) {
   const def = DEFAULT_SCENARIO.events.find((e) => e.id === t.eventId)
   if (!def) return
@@ -758,9 +758,12 @@ export interface CloseUpProps {
   integrity?: readonly [number, number]
   hit: boolean
   landed: boolean
+  // One still frame of the move landed, for reduced motion (v1.7 R1: the
+  // block moment shows under it too).
+  still?: boolean
 }
 
-export function CloseUp({ eventId, layer, kind, integrity, hit, landed }: CloseUpProps) {
+export function CloseUp({ eventId, layer, kind, integrity, hit, landed, still = false }: CloseUpProps) {
   const ref = useRef<HTMLCanvasElement | null>(null)
   const visible = usePageVisible()
   const now = performance.now()
@@ -799,8 +802,8 @@ export function CloseUp({ eventId, layer, kind, integrity, hit, landed }: CloseU
       else if (layer === 'AIR') air(ctx, box, t / 1000, U)
       else ground(ctx, box, t / 1000, U)
       const { landed: down, hit: struck } = live.current
-      const inP = down ? 1 : Math.min(0.999, (t - clock.current.start) / LOCK_MS)
-      const outP = down ? Math.min(1, (t - clock.current.land) / LAND_MS) : 0
+      const inP = down || still ? 1 : Math.min(0.999, (t - clock.current.start) / LOCK_MS)
+      const outP = still ? 1 : down ? Math.min(1, (t - clock.current.land) / LAND_MS) : 0
       // The target, large, standing on the ground in GROUND.
       const s = Math.max(3, Math.floor((h * 0.4) / 12))
       const sw = 16 * s
@@ -811,10 +814,10 @@ export function CloseUp({ eventId, layer, kind, integrity, hit, landed }: CloseU
       const eye: [number, number] = [w - 14 - 16 * U, 8]
       blit(ctx, COLDVEIL_EMBLEM, eye[0], eye[1], U)
       drawMove(ctx, { shape, at, band: box, mask: [], clip: box, hit: struck, from: [eye[0] + 8 * U, eye[1] + 16 * U], eye: true }, inP, outP, 1, U, t / 1000)
-      raf = requestAnimationFrame(loop)
+      if (!still) raf = requestAnimationFrame(loop)
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [visible, eventId, layer, kind, before, after])
+  }, [visible, eventId, layer, kind, before, after, still])
   return <canvas ref={ref} aria-hidden="true" data-close-up className="block h-[140px] w-full max-w-[360px] border-2 border-dc-line desk:h-[220px] desk:max-w-[480px]" />
 }
