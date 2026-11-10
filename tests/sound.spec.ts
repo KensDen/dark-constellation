@@ -380,7 +380,10 @@ describe('the controls the player triggers themselves (Round 4d)', () => {
       }
     }
     walk(SRC)
-    expect(sites, 'the sweep must be played from exactly one place').toEqual([join(row!.soundWhere)])
+    // And one more on exp/3d-slice (10 November 2026): the 3D slice is a
+    // screen of its own with its own way into the night, BEGIN THE NIGHT,
+    // which sweeps once from its one click as EXECUTE does on the board.
+    expect(sites, 'the sweep must be played from exactly one place on the board, and one in the 3D slice').toEqual([join(row!.soundWhere), join('ui', 'three', 'Slice3D.tsx')])
 
     // Since v1.3 R2 the button lives in the dock (src/ui/board/Dock.tsx),
     // which hands its click to the prop Game.tsx passes; so the sweep is

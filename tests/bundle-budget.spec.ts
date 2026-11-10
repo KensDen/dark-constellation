@@ -612,6 +612,31 @@ describe('the deferred group, budgeted per chunk (Ken, 2026-09-26)', () => {
     )
   })
 
+  it('holds the experiment chunk to its own recorded ceiling, and only when one is recorded (exp/3d-slice)', () => {
+    const MARK = 'dc-experiment-marker'
+    const frame = { gz: 129_273, text: frameText() }
+    const slice = (gz: number) => ({ gz, text: `${THREE_MARKER};${MARK};slice` })
+    const WITH = { ...RULED, experimentChunkMarker: MARK, experimentChunkBudgetGzipBytes: 160_000 }
+    // Nothing recorded: a second three.js in a lazy chunk is a screen.
+    expect(() => ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(150_000) })).toThrow(/assets\/Slice-s1\.js is 150000 bytes gzipped, over the 10000 byte cap/)
+    // Recorded: at its ceiling it passes, a byte over it fails, by name.
+    const r = ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(160_000), [DECOY]: screen(2_000) }, WITH)
+    expect(r.experiment).toBe('assets/Slice-s1.js')
+    expect(r.frame, 'the experiment was taken for the frame').toBe(FRAME)
+    expect(r.largestOther, 'the experiment was still counted among the screens').toBe(DECOY)
+    expect(r.line).toContain('experiment chunk assets/Slice-s1.js 160000 (budget 160000, headroom 0)')
+    expect(() => ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(160_001) }, WITH)).toThrow(/the experiment chunk assets\/Slice-s1\.js is 160001 bytes gzipped, over its 160000 byte budget/)
+    // The exception is for the one chunk carrying the marker: every other
+    // chunk keeps the cap, and the frame keeps its own budget.
+    expect(() => ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(150_000), 'assets/Big-b2.js': screen(10_001) }, WITH)).toThrow(/assets\/Big-b2\.js is 10001 bytes gzipped, over the 10000 byte cap/)
+    expect(() => ruled({ [FRAME]: { gz: 132_001, text: `${frameText()};${MARK}` } }, WITH)).toThrow(/the constellation frame chunk/)
+    expect(() => ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(9_000), 'assets/Slice-s2.js': slice(9_000) }, WITH)).toThrow(/all carry the experiment marker/)
+    // A marker with no ceiling, or a ceiling with no marker, is refused.
+    expect(() => ruled({ [FRAME]: frame }, { ...RULED, experimentChunkMarker: MARK })).toThrow(/needs both/)
+    expect(() => ruled({ [FRAME]: frame }, { ...RULED, experimentChunkBudgetGzipBytes: 160_000 })).toThrow(/needs both/)
+    expect(() => ruled({ [FRAME]: frame }, { ...RULED, experimentChunkMarker: 'short', experimentChunkBudgetGzipBytes: 1 })).toThrow(/too short/)
+  })
+
   it('recognises the frame when some of its source literals never reach the build', () => {
     // A dev-only warning is in the source and not in the chunk. Requiring
     // every literal refused a valid build as a split frame; one is enough.

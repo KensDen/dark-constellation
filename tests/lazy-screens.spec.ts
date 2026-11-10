@@ -138,8 +138,11 @@ describe('the split screens stay out of the initial chunk (v1.2 R0)', () => {
     // with two changed: the Field Library and the Glossary left App for
     // LIBRARY (./ui/Library, which loads each as a tab), and the COLDVEIL
     // Dossier (./ui/Dossier, brief 5.7) took the Glossary's old place
-    // behind the title's DOSSIER.
-    expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(7)
+    // behind the title's DOSSIER. Eight on exp/3d-slice (10 November 2026):
+    // the 3D slice experiment (./ui/three/Slice3D), behind the title's TRY
+    // 3D (EXPERIMENT) and ?view=3d, which carries its own three.js and so
+    // must never ride in the first download.
+    expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(8)
     for (const spec of lazySpecs) {
       expect(resolveLocal(APP, spec), `lazy import ${spec} resolves to no file`).toBeTruthy()
     }

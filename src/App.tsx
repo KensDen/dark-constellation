@@ -55,6 +55,9 @@ const Library = lazy(() => import('./ui/Library').catch(() => ({ default: Screen
 // THE COLDVEIL DOSSIER (v1.3 R4, brief 5.7): the title's DOSSIER and GOAL 2.
 const Dossier = lazy(() => import('./ui/Dossier').catch(() => ({ default: ScreenUnavailable })))
 const IntroSequence = lazy(() => import('./ui/IntroSequence'))
+// THE 3D SLICE (experiment, exp/3d-slice): one night in a 3D world, in a
+// chunk of its own with its own three.js, behind TRY 3D and ?view=3d.
+const Slice3D = lazy(() => import('./ui/three/Slice3D').catch(() => ({ default: ScreenUnavailable })))
 
 // The dev-only sound board (brief section 7). import.meta.env.DEV folds to
 // false in a production build, so the ternary collapses to null and Rollup
@@ -63,7 +66,7 @@ const IntroSequence = lazy(() => import('./ui/IntroSequence'))
 // board's marker rather than trusting this comment.
 const SoundBoard = import.meta.env.DEV ? lazy(() => import('./audio/SoundBoard')) : null
 
-type Screen = 'title' | 'briefing' | 'game' | 'library' | 'dossier' | 'scoreboard' | 'credits' | 'soundboard'
+type Screen = 'title' | 'briefing' | 'game' | 'slice3d' | 'library' | 'dossier' | 'scoreboard' | 'credits' | 'soundboard'
 
 // The terminal chrome frames the credits and the dev board only. The
 // screens R4 rebuilt (LIBRARY, the Dossier, the scoreboard) carry the
@@ -108,6 +111,7 @@ function App() {
     // The dev board's only entry point, and it costs the shipped game
     // nothing: SoundBoard is null in a production build.
     if (SoundBoard && typeof location !== 'undefined' && location.hash === '#soundboard') return 'soundboard'
+    if (typeof location !== 'undefined' && location.search.includes('view=3d')) return 'slice3d'
     return store.loadAutosave() ? 'game' : 'title'
   })
   const [difficulty, setDifficulty] = useState<Difficulty>(() => deviceDifficulty())
@@ -218,6 +222,7 @@ function App() {
                     if (resumable) start(resumable)
                   }}
                   onPlay={play}
+                  onTry3d={() => setScreen('slice3d')}
                   onDaily={() => start(startDailyOp(new Date()))}
                   onBriefing={() => {
                     setBriefingNext(null)
@@ -251,6 +256,7 @@ function App() {
                   }}
                 />
               )}
+              {screen === 'slice3d' && <Slice3D onBack={toTitle} difficulty={difficulty} />}
               {screen === 'library' && <Library onBack={toTitle} />}
               {screen === 'dossier' && <Dossier onBack={toTitle} />}
               {screen === 'scoreboard' && <Scoreboard onBack={toTitle} />}

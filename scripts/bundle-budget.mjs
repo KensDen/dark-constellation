@@ -353,7 +353,33 @@ export function measureBundle({
     )
   }
   const frame = frames[0] ?? null
-  const others = deferredChunks.filter((c) => !c.frame)
+  // THE EXPERIMENT CHUNK (exp/3d-slice, 10 November 2026). The 3D slice is
+  // an experiment behind its own entry, and it ships a second three.js in
+  // its own lazily loaded chunk, which the per-chunk cap refuses by design
+  // (a screen carrying three.js is a screen). So the exception is named and
+  // bounded rather than waved through: when bundle-budget.json records BOTH
+  // a marker and a ceiling, the one deferred chunk carrying that marker is
+  // held to that ceiling instead of the cap, and printed. With neither
+  // recorded, which is every branch but the experiment's, nothing here
+  // applies and such a chunk is a screen like any other. Recognised by
+  // content, as the frame is, and never the frame itself.
+  const hasMarker = 'experimentChunkMarker' in budget
+  const hasCeiling = 'experimentChunkBudgetGzipBytes' in budget
+  if (hasMarker !== hasCeiling) {
+    throw new Error('bundle-budget.json records one of experimentChunkMarker and experimentChunkBudgetGzipBytes; an experiment chunk needs both, a marker to find it and a ceiling to bound it')
+  }
+  if (hasMarker && (typeof budget.experimentChunkMarker !== 'string' || budget.experimentChunkMarker.length < 12)) {
+    throw new Error('bundle-budget.json records an experimentChunkMarker too short to name one chunk; it must be a string of 12 or more characters')
+  }
+  if (hasCeiling && !Number.isFinite(budget.experimentChunkBudgetGzipBytes)) {
+    throw new Error('bundle-budget.json records no finite experimentChunkBudgetGzipBytes; the experiment chunk ships too and must be bounded')
+  }
+  const experiments = hasMarker ? deferredChunks.filter((c) => !c.frame && c.chunk.endsWith('.js') && contentOf(c.chunk).includes(budget.experimentChunkMarker)) : []
+  if (experiments.length > 1) {
+    throw new Error(`${experiments.map((c) => c.chunk).join(' and ')} all carry the experiment marker; its ceiling is for one chunk`)
+  }
+  const experiment = experiments[0] ?? null
+  const others = deferredChunks.filter((c) => !c.frame && c !== experiment)
   const largestOther = others.reduce((big, c) => (big && big.gz >= c.gz ? big : c), null)
   // A record, not a gate. See the header for why the sum stopped meaning
   // anything a player feels.
@@ -371,6 +397,7 @@ export function measureBundle({
     `; baseline ${budget.baselineGzipBytes}, ` +
     `${delta >= 0 ? '+' : ''}${delta}; budget ${budget.budgetGzipBytes}, headroom ${headroom}), ` +
     `deferred frame ${frame ? `${frame.chunk} ${frame.gz} (budget ${budget.frameBudgetGzipBytes}, headroom ${frameHeadroom})` : 'none'}, ` +
+    (experiment ? `experiment chunk ${experiment.chunk} ${experiment.gz} (budget ${budget.experimentChunkBudgetGzipBytes}, headroom ${headroomFor(experiment.gz, budget.experimentChunkBudgetGzipBytes)}), ` : '') +
     `${others.length} other deferred chunk${others.length === 1 ? '' : 's'}` +
     (largestOther
       ? `, largest ${largestOther.chunk} ${largestOther.gz} (cap ${budget.deferredChunkBudgetGzipBytes} each, headroom ${otherHeadroom})`
@@ -394,6 +421,11 @@ export function measureBundle({
   if (frame && frame.gz > budget.frameBudgetGzipBytes) {
     throw new Error(
       `the constellation frame chunk ${frame.chunk} is ${frame.gz} bytes gzipped, over its ${budget.frameBudgetGzipBytes} byte budget`,
+    )
+  }
+  if (experiment && experiment.gz > budget.experimentChunkBudgetGzipBytes) {
+    throw new Error(
+      `the experiment chunk ${experiment.chunk} is ${experiment.gz} bytes gzipped, over its ${budget.experimentChunkBudgetGzipBytes} byte budget`,
     )
   }
   // Every chunk that is not the frame, each on its own, whatever its size
@@ -428,6 +460,8 @@ export function measureBundle({
     frame: frame ? frame.chunk : null,
     frameGz: frame ? frame.gz : null,
     largestOther: largestOther ? largestOther.chunk : null,
+    experiment: experiment ? experiment.chunk : null,
+    experimentGz: experiment ? experiment.gz : null,
     staticBytes,
     staticFiles,
     delta,
