@@ -1,4 +1,6 @@
-// THE THEATER (experiment, exp/3d-slice): the world the 3D slice plays in.
+// THE THEATER (the 3D slice's, exp/3d-slice; the whole game's since v2.0
+// R1, where world.ts builds the six-turn game's world on it): the world
+// the 3D game plays in.
 // A globe, an orbit ring with the satellites, the drones over the area of
 // operations, the ground station, and COLDVEIL off the night side, in the
 // look of the 3D title prototype: smooth, procedural, no image files.
@@ -32,7 +34,6 @@ import {
   EdgesGeometry,
   Group,
   HemisphereLight,
-  IcosahedronGeometry,
   LineBasicMaterial,
   LineSegments,
   Mesh,
@@ -64,14 +65,20 @@ export interface TheaterAim {
   targetId: string
   // Whether what is owned stops it: the line ends on the shield.
   blocked: boolean
+  // How the line reads (v2.0 R1): a move COLDVEIL favors, one it may play,
+  // one it will not, or a signature not yet identified.
+  tone?: AimTone
 }
+export type AimTone = 'likely' | 'either' | 'unlikely' | 'unknown'
+const AIM_HEX: Record<AimTone, number> = { likely: 0xff5a4f, either: 0xff8a5c, unlikely: 0x8a5a66, unknown: 0x8fa0b8 }
+const AIM_ALPHA: Record<AimTone, number> = { likely: 0.9, either: 0.7, unlikely: 0.28, unknown: 0.42 }
 export type Impact = 'blocked' | 'halved' | 'hit'
 export type Beat = 'wide' | 'night' | 'dawn'
 // Where a thing is on screen, in CSS pixels, for the labels the page lays
 // over the canvas.
 export type Place = (key: string, x: number, y: number, shown: boolean) => void
 
-const C = {
+export const C = {
   void: 0x04070d,
   go: 0x7cff9b,
   sky: 0x5aa9ff,
@@ -82,39 +89,39 @@ const C = {
   shield: 0x6fe3ff,
 }
 
-const FOV = 40
+export const FOV = 40
 const TAN = Math.tan((FOV * Math.PI) / 360)
-const RING_R = 1.4
+export const RING_R = 1.4
 const RING_TILT = 0.96
 // COLDVEIL stands off the night side: above the theater on a tall screen,
 // out to its left on a wide one, so each shape of screen is filled.
-const COLDVEIL_AT = new Vector3(-1.12, 2.3, -0.3)
+export const COLDVEIL_AT = new Vector3(-1.12, 2.3, -0.3)
 const LAYOUT = {
   tall: { foe: [-1.12, 2.3, -0.3], centre: [0, 0.56, 0], halfW: 1.66, halfH: 1.98 },
   wide: { foe: [-2.05, 1.62, -0.3], centre: [-0.34, 0.42, 0], halfW: 2.12, halfH: 1.62 },
 }
 const SUN_DAY = new Vector3(0.74, 0.34, 0.58).normalize()
 const SUN_NIGHT = new Vector3(0.78, 0.16, -0.6).normalize()
-const AO = { lat: 0.4, lon: 0 }
+export const AO = { lat: 0.4, lon: 0 }
 // The theater's bounds for the wide framing: its centre, and half its
 // width and height.
-const CENTRE = new Vector3(0, 0.56, 0)
+export const CENTRE = new Vector3(0, 0.56, 0)
 let HALF_W = 1.66
 let HALF_H = 1.98
 // Where the score stands at dawn: under the globe, in the world.
 const SCORE_AT = new Vector3(0, -1.32, 0.2)
 
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
-const lerp = (a: number, b: number, k: number) => a + (b - a) * k
-const easeOut = (k: number) => 1 - (1 - k) ** 3
-const easeIn = (k: number) => k * k * k
-const easeInOut = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2)
-const backOut = (k: number) => 1 + 2.7 * (k - 1) ** 3 + 1.7 * (k - 1) ** 2
+export const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+export const lerp = (a: number, b: number, k: number) => a + (b - a) * k
+export const easeOut = (k: number) => 1 - (1 - k) ** 3
+export const easeIn = (k: number) => k * k * k
+export const easeInOut = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2)
+export const backOut = (k: number) => 1 + 2.7 * (k - 1) ** 3 + 1.7 * (k - 1) ** 2
 
-function onGlobe(lat: number, lon: number, r: number, out = new Vector3()): Vector3 {
+export function onGlobe(lat: number, lon: number, r: number, out = new Vector3()): Vector3 {
   return out.set(r * Math.cos(lat) * Math.sin(lon), r * Math.sin(lat), r * Math.cos(lat) * Math.cos(lon))
 }
-function onRing(a: number, out = new Vector3()): Vector3 {
+export function onRing(a: number, out = new Vector3()): Vector3 {
   return out.set(RING_R * Math.cos(a), RING_R * Math.sin(a) * Math.sin(RING_TILT), RING_R * Math.sin(a) * Math.cos(RING_TILT))
 }
 
@@ -179,17 +186,17 @@ void main(){
   gl_FragColor = vec4(color, a * edge * alpha);
 }`
 
-class Ribbon {
+export class Ribbon {
   mesh: Mesh
   uniforms: Record<string, { value: number | Color }>
   private pos: Float32Array
-  private a = new Vector3()
-  private b = new Vector3()
-  private c = new Vector3()
-  private p = new Vector3()
-  private q = new Vector3()
-  private t = new Vector3()
-  private s = new Vector3()
+  protected a = new Vector3()
+  protected b = new Vector3()
+  protected c = new Vector3()
+  protected p = new Vector3()
+  protected q = new Vector3()
+  protected t = new Vector3()
+  protected s = new Vector3()
 
   constructor(color: number, dashes: number, flow: number) {
     const n = RIBBON_N + 1
@@ -268,17 +275,17 @@ class Ribbon {
 
 // PARTICLES: one pool for every spark, shard and ember, one draw call.
 const PARTICLES = 420
-class Sparks {
+export class Sparks {
   points: Points
-  private pos = new Float32Array(PARTICLES * 3)
-  private col = new Float32Array(PARTICLES * 3)
-  private size = new Float32Array(PARTICLES)
-  private alpha = new Float32Array(PARTICLES)
-  private vel = new Float32Array(PARTICLES * 3)
-  private life = new Float32Array(PARTICLES)
-  private span = new Float32Array(PARTICLES)
-  private drag = new Float32Array(PARTICLES)
-  private next = 0
+  protected pos = new Float32Array(PARTICLES * 3)
+  protected col = new Float32Array(PARTICLES * 3)
+  protected size = new Float32Array(PARTICLES)
+  protected alpha = new Float32Array(PARTICLES)
+  protected vel = new Float32Array(PARTICLES * 3)
+  protected life = new Float32Array(PARTICLES)
+  protected span = new Float32Array(PARTICLES)
+  protected drag = new Float32Array(PARTICLES)
+  protected next = 0
   uniforms = { scale: { value: 1 } }
 
   constructor() {
@@ -349,14 +356,19 @@ void main(){ float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard; gl_Fra
   }
 }
 
-const std = (color: number, emissive = 0x000000, intensity = 0) => new MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.25, emissive, emissiveIntensity: intensity })
+const std = (color: number, emissive = 0x000000, intensity = 0, role = '') => {
+  const m = new MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.25, emissive, emissiveIntensity: intensity })
+  // What a skin recolours (world.ts): the hull and the solar cells.
+  m.userData.role = role
+  return m
+}
 
 function buildSat(rpo: boolean): Group {
   const g = new Group()
-  const hull = std(C.hull)
+  const hull = std(C.hull, 0, 0, 'hull')
   const body = new Mesh(new BoxGeometry(0.1, 0.1, 0.15), hull)
   g.add(body)
-  const cells = std(C.panel, 0x2a6fd0, 0.55)
+  const cells = std(C.panel, 0x2a6fd0, 0.55, 'panel')
   for (const s of [-1, 1]) {
     const arm = new Mesh(new BoxGeometry(0.05, 0.012, 0.012), hull)
     arm.position.x = s * 0.07
@@ -382,7 +394,7 @@ function buildSat(rpo: boolean): Group {
 
 function buildDrone(): Group {
   const g = new Group()
-  const hull = std(0xe6edf3)
+  const hull = std(0xe6edf3, 0, 0, 'hull')
   const body = new Mesh(new CylinderGeometry(0.02, 0.012, 0.17, 10), hull)
   body.rotation.x = Math.PI / 2
   const wing = new Mesh(new BoxGeometry(0.3, 0.008, 0.05), hull)
@@ -401,7 +413,7 @@ function buildStation(): Group {
   const g = new Group()
   const base = new Mesh(new CylinderGeometry(0.05, 0.065, 0.03, 16), std(0x788696))
   base.position.y = 0.015
-  const mast = new Mesh(new CylinderGeometry(0.012, 0.012, 0.08, 8), std(C.hull))
+  const mast = new Mesh(new CylinderGeometry(0.012, 0.012, 0.08, 8), std(C.hull, 0, 0, 'hull'))
   mast.position.y = 0.07
   const dish = new Mesh(new SphereGeometry(0.085, 22, 10, 0, Math.PI * 2, 0, 1.05), std(0xf0f4f8, 0x7cff9b, 0.12))
   dish.material.side = DoubleSide
@@ -418,7 +430,7 @@ void main(){ vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * 
 const SHIELD_FRAG = `uniform vec3 color; uniform float power; uniform float alpha; varying vec3 vN; varying vec3 vV;
 void main(){ float f = pow(1.0 - abs(dot(vN, vV)), 2.2); gl_FragColor = vec4(mix(color, vec3(1.0), clamp(power, 0.0, 1.0) * 0.7), (0.1 + f * 0.9 + power * 0.5) * alpha); }`
 
-interface Shield {
+export interface Shield {
   group: Group
   wire: LineSegments
   uniforms: { color: { value: Color }; power: { value: number }; alpha: { value: number } }
@@ -429,7 +441,7 @@ interface Shield {
   tone: 'defense' | 'response'
 }
 
-interface Body {
+export interface Body {
   id: string
   kind: TheaterKind
   root: Group
@@ -446,14 +458,17 @@ interface Body {
   wantTargeted: number
   link: Ribbon | null
   jammed: boolean
+  // The asset its link is rerouted through tonight (v2.0 R1), when it is.
+  via: string | null
   pos: Vector3
 }
 
-interface AimLine {
+export interface AimLine {
   key: string
   ribbon: Ribbon
   targetId: string
   blocked: boolean
+  tone: AimTone
   // Where its end is drawn, eased toward the target so a retarget swings.
   end: Vector3
   lift: number
@@ -462,7 +477,7 @@ interface AimLine {
   gone: boolean
 }
 
-interface Tween {
+export interface Tween {
   t: number
   dur: number
   fn: (k: number) => void
@@ -470,59 +485,68 @@ interface Tween {
 }
 
 export class Theater {
-  private renderer: WebGLRenderer
-  private scene = new Scene()
-  private camera = new PerspectiveCamera(FOV, 1, 0.1, 120)
-  private canvas: HTMLCanvasElement
-  private place: Place
-  private reduced: boolean
-  private raf = 0
-  private running = false
-  private dead = false
-  private last = 0
-  private time = 0
-  private freeze = 0
-  private tweens: Tween[] = []
-  private w = 1
-  private h = 1
+  protected renderer: WebGLRenderer
+  protected scene = new Scene()
+  protected camera = new PerspectiveCamera(FOV, 1, 0.1, 120)
+  protected canvas: HTMLCanvasElement
+  protected place: Place
+  protected reduced: boolean
+  protected raf = 0
+  protected running = false
+  protected dead = false
+  protected last = 0
+  protected time = 0
+  protected freeze = 0
+  protected tweens: Tween[] = []
+  protected w = 1
+  protected h = 1
   // The part of the canvas the page leaves clear of its own chrome, as
   // fractions of the height from the top; the theater frames itself there.
-  private clearTop = 0.1
-  private clearBottom = 0.7
-  private clearRight = 1
+  protected clearTop = 0.1
+  protected clearBottom = 0.7
+  protected clearRight = 1
 
-  private glow = glowTexture()
-  private sun = SUN_DAY.clone()
-  private night = 0
-  private globeUniforms = { sun: { value: this.sun }, time: { value: 0 }, scale: { value: 1 }, ao: { value: onGlobe(AO.lat, AO.lon, 1) } }
-  private airUniforms = { sun: { value: this.sun }, tint: { value: new Color(C.sky) } }
-  private sunLight = new DirectionalLight(0xffffff, 2.4)
-  private stars: Points
-  private sparks = new Sparks()
-  private bodies = new Map<string, Body>()
-  private aims: AimLine[] = []
-  private coldveil = new Group()
-  private coldGlow: Sprite
-  private coldCharge = 0
-  private rings: { mesh: Mesh; t: number; dur: number; size: number }[] = []
-  private flashes: { sprite: Sprite; t: number; dur: number; size: number }[] = []
-  private comet: { ribbon: Ribbon; head: Sprite; core: Mesh; u: number; targetId: string; lift: number; bend: number } | null = null
+  protected glow = glowTexture()
+  protected sun = SUN_DAY.clone()
+  protected night = 0
+  protected globeUniforms = { sun: { value: this.sun }, time: { value: 0 }, scale: { value: 1 }, ao: { value: onGlobe(AO.lat, AO.lon, 1) }, power: { value: 1 } }
+  protected airUniforms = { sun: { value: this.sun }, tint: { value: new Color(C.sky) } }
+  protected sunLight = new DirectionalLight(0xffffff, 2.4)
+  protected stars: Points
+  protected sparks = new Sparks()
+  protected bodies = new Map<string, Body>()
+  protected aims: AimLine[] = []
+  protected coldveil = new Group()
+  protected coldGlow: Sprite
+  protected coldCharge = 0
+  protected rings: { mesh: Mesh; t: number; dur: number; size: number }[] = []
+  protected flashes: { sprite: Sprite; t: number; dur: number; size: number }[] = []
+  protected comet: { ribbon: Ribbon; head: Sprite; core: Mesh; u: number; targetId: string; lift: number; bend: number } | null = null
 
   // The camera: where it is easing to, and the player's own offset on top.
-  private cam = { az: 0, el: 0.3, dist: 30, look: CENTRE.clone() }
-  private want = { az: 0, el: 0.3, dist: 12, look: CENTRE.clone() }
-  private drag = { az: 0, el: 0, zoom: 1, held: false, x: 0, y: 0, moved: 0 }
-  private pinch = 0
-  private shake = 0
-  private focusId: string | null = null
-  private beat: Beat = 'wide'
-  private camPos = new Vector3()
-  private tmp = new Vector3()
-  private tmp2 = new Vector3()
-  private tmp3 = new Vector3()
-  private col = new Color()
-  private pointers = new Map<number, { x: number; y: number }>()
+  protected cam = { az: 0, el: 0.3, dist: 30, look: CENTRE.clone() }
+  protected want = { az: 0, el: 0.3, dist: 12, look: CENTRE.clone() }
+  protected drag = { az: 0, el: 0, zoom: 1, held: false, x: 0, y: 0, moved: 0 }
+  protected pinch = 0
+  protected shake = 0
+  protected focusId: string | null = null
+  protected beat: Beat = 'wide'
+  protected camPos = new Vector3()
+  protected tmp = new Vector3()
+  protected tmp2 = new Vector3()
+  protected tmp3 = new Vector3()
+  protected col = new Color()
+  protected pointers = new Map<number, { x: number; y: number }>()
   onTapEmpty: (() => void) | null = null
+  // A finger down on the world, before it is known to be a tap or a drag:
+  // the timed tap reads the moment (v2.0 R1).
+  onPress: (() => void) | null = null
+  // Low power (v2.0 R1): pixel ratio 1, a third of the particles, and
+  // every other frame drawn.
+  protected low = false
+  protected skip = false
+  // A fixed shot the camera holds (the opening's beats), over the framing.
+  protected shot: { az: number; el: number; dist: number; lookY: number } | null = null
 
   constructor(canvas: HTMLCanvasElement, place: Place, reduced: boolean) {
     this.canvas = canvas
@@ -562,7 +586,7 @@ export class Theater {
 
   // ---------------------------------------------------------------- world
 
-  private buildWorld(): void {
+  protected buildWorld(): void {
     const core = new Mesh(
       new SphereGeometry(0.985, 56, 36),
       new ShaderMaterial({
@@ -606,7 +630,7 @@ void main(){ float day = smoothstep(-0.25, 0.5, dot(vW, sun)); vec3 c = mix(vec3
       geo,
       new ShaderMaterial({
         uniforms: this.globeUniforms,
-        vertexShader: `attribute float kind; attribute float rnd; uniform vec3 sun; uniform vec3 ao; uniform float time; uniform float scale; varying vec3 vC;
+        vertexShader: `attribute float kind; attribute float rnd; uniform vec3 sun; uniform vec3 ao; uniform float time; uniform float scale; uniform float power; varying vec3 vC;
 void main(){ vec3 n = normalize(position); float day = smoothstep(-0.2, 0.4, dot(n, sun));
   vec3 ocean = mix(vec3(0.02, 0.05, 0.12), vec3(0.07, 0.22, 0.44), day);
   vec3 land = mix(vec3(0.03, 0.09, 0.08), vec3(0.22, 0.68, 0.42), day);
@@ -614,7 +638,8 @@ void main(){ vec3 n = normalize(position); float day = smoothstep(-0.2, 0.4, dot
   float city = kind * step(0.8, rnd) * (1.0 - day);
   c += city * vec3(1.0, 0.7, 0.34) * (0.65 + 0.35 * sin(time * 1.7 + rnd * 40.0));
   float inAo = smoothstep(0.955, 0.99, dot(n, ao));
-  c += inAo * vec3(0.06, 0.3, 0.42) * (0.7 + 0.3 * sin(time * 1.3 + rnd * 6.0));
+  c += inAo * vec3(0.06, 0.3, 0.42) * (0.7 + 0.3 * sin(time * 1.3 + rnd * 6.0)) * power;
+  c *= mix(1.0, 0.35 + 0.65 * power, inAo);
   vC = c; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv;
   gl_PointSize = max(1.5, (kind > 0.5 ? 0.021 : 0.015) * (1.0 + city * 0.5) * scale / -mv.z); }`,
         fragmentShader: `varying vec3 vC; void main(){ float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard; gl_FragColor = vec4(vC, smoothstep(0.5, 0.25, d)); }`,
@@ -657,7 +682,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     this.scene.add(new HemisphereLight(0x9cc4ff, 0x0b1322, 1.5), this.sunLight)
   }
 
-  private buildStars(): Points {
+  protected buildStars(): Points {
     const n = 900
     const pos = new Float32Array(n * 3)
     let seed = 11
@@ -685,7 +710,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     )
   }
 
-  private buildColdveil(): void {
+  protected buildColdveil(): void {
     const g = this.coldveil
     g.position.copy(COLDVEIL_AT)
     g.add(new Mesh(new OctahedronGeometry(0.2), new MeshBasicMaterial({ color: C.threat, wireframe: true })))
@@ -703,14 +728,14 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     this.scene.add(g)
   }
 
-  private makeShield(body: Body, tone: 'defense' | 'response'): Shield {
+  protected makeShield(body: Body, tone: 'defense' | 'response'): Shield {
     const r = body.radius * 1.5
     const uniforms = { color: { value: new Color(tone === 'defense' ? C.shield : C.go) }, power: { value: 0 }, alpha: { value: 0 } }
     const shell = new Mesh(
       new SphereGeometry(r, 28, 18),
       new ShaderMaterial({ uniforms, vertexShader: SHIELD_VERT, fragmentShader: SHIELD_FRAG, transparent: true, depthWrite: false, blending: AdditiveBlending }),
     )
-    const wire = new LineSegments(new EdgesGeometry(new IcosahedronGeometry(r * 1.02, 1)), new LineBasicMaterial({ color: uniforms.color.value, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false }))
+    const wire = new LineSegments(new EdgesGeometry(new OctahedronGeometry(r * 1.02, 2)), new LineBasicMaterial({ color: uniforms.color.value, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false }))
     const group = new Group()
     group.add(shell, wire)
     group.visible = false
@@ -735,7 +760,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
       reticle.visible = false
       this.scene.add(root, reticle)
       const radius = a.kind === 'drone' ? 0.17 : a.kind === 'groundStation' ? 0.15 : 0.24
-      const body: Body = { id: a.id, kind: a.kind, root, model, station, phase: n * 2.1 + 0.4, radius, integrity: 100, shown: 100, jolt: 0, shield: null, reticle, targeted: 0, wantTargeted: 0, link: null, jammed: false, pos: new Vector3() }
+      const body: Body = { id: a.id, kind: a.kind, root, model, station, phase: n * 2.1 + 0.4, radius, integrity: 100, shown: 100, jolt: 0, shield: null, reticle, targeted: 0, wantTargeted: 0, link: null, jammed: false, via: null, pos: new Vector3() }
       if (a.kind !== 'groundStation') {
         body.link = new Ribbon(C.go, a.kind === 'drone' ? 5 : 9, 0.5)
         body.link.uniforms.alpha.value = 0.5
@@ -771,15 +796,17 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
         ribbon.uniforms.reveal.value = 0
         ribbon.uniforms.alpha.value = 0.9
         this.scene.add(ribbon.mesh)
-        line = { key: a.key, ribbon, targetId: a.targetId, blocked: a.blocked, end: COLDVEIL_AT.clone(), lift: 0.7, bend: 0, fresh: 0, gone: false }
+        line = { key: a.key, ribbon, targetId: a.targetId, blocked: a.blocked, tone: a.tone ?? 'likely', end: COLDVEIL_AT.clone(), lift: 0.7, bend: 0, fresh: 0, gone: false }
         this.aims.push(line)
       }
       line.targetId = a.targetId
       line.blocked = a.blocked
-      line.lift = 0.62 + nth * 0.3
-      line.bend = nth === 0 ? -0.12 : 0.34
+      line.tone = a.tone ?? 'likely'
+      line.lift = 0.62 + nth * 0.24
+      line.bend = nth === 0 ? -0.12 : nth === 1 ? 0.34 : -0.4
     }
-    for (const b of this.bodies.values()) b.wantTargeted = aims.some((a) => a.targetId === b.id && !a.blocked) ? 1 : aims.some((a) => a.targetId === b.id) ? 0.45 : 0
+    const hot = (a: TheaterAim) => !a.blocked && (a.tone ?? 'likely') !== 'unlikely' && a.tone !== 'unknown'
+    for (const b of this.bodies.values()) b.wantTargeted = aims.some((a) => a.targetId === b.id && hot(a)) ? 1 : aims.some((a) => a.targetId === b.id) ? 0.35 : 0
   }
 
   setShield(id: string, tone: 'defense' | 'response' | null): void {
@@ -874,7 +901,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
 
   // The strike finishes its run and lands as the engine resolved it:
   // broken on the shield, half through, or a hit. Resolves on the impact.
-  async land(impact: Impact): Promise<void> {
+  async land(impact: Impact, run = 0.48): Promise<void> {
     const comet = this.comet
     if (!comet) return
     const b = this.bodies.get(comet.targetId)
@@ -882,7 +909,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     const from = comet.u
     // A blocked strike stops at the shield's surface, not the hull.
     const stop = impact === 'hit' ? 1 : 0.955
-    await this.tween(this.reduced ? 0.4 : 0.48, (k) => {
+    await this.tween(this.reduced ? Math.min(run, 0.4) : run, (k) => {
       comet.u = lerp(from, stop, easeIn(k))
     })
     const at = comet.ribbon.at(stop, this.tmp3).clone()
@@ -911,7 +938,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     for (const b of this.bodies.values()) if (b.shield?.tone === 'response') b.shield.want = 0
   }
 
-  private clearComet(): void {
+  protected clearComet(): void {
     const c = this.comet
     if (!c) return
     this.scene.remove(c.ribbon.mesh, c.head, c.core)
@@ -921,7 +948,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
 
   // ------------------------------------------------------------------ fx
 
-  private flash(at: Vector3, color: number, size: number, dur: number): void {
+  protected flash(at: Vector3, color: number, size: number, dur: number): void {
     const f = this.flashes.reduce((a, b) => (a.t >= b.t ? a : b))
     f.sprite.position.copy(at)
     f.sprite.material.color.setHex(color)
@@ -931,7 +958,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     f.sprite.visible = true
   }
 
-  private ring(at: Vector3, color: number, size: number, dur: number): void {
+  protected ring(at: Vector3, color: number, size: number, dur: number): void {
     const r = this.rings.reduce((a, b) => (a.t >= b.t ? a : b))
     r.mesh.position.copy(at)
     ;(r.mesh.material as MeshBasicMaterial).color.setHex(color)
@@ -941,8 +968,8 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     r.mesh.visible = true
   }
 
-  private burst(at: Vector3, color: number, n: number, speed: number, life: number, size: number): void {
-    const count = this.reduced ? Math.ceil(n / 3) : n
+  protected burst(at: Vector3, color: number, n: number, speed: number, life: number, size: number): void {
+    const count = this.reduced || this.low ? Math.ceil(n / 3) : n
     this.col.setHex(color)
     for (let i = 0; i < count; i += 1) {
       this.tmp.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize()
@@ -952,7 +979,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
   }
 
   // A strike breaking on a shield: shards skid away across its surface.
-  private shatter(at: Vector3, centre: Vector3, color: number, n: number): void {
+  protected shatter(at: Vector3, centre: Vector3, color: number, n: number): void {
     const count = this.reduced ? Math.ceil(n / 3) : n
     const out = this.tmp2.copy(at).sub(centre).normalize()
     for (let i = 0; i < count; i += 1) {
@@ -968,7 +995,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
 
   // --------------------------------------------------------------- camera
 
-  private frameWide(): void {
+  protected frameWide(): void {
     const aspect = this.w / this.h
     const clearH = Math.max(0.3, this.clearBottom - this.clearTop)
     const clearW = Math.max(0.4, this.clearRight)
@@ -984,8 +1011,15 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
   // Where the camera should be for what is happening: the whole theater,
   // or closer on the tile in focus (never under Reduce Motion, which keeps
   // the one framing).
-  private frame(): void {
+  protected frame(): void {
     this.frameWide()
+    if (this.shot) {
+      this.want.az = this.shot.az
+      this.want.el = this.shot.el
+      this.want.dist *= this.shot.dist
+      this.want.look.y += this.shot.lookY
+      return
+    }
     const b = this.focusId ? this.bodies.get(this.focusId) : undefined
     if (!b || this.reduced) return
     const wide = this.want.dist
@@ -1009,7 +1043,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     }
   }
 
-  private easeDragHome(): void {
+  protected easeDragHome(): void {
     const from = { az: this.drag.az, el: this.drag.el, zoom: this.drag.zoom }
     if (Math.abs(from.az) + Math.abs(from.el) + Math.abs(from.zoom - 1) < 0.01) return
     void this.tween(0.7, (k) => {
@@ -1021,8 +1055,9 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     })
   }
 
-  private onDown = (e: PointerEvent): void => {
+  protected onDown = (e: PointerEvent): void => {
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    this.onPress?.()
     this.canvas.setPointerCapture?.(e.pointerId)
     this.drag.held = true
     this.drag.x = e.clientX
@@ -1031,7 +1066,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     this.pinch = 0
   }
 
-  private onMove = (e: PointerEvent): void => {
+  protected onMove = (e: PointerEvent): void => {
     const p = this.pointers.get(e.pointerId)
     if (!p) return
     if (this.pointers.size === 2) {
@@ -1053,7 +1088,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     this.drag.el = clamp(this.drag.el + dy * 0.005, -0.5, 0.85)
   }
 
-  private onUp = (e: PointerEvent): void => {
+  protected onUp = (e: PointerEvent): void => {
     this.pointers.delete(e.pointerId)
     if (this.pointers.size === 0) {
       this.drag.held = false
@@ -1062,7 +1097,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     this.pinch = 0
   }
 
-  private onWheel = (e: WheelEvent): void => {
+  protected onWheel = (e: WheelEvent): void => {
     this.drag.zoom = clamp(this.drag.zoom * (1 + e.deltaY * 0.001), 0.55, 1.35)
   }
 
@@ -1085,7 +1120,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     const h = this.canvas.clientHeight || 1
     this.w = w
     this.h = h
-    const ratio = Math.min(window.devicePixelRatio || 1, 2)
+    const ratio = this.low ? 1 : Math.min(window.devicePixelRatio || 1, 2)
     this.renderer.setPixelRatio(ratio)
     this.renderer.setSize(w, h, false)
     this.camera.aspect = w / h
@@ -1111,10 +1146,13 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     } else cancelAnimationFrame(this.raf)
   }
 
-  private tick = (now: number): void => {
+  protected tick = (now: number): void => {
     if (!this.running || this.dead) return
     this.raf = requestAnimationFrame(this.tick)
-    const real = Math.min(0.05, (now - this.last) / 1000)
+    // Low power draws every other frame.
+    this.skip = this.low && !this.skip
+    if (this.skip) return
+    const real = Math.min(this.low ? 0.1 : 0.05, (now - this.last) / 1000)
     this.last = now
     // A hit stops the world for a few frames: that is its weight.
     let dt = real
@@ -1135,7 +1173,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     this.placeAll()
   }
 
-  private poseBodies(time: number): void {
+  protected poseBodies(time: number): void {
     const calm = this.reduced ? 0 : 1
     for (const b of this.bodies.values()) {
       const s = b.station
@@ -1171,7 +1209,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     }
   }
 
-  private curve(ribbon: Ribbon, end: Vector3, lift: number, bend: number): void {
+  protected curve(ribbon: Ribbon, end: Vector3, lift: number, bend: number): void {
     const mid = this.tmp.copy(COLDVEIL_AT).add(end).multiplyScalar(0.5)
     const out = this.tmp2.copy(mid).normalize()
     mid.addScaledVector(out, lift)
@@ -1179,7 +1217,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     ribbon.set(COLDVEIL_AT, mid, end)
   }
 
-  private step(dt: number, real: number): void {
+  protected step(dt: number, real: number): void {
     this.time += dt
     const time = this.time
     for (let i = this.tweens.length - 1; i >= 0; i -= 1) {
@@ -1268,8 +1306,10 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
         const seen = this.tmp.copy(b.pos).sub(from).dot(from) > -0.15
         b.link.mesh.visible = seen
         if (seen) {
-          const mid = this.tmp.copy(from).add(b.pos).multiplyScalar(0.5)
-          mid.addScaledVector(this.tmp2.copy(mid).normalize(), b.kind === 'drone' ? 0.06 : 0.16)
+          const relay = b.via ? this.bodies.get(b.via) : undefined
+          // A rerouted link bends out through its relay.
+          const mid = relay ? this.tmp.copy(relay.pos).multiplyScalar(2).addScaledVector(from, -0.5).addScaledVector(b.pos, -0.5) : this.tmp.copy(from).add(b.pos).multiplyScalar(0.5)
+          if (!relay) mid.addScaledVector(this.tmp2.copy(mid).normalize(), b.kind === 'drone' ? 0.06 : 0.16)
           b.link.set(from, mid, b.pos)
           b.link.update(this.camPos, 0.008)
           const u = b.link.uniforms
@@ -1300,7 +1340,8 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
         u.reveal.value = easeOut(line.fresh)
         const stop = line.blocked ? this.tmp.copy(COLDVEIL_AT).sub(b.pos).normalize().multiplyScalar(b.radius * 1.5).add(b.pos) : this.tmp.copy(b.pos)
         line.end.lerp(stop, Math.min(1, dt * 5))
-        u.alpha.value = lerp(line.ribbon.num('alpha'), line.blocked ? 0.4 : 0.9, Math.min(1, dt * 4))
+        u.alpha.value = lerp(line.ribbon.num('alpha'), line.blocked ? 0.4 : AIM_ALPHA[line.tone], Math.min(1, dt * 4))
+        ;(u.color.value as Color).lerp(this.col.setHex(AIM_HEX[line.tone]), Math.min(1, dt * 6))
         u.fadeEnd.value = 0
       }
       this.curve(line.ribbon, line.end, line.lift, line.bend)
@@ -1358,7 +1399,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     this.stars.rotation.y = this.reduced ? 0 : time * 0.004
   }
 
-  private placeOne(key: string, at: Vector3): void {
+  protected placeOne(key: string, at: Vector3): void {
     const p = this.tmp.copy(at).project(this.camera)
     // Behind the globe, as seen from the camera: not shown.
     const toCam = this.tmp2.copy(this.camPos).sub(at)
@@ -1369,7 +1410,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     this.place(key, (p.x * 0.5 + 0.5) * this.w, (-p.y * 0.5 + 0.5) * this.h, p.z < 1 && !hidden)
   }
 
-  private placeAll(): void {
+  protected placeAll(): void {
     for (const b of this.bodies.values()) this.placeOne(b.id, b.pos)
     this.placeOne('coldveil', COLDVEIL_AT)
     this.placeOne('score', SCORE_AT)

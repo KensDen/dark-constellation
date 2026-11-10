@@ -307,14 +307,25 @@ export function ordersOf(state: GameState): TurnActions[] {
     // The responses too (v1.7 R1): each move's answer, or null for one
     // ridden out, so the record replays to itself.
     const responses = r.events.map((e) => e.response?.id ?? null)
-    return { buyAssets, buyCounters, intelBrief: r.purchases.some((p) => p.startsWith('Intel brief (')), ...(debris ? { debris } : {}), responses }
+    // And the 3D game's inputs (v2.0 R1): what the scan identified and each
+    // move's timed tap, so a record with either replays to itself too.
+    const timing = r.events.map((e) => e.timing ?? 0)
+    return {
+      buyAssets,
+      buyCounters,
+      intelBrief: r.purchases.some((p) => p.startsWith('Intel brief (')),
+      ...(debris ? { debris } : {}),
+      responses,
+      ...(r.scanned ? { scans: r.scanned } : {}),
+      ...(timing.some((t) => t > 0) ? { timing } : {}),
+    }
   })
 }
 
 // The same game played again from its seed with these orders, or null
 // where the engine refuses one (a budget the change no longer covers).
 export function replay(state: GameState, orders: TurnActions[]): GameState | null {
-  let s = newGame(state.scenario, state.seed, state.difficulty)
+  let s = newGame(state.scenario, state.seed, state.difficulty, state.posture)
   try {
     for (let t = 0; s.status === 'playing'; t += 1) s = resolveTurn(s, orders[t] ?? { buyAssets: [], buyCounters: [], intelBrief: false }, turnRng(s.seed, s.turn))
   } catch {
