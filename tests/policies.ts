@@ -23,9 +23,11 @@
 //     bottom of the budget; spending the rest on assets under the cap goes
 //     insolvent in every run, which the v1.4 report records beside it. It
 //     burns on the debris night. It never reads WORST CASE.
-//   - PREPARED: reads TONIGHT, which names the moves only under the intel
-//     brief, so it orders the brief on every night it is not free (while
-//     WORST CASE stays at 0 or more). A drone on turn 1, then, slot by
+//   - PREPARED: since v2.0 R1 it scans (rules.ts, SCANS_PER_NIGHT): one
+//     signature in each drawn track, then the next in each, as far as the
+//     night's pulses go, and it reads TONIGHT only for what it identified
+//     (a fixed slot is CONFIRMED and known). Through v1.7 it ordered the
+//     paid brief every night and read every move. A drone on turn 1, then, slot by
 //     slot, the primary defense (or the next one listed) of the move
 //     COLDVEIL will take (LIKELY TARGET, or the first of EITHER) while that
 //     move is not already blocked and WORST CASE stays at 0 or more, on the
@@ -40,7 +42,7 @@
 //     defense of one exposed move it picks at random, kept only while
 //     WORST CASE stays at 0 or more), then one random affordable defense a
 //     turn while WORST CASE allows. A coin decides the debris call.
-//   - RANDOM LEGAL: each defense, asset kind and the brief offered in a
+//   - RANDOM LEGAL: each defense and asset kind offered in a
 //     random order, each taken on a coin of 3 in 10 while REMAINING stays
 //     at 0 or more and, for a defense, while tonight has no new one yet. A
 //     coin decides the debris call.
@@ -48,7 +50,7 @@
 
 import { adversaryPicks } from '../src/engine/adversary'
 import { mulberry32, type Rng } from '../src/engine/rng'
-import { briefFree, chainBonusOf, countersAfter, defenseOpen, eventById, gnssDenied, mitigationOf, orderCost } from '../src/engine/rules'
+import { chainBonusOf, countersAfter, defenseOpen, eventById, gnssDenied, mitigationOf, orderCost, scanPulses } from '../src/engine/rules'
 import { planFor } from '../src/engine/campaign'
 import { worstCase } from '../src/engine/worstCase'
 import { WIN_SCRIPT } from './scripts'
@@ -129,11 +131,24 @@ function nextDefenseFor(eventId: string, state: GameState, counters: readonly Co
 // Under one new defense a night (v1.4) the flag can be answered once a
 // night, so the two lines meet: both win 79.6 percent on STANDARD with the
 // same grades (S 0, A 46), and 100 percent on EASY.
-function preparedLine(answer: 'once' | 'follow'): Policy {
+// THE SCAN A CAREFUL PLAYER MAKES (v2.0 R1): one signature in each drawn
+// track before a second in any, in the night's order, for as many pulses
+// as the watch has. `all` is the expert's read: a player who knows every
+// signature on sight (the Dossier's lesson) needs no pulse to name one.
+export function scanFor(state: GameState): string[] {
+  const drawn = (planFor(state, state.turn)?.slots ?? []).filter((s) => !s.fixed).map((s) => s.drawFrom ?? [])
+  const out: string[] = []
+  for (let depth = 0; depth < 4; depth += 1) for (const ids of drawn) if (ids[depth] && !out.includes(ids[depth])) out.push(ids[depth])
+  return out.slice(0, scanPulses(state))
+}
+
+function preparedLine(answer: 'once' | 'follow', sight: 'scan' | 'all' = 'scan'): Policy {
   return (state) => {
-    // TONIGHT names the moves only under the intel brief (brief 5.3), so a
-    // player who reads it orders the brief on every night it is not free.
-    let actions: TurnActions = { ...NO_ORDERS, intelBrief: !briefFree(state) && safe(state, { ...NO_ORDERS, intelBrief: true }) }
+    // TONIGHT names a move only once the scan has identified it (v2.0 R1).
+    const scans = scanFor(state)
+    const fixed = (planFor(state, state.turn)?.slots ?? []).flatMap((s) => (s.fixed ? [s.fixed] : []))
+    const known = (id: string) => sight === 'all' || scans.includes(id) || fixed.includes(id)
+    let actions: TurnActions = { ...NO_ORDERS, scans }
     if (state.turn === 1 && safe(state, withAsset(actions, 'drone'))) actions = withAsset(actions, 'drone')
     const denied = gnssDenied(state.conditions, state.scenario)
     const blocked = (eventId: string, counters: readonly CountermeasureId[]) => {
@@ -149,8 +164,11 @@ function preparedLine(answer: 'once' | 'follow'): Policy {
         // move COLDVEIL will take there, the LIKELY TARGET or the first of
         // EITHER, while that move is not already blocked.
         const counters = countersAfter(state, actions)
-        const target = adversaryPicks(state, counters)[i].least[0]
-        if (blocked(target, counters)) continue
+        // The flag shows on a signature the scan identified: LIKELY TARGET,
+        // or the first of EITHER it can name. A track whose favored move is
+        // still unidentified gets no order tonight.
+        const target = adversaryPicks(state, counters)[i].least.find(known)
+        if (!target || blocked(target, counters)) continue
         const defense = nextDefenseFor(target, state, counters)
         const next = defense ? withCounter(actions, defense) : undefined
         if (next && safe(state, next)) actions = next
@@ -161,7 +179,7 @@ function preparedLine(answer: 'once' | 'follow'): Policy {
       // or tonight's one new defense is ordered.
       for (let order = 0; order < state.scenario.countermeasures.length && defenseOpen(state, actions); order += 1) {
         const counters = countersAfter(state, actions)
-        const target = adversaryPicks(state, counters)[i].least.find((id) => !blocked(id, counters) && nextDefenseFor(id, state, counters))
+        const target = adversaryPicks(state, counters)[i].least.find((id) => known(id) && !blocked(id, counters) && nextDefenseFor(id, state, counters))
         if (!target) break
         const next = withCounter(actions, nextDefenseFor(target, state, counters)!)
         if (!safe(state, next)) break
@@ -175,6 +193,9 @@ function preparedLine(answer: 'once' | 'follow'): Policy {
 
 export const prepared: Policy = preparedLine('once')
 export const preparedFollow: Policy = preparedLine('follow')
+// The expert (v2.0 R1): Prepared's orders with every signature known on
+// sight, which is v1.7's Prepared without the brief's 8 CR a night.
+export const expert: Policy = preparedLine('once', 'all')
 
 export const novice: Policy = (state) => {
   const r = streamFor(state, 0x0b5e55ed)
@@ -199,11 +220,10 @@ export const novice: Policy = (state) => {
 export const randomLegal: Policy = (state) => {
   const r = streamFor(state, 0x7a11d0e5)
   let actions: TurnActions = { ...NO_ORDERS }
-  type Option = { kind: 'counter'; id: CountermeasureId } | { kind: 'asset'; asset: AssetKind } | { kind: 'brief' }
+  type Option = { kind: 'counter'; id: CountermeasureId } | { kind: 'asset'; asset: AssetKind }
   const options: Option[] = [
     ...state.scenario.countermeasures.filter((cm) => !state.counters.includes(cm.id)).map((cm) => ({ kind: 'counter' as const, id: cm.id })),
     ...KINDS.map((asset) => ({ kind: 'asset' as const, asset })),
-    { kind: 'brief' },
   ]
   // A Fisher-Yates shuffle on the policy's own stream.
   for (let i = options.length - 1; i > 0; i -= 1) {
@@ -213,8 +233,7 @@ export const randomLegal: Policy = (state) => {
   for (const option of options) {
     if (!r.chance(0.3)) continue
     if (option.kind === 'counter' && !defenseOpen(state, actions)) continue
-    const next =
-      option.kind === 'counter' ? withCounter(actions, option.id) : option.kind === 'asset' ? withAsset(actions, option.asset) : { ...actions, intelBrief: true }
+    const next = option.kind === 'counter' ? withCounter(actions, option.id) : withAsset(actions, option.asset)
     if (fits(state, next)) actions = next
   }
   return debrisTonight(state) ? { ...actions, debris: r.chance(0.5) ? 'burn' : 'hold' } : actions
@@ -237,7 +256,16 @@ export const POLICIES: readonly { name: PolicyName; label: string; policy: Polic
 // gate's targets and outside the grade calibration's population
 // (tests/grade.spec.ts reads POLICIES): measurements for a ruling, not
 // part of the balance yet.
-export const REPORTED: readonly { name: string; label: string; policy: Policy; respond: Responder }[] = [
+export const REPORTED: readonly { name: string; label: string; policy: Policy; respond: Responder; timing?: 1 | 2 }[] = [
+  // THE TIMED BLOCK'S LIFT (v2.0 R1): the gated lines with a tap on every
+  // move, good (the Assist rate) and perfect. The gate's own lines take
+  // none, so the balance never rests on reflexes; these say what the bonus
+  // is worth at its most.
+  { name: 'noviceAssist', label: 'Novice, Assist rate on every move', policy: novice, respond: careless, timing: 1 },
+  { name: 'novicePerfect', label: 'Novice, a perfect tap on every move', policy: novice, respond: careless, timing: 2 },
+  { name: 'preparedPerfect', label: 'Prepared, a perfect tap on every move', policy: prepared, respond: sensible, timing: 2 },
+  // THE EXPERT (v2.0 R1): every signature known on sight, no pulse spent.
+  { name: 'expert', label: 'Expert (knows every signature on sight)', policy: expert, respond: sensible },
   { name: 'preparedFollow', label: 'Prepared, following the flag (R0b)', policy: preparedFollow, respond: sensible },
   // Prepared's orders with every move ridden out (v1.7 R1): what the
   // responses are worth to a player who orders well.

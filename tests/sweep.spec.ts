@@ -59,7 +59,7 @@ describe('the sweep gate (v1.3 brief 7)', () => {
   beforeAll(() => {
     for (const difficulty of ['standard', 'easy'] as const) {
       for (const p of POLICIES) runs.set(key(p.name, difficulty), playPolicy(p.policy, difficulty, p.respond))
-      for (const p of REPORTED) reported.set(`${p.name}:${difficulty}`, playPolicy(p.policy, difficulty, p.respond))
+      for (const p of REPORTED) reported.set(`${p.name}:${difficulty}`, playPolicy(p.policy, difficulty, p.respond, SEEDS, p.timing ?? 0))
     }
     if (!process.env.SWEEP) return
     const rows: string[] = []

@@ -140,7 +140,7 @@ export function nightOf(before: GameState, after: GameState): Night {
       kind = 'threat'
       // A response is paid for as the move arrives, and a halved move does
       // its share (v1.7 R1).
-      next.credits -= ev.response?.cost ?? 0
+      next.credits -= (ev.response?.cost ?? 0) - (ev.refund ?? 0)
       if (ev.effectiveSeverity > 0) {
         for (const m of def.effect.meters) {
           next.meters[m] = Math.max(0, next.meters[m] - scaled(METER_DAMAGE_PER_SEVERITY * ev.effectiveSeverity * damageShare(ev), difficulty))

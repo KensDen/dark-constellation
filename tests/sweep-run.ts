@@ -49,7 +49,7 @@ export interface PolicyRun {
   streakMismatches: string[]
 }
 
-export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Responder = () => null, seeds = SEEDS): PolicyRun {
+export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Responder = () => null, seeds = SEEDS, timing: 0 | 1 | 2 = 0): PolicyRun {
   const run: PolicyRun = {
     wins: 0,
     insolvencies: 0,
@@ -78,7 +78,9 @@ export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Resp
     let best = 0
     const tally = { faced: 0, stopped: 0, halved: 0, spent: 0 }
     while (state.status === 'playing') {
-      const actions = policy(state)
+      // A tap of the same grade on every move, for the lines that report
+      // the timed block's lift (v2.0 R1); the gated lines take none.
+      const actions = timing ? { ...policy(state), timing: [timing, timing, timing, timing] } : policy(state)
       const read = worstCase(state, actions).value
       const after = playNight(state, actions, respond)
       const record = after.history.at(-1)!

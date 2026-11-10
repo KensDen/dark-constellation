@@ -8,6 +8,7 @@
 // with the v1.2 economy: the v1.3 title offers EASY or STANDARD (brief
 // 5.1), and the sweep gate tunes those two (brief 7).
 export type Difficulty = 'easy' | 'standard'
+export type Posture = 'dark'
 
 export type Layer = 'ORBIT' | 'AIR' | 'GROUND'
 // The three layers, as a value. Promoted out of ui/cues/Scene.tsx in Round
@@ -125,6 +126,10 @@ export interface ThreatCondition {
 // not listed. The words the player reads are content
 // (src/content/responseText.ts), joined to these by id.
 export type ResponseEffect = 'block' | 'halve'
+// THE TIMED BLOCK (v2.0 R1): a tap as a strike lands, graded by how close
+// to the moment it came. A bonus only: 0 or absent is no tap, and the
+// rules never need one (src/engine/rules.ts, TIMING_BONUS).
+export type TimingGrade = 1 | 2
 export interface ThreatResponse {
   id: string
   effect: ResponseEffect
@@ -308,6 +313,11 @@ export interface ResolvedEvent {
   // move arrived (rules.ts, RESPONSES_PER_NIGHT). Absent for none.
   answered?: number
   response?: { id: string; effect: ResponseEffect; cost: number }
+  // THE TIMED BLOCK (v2.0 R1): the grade of the player's tap as this move
+  // landed, 1 for good and 2 for perfect (rules.ts, TIMING_BONUS), and the
+  // credits a well-timed block of a response paid back. Absent with no tap.
+  timing?: TimingGrade
+  refund?: number
   // The score as this event found it and as it left it (v1.3 R6, the
   // per-event score): the hit card's figure reads these, not a replay.
   scoreBefore: number
@@ -337,7 +347,9 @@ export interface TurnLedger {
   // Spent on responses during the night (v1.7 R1). Absent on a record from
   // before responses.
   responses?: number
-  // "Left after tonight's orders": start - ordered - fuel - responses + windfall.
+  // Paid back by well-timed blocks during the night (v2.0 R1). Absent at 0.
+  refunds?: number
+  // "Left after tonight's orders": start - ordered - fuel - responses + refunds + windfall.
   afterNight: number
   repairs: number
   // What each repair bill was for: the tile, or the event when it hit no tile.
@@ -363,6 +375,9 @@ export interface TurnRecord {
   // Whether the intel brief was active tonight, and the threats it named.
   briefed: boolean
   named: string[]
+  // The signatures the player's scan identified tonight (v2.0 R1), in the
+  // order the night lists them. Absent on a night with no scan.
+  scanned?: string[]
   events: ResolvedEvent[]
   // Names of the conditions that pressed this turn.
   conditionsActive: string[]
@@ -399,6 +414,10 @@ export interface GameState {
   // ordered and cannot be cancelled (rules.ts, briefLocked). Absent until a
   // brief is revealed, and cleared by resolveTurn.
   briefRevealed?: number
+  // COLDVEIL'S POSTURE (v2.0 R1): absent is the campaign as tuned; 'dark'
+  // is the harder one a finished game unlocks, where COLDVEIL emits less
+  // and the watch has one scan pulse a night (rules.ts, scanPulses).
+  posture?: Posture
   // The defense streak, its best, and the points saved so far (brief 6.8).
   streak: number
   bestStreak: number
@@ -425,4 +444,12 @@ export interface TurnActions {
   // they come, the id of the response taken, or nothing to ride it out.
   // Part of the orders, so a seed and the player's choices replay exactly.
   responses?: (string | null | undefined)[]
+  // THE SCAN (v2.0 R1): the ids of tonight's candidate moves the player's
+  // sweep identified, at most scanPulses(state) of them (rules.ts). What a
+  // scan names is knowledge, not an outcome: no number in the night reads it.
+  scans?: string[]
+  // THE TIMED BLOCKS (v2.0 R1): for each of tonight's moves, in the order
+  // they come, the grade of the tap as it landed, or nothing. An input, so
+  // a seed and the player's inputs replay exactly.
+  timing?: (TimingGrade | 0 | null | undefined)[]
 }

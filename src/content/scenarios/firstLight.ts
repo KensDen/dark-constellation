@@ -21,7 +21,19 @@ export const FIRST_LIGHT: Scenario = {
   name: 'FIRST LIGHT',
   totalTurns: 6,
   startCredits: 100,
-  incomePerTurn: 20,
+  // MISSION FUNDING IS 14 SINCE v2.0 R1 (Ken's choice of 10 November 2026:
+  // scanning replaces the paid intel brief). Through v1.7 it was 20, and a
+  // player who read TONIGHT paid 8 CR a night for the brief that named it.
+  // With the scan free of charge and every other number as v1.7 had it,
+  // the sweep's Prepared (tests/policies.ts, which now scans) won all 500
+  // seeds on STANDARD: the 40 CR the brief used to take over a game met
+  // every response. Measured over 500 seeds a policy at each step, with a
+  // starting budget of 100: at 15, Prepared 95 and Novice 44; at 14,
+  // Prepared 82 (EASY 100), Novice 43 (EASY 83, graded B most often) and
+  // the expert who knows every signature on sight 82; at 13, Prepared 79
+  // and Novice 40, on the edge of its band. Starting budgets of 90 and
+  // 110 trade one for one with a CR of funding and land on the same steps.
+  incomePerTurn: 14,
   slaBonus: { coverageMin: 60, credits: 10 },
   winThreshold: 70,
   collapseThreshold: 35,

@@ -49,6 +49,9 @@ import {
   responseCost,
   responseFits,
   scaled,
+  scanPulses,
+  timingRefund,
+  timingShare,
   worstBillOf,
 } from './rules'
 import { METER_CAP, coverage, maiRaw, maiScore } from './scoring'
@@ -59,9 +62,11 @@ import type {
   Difficulty,
   GameState,
   LearnedHow,
+  Posture,
   ResolvedEvent,
   Scenario,
   ThreatEvent,
+  TimingGrade,
   TurnActions,
   TurnLedger,
   TurnRecord,
@@ -87,7 +92,9 @@ export {
   RESPONSE_COST_PER_POINT,
   RESPONSE_DAMAGE_SHARE,
   RIDESHARE_RESELL_CREDITS,
+  SCANS_PER_NIGHT,
   SECONDARY_MITIGATION,
+  TIMING_BONUS,
   briefActive,
   briefFree,
   briefLocked,
@@ -105,6 +112,9 @@ export {
   responseCost,
   responseFits,
   scaled,
+  scanPulses,
+  timingRefund,
+  timingShare,
   type DifficultyProfile,
 } from './rules'
 
@@ -131,13 +141,14 @@ const liveAssets = (assets: Asset[]) => assets.filter((a) => a.integrity > 0)
 const round1 = (n: number) => Math.round(n * 10) / 10
 const METER_KEYS = ['linkAvailability', 'dataIntegrity', 'sensorIntegrity'] as const
 
-export function newGame(scenario: Scenario, seed: number, difficulty: Difficulty = 'standard'): GameState {
+export function newGame(scenario: Scenario, seed: number, difficulty: Difficulty = 'standard', posture?: Posture): GameState {
   return {
     scenario,
     seed,
     turn: 1,
     status: 'playing',
     difficulty,
+    ...(posture ? { posture } : {}),
     credits: scenario.startCredits,
     assets: scenario.starterAssets.map((s, i) => ({ id: `start-${s.kind}-${i + 1}`, kind: s.kind, layer: layerFor(s.kind), integrity: 100 })),
     counters: [],
@@ -231,7 +242,12 @@ type Unscored = Omit<ResolvedEvent, 'scoreBefore' | 'scoreAfter'>
 // the move does not offer, or one the room cannot meet, is ridden out: the
 // night never offers either, and a turn resolved both ways for the debris
 // call must not stop on one.
-function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng, choice: string | null | undefined, room: number, earlier: number): Unscored {
+//
+// `tap` is the grade of the timed tap as the move landed (v2.0 R1,
+// rules.ts TIMING_BONUS): it takes a share off the damage of a move that
+// gets through and pays back a share of a response that blocked it, and
+// changes nothing else.
+function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng, choice: string | null | undefined, room: number, earlier: number, tap: TimingGrade | 0 = 0): Unscored {
   const { scenario, difficulty } = state
   const notes: string[] = []
   const chainBonus = chainBonusOf(ev, gnssDenied(state.conditions, scenario))
@@ -247,6 +263,10 @@ function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng, choice: stri
   const outcome = effectiveSeverity === 0 ? 'held' : mitigation > 0 || taken ? 'reduced' : 'open'
   const response = taken ? { id: taken.id, effect: taken.effect, cost: responseCost(taken.effect, exposed) } : undefined
   if (response) state.credits -= response.cost
+  const refund = response && share === 0 ? timingRefund(response.cost, tap) : 0
+  state.credits += refund
+  // What the move does of its damage: the response's share, less the tap's.
+  const dealt = share * timingShare(tap)
 
   // The tile it is aimed at: a live asset on its layers, held or not, and
   // of a kind the move prefers when the player holds one (G-028: the
@@ -263,11 +283,11 @@ function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng, choice: stri
   let integrityAfter: number | undefined
   if (effectiveSeverity > 0) {
     for (const m of ev.effect.meters) {
-      state.meters[m] = Math.max(0, state.meters[m] - scaled(METER_DAMAGE_PER_SEVERITY * effectiveSeverity * share, difficulty))
+      state.meters[m] = Math.max(0, state.meters[m] - scaled(METER_DAMAGE_PER_SEVERITY * effectiveSeverity * dealt, difficulty))
     }
     if (struck) {
       integrityBefore = struck.integrity
-      struck.integrity = Math.max(0, struck.integrity - scaled(ASSET_DAMAGE_PER_SEVERITY * effectiveSeverity * share, difficulty))
+      struck.integrity = Math.max(0, struck.integrity - scaled(ASSET_DAMAGE_PER_SEVERITY * effectiveSeverity * dealt, difficulty))
       integrityAfter = struck.integrity
     }
     if (ev.condition) {
@@ -322,6 +342,8 @@ function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng, choice: stri
     condition: effectiveSeverity > 0 ? ev.condition : undefined,
     ...(offered ? { room, ...(earlier > 0 ? { answered: earlier } : {}) } : {}),
     ...(response ? { response } : {}),
+    ...(tap ? { timing: tap } : {}),
+    ...(refund > 0 ? { refund } : {}),
   }
 }
 
@@ -436,7 +458,13 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
   // 1. EXECUTE.
   const briefed = briefActive(next, actions)
   const ordered = applyOrders(next, actions, purchases)
-  const named = briefed ? candidatesTonight(next) : []
+  // THE SCAN (v2.0 R1): the candidates the player's sweep identified, in
+  // the night's own order, and no more of them than the watch has pulses.
+  const candidates = candidatesTonight(next)
+  const scanned = candidates.filter((id) => actions.scans?.includes(id))
+  if (scanned.length > scanPulses(next)) throw new Error('invalid actions: more scans than pulses')
+  const confirmed = (planFor(next, next.turn)?.slots ?? []).flatMap((slot) => (slot.fixed ? [slot.fixed] : []))
+  const named = briefed ? candidates : candidates.filter((id) => scanned.includes(id) || (actions.scans !== undefined && confirmed.includes(id)))
   // The lock is the turn's own (briefLocked): paid for above, it goes.
   delete next.briefRevealed
 
@@ -470,11 +498,12 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
     const r =
       ev.effect.special === 'debrisStrike'
         ? resolveDebris(next, ev, actions.debris ?? 'hold', rng, offStation)
-        : resolveThreat(next, ev, rng, actions.responses?.[i], room, resolved.filter((r) => r.response).length)
+        : resolveThreat(next, ev, rng, actions.responses?.[i], room, resolved.filter((r) => r.response).length, actions.timing?.[i] === 1 || actions.timing?.[i] === 2 ? actions.timing[i] as TimingGrade : 0)
     resolved.push({ ...r, scoreBefore, scoreAfter: maiScore(next) })
   })
   const fuel = resolved.reduce((n, r) => n + (r.debris?.fuel ?? 0), 0)
   const responses = resolved.reduce((n, r) => n + (r.response?.cost ?? 0), 0)
+  const refunds = resolved.reduce((n, r) => n + (r.refund ?? 0), 0)
 
   // 4. The rare opportunity, from the deck stream.
   const plan = planFor(next, next.turn)
@@ -527,6 +556,7 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
     fuel,
     windfall,
     ...(responses > 0 ? { responses } : {}),
+    ...(refunds > 0 ? { refunds } : {}),
     afterNight,
     repairs,
     repaired,
@@ -545,6 +575,7 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
     purchases,
     briefed,
     named,
+    ...(scanned.length > 0 ? { scanned } : {}),
     events: resolved,
     conditionsActive: pressing,
     ledger,

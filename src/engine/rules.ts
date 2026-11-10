@@ -20,6 +20,7 @@ import type {
   Scenario,
   ThreatEvent,
   ThreatResponse,
+  TimingGrade,
   TurnActions,
 } from './types'
 
@@ -140,8 +141,46 @@ export const RESPONSES_PER_NIGHT = 1
 export const exposedOf = (ev: Pick<ResolvedEvent, 'baseSeverity' | 'chainBonus' | 'mitigation'>): number =>
   Math.max(0, ev.baseSeverity + ev.chainBonus - ev.mitigation)
 export const responseCost = (effect: ResponseEffect, exposed: number): number => RESPONSE_COST_PER_POINT[effect] * exposed
-// The share of its damage and its repair bill a resolved move did.
-export const damageShare = (ev: Pick<ResolvedEvent, 'response'>): number => (ev.response ? RESPONSE_DAMAGE_SHARE[ev.response.effect] : 1)
+// THE TIMED BLOCK (v2.0 R1, Ken's choice of 10 November 2026: a bonus
+// only). A tap as a strike lands, graded good (1) or perfect (2), takes
+// this share off the damage a move that gets through does to the meters
+// and its target, and pays back this share of what a response that blocked
+// the move cost. It never changes whether a move lands, a repair bill, or
+// what a response may draw on, so WORST CASE holds without it and nothing
+// in the game needs it: the sweep's lines take none (tests/policies.ts),
+// and tests/sweep.spec.ts reports what a perfect tap on every move lifts.
+// With Reduce Motion or Assist on, the presentation grants the good grade
+// with no tap (src/ui/three), which is why good is half of perfect.
+//
+// 8 AND 4 PERCENT, SET BY THE SWEEP (500 seeds a line, funding at 14).
+// At 25 and 12.5, a perfect tap on every move took Novice from 47 percent
+// of games to 82 on STANDARD: the reflex was worth more than the orders.
+// At 12 and 6 it took Prepared from 82 to 100. At 8 and 4: Novice 43
+// percent with no taps, 51 at the Assist rate and 56 with a perfect tap on
+// every move (median final score 68.8, 70.0 and 70.9); Prepared 82, 85 and
+// 95 (78.6, 79.5 and 80.8). About 1 point of score a game at the Assist
+// rate and 2 at perfect, which this close to the win line is still some
+// games in ten.
+export const TIMING_BONUS: Record<TimingGrade, number> = { 1: 0.04, 2: 0.08 }
+export const timingShare = (grade: TimingGrade | 0 | null | undefined): number => 1 - (grade ? TIMING_BONUS[grade] : 0)
+export const timingRefund = (cost: number, grade: TimingGrade | 0 | null | undefined): number => (grade ? Math.round(cost * TIMING_BONUS[grade]) : 0)
+
+// The share of its damage a resolved move did: what a response left of it,
+// less what a timed tap took off. (Its repair bill reads the response alone.)
+export const damageShare = (ev: Pick<ResolvedEvent, 'response' | 'timing'>): number =>
+  (ev.response ? RESPONSE_DAMAGE_SHARE[ev.response.effect] : 1) * timingShare(ev.timing)
+
+// THE SCAN (v2.0 R1, Ken's choice of 10 November 2026: scanning replaces
+// paying for an intel brief with something the player does). Before the
+// night each of tonight's possible moves is a signature in the theater,
+// unidentified, and the watch has this many pulses to identify them with:
+// 2 a night, so on any night after the first there are more signatures
+// than pulses and where to look is a decision. A fixed slot is CONFIRMED
+// and needs no pulse. Under the dark posture (types.ts) the watch has 1.
+// The paid brief stays in the rules for the pixel board (?view=classic),
+// which still orders it; the 3D game and the sweep's lines never do.
+export const SCANS_PER_NIGHT = 2
+export const scanPulses = (state: Pick<GameState, 'posture'>): number => (state.posture === 'dark' ? 1 : SCANS_PER_NIGHT)
 
 // A RESPONSE NEVER SPENDS THE NIGHT'S BILLS. What a response may draw on
 // is the budget less the repairs already queued tonight, the largest bill

@@ -131,7 +131,8 @@ describe('save robustness', () => {
     // v5's shape is v4's: only the campaign's order is new, drawn from the
     // seed, so a v4 save loads and plays on (src/persistence/codec.ts).
     // v6 (v1.7 R1) is a superset again: responses on the record, optional.
-    expect(SAVE_VERSION).toBe(6)
+    // v7 (v2.0 R1) is a superset again: scans, timed taps and the posture, all optional.
+    expect(SAVE_VERSION).toBe(7)
     expect(OLDEST_RESUMABLE).toBe(4)
     const mid = playTo(SEED, 3, WIN_SCRIPT)
     const p = captureGame(mid, 'procure', '2026-10-26T00:00:00.000Z')

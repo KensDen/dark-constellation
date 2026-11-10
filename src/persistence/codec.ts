@@ -53,7 +53,13 @@ import type { GameState } from '../engine/types'
 // LOADS and resumes under them: the turns already played keep their
 // history, and every turn after the save is played by the new rules, as a
 // v4 save was under v5's campaign order.
-export const SAVE_VERSION = 6
+// v7 (v2.0 R1, Ken's choices of 10 November 2026): the 3D game's inputs. A
+// record may carry the signatures a scan identified, an event the grade of
+// a timed tap and what it paid back, the ledger those refunds, and the
+// state COLDVEIL's posture; all optional, so the shape a v6 reader meets
+// is a superset. A v4 to v6 save LOADS and resumes: the turns already
+// played keep their history.
+export const SAVE_VERSION = 7
 // The oldest version a load resumes.
 export const OLDEST_RESUMABLE = 4
 
@@ -148,6 +154,7 @@ function isPlainState(s: unknown): s is Omit<GameState, 'scenario'> {
     num(st.credits) &&
     num(st.briefFreeThrough) &&
     (st.briefRevealed === undefined || num(st.briefRevealed)) &&
+    (st.posture === undefined || st.posture === 'dark') &&
     num(st.streak) &&
     num(st.bestStreak) &&
     num(st.saved) &&
