@@ -1069,7 +1069,7 @@ a.t3-btn {
   animation: t3-pop 0.35s cubic-bezier(0.2, 1.5, 0.4, 1) both;
 }
 .t3-contact > span:not(.t3-q) {
-  max-width: 136px;
+  max-width: 168px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -2292,9 +2292,8 @@ a.t3-btn {
 .t3-debrief {
   background: linear-gradient(rgba(4, 7, 13, 0.35), rgba(4, 7, 13, 0.97) 26%, #04070d);
 }
-.t3-root[data-t3-phase='debrief'] .t3-tags,
-.t3-root[data-t3-phase='opening'] .t3-tag[data-asset] .t3-contacts {
-  visibility: hidden;
+.t3-root[data-t3-phase='debrief'] .t3-tags {
+  opacity: 0;
 }
 /* The word a move ends on sits on a plate of its own, over the asset and
    clear of its label; the tap's word sits over that. */
@@ -2437,4 +2436,14 @@ a.t3-btn {
 .t3-card:has(.t3-dossier-body) .t3-what,
 .t3-card:has(.t3-dossier-body) .t3-why {
   display: none;
+}
+/* A label set over its asset: the move's word goes under it. */
+.t3-tag[data-flip='1'] .t3-float {
+  top: 34px;
+}
+.t3-tag[data-flip='1'] .t3-float.t3-timed {
+  top: 66px;
+}
+.t3-sign {
+  margin-left: var(--t3-nudge, 0px);
 }

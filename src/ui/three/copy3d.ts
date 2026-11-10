@@ -134,14 +134,12 @@ export const pressed = (names: string, d: number) => `${names} ${d.toFixed(1)}`
 export const strikeOf = (n: number, of: number) => `MOVE ${n} OF ${of}`
 // Why an answer cannot be taken, in the figures the rule reads: its price
 // and the repair it leaves must both fit in what is free.
-export const needs = (need: number, room: number) => `Needs ${need} CR with its repair; ${Math.max(0, room)} CR is free after tonight's bills and the nights ahead`
-export const freeForAnswer = (room: number, budget: number) => `${Math.max(0, room)} CR free for an answer: the budget of ${budget} CR, less tonight's bills and what the nights ahead need.`
+export const needs = (need: number, room: number, repair: boolean, last: boolean) => `Needs ${need} CR${repair ? ' with its repair' : ''}; ${Math.max(0, room)} CR is free after tonight's bills${last ? '' : ' and the nights ahead'}`
+export const freeForAnswer = (room: number, budget: number, last: boolean) => `${Math.max(0, room)} CR free for an answer: the budget of ${budget} CR, less tonight's bills${last ? '' : ' and what the nights ahead need'}.`
 export const moreToCome = (n: number) => (n > 0 ? `${n} more move${n === 1 ? '' : 's'} to come tonight, and 1 answer between them.` : '')
 export const ANSWER_USED = 'ANSWER ALREADY USED'
 // A signature that moved when an order changed: COLDVEIL reads the fleet.
 export const REAIMED = 'COLDVEIL re-aims as your orders change: a signature moved.'
-// How long a condition has to run, on the pill under an asset.
-export const nightsLeft = (n: number) => (n <= 0 ? 'TONIGHT' : `${n} NIGHT${n === 1 ? '' : 'S'}`)
 export const RISK_MARK = 'Could break the budget after a bad night'
 export const CHOOSE_UNLOCK = 'Change the look in SYSTEM, the menu at the top left.'
 export const WHAT_HAPPENED = 'WHAT HAPPENED'
@@ -172,7 +170,7 @@ export const BURN_DRAG = 'Drag the satellite along its orbit to burn, or choose 
 // DAWN.
 export const dawnOf = (n: number) => `DAWN · NIGHT ${n}`
 export const CLEAN = 'A CLEAN NIGHT'
-export const stoppedOf = (n: number, of: number, halved = 0) => `${n} OF ${of} STOPPED${halved ? ` · ${halved} HALVED` : ''}`
+export const stoppedOf = (n: number, of: number, halved = 0, partial = 0) => `${n} OF ${of} STOPPED${halved ? ` · ${halved} HALVED` : ''}${partial ? ` · ${partial} PARTIAL` : ''}`
 export const STRIP_LEGEND = 'A night a square: green held, amber slipped, red fell 3 or more or lost an asset.'
 export const SAVE_CODE_NOTE = 'A save code is this operation as text. Paste it into SYSTEM on the title, on any device, to read this debrief again.'
 export const CHART = { you: 'you', ghost: 'ghost', line: 'win line' } as const
@@ -220,6 +218,7 @@ export const UNFILED = 'UNFILED'
 export const UNFILED_LINE = 'Face this move in play to file it. Its signature is shown so you know it when you see it.'
 export const hitYou = (n: number, sign: string) => `Hit you ${n} time${n === 1 ? '' : 's'}${sign ? `, last on ${sign}` : ''}.`
 export const blockedIt = (n: number) => `Blocked ${n} time${n === 1 ? '' : 's'}.`
+export const passedYou = (n: number) => `Passed without a loss ${n} time${n === 1 ? '' : 's'}.`
 export const NOT_MET = 'No hit or block on this device’s record yet.'
 export const SOURCES = 'SOURCES'
 export const LEARN_MORE = 'LEARN MORE'

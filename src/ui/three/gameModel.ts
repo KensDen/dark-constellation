@@ -375,11 +375,15 @@ export const tapMatters = (ev: ResolvedEvent): boolean => ev.effectiveSeverity >
 
 // What a timed tap did, for the card: the share it took off a hit, or the
 // credits a clean block paid back; nothing on a move a defense held.
-export function tapLine(ev: ResolvedEvent, assist = false): string {
+// `saved` is the score the tap kept, measured: the same night with no tap
+// on this move. Damage is whole numbers, so a tap's share can round to
+// more than its rate or to nothing, and the card says what it did.
+export function tapLine(ev: ResolvedEvent, assist = false, saved?: number): string {
   if (!ev.timing) return ''
   if (!ev.refund && ev.effectiveSeverity === 0) return ''
   const word = assist ? 'ASSIST' : ev.timing === 2 ? 'PERFECT' : 'GOOD'
   if (ev.refund) return `${word} · +${ev.refund} CR back`
+  if (saved !== undefined) return saved >= 0.05 ? `${word} · braced, saved ${saved.toFixed(1)}` : `${word} · braced, nothing to save this time`
   if (ev.effectiveSeverity > 0) return `${word} · braced, ${TIMING_BONUS[ev.timing] * 100}% less damage`
   return word
 }

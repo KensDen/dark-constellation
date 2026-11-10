@@ -301,6 +301,12 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       taken.push(best[1])
       signs.push({ flip: best[0] === '1', h: best[0] === 'l' || best[0] === 'r' ? 0 : h })
       if (was !== best[0]) a.el.dataset.flip = best[0]
+      // A label that would cross a screen edge is slid back onto the screen.
+      const nudge = Math.round(best[1][0] < 4 ? 4 - best[1][0] : best[1][2] > right - 4 ? right - 4 - best[1][2] : 0)
+      if (a.el.dataset.nudge !== String(nudge)) {
+        a.el.dataset.nudge = String(nudge)
+        a.el.style.setProperty('--t3-nudge', `${nudge}px`)
+      }
     })
     chipAt.current.clear()
     list.forEach((a, i) => {
@@ -374,6 +380,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             x = Math.max(62, Math.min(innerWidth - 62, x))
             y = Math.max(52, y)
           }
+          // The incoming move's name rides its strike, and stays readable.
+          if (key === 'comet') x = Math.max(96, Math.min(innerWidth - 96, x))
           if (el) {
             el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`
             el.style.visibility = on ? 'visible' : 'hidden'
@@ -670,6 +678,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     if (!mark) return
     try {
       const closed = nightNow(game, mark.orders, { ...mark.inputs, debris: mark.inputs.debris ?? 'hold' })
+      // The result cards the reload skipped are where a move is filed:
+      // what the night played goes to the Dossier all the same.
+      for (const s of closed.night.steps) if (s.kind !== 'opportunity') fileCard(s.def.id)
       commit(game, closed.after, closed.night)
     } catch {
       clearNight()
@@ -904,6 +915,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         await landing
         if (!live) return
         setTapOpen(false)
+        setGuide((gd) => (gd === 'tap' ? null : gd))
         t.tapFx(target, grade)
         if (grade) {
           play(grade === 2 ? 'relief-chime' : 'tick-up')
@@ -1255,6 +1267,16 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     )
   }
 
+  // What the tap kept on the move shown: the same night with no tap on it.
+  let tapSaved: number | undefined
+  if (phase === 'night' && stage.at === 'result' && step?.kind === 'threat' && step.ev.timing && step.ev.effectiveSeverity > 0) {
+    try {
+      const bare = nightNow(game, orders, withTiming(inputs, stage.i, 0)).night.steps[stage.i]
+      if (bare) tapSaved = Math.max(0, tenth(step.scoreAfter - step.scoreBefore - (bare.scoreAfter - bare.scoreBefore)))
+    } catch {
+      tapSaved = undefined
+    }
+  }
   const selAsset = sel?.kind === 'asset' ? assetById(board, sel.id) : undefined
   const selPiece = sel?.kind === 'piece' ? kit.find((p) => p.cm.id === sel.id) : undefined
   const contactsOn = (id: string) => (deciding ? contacts.filter((c) => c.targetId === id) : [])
@@ -1346,7 +1368,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           const on = contactsOn(a.id)
           const lost = asset.integrity <= 0
           const hurt = asset.integrity < 100
-          const cond = conds.get(a.id) ?? []
+          const cond = board.status === 'playing' ? (conds.get(a.id) ?? []) : []
           const isTarget = nightTarget === a.id
           const can = phase === 'plan' ? !lost : isTarget && ((stage.at === 'choose' && (!!isolateChoice || !!rerouteChoice)) || stage.at === 'call')
           const lit = dragOk?.has(a.id) || armed?.has(a.id)
@@ -1380,7 +1402,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
                   {!lost && hurt && phase !== 'plan' && <b>{asset.integrity}%</b>}
                   {cond.map((c) => (
                     <em key={c.eventId} className="t3-cond">
-                      {c.name} · {c3.nightsLeft(phase === 'night' ? c.left - 1 : c.left)}
+                      {c.name}
                     </em>
                   ))}
                 </span>
@@ -1669,6 +1691,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             sign={signs.get(step.ev.targetAssetId ?? '') ?? ''}
             signs={signs}
             assist={assist}
+            saved={tapSaved}
             fresh={!filed && step.kind !== 'opportunity' && !dossier().has(step.def.id)}
             filed={filed}
             open={openCard}

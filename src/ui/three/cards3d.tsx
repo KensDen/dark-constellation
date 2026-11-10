@@ -249,7 +249,7 @@ export function AssetCard({ asset, sign, contacts, conditions, modules, onContac
       </div>
       {conditions.map((c) => (
         <p key={c.name} className="t3-fav t3-warn">
-          {nightly(copy.conditionTag(c.name, c.left))}. {c3.CONDITION_NOTE}
+          {nightly(copy.conditionTag(c.name, Math.max(0, c.left - 1)))}. {c3.CONDITION_NOTE}
         </p>
       ))}
       {modules.length > 0 && <p className="t3-fav t3-ok">{`${c3.OWNED}: ${modules.join(', ')}.`}</p>}
@@ -324,6 +324,7 @@ export function ChoiceCard({
   const strength = ev.baseSeverity + ev.chainBonus
   const exposed = exposedOf(ev)
   const { held } = defensesFor(def, step.before.counters, step.before.scenario)
+  const lastNight = step.before.turn >= step.before.scenario.totalTurns
   return (
     <div className="t3-card" key={`choose-${step.index}`} data-t3-card="respond">
       <div className="t3-head">
@@ -345,7 +346,7 @@ export function ChoiceCard({
         {choices.map((c, k) => {
           const label = c.id ? (RESPONSE_TEXT[def.id]?.[c.id] ?? c.id) : copy.RIDE_IT_OUT
           const effect = c.fits ? copy.effectLine(c.effect, c.score, c.repair) : copy.EFFECT_WORD[c.effect]
-          const why = c.fits ? '' : c.why === 'used' ? copy.ALREADY_ANSWERED : c3.needs(c.need, ev.room ?? 0)
+          const why = c.fits ? '' : c.why === 'used' ? copy.ALREADY_ANSWERED : c3.needs(c.need, ev.room ?? 0, c.need > c.cost, lastNight)
           const cost = c.id ? copy.crFace(c.cost) : copy.FREE
           const how = c.gesture && c.fits ? ` ${c3.GESTURE[c.gesture]}, or tap.` : ''
           return (
@@ -378,7 +379,7 @@ export function ChoiceCard({
         })}
       </div>
       <p className="t3-foot" data-t3-response-budget>
-        {c3.freeForAnswer(ev.room ?? 0, credits)} {c3.moreToCome(more)}
+        {c3.freeForAnswer(ev.room ?? 0, credits, lastNight)} {c3.moreToCome(more)}
       </p>
     </div>
   )
@@ -432,8 +433,11 @@ export function ResultCard({
   first,
   could,
   assist,
+  saved,
   onContinue,
 }: {
+  // The score the tap kept on this move, measured against no tap.
+  saved?: number
   step: NightStep
   sign: string
   signs: Map<string, string>
@@ -516,7 +520,7 @@ export function ResultCard({
   const helped = missing ? joined(ev.response ? copy.lastingAnswer(piece, missing.cost) : held ? copy.finishedIt(piece, missing.cost) : copy.wouldHaveHelped(piece, missing.cost)) : ''
   const stops = missing && !held ? ` It ${stopVerb(missing.id, def) === 'stops' ? 'stops' : 'blunts'} ${shortName(def)} every night.` : ''
   const byDefense = verdict === 'blocked' && blockedBy(ev) === 'defense' && held
-  const tap = tapLine(ev, assist)
+  const tap = tapLine(ev, assist, saved)
   const used = ev.room !== undefined && !ev.response && (ev.answered ?? 0) > 0
   return (
     <div className={`t3-card t3-result-${verdict}`} key={`res-${step.index}`} data-t3-card="result" data-t3-verdict={verdict}>
@@ -541,7 +545,7 @@ export function ResultCard({
           </span>
         )}
         {ev.repairCost > 0 && <span>{copy.repairTag(ev.repairCost, ev.integrityAfter !== undefined)}</span>}
-        {ev.condition && <span className="t3-warn">{nightly(copy.conditionTag(ev.condition.name, Math.max(0, ev.condition.turns - 1)))}</span>}
+        {ev.condition && <span className="t3-warn">{nightly(copy.conditionTag(ev.condition.name, Math.max(0, Math.min(ev.condition.turns - 1, step.before.scenario.totalTurns - step.before.turn))))}</span>}
         {verdict === 'blocked' && step.streak >= 2 && <span className="t3-ok">{copy.streakLine(step.streak)}</span>}
       </p>
       {/* What happened, when it got through: the watch officer's own report. */}
@@ -672,6 +676,7 @@ export function DawnCard({
   const threats = night.steps.filter((s) => s.kind === 'threat')
   const stopped = threats.filter((s) => s.ev.effectiveSeverity === 0).length
   const halved = threats.filter((s) => s.ev.response?.effect === 'halve').length
+  const partial = threats.filter((s) => verdictOf(s.ev) === 'partial').length
   const l = rec.ledger
   const worst = threats.filter((s) => s.ev.effectiveSeverity > 0).sort((a, b) => a.scoreAfter - a.scoreBefore - (b.scoreAfter - b.scoreBefore))[0]
   const missing = worst ? defensesFor(worst.def, after.counters, after.scenario).missing : undefined
@@ -692,7 +697,7 @@ export function DawnCard({
   return (
     <div className="t3-card t3-dawn" key={`dawn-${rec.turn}`} data-t3-card="dawn">
       <p className={`t3-eyebrow ${threats.length && stopped === threats.length ? 't3-ok' : 't3-warn'}`}>
-        {c3.dawnOf(rec.turn)} · {threats.length === 0 ? 'A QUIET NIGHT' : stopped === threats.length ? c3.CLEAN : c3.stoppedOf(stopped, threats.length, halved)}
+        {c3.dawnOf(rec.turn)} · {threats.length === 0 ? 'A QUIET NIGHT' : stopped === threats.length ? c3.CLEAN : c3.stoppedOf(stopped, threats.length, halved, partial)}
       </p>
       {ending && (
         <p className={`t3-ending ${after.status === 'won' ? 't3-ok' : 't3-bad'}`} data-t3-ending>

@@ -295,9 +295,10 @@ export function ReplayDock({ state, world, reduced, play, onShow, onBack }: { st
       }
     }
     t.setStreak(nt.before.streak)
-    // The labels and pills read the night shown, not the game's last one.
-    const closing = nt.steps[nt.steps.length - 1]?.after ?? nt.before
-    onShow?.(animate ? nt.before : closing)
+    // The labels and pills read the night shown, not the game's last one:
+    // the board as the night opened, conditions pressing.
+    const closing = nt.steps[nt.steps.length - 1]?.after ?? nt.opening
+    onShow?.(animate ? nt.opening : closing)
     setShown(animate ? 0 : nt.steps.length)
     if (!animate) return
     void (async () => {
@@ -503,7 +504,7 @@ export function DossierRoom({ onBack, backLabel = c3.TITLE, focus }: { onBack: (
                   </small>
                   <b>{has ? shortName(def) : '? ? ?'}</b>
                   <span>{has ? `${copy.HOOK[def.id] ?? def.name}.` : c3.UNFILED_LINE}</span>
-                  {has && <em data-t3-hitline>{row ? [row.hits ? c3.hitYou(row.hits, row.last) : '', row.blocks ? c3.blockedIt(row.blocks) : ''].filter(Boolean).join(' ') : c3.NOT_MET}</em>}
+                  {has && <em data-t3-hitline>{row ? [row.hits ? c3.hitYou(row.hits, row.last) : '', row.blocks ? (def.id === 'debris-conjunction' ? c3.passedYou(row.blocks) : c3.blockedIt(row.blocks)) : ''].filter(Boolean).join(' ') : c3.NOT_MET}</em>}
                 </span>
               </button>
               {has && isOpen && (
