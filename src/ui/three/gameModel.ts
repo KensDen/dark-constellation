@@ -18,7 +18,9 @@ import {
   ASSET_DAMAGE_PER_SEVERITY,
   DEPLOY_TURNS,
   METER_DAMAGE_PER_SEVERITY,
+  RESPONSE_DAMAGE_SHARE,
   TIMING_BONUS,
+  billAfter,
   briefFree,
   chainBonusOf,
   countersAfter,
@@ -246,10 +248,10 @@ export function kitFor(state: GameState, orders: Orders, contacts: readonly Cont
     const risky = !blocked && worstCase(state, actionsOf({ ...orders, defense: cm.id })).value < 0
     return { cm, blocked, ordered: orders.defense === cm.id, risky, answers, domain: domainOf(state, cm.id) }
   })
-  // The pieces that answer what the scan has named come first, the ones
-  // COLDVEIL favors before the rest; owned pieces go last.
-  const rank = (p: KitPiece) => (p.blocked === 'owned' ? 9 : p.answers.some((a) => a.contact.favor !== 'unlikely') ? 0 : p.answers.length ? 1 : 2)
-  return pieces.map((p, i) => ({ p, i })).sort((a, b) => rank(a.p) - rank(b.p) || a.i - b.i).map((x) => x.p)
+  // In the catalog's own order, every night: a tray that reshuffled itself
+  // after each scan could not be learned (the round's fresh-eyes review).
+  // The pieces that answer what the scan has named are lit, not moved.
+  return pieces
 }
 
 export interface FleetPiece {
@@ -318,6 +320,8 @@ export interface Choice {
   cost: number
   fits: boolean
   why?: 'used' | 'budget'
+  // What it has to fit in the room: its price and the repair it leaves.
+  need: number
   // The score's change and the repair bill under this answer.
   score: number
   repair: number
@@ -330,8 +334,11 @@ export function choicesFor(state: GameState, orders: Orders, inputs: NightInputs
   }
   const options: ResponseOption[] = responseOptions(step.def, step.ev, state.difficulty)
   return [
-    ...options.map((o): Choice => ({ id: o.id, effect: o.effect, gesture: gestureOf(o.id), cost: o.cost, fits: o.fits, why: o.why, ...(o.fits ? outcome(o.id) : { score: 0, repair: 0 }) })),
-    { id: null, effect: 'ride', gesture: null, cost: 0, fits: true, ...outcome(null) },
+    ...options.map((o): Choice => {
+      const need = o.cost + billAfter(step.def, exposedOf(step.ev), RESPONSE_DAMAGE_SHARE[o.effect], state.difficulty)
+      return { id: o.id, effect: o.effect, gesture: gestureOf(o.id), cost: o.cost, fits: o.fits, why: o.why, need, ...(o.fits ? outcome(o.id) : { score: 0, repair: 0 }) }
+    }),
+    { id: null, effect: 'ride', gesture: null, cost: 0, fits: true, need: 0, ...outcome(null) },
   ]
 }
 
@@ -361,12 +368,17 @@ export const gradeTap = (offBy: number | null): TimingGrade | 0 => (offBy === nu
 // With Reduce Motion or Assist on there is no tap to time: every move
 // takes the good grade, a fixed modest rate (src/engine/rules.ts).
 export const ASSIST_GRADE: TimingGrade = 1
+// Whether a tap can do anything to a move: it takes damage off one that
+// lands and pays back a response that blocked one; a move a defense holds
+// has nothing for it to improve, so the ring is not shown there.
+export const tapMatters = (ev: ResolvedEvent): boolean => ev.effectiveSeverity > 0 || ev.response?.effect === 'block'
 
 // What a timed tap did, for the card: the share it took off a hit, or the
 // credits a clean block paid back; nothing on a move a defense held.
-export function tapLine(ev: ResolvedEvent): string {
+export function tapLine(ev: ResolvedEvent, assist = false): string {
   if (!ev.timing) return ''
-  const word = ev.timing === 2 ? 'PERFECT' : 'GOOD'
+  if (!ev.refund && ev.effectiveSeverity === 0) return ''
+  const word = assist ? 'ASSIST' : ev.timing === 2 ? 'PERFECT' : 'GOOD'
   if (ev.refund) return `${word} · +${ev.refund} CR back`
   if (ev.effectiveSeverity > 0) return `${word} · braced, ${TIMING_BONUS[ev.timing] * 100}% less damage`
   return word

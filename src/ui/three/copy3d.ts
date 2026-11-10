@@ -28,7 +28,7 @@ export const GUIDE = {
   scan: 'SCAN: tap a signature over the fleet to identify it.',
   place: 'PLACE: drag a defense onto an asset, or tap one to place it.',
   begin: 'Ready. BEGIN THE NIGHT when your orders are set.',
-  respond: 'RESPOND: drag an answer onto the target, or let it ride.',
+  respond: 'RESPOND: 1 answer a night. Drag it onto the target, or let it ride.',
   tap: 'TAP as the ring closes on the target for a bonus.',
   done: 'That is the whole watch: scan, place, respond.',
 } as const
@@ -51,7 +51,7 @@ export const pulsesLeft = (left: number, of: number) => `${left} of ${of} pulse$
 export const scanButton = (left: number) => `SCAN IT · 1 PULSE (${left} LEFT)`
 export const NO_PULSES = 'No pulses left tonight'
 export const scanHint = (tracks: number, sigs: number) =>
-  `${sigs} signature${sigs === 1 ? '' : 's'} on ${tracks} track${tracks === 1 ? '' : 's'} tonight. ${ADVERSARY} plays 1 move a track.`
+  tracks === 1 ? `${ADVERSARY} makes 1 move tonight: 1 of the ${sigs} signature${sigs === 1 ? '' : 's'} over the fleet.` : `${ADVERSARY} makes ${tracks} moves tonight, 1 from each track: ${sigs} signatures over the fleet.`
 export const UNKNOWN_LEAD = 'Unidentified signature'
 export const unknownBody = (n: number) => (n > 1 ? `1 of ${n} moves this track could play tonight.` : 'The move this track plays tonight.')
 export const KNOW_THE_LOOK = 'Know the look? Every card you file in the Dossier shows its signature.'
@@ -60,9 +60,11 @@ export const FAVOR = {
   confirmed: 'CONFIRMED: this move is coming.',
   likely: `${ADVERSARY} favors this move tonight.`,
   either: `${ADVERSARY} may play this or another on this track.`,
-  unlikely: 'Your defenses cover this one. Expect another move on this track.',
+  unlikely: 'Your defenses take more off this one, so expect another move on this track.',
 } as const
-export const FAVOR_TAG = { confirmed: 'CONFIRMED', likely: 'LIKELY', either: 'POSSIBLE', unlikely: 'COVERED' } as const
+export const FAVOR_STOPPED = 'Your defenses stop this one. Expect another move on this track.'
+export const DEBRIS_NOTE = 'Confirmed, and not an attack: debris on a crossing orbit. The call, burn or hold, is yours in the night.'
+export const FAVOR_TAG = { confirmed: 'CONFIRMED', likely: 'LIKELY', either: 'POSSIBLE', unlikely: 'NOT FAVORED' } as const
 export const aboutLoss = (d: number) => (d < -0.05 ? `About ${d.toFixed(1)} score if it lands.` : 'Your defenses stop it.')
 export const scannedSay = (name: string) => `Identified: ${name}.`
 export const LOOK = 'SIGNATURE'
@@ -97,12 +99,13 @@ export const ONE_A_NIGHT = '1 new defense a night'
 export const placeOn = (sign: string) => `PLACE ON ${sign}`
 export const PLACED = 'PLACED'
 export const TAKE_BACK = 'TAKE IT BACK'
-export const OWNED = 'IN PLACE'
+export const OWNED = 'IN SERVICE'
+export const PLACE_NOTE = 'A defense covers the whole fleet from the night it is placed. Where it sits is yours to choose.'
 export const cantAfford = (need: number) => `Needs ${need} CR more`
 export const placedSay = (name: string, sign: string) => `${name} placed on ${sign}.`
 export const removedSay = (name: string) => `${name} taken back.`
 export const replaces = (name: string) => `Replaces ${name} tonight.`
-export const dragHint = 'Drag it onto a lit asset, or tap a button below.'
+export const dragHint = 'Drag it onto a lit asset, or tap one of the buttons.'
 export const answersTonight = 'ANSWERS TONIGHT'
 export const nothingKnown = 'Answers nothing you have identified tonight.'
 export const upkeepNote = (n: number) => `${n} CR a night to keep.`
@@ -114,21 +117,35 @@ export const coverageOf = (n: number) => `+${n} coverage`
 // THE STAKES.
 export const AT_STAKE = 'AT STAKE TONIGHT'
 export const upTo = (d: number) => (d < -0.05 ? `up to ${d.toFixed(1)}` : 'nothing')
-export const WORST = 'WORST CASE'
+export const WORST = 'AFTER A BAD NIGHT'
 export const WORST_OK = 'free for answers'
 export const WORST_BAD = 'budget at risk'
 export const worstNote = (n: number) => (n < 0 ? 'A bad night would break the budget.' : 'The budget survives a bad night.')
 export const BEGIN = 'BEGIN THE NIGHT'
 export const BEGIN_AT_RISK = 'BEGIN AT RISK'
 export const RISKY = 'Risky: a bad night would break the budget'
-export const riskLine = (worst: number) => `WORST CASE ${worst} CR. If tonight goes as badly as it can, the budget breaks and the operation ends there. Take an order back, or tap again to begin.`
+export const riskLine = (worst: number) => `After a bad night: ${worst} CR. If tonight goes as badly as it can, the budget breaks and the operation ends there. Take an order back, or tap again to begin.`
 export const orderLine = (defense: string | null, assets: number, scans: number) =>
   [defense ? `${defense} placed` : 'No defense placed', assets ? `${assets} asset${assets === 1 ? '' : 's'} ordered` : '', `${scans} scanned`].filter(Boolean).join(' · ')
 
 // THE NIGHT.
 export const NIGHT_FALLS = 'Night falls over the area of operations.'
 export const pressed = (names: string, d: number) => `${names} ${d.toFixed(1)}`
-export const strikeOf = (n: number, of: number) => `STRIKE ${n} OF ${of}`
+export const strikeOf = (n: number, of: number) => `MOVE ${n} OF ${of}`
+// Why an answer cannot be taken, in the figures the rule reads: its price
+// and the repair it leaves must both fit in what is free.
+export const needs = (need: number, room: number) => `Needs ${need} CR with its repair; ${Math.max(0, room)} CR is free after tonight's bills and the nights ahead`
+export const freeForAnswer = (room: number, budget: number) => `${Math.max(0, room)} CR free for an answer: the budget of ${budget} CR, less tonight's bills and what the nights ahead need.`
+export const moreToCome = (n: number) => (n > 0 ? `${n} more move${n === 1 ? '' : 's'} to come tonight, and 1 answer between them.` : '')
+export const ANSWER_USED = 'ANSWER ALREADY USED'
+// A signature that moved when an order changed: COLDVEIL reads the fleet.
+export const REAIMED = 'COLDVEIL re-aims as your orders change: a signature moved.'
+// How long a condition has to run, on the pill under an asset.
+export const nightsLeft = (n: number) => (n <= 0 ? 'TONIGHT' : `${n} NIGHT${n === 1 ? '' : 'S'}`)
+export const RISK_MARK = 'Could break the budget after a bad night'
+export const CHOOSE_UNLOCK = 'Change the look in SYSTEM, the menu at the top left.'
+export const WHAT_HAPPENED = 'WHAT HAPPENED'
+export const CONDITION_NOTE = 'It presses the score each night it stays.'
 export const DRAG_ANSWER = 'Drag an answer onto the target, or tap it.'
 export const GESTURE = {
   reroute: 'Drag the target’s link to another asset',
@@ -141,10 +158,10 @@ export const TAP_HINT = 'Tap as the ring closes'
 export const ASSIST_ON = 'ASSIST: braced for you'
 export const WHY_HELD = 'WHY IT HELD'
 export const WHY_RESPONSE = 'WHAT YOU DID'
-export const NEXT_STRIKE = 'NEXT STRIKE'
+export const NEXT_STRIKE = 'NEXT MOVE'
 export const SEE_DAWN = 'SEE THE DAWN'
 export const GOOD_NEWS = 'GOOD NEWS'
-export const alliedLine = (n: number) => `An allied tracking feed identifies every signature for the next ${n} nights.`
+export const alliedLine = (n: number) => (n <= 0 ? 'An allied tracking feed comes on line as the operation ends.' : n === 1 ? 'An allied tracking feed identifies every signature tomorrow night.' : `An allied tracking feed identifies every signature for the next ${n} nights.`)
 export const CHAIN = 'BLACKOUT CHAIN'
 export const CHAIN_LINE = `${ADVERSARY}'s signature move: jam GNSS, then fool the only sensor left.`
 
@@ -155,7 +172,10 @@ export const BURN_DRAG = 'Drag the satellite along its orbit to burn, or choose 
 // DAWN.
 export const dawnOf = (n: number) => `DAWN · NIGHT ${n}`
 export const CLEAN = 'A CLEAN NIGHT'
-export const stoppedOf = (n: number, of: number) => `${n} OF ${of} STOPPED`
+export const stoppedOf = (n: number, of: number, halved = 0) => `${n} OF ${of} STOPPED${halved ? ` · ${halved} HALVED` : ''}`
+export const STRIP_LEGEND = 'A night a square: green held, amber slipped, red fell 3 or more or lost an asset.'
+export const SAVE_CODE_NOTE = 'A save code is this operation as text. Paste it into SYSTEM on the title, on any device, to read this debrief again.'
+export const CHART = { you: 'you', ghost: 'ghost', line: 'win line' } as const
 export const tonight = (d: number) => (Math.abs(d) < 0.05 ? 'held through the night' : `${d > 0 ? '+' : ''}${d.toFixed(1)} tonight`)
 export const toLine = (score: number, line: number) => (score >= line ? `${(score - line).toFixed(1)} above the win line` : `${(line - score).toFixed(1)} under the win line`)
 export const arrived = (signs: string) => `${signs} on station.`
@@ -180,7 +200,7 @@ export const TIME = 'TIME'
 export const PRACTICE_DAILY = 'A practice run: today already has its official result.'
 export const OFFICIAL_DAILY = 'This is today’s official result.'
 export const UNLOCKED = 'EARNED'
-export const ghostLead = { change: 'The ghost run is this game with that 1 change.', coach: 'The ghost run is a careful watch on the same nights.' } as const
+export const ghostLead = { change: 'The ghost is this game played again with what NEXT TIME says.', coach: 'The ghost is a careful watch on the same nights.' } as const
 
 // THE AFTER-ACTION REPLAY.
 export const YOU = 'YOU'
@@ -200,7 +220,7 @@ export const UNFILED = 'UNFILED'
 export const UNFILED_LINE = 'Face this move in play to file it. Its signature is shown so you know it when you see it.'
 export const hitYou = (n: number, sign: string) => `Hit you ${n} time${n === 1 ? '' : 's'}${sign ? `, last on ${sign}` : ''}.`
 export const blockedIt = (n: number) => `Blocked ${n} time${n === 1 ? '' : 's'}.`
-export const NOT_MET = 'Not met in the 3D game on this device yet.'
+export const NOT_MET = 'No hit or block on this device’s record yet.'
 export const SOURCES = 'SOURCES'
 export const LEARN_MORE = 'LEARN MORE'
 export const READINGS = 'OPEN THE READING LIST'

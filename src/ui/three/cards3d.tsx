@@ -11,7 +11,7 @@ import type { Asset, AssetKind, CountermeasureId, DebrisChoice, GameState } from
 import { COVERAGE_PER_KIND } from '../../engine/scoring'
 import { shortName, stopVerb, stoppedByLine } from '../board/boardModel'
 import { kindLabels, techniqueLabel } from '../labels'
-import { opportunityLines, type callTerms } from '../night/closeModel'
+import { opportunityLines, scoreRows, type callTerms } from '../night/closeModel'
 import * as copy from '../night/nightCopy'
 import { defensesFor, exposedOf, type Night, type NightStep } from '../night/nightModel'
 import * as c3 from './copy3d'
@@ -24,6 +24,8 @@ const tenth = (n: number) => Math.round(n * 10) / 10
 const signed = (n: number) => `${n > 0 ? '+' : ''}${n.toFixed(1)}`
 const joined = (parts: readonly string[]) => parts.join('')
 const verbWord = (v: 'stops' | 'blunts' | 'answers') => (v === 'stops' ? 'Stops' : v === 'blunts' ? 'Blunts' : 'Answers')
+// The night's words say "turn" (the pixel board's); the 3D game says "night".
+const nightly = (s: string) => s.replace(/\bTURNS\b/g, 'NIGHTS').replace(/\bTURN\b/g, 'NIGHT').replace(/\bturns\b/g, 'nights').replace(/\bturn\b/g, 'night')
 
 const Close = ({ onClose }: { onClose: () => void }) => (
   <button type="button" className="t3-round t3-small" aria-label="Close" data-t3-close onClick={onClose}>
@@ -42,6 +44,10 @@ type StartDrag = (e: ReactPointerEvent<HTMLElement>, id: string, label: string) 
 export function Tray({ kit, fleetOrdered, selected, onPick, onFleet, startDrag }: { kit: KitPiece[]; fleetOrdered: number; selected: CountermeasureId | 'fleet' | null; onPick: (id: CountermeasureId) => void; onFleet: () => void; startDrag: StartDrag }) {
   return (
     <div className="t3-tray" role="group" aria-label={`${c3.KIT}. ${c3.ONE_A_NIGHT}.`} data-t3-tray>
+      <button type="button" data-t3-fleet aria-pressed={selected === 'fleet'} aria-label={`${c3.FLEET}. Order new assets.${fleetOrdered ? ` ${fleetOrdered} ordered.` : ''}`} className={`t3-piece t3-piece-fleet${selected === 'fleet' ? ' is-on' : ''}${fleetOrdered ? ' is-ordered' : ''}`} onClick={onFleet}>
+        <b>{c3.FLEET}</b>
+        <span>{fleetOrdered ? `${fleetOrdered} ${c3.ORDERED}` : '+ assets'}</span>
+      </button>
       {kit.map((p) => {
         const hot = p.answers.some((a) => a.contact.favor !== 'unlikely' && a.contact.exposed > 0)
         const state = p.blocked === 'owned' ? c3.OWNED : p.ordered ? c3.PLACED : `${p.cm.cost} CR`
@@ -57,6 +63,7 @@ export function Tray({ kit, fleetOrdered, selected, onPick, onFleet, startDrag }
             data-risky={p.risky || undefined}
             className={`t3-piece${p.ordered ? ' is-ordered' : ''}${p.blocked ? ` is-${p.blocked}` : ''}${hot && !p.blocked ? ' is-hot' : ''}${p.risky && !p.ordered ? ' is-risky' : ''}${selected === p.cm.id ? ' is-on' : ''}`}
             onPointerDown={p.blocked ? undefined : (e) => startDrag(e, p.cm.id, PIECE[p.cm.id])}
+            title={p.risky && !p.ordered ? c3.RISK_MARK : undefined}
             onClick={() => onPick(p.cm.id)}
           >
             <b>{PIECE[p.cm.id]}</b>
@@ -64,10 +71,6 @@ export function Tray({ kit, fleetOrdered, selected, onPick, onFleet, startDrag }
           </button>
         )
       })}
-      <button type="button" data-t3-fleet aria-pressed={selected === 'fleet'} aria-label={`${c3.FLEET}. Order new assets.${fleetOrdered ? ` ${fleetOrdered} ordered.` : ''}`} className={`t3-piece t3-piece-fleet${selected === 'fleet' ? ' is-on' : ''}${fleetOrdered ? ' is-ordered' : ''}`} onClick={onFleet}>
-        <b>{c3.FLEET}</b>
-        <span>{fleetOrdered ? `${fleetOrdered} ${c3.ORDERED}` : '+ assets'}</span>
-      </button>
     </div>
   )
 }
@@ -149,14 +152,14 @@ export function ContactCard({
             {filed ? '' : ' · NEW'}
           </p>
           <h2 className="t3-title">
-            {shortName(def)} <i className="t3-bad">{dots(contact.strength)}</i>
+            {shortName(def)} {!contact.debris && <i className="t3-bad">{dots(contact.strength)}</i>}
           </h2>
         </div>
         <Close onClose={onClose} />
       </div>
       <p className="t3-hook">{copy.HOOK[def.id] ?? def.name}.</p>
       <p className="t3-fav" data-t3-favor>
-        {contact.debris ? c3.FAVOR.confirmed : `${c3.FAVOR[contact.favor]} ${contact.favor === 'unlikely' ? '' : c3.aboutLoss(contact.loss)}`}
+        {contact.debris ? c3.DEBRIS_NOTE : contact.favor === 'unlikely' ? (contact.exposed === 0 ? c3.FAVOR_STOPPED : c3.FAVOR.unlikely) : `${c3.FAVOR[contact.favor]} ${c3.aboutLoss(contact.loss)}`}
       </p>
       {answers.map((a) => {
         const lockedBy = !a.ordered && !a.owned && locked ? ` · ${c3.replaces(locked)}` : ''
@@ -223,7 +226,7 @@ export function PieceCard({ piece, targets, locked, upkeep, onPlace, onRemove, o
             ))}
           </div>
           <p className="t3-hint">
-            {c3.dragHint}
+            {c3.PLACE_NOTE} {c3.dragHint}
             {locked ? ` ${c3.replaces(locked)}` : ''}
           </p>
         </>
@@ -246,7 +249,7 @@ export function AssetCard({ asset, sign, contacts, conditions, modules, onContac
       </div>
       {conditions.map((c) => (
         <p key={c.name} className="t3-fav t3-warn">
-          {copy.conditionTag(c.name, c.left)}
+          {nightly(copy.conditionTag(c.name, c.left))}. {c3.CONDITION_NOTE}
         </p>
       ))}
       {modules.length > 0 && <p className="t3-fav t3-ok">{`${c3.OWNED}: ${modules.join(', ')}.`}</p>}
@@ -301,6 +304,7 @@ export function ChoiceCard({
   sign,
   credits,
   chain,
+  more,
   first,
   onRespond,
   startDrag,
@@ -310,6 +314,8 @@ export function ChoiceCard({
   sign: string
   credits: number
   chain: boolean
+  // The moves still to come tonight after this one.
+  more: number
   first: RefObject<HTMLButtonElement | null>
   onRespond: (id: string | null) => void
   startDrag: StartDrag
@@ -324,7 +330,7 @@ export function ChoiceCard({
         <SignatureGlyph id={def.id} size={44} className="t3-glyph-big" />
         <div className="t3-grow">
           <p className="t3-eyebrow t3-bad">
-            INCOMING · {sign} <span className="t3-right">{copy.ONE_A_NIGHT}</span>
+            INCOMING · {sign} <span className="t3-right">1 ANSWER A NIGHT</span>
           </p>
           <h2 className="t3-title">
             {shortName(def)} <i className="t3-bad">{dots(strength)}</i>
@@ -333,13 +339,13 @@ export function ChoiceCard({
       </div>
       <p className="t3-hook">
         {chain ? `${copy.CHAIN_ADDS}. ` : ''}
-        {copy.exposedLine(strength, exposed, held?.name)}
+        {copy.exposedLine(strength, exposed, held ? `Your ${PIECE[held.id]}` : undefined)}
       </p>
       <div role="group" aria-label={copy.YOUR_RESPONSE} className="t3-choices">
         {choices.map((c, k) => {
           const label = c.id ? (RESPONSE_TEXT[def.id]?.[c.id] ?? c.id) : copy.RIDE_IT_OUT
           const effect = c.fits ? copy.effectLine(c.effect, c.score, c.repair) : copy.EFFECT_WORD[c.effect]
-          const why = c.fits ? '' : c.why === 'used' ? copy.ALREADY_ANSWERED : copy.cannotAfford(ev.room ?? 0)
+          const why = c.fits ? '' : c.why === 'used' ? copy.ALREADY_ANSWERED : c3.needs(c.need, ev.room ?? 0)
           const cost = c.id ? copy.crFace(c.cost) : copy.FREE
           const how = c.gesture && c.fits ? ` ${c3.GESTURE[c.gesture]}, or tap.` : ''
           return (
@@ -372,7 +378,7 @@ export function ChoiceCard({
         })}
       </div>
       <p className="t3-foot" data-t3-response-budget>
-        {copy.budgetNow(credits)} · {c3.DRAG_ANSWER}
+        {c3.freeForAnswer(ev.room ?? 0, credits)} {c3.moreToCome(more)}
       </p>
     </div>
   )
@@ -425,11 +431,14 @@ export function ResultCard({
   last,
   first,
   could,
+  assist,
   onContinue,
 }: {
   step: NightStep
   sign: string
   signs: Map<string, string>
+  // The tap was granted, not made: its line says ASSIST.
+  assist: boolean
   fresh: boolean
   filed: { n: number; total: number } | null
   open: boolean
@@ -443,7 +452,7 @@ export function ResultCard({
   const next = last ? c3.SEE_DAWN : c3.NEXT_STRIKE
   if (step.kind === 'opportunity') {
     const turns = def.benefit?.briefTurns
-    const lines = opportunityLines(step, signs).map((l) => (turns && l === copy.briefFreeLine(turns) ? c3.alliedLine(turns) : l))
+    const lines = opportunityLines(step, signs).map((l) => (turns && l === copy.briefFreeLine(turns) ? c3.alliedLine(Math.min(turns, step.before.scenario.totalTurns - step.before.turn)) : nightly(l)))
     return (
       <div className="t3-card" key={`res-${step.index}`} data-t3-card="windfall">
         <p className="t3-eyebrow t3-ok">{c3.GOOD_NEWS}</p>
@@ -461,7 +470,7 @@ export function ResultCard({
   }
   const scenario = step.after.scenario
   const dossierFold = (
-    <DossierFold step={step} sign={sign} fresh={fresh} open={open} onOpen={onOpen} />
+    <DossierFold step={step} fresh={fresh} open={open} onOpen={onOpen} />
   )
   const way = filed ? (
     <p className="t3-stamp" role="status" data-t3-filed>
@@ -487,7 +496,7 @@ export function ResultCard({
           <span>{copy.debrisTitle(d.lost, d.choice)}</span>
           <span className="t3-right">{copy.youChose(d.choice)}</span>
         </div>
-        <p className="t3-helped">{copy.debrisText({ choice: d.choice, lost: d.lost, sat: sign || undefined })}</p>
+        <p className="t3-helped">{nightly(copy.debrisText({ choice: d.choice, lost: d.lost, sat: sign || undefined }))}</p>
         <p className="t3-tagsline">
           {d.fuel > 0 && <span>{copy.fuelNow(d.fuel)}</span>}
           {ev.repairCost > 0 && <span className="t3-warn">{copy.reviewQueued(ev.repairCost)}</span>}
@@ -502,10 +511,13 @@ export function ResultCard({
   const delta = tenth(step.scoreAfter - step.scoreBefore)
   const { held, missing, partner } = defensesFor(def, step.after.counters, scenario)
   const officer = copy.officerFor(step, sign || undefined)
-  const helped = missing ? joined(ev.response ? copy.lastingAnswer(missing.name, missing.cost) : held ? copy.finishedIt(missing.name, missing.cost) : copy.wouldHaveHelped(missing.name, missing.cost)) : ''
+  // The piece by the name on its piece; the formal name is on its card.
+  const piece = missing ? PIECE[missing.id] : ''
+  const helped = missing ? joined(ev.response ? copy.lastingAnswer(piece, missing.cost) : held ? copy.finishedIt(piece, missing.cost) : copy.wouldHaveHelped(piece, missing.cost)) : ''
   const stops = missing && !held ? ` It ${stopVerb(missing.id, def) === 'stops' ? 'stops' : 'blunts'} ${shortName(def)} every night.` : ''
   const byDefense = verdict === 'blocked' && blockedBy(ev) === 'defense' && held
-  const tap = tapLine(ev)
+  const tap = tapLine(ev, assist)
+  const used = ev.room !== undefined && !ev.response && (ev.answered ?? 0) > 0
   return (
     <div className={`t3-card t3-result-${verdict}`} key={`res-${step.index}`} data-t3-card="result" data-t3-verdict={verdict}>
       <div className="t3-verdict">
@@ -521,7 +533,7 @@ export function ResultCard({
         {ev.response ? (
           <span data-t3-took={ev.response.id}>{copy.youDid(RESPONSE_TEXT[def.id]?.[ev.response.id] ?? ev.response.id, ev.response.cost)}</span>
         ) : ev.room !== undefined ? (
-          <span data-t3-took="ride">{copy.RODE_OUT}</span>
+          <span data-t3-took={used ? 'used' : 'ride'}>{used ? c3.ANSWER_USED : copy.RODE_OUT}</span>
         ) : null}
         {tap && (
           <span className="t3-ok" data-t3-tapline>
@@ -529,9 +541,19 @@ export function ResultCard({
           </span>
         )}
         {ev.repairCost > 0 && <span>{copy.repairTag(ev.repairCost, ev.integrityAfter !== undefined)}</span>}
-        {ev.condition && <span className="t3-warn">{copy.conditionTag(ev.condition.name, Math.max(0, ev.condition.turns - 1))}</span>}
+        {ev.condition && <span className="t3-warn">{nightly(copy.conditionTag(ev.condition.name, Math.max(0, ev.condition.turns - 1)))}</span>}
         {verdict === 'blocked' && step.streak >= 2 && <span className="t3-ok">{copy.streakLine(step.streak)}</span>}
       </p>
+      {/* What happened, when it got through: the watch officer's own report. */}
+      {verdict !== 'blocked' && officer && !officer.held && (
+        <div className="t3-why t3-what" data-t3-what>
+          <SignatureGlyph id={def.id} size={44} />
+          <p>
+            <span>{c3.WHAT_HAPPENED}</span>
+            {officer.line}
+          </p>
+        </div>
+      )}
       {/* Why it held: the defense's own report, with the mark of how. */}
       {byDefense && held && officer?.held && (
         <div className="t3-why" data-t3-why>
@@ -554,13 +576,12 @@ export function ResultCard({
 }
 
 // The Dossier card's headline on a result, with the whole card one tap in.
-function DossierFold({ step, sign, fresh, open, onOpen }: { step: NightStep; sign: string; fresh: boolean; open: boolean; onOpen: () => void }) {
+function DossierFold({ step, fresh, open, onOpen }: { step: NightStep; fresh: boolean; open: boolean; onOpen: () => void }) {
   const { def } = step
   const scenario = step.after.scenario
   const ref = def.techniqueRefs[0]
   const source = def.learnMoreCards[0]?.sources[0]
   const stopped = stoppedByLine(def, scenario)
-  const officer = step.kind === 'threat' ? copy.officerFor(step, sign || undefined) : null
   return (
     <div className={`t3-dossier${fresh ? ' is-fresh' : ''}`} data-t3-dossier={def.id}>
       <button type="button" className="t3-dossier-head" aria-expanded={open} onClick={onOpen}>
@@ -573,11 +594,6 @@ function DossierFold({ step, sign, fresh, open, onOpen }: { step: NightStep; sig
       </button>
       {open && (
         <div className="t3-dossier-body">
-          {officer && !officer.held && (
-            <p className="t3-officer">
-              <span>{copy.officerLabel(officer.clock)}</span> {officer.line}
-            </p>
-          )}
           <p>{def.blurb}</p>
           <dl>
             {ref && (
@@ -612,7 +628,7 @@ export function StrikeBanner({ step, sign, landing, tapOn, assist, chain, used, 
         <SignatureGlyph id={step.def.id} size={28} /> <b>{shortName(step.def)}</b> on {sign || 'the fleet'}
       </p>
       {chain && !landing && <p className="t3-hint">{c3.CHAIN_LINE}</p>}
-      {landing && used && <p className="t3-hint">{copy.ALREADY_ANSWERED}.</p>}
+      {used && <p className="t3-hint t3-warn">{copy.ALREADY_ANSWERED}.</p>}
       {landing &&
         (tapOn ? (
           <button type="button" data-t3-tap className="t3-tap" aria-label={`${c3.TAP}. ${c3.TAP_HINT}.`} onPointerDown={onTap} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onTap()}>
@@ -655,10 +671,11 @@ export function DawnCard({
   const over = after.status !== 'playing'
   const threats = night.steps.filter((s) => s.kind === 'threat')
   const stopped = threats.filter((s) => s.ev.effectiveSeverity === 0).length
+  const halved = threats.filter((s) => s.ev.response?.effect === 'halve').length
   const l = rec.ledger
   const worst = threats.filter((s) => s.ev.effectiveSeverity > 0).sort((a, b) => a.scoreAfter - a.scoreBefore - (b.scoreAfter - b.scoreBefore))[0]
   const missing = worst ? defensesFor(worst.def, after.counters, after.scenario).missing : undefined
-  const fix = !worst ? copy.NOTHING_THROUGH : missing ? joined(copy.fixDefense(missing.name, missing.cost, shortName(worst.def), stopVerb(missing.id, worst.def) === 'stops' ? 'stops' : 'blunts')) : copy.fixRespond(shortName(worst.def))
+  const fix = !worst ? copy.NOTHING_THROUGH : missing ? joined(copy.fixDefense(PIECE[missing.id], missing.cost, shortName(worst.def), stopVerb(missing.id, worst.def) === 'stops' ? 'stops' : 'blunts')) : copy.fixRespond(shortName(worst.def))
   const parts = [
     l.ordered ? `Orders -${l.ordered}` : '',
     l.fuel ? `Fuel -${l.fuel}` : '',
@@ -675,11 +692,11 @@ export function DawnCard({
   return (
     <div className="t3-card t3-dawn" key={`dawn-${rec.turn}`} data-t3-card="dawn">
       <p className={`t3-eyebrow ${threats.length && stopped === threats.length ? 't3-ok' : 't3-warn'}`}>
-        {c3.dawnOf(rec.turn)} · {threats.length === 0 ? 'A QUIET NIGHT' : stopped === threats.length ? c3.CLEAN : c3.stoppedOf(stopped, threats.length)}
+        {c3.dawnOf(rec.turn)} · {threats.length === 0 ? 'A QUIET NIGHT' : stopped === threats.length ? c3.CLEAN : c3.stoppedOf(stopped, threats.length, halved)}
       </p>
       {ending && (
         <p className={`t3-ending ${after.status === 'won' ? 't3-ok' : 't3-bad'}`} data-t3-ending>
-          <b>{ending.head}</b> {l.insolvent ? copy.INSOLVENT_LINE : ending.line(after.status === 'won' ? rec.turn : after.lossReason === 'maiCollapse' ? before.scenario.collapseThreshold : line)}
+          <b>{ending.head}</b> {nightly(l.insolvent ? copy.INSOLVENT_LINE : ending.line(after.status === 'won' ? rec.turn : after.lossReason === 'maiCollapse' ? before.scenario.collapseThreshold : line))}
         </p>
       )}
       <p className="t3-ledger" data-t3-scoreline>
@@ -687,6 +704,8 @@ export function DawnCard({
         <small>
           {Math.abs(to - from) < 0.05 ? 'Held through the night.' : `${signed(tenth(to - from))} tonight.`} {c3.toLine(to, line)}.
         </small>
+        {/* What made the change, so a night's net is never a number no line explains. */}
+        <small data-t3-scoreparts>{copy.scoreParts(scoreRows(night).filter((r) => r.key !== 'from' && r.key !== 'to'))}</small>
       </p>
       {!over && (
         <p className="t3-helped">
@@ -697,12 +716,12 @@ export function DawnCard({
       <p className="t3-ledger" data-t3-ledger>
         Budget {l.start} CR → {l.after} CR<small>{parts.join(' · ')}</small>
       </p>
-      {(arrivals.length > 0 || after.conditions.length > 0) && (
+      {(arrivals.length > 0 || (after.status === 'playing' && after.conditions.length > 0)) && (
         <p className="t3-tagsline">
           {arrivals.length > 0 && <span className="t3-ok">{c3.arrived(arrivals.join(', '))}</span>}
-          {after.conditions.map((c) => (
+          {(after.status === 'playing' ? after.conditions : []).map((c) => (
             <span key={c.instanceId} className="t3-warn">
-              {copy.conditionTag(c.name, c.remainingTurns)}
+              {nightly(copy.conditionTag(c.name, c.remainingTurns))}
             </span>
           ))}
         </p>

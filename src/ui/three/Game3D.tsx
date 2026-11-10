@@ -49,6 +49,7 @@ import {
   defenseDef,
   fleetFor,
   gradeTap,
+  tapMatters,
   kitFor,
   nightNow,
   scanState,
@@ -341,12 +342,19 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           bestCost = c
         }
       })
-      taken.push(boxAt(spots[best] ?? spots[0]))
-      chipAt.current.set(a.key, { dx: (spots[best] ?? spots[0])[0], dy: (spots[best] ?? spots[0])[1], w, h })
-      if (chips.dataset.spot !== String(best) || chips.dataset.w !== String(w)) {
-        chips.dataset.spot = String(best)
-        chips.dataset.w = String(w)
-        chips.style.transform = `translate(${spots[best][0].toFixed(0)}px, ${spots[best][1].toFixed(0)}px)`
+      // Wherever it stands, the whole block stays on the screen, under the
+      // top bar and over the cards: a signature is never cut by an edge or
+      // hidden under the card it belongs to.
+      const [sx, sy] = spots[best] ?? spots[0]
+      const dx = Math.round(Math.max(4, Math.min(right - 4 - w, a.x + sx)) - a.x)
+      const dy = Math.round(Math.max(top + 2, Math.min(floor - 4 - h, a.y + sy)) - a.y)
+      taken.push([a.x + dx, a.y + dy, a.x + dx + w, a.y + dy + h])
+      chipAt.current.set(a.key, { dx, dy, w, h })
+      const mark = `${dx},${dy}`
+      chips.dataset.spot = String(best)
+      if (chips.dataset.at !== mark) {
+        chips.dataset.at = mark
+        chips.style.transform = `translate(${dx}px, ${dy}px)`
       }
     })
   }, [])
@@ -360,6 +368,12 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         canvas,
         (key, x, y, on) => {
           const el = tags.current.get(key)
+          // COLDVEIL's name stays on the screen and clear of the top bar,
+          // wherever the camera has put its ship.
+          if (key === 'coldveil') {
+            x = Math.max(62, Math.min(innerWidth - 62, x))
+            y = Math.max(52, y)
+          }
           if (el) {
             el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`
             el.style.visibility = on ? 'visible' : 'hidden'
@@ -483,7 +497,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
 
   // What stands on the board the world shows: integrity, losses, the
   // conditions on links and assets, the streak's ring.
-  const board = phase === 'night' || phase === 'dawn' ? shown : game
+  const [replayBoard, setReplayBoard] = useState<GameState | null>(null)
+  const board = phase === 'replay' && replayBoard ? replayBoard : phase === 'night' || phase === 'dawn' ? shown : game
   useEffect(() => {
     const t = world.current
     if (!t || phase === 'replay') return
@@ -634,8 +649,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     recordMet(record.events.map((e) => e.eventId))
     recordNamed(record.named)
     const names = callSigns(before)
-    logNight(night.steps.filter((s) => s.kind === 'threat').map((s) => ({ eventId: s.def.id, landed: s.ev.effectiveSeverity > 0, sign: names.get(s.ev.targetAssetId ?? '') ?? '' })))
+    logNight(night.steps.filter((s) => s.kind !== 'opportunity').map((s) => ({ eventId: s.def.id, landed: s.kind === 'debris' ? !!s.ev.debris?.lost : s.ev.effectiveSeverity > 0, sign: names.get(s.ev.targetAssetId ?? '') ?? '' })))
     clearNight()
+    setFloaters([])
     setLast({ before, night, after })
     setShown(after)
     setGame(after)
@@ -714,7 +730,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     play('buy-click')
     // COLDVEIL reacts to what is placed: say so when a track's favor moves.
     const moved = after.find((c) => c.favor === 'likely' && before.find((b) => b.id === c.id)?.favor !== 'likely' && before.some((b) => b.slot === c.slot && b.favor === 'likely'))
-    setNote(moved ? `${c3.trackOf(moved.slot + 1, tracks)}: COLDVEIL reroutes to ${moved.known ? shortName(moved.def) : 'an unidentified move'}. ${TONIGHT_REASON}` : '')
+    const reaimed = after.some((c) => !c.debris && before.find((b) => b.id === c.id)?.targetId !== c.targetId)
+    setNote(moved ? `${c3.trackOf(moved.slot + 1, tracks)}: COLDVEIL reroutes to ${moved.known ? shortName(moved.def) : 'an unidentified move'}. ${TONIGHT_REASON}` : reaimed ? c3.REAIMED : '')
     setSay(c3.placedSay(cm.name, signs.get(where ?? '') ?? 'the fleet'))
     if (guide === 'place' || guide === 'scan') setGuide('begin')
   }
@@ -724,7 +741,10 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const has = orders.assets.includes(kind)
     if (!has && !fleet.find((f) => f.kind === kind)?.fits) return play('denied-buzz')
     play('buy-click')
-    setOrders({ ...orders, assets: has ? orders.assets.filter((k) => k !== kind) : [...orders.assets, kind] })
+    const next = { ...orders, assets: has ? orders.assets.filter((k) => k !== kind) : [...orders.assets, kind] }
+    const after = contactsFor(game, next)
+    if (after.some((c) => !c.debris && contacts.find((b) => b.id === c.id)?.targetId !== c.targetId)) setNote(c3.REAIMED)
+    setOrders(next)
   }
 
   const begin = () => {
@@ -865,22 +885,29 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           setHud((h) => ({ ...h, credits: h.credits - (s.ev.response?.cost ?? 0) }))
           await t.wait(reduced ? 0.2 : 0.45)
           if (!live) return
-        } else if (verdict === 'blocked') t.setShield(target, 'defense')
-        const ring = !assist
+        } else if (verdict === 'blocked') {
+          t.setShield(target, 'defense')
+          shielded.current.add(target)
+        }
+        // The ring is offered only where a tap can do something: on a move
+        // that lands, or one a response blocks. A move a defense holds has
+        // nothing for it to improve, and asks for no tap.
+        const matters = tapMatters(s.ev)
+        const ring = !assist && matters
         setTapOpen(ring)
         if (ring) setGuide((gd) => (gd === 'respond' || (gd === null && !readPrefs().guideSeen && g.turn === 1) ? 'tap' : gd))
         await t.approach(ring)
         if (!live) return
         const impact: Impact = verdict === 'blocked' ? 'blocked' : verdict === 'hit' ? 'hit' : 'halved'
         const landing = t.land(impact, 0.1)
-        const grade: TimingGrade | 0 = assist ? ASSIST_GRADE : gradeTap(await t.tapOffset())
+        const grade: TimingGrade | 0 = !matters ? 0 : assist ? ASSIST_GRADE : gradeTap(await t.tapOffset())
         await landing
         if (!live) return
         setTapOpen(false)
         t.tapFx(target, grade)
         if (grade) {
           play(grade === 2 ? 'relief-chime' : 'tick-up')
-          if (!assist) float(target, grade === 2 ? 'PERFECT' : 'GOOD', 'timed')
+          if (!assist) float(target, grade === 2 ? 'PERFECT TAP' : 'GOOD TAP', 'timed')
         }
         answer(withTiming(inputsRef.current, stage.i, grade))
         setStage({ at: 'impact', i: stage.i })
@@ -909,6 +936,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         if (!live) return
         if (ev.condition) play(CONDITION_CUES[ev.eventId]?.sound ?? MOMENT_CUES.condition.sound)
         else if (verdict === 'blocked' && s.streak >= 2) play(MOMENT_CUES.streak.sound)
+        // The guide's line for the move is over with the move.
+        setGuide((gd) => (gd === 'tap' || gd === 'respond' ? null : gd))
         setStage({ at: 'result', i: stage.i })
       }
     }
@@ -954,6 +983,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const onward = (collect: boolean) => {
     if (phase !== 'night' || stage.at !== 'result' || filed || !now) return
     const i = stage.i
+    // The word the last move ended on goes with it.
+    setFloaters([])
     const next = () => setStage({ at: 'launch', i: i + 1 })
     if (collect && step) {
       fileCard(step.def.id)
@@ -1025,11 +1056,12 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     setEarned([])
     setFloaters([])
     setPlaced({})
+    setReplayBoard(null)
     setHud({ score: maiScore(op.state), credits: op.state.credits })
     setPhase('plan')
     const t = world.current
     if (t) {
-      for (const id of shielded.current) t.setShield(id, null)
+      t.clearAllShields()
       shielded.current = new Set()
       t.setBlackout(false)
       t.clearSignatures()
@@ -1348,7 +1380,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
                   {!lost && hurt && phase !== 'plan' && <b>{asset.integrity}%</b>}
                   {cond.map((c) => (
                     <em key={c.eventId} className="t3-cond">
-                      {c.name} {c.left}
+                      {c.name} · {c3.nightsLeft(phase === 'night' ? c.left - 1 : c.left)}
                     </em>
                   ))}
                 </span>
@@ -1377,7 +1409,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
                       <SignatureGlyph id={c.id} size={30} named={c.known} />
                       {c.known ? (
                         <span>
-                          {c3.TAG[c.id] ?? shortName(c.def)} <i>{dots(c.strength)}</i>
+                          {c3.TAG[c.id] ?? shortName(c.def)} {!c.debris && <i>{dots(c.strength)}</i>}
                         </span>
                       ) : (
                         <span className="t3-q">?</span>
@@ -1411,10 +1443,10 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           </svg>
         </button>
         <div className="t3-where">
-          <b data-t3-night>{mode === 'briefing' ? 'DARK CONSTELLATION' : `${daily ? `${c3.dailyTag(daily.n)} · ` : ''}${c3.nightOf(turnShown, totalTurns)}`}</b>
-          <span data-t3-phaseline>{phaseLine}</span>
+          <b data-t3-night>{mode === 'briefing' ? 'DARK CONSTELLATION' : phase === 'replay' ? c3.PHASE.replay : `${daily ? `${c3.dailyTag(daily.n)} · ` : ''}${c3.nightOf(turnShown, totalTurns)}`}</b>
+          <span data-t3-phaseline>{phase === 'replay' ? '' : phaseLine}</span>
         </div>
-        {phase !== 'opening' && (
+        {phase !== 'opening' && phase !== 'replay' && (
           <div className="t3-meters">
             <div className={`t3-meter t3-meter-score${phase === 'dawn' ? ' is-big' : ''}${hud.score < line ? ' is-under' : ''}`} data-t3-score aria-label={`Mission assurance score ${hud.score.toFixed(1)}. ${c3.winLine(line)}.`}>
               <span>{c3.SCORE}</span>
@@ -1492,7 +1524,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
               </p>
               <button
                 type="button"
-                className={`t3-lens${scan.left === 0 ? ' is-out' : ''}`}
+                className={`t3-lens${scan.left === 0 || contacts.every((c) => c.known) ? ' is-out' : ''}`}
                 data-t3-lens
                 aria-label={`${c3.SCAN}. ${c3.pulsesLeft(scan.left, scan.pulses)}. Drag it over a signature, or tap a signature.`}
                 onPointerDown={scan.left > 0 ? (e) => startDrag(e, 'scan', 'lens', c3.SCAN) : undefined}
@@ -1621,6 +1653,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             sign={signs.get(step.ev.targetAssetId ?? '') ?? ''}
             credits={step.before.credits}
             chain={step.ev.chainBonus > 0 && chainArmed(step.before)}
+            more={now ? now.night.steps.filter((s) => s.kind === 'threat' && s.index > stage.i).length : 0}
             first={primary}
             onRespond={(id) => {
               if (!swallow.current) respond(id)
@@ -1635,6 +1668,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             step={step}
             sign={signs.get(step.ev.targetAssetId ?? '') ?? ''}
             signs={signs}
+            assist={assist}
             fresh={!filed && step.kind !== 'opportunity' && !dossier().has(step.def.id)}
             filed={filed}
             open={openCard}
@@ -1649,7 +1683,17 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         {phase === 'dawn' && last && <DawnCard before={last.before} night={last.night} after={last.after} signs={callSigns(last.after)} first={primary} onNext={nextTurn} />}
 
         {phase === 'replay' && (
-          <ReplayDock state={game} world={world} reduced={reduced} play={play} onBack={() => setPhase('debrief')} />
+          <ReplayDock
+            state={game}
+            world={world}
+            reduced={reduced}
+            play={play}
+            onShow={setReplayBoard}
+            onBack={() => {
+              setReplayBoard(null)
+              setPhase('debrief')
+            }}
+          />
         )}
       </div>
 

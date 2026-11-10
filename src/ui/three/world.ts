@@ -263,6 +263,12 @@ export class World extends Theater {
     if (on) this.burst(b.pos, 0xffffff, 14, 0.4, 0.4, 0.025)
   }
 
+  // Every shield down, whoever raised it: a replayed night leaves none
+  // standing on the game that follows.
+  clearAllShields(): void {
+    for (const b of this.bodies.values()) if (b.shield) b.shield.want = 0
+  }
+
   clearNight(): void {
     for (const b of this.bodies.values()) {
       b.via = null

@@ -960,6 +960,11 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
 
   protected ring(at: Vector3, color: number, size: number, dur: number): void {
     const r = this.rings.reduce((a, b) => (a.t >= b.t ? a : b))
+    // Reduce Motion: a small, short ring, not a wave across the globe.
+    if (this.reduced) {
+      size *= 0.45
+      dur = Math.min(dur, 0.35)
+    }
     r.mesh.position.copy(at)
     ;(r.mesh.material as MeshBasicMaterial).color.setHex(color)
     r.t = 0

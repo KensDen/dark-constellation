@@ -234,6 +234,9 @@ async function run(b, base, view, plan, log, shots, table) {
     for (let i = 0; i < 4; i += 1) {
       await waitFor(b, `document.querySelector('[data-t3-beat="${i}"]')`)
       await sleep(quick ? 250 : 2600)
+      // The line is typed out: the capture waits for all of it.
+      await waitFor(b, `(document.querySelector('.t3-rest')?.textContent ?? '') === ''`, 9000)
+      await sleep(150)
       await shot(`opening-${i + 1}`, 'the briefing in the world: the watch officer, and the camera on what is said')
       await click(b, '[data-t3-opening-next]')
       await sleep(120)

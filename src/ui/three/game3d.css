@@ -2277,3 +2277,164 @@ a.t3-btn {
   background: var(--dc-ground);
   color: var(--dc-ink, #e6edf3);
 }
+
+/* ------------------------------------------ v2.0 R1, after the reviews */
+/* Cards and rooms read as solid: nothing of the world shows through the
+   words on them. */
+.t3-root {
+  --t3-glass: rgba(9, 14, 25, 0.93);
+}
+.t3-room {
+  background: #060a12;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.t3-debrief {
+  background: linear-gradient(rgba(4, 7, 13, 0.35), rgba(4, 7, 13, 0.97) 26%, #04070d);
+}
+.t3-root[data-t3-phase='debrief'] .t3-tags,
+.t3-root[data-t3-phase='opening'] .t3-tag[data-asset] .t3-contacts {
+  visibility: hidden;
+}
+/* The word a move ends on sits on a plate of its own, over the asset and
+   clear of its label; the tap's word sits over that. */
+.t3-float {
+  top: -62px;
+  padding: 2px 11px 3px;
+  border-radius: 999px;
+  background: rgba(4, 7, 13, 0.86);
+  box-shadow: 0 0 0 1px var(--t3-edge);
+  text-shadow: none;
+  z-index: 3;
+}
+.t3-float.t3-timed {
+  top: -92px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+.t3-cond {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+/* The dossier card inside a result fades at its foot, so a card longer
+   than its window reads as one that scrolls. */
+.t3-dossier-body {
+  max-height: 18vh;
+  padding-bottom: 26px;
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 26px), transparent);
+  mask-image: linear-gradient(#000 calc(100% - 26px), transparent);
+}
+.t3-banner:has(.t3-tap) {
+  border-radius: 24px;
+  padding: 12px 16px;
+}
+.t3-what {
+  background: rgba(255, 90, 79, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 90, 79, 0.32);
+}
+.t3-what span {
+  color: var(--t3-foe);
+}
+.t3-legend {
+  margin-top: -8px;
+  font-size: 11.5px;
+}
+.t3-chartkey {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: -4px 0 0;
+  font-size: 11px;
+  color: var(--t3-dim);
+}
+.t3-chartkey i {
+  display: inline-block;
+  width: 16px;
+  height: 0;
+  margin-left: 8px;
+  border-top: 2px solid var(--t3-go);
+}
+.t3-chartkey i:first-child {
+  margin-left: 0;
+}
+.t3-chartkey i.is-ghost {
+  border-top: 2px solid var(--t3-shield);
+}
+.t3-chartkey i.is-line {
+  border-top: 1px dashed var(--t3-dim);
+}
+.t3-stats {
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+}
+.t3-sys {
+  gap: 11px;
+  padding-bottom: max(56px, calc(env(safe-area-inset-bottom, 0px) + 40px));
+}
+.t3-picks {
+  margin-top: 12px;
+}
+.t3-sys > .t3-row {
+  margin-top: 12px;
+}
+.t3-code {
+  padding-bottom: 18px;
+}
+/* A wide screen: the same cards, at a size a desk reads. */
+.t3-wide .t3-dock {
+  width: 440px;
+}
+.t3-wide .t3-meter {
+  padding: 8px 14px 9px;
+}
+.t3-wide .t3-meter span {
+  font-size: 11px;
+}
+.t3-wide .t3-meter b {
+  font-size: 24px;
+}
+.t3-wide .t3-meter small {
+  font-size: 12.5px;
+}
+.t3-wide .t3-sign {
+  font-size: 12.5px;
+}
+.t3-wide .t3-cond {
+  font-size: 10.5px;
+}
+.t3-wide .t3-eyebrow {
+  font-size: 11.5px;
+}
+.t3-wide .t3-foot {
+  font-size: 12.5px;
+}
+.t3-wide .t3-tag-foe span {
+  font-size: 12px;
+}
+.t3-wide .t3-debrief-in {
+  max-width: 760px;
+}
+.t3-wide .t3-dossier-body {
+  max-height: 30vh;
+}
+
+.t3-root[data-t3-phase='debrief'] .t3-top {
+  background: linear-gradient(#04070d 62%, rgba(4, 7, 13, 0));
+  padding-bottom: 18px;
+}
+.t3-banner .t3-tap {
+  flex: none;
+  margin-top: 10px;
+}
+.t3-banner:has(.t3-tap) .t3-lead {
+  flex: none;
+}
+.t3-choice:disabled {
+  box-shadow: inset 0 0 0 1px var(--t3-edge);
+}
+/* With the Dossier card open in a result, the card is the reading: the
+   report above it folds away so the whole thing stays on a phone. */
+.t3-card:has(.t3-dossier-body) .t3-what,
+.t3-card:has(.t3-dossier-body) .t3-why {
+  display: none;
+}

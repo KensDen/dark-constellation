@@ -42,16 +42,22 @@ type Play = (cue: SoundCue) => void
 // placed), from the same measured replay the pixel debrief reads.
 export function nextTimeText(state: GameState, next: NextTime | null): string {
   const line = state.scenario.winThreshold
-  if (state.lossReason === 'insolvency') return `Keep WORST CASE at 0 or above. Orders, upkeep and repairs took the budget below zero on night ${state.history.length}.`
+  const idOf = (name: string | null) => state.scenario.countermeasures.find((c) => c.name === name)?.id
+  // The piece by the name on its piece, as the tray and the cards say it.
+  const short = (name: string | null) => {
+    const id = idOf(name)
+    return id ? PIECE[id] : (name ?? '')
+  }
+  if (state.lossReason === 'insolvency') return `Keep ${c3.WORST} at 0 CR or above. Orders, upkeep and repairs took the budget below zero on night ${state.history.length}.`
   const ends = (final: number, was: number, won: boolean) =>
     `this game ends at ${final.toFixed(1)}, not ${was.toFixed(1)}${won ? (state.status !== 'won' ? ', and is won' : '') : `, still under the win line of ${line}`}.`
   if (next?.kind === 'earlier') {
-    const lead = next.procured !== null ? `You placed ${next.defense} on night ${next.procured}. Place it on night ${next.orderOn}` : `Place ${next.defense} (${next.price} CR) on night ${next.orderOn}`
-    const ahead = next.ahead === null ? '' : next.aheadTo !== null ? ` and move ${next.ahead} to night ${next.aheadTo}` : ` in place of ${next.ahead}`
+    const lead = next.procured !== null ? `You placed ${short(next.defense)} on night ${next.procured}. Place it on night ${next.orderOn}` : `Place ${short(next.defense)} (${next.price} CR) on night ${next.orderOn}`
+    const ahead = next.ahead === null ? '' : next.aheadTo !== null ? ` and move ${short(next.ahead)} to night ${next.aheadTo}` : ` in place of ${short(next.ahead)}`
     return `${lead}${ahead}. Played again with every other order the same, ${ends(next.final, next.was, next.won)}`
   }
   if (next?.kind === 'answer')
-    return `On night ${next.turn}, answer ${threatName(state, next.move)} in the night: ${RESPONSE_TEXT[next.move]?.[next.response] ?? next.response} (${next.cost} CR). Played again with every order the same, ${ends(next.final, next.was, next.won)}`
+    return `On night ${next.turn}, answer ${threatName(state, next.move)} when it comes: "${RESPONSE_TEXT[next.move]?.[next.response] ?? next.response}" (${next.cost} CR). Played again with every order the same, ${ends(next.final, next.was, next.won)}`
   if (next?.kind === 'none') return 'No single change this game missed ends it higher.'
   return state.history.some((r) => r.events.some((e) => e.effectiveSeverity > 0)) ? 'Every move that got through met a defense you already had.' : 'Nothing got through.'
 }
@@ -170,6 +176,7 @@ export function Debrief({
             </i>
           ))}
         </div>
+        <p className="t3-hint t3-legend">{c3.STRIP_LEGEND}</p>
 
         <dl className="t3-stats" data-t3-stats>
           {stats.map((s) => (
@@ -203,7 +210,7 @@ export function Debrief({
             {earnedNames.map((n) => (
               <p key={n}>{n}</p>
             ))}
-            <p className="t3-hint">Choose them in SYSTEM, the menu at the top left.</p>
+            <p className="t3-hint">{c3.CHOOSE_UNLOCK}</p>
           </section>
         )}
 
@@ -233,6 +240,7 @@ export function Debrief({
           </button>
           {codeOpen && (
             <>
+              <p className="t3-hint">{c3.SAVE_CODE_NOTE}</p>
               <textarea readOnly value={code} aria-label="Save code for this operation" onFocus={(e) => e.currentTarget.select()} />
               <button type="button" className="t3-btn" onClick={async () => setSaid((await copyToClipboard(code)) ? 'Save code copied to clipboard.' : 'Copy failed. Select the code above and copy it.')}>
                 {c3.COPY_CODE}
@@ -250,14 +258,18 @@ export function Debrief({
 // THE NIGHTS, SCRUBBED IN THE WORLD. Pick a night and it plays: each
 // strike on its target, how it ended, and at each hit what would have
 // helped. YOU and GHOST are the same seed, side by side.
-export function ReplayDock({ state, world, reduced, play, onBack }: { state: GameState; world: RefObject<World | null>; reduced: boolean; play: Play; onBack: () => void }) {
+export function ReplayDock({ state, world, reduced, play, onShow, onBack }: { state: GameState; world: RefObject<World | null>; reduced: boolean; play: Play; onShow?: (board: GameState) => void; onBack: () => void }) {
   const you = useMemo(() => timeline(state, inputsOf(state)), [state])
   const ok = you.length === state.history.length + 1 && Math.abs(finalScore(you) - (state.history[state.history.length - 1]?.maiScore ?? 0)) < 0.06
   const next = useMemo(() => nextTime(state), [state])
   const ghost = useMemo(() => ghostOf(state, next), [state, next])
   const nights = useMemo(() => ({ you: nightsOf(you), ghost: nightsOf(ghost.states) }), [you, ghost])
   const [who, setWho] = useState<'you' | 'ghost'>('you')
-  const [n, setN] = useState(1)
+  // It opens on the night the two runs part: where NEXT TIME's change is.
+  const [n, setN] = useState(() => {
+    const at = nights.you.findIndex((x, i) => Math.abs(x.record.maiScore - (nights.ghost[i]?.record.maiScore ?? x.record.maiScore)) > 0.05)
+    return at < 0 ? 1 : at + 1
+  })
   const [shown, setShown] = useState(0)
   const token = useRef(0)
   const list = nights[who]
@@ -271,6 +283,7 @@ export function ReplayDock({ state, world, reduced, play, onBack }: { state: Gam
     t.setBeat('night')
     t.clearSignatures()
     t.clearNight()
+    t.clearAllShields()
     t.setAims([])
     t.setFocus(null)
     for (const a of state.assets) {
@@ -282,6 +295,9 @@ export function ReplayDock({ state, world, reduced, play, onBack }: { state: Gam
       }
     }
     t.setStreak(nt.before.streak)
+    // The labels and pills read the night shown, not the game's last one.
+    const closing = nt.steps[nt.steps.length - 1]?.after ?? nt.before
+    onShow?.(animate ? nt.before : closing)
     setShown(animate ? 0 : nt.steps.length)
     if (!animate) return
     void (async () => {
@@ -304,6 +320,7 @@ export function ReplayDock({ state, world, reduced, play, onBack }: { state: Gam
         await t.wait(0.35)
       }
       t.clearNight()
+      if (token.current === mine) onShow?.(closing)
     })()
   }
 
@@ -319,6 +336,7 @@ export function ReplayDock({ state, world, reduced, play, onBack }: { state: Gam
       t?.setSpeed(1)
       t?.clearSignatures()
       t?.clearNight()
+      t?.clearAllShields()
     },
     [world],
   )
@@ -373,6 +391,9 @@ export function ReplayDock({ state, world, reduced, play, onBack }: { state: Gam
           <circle key={i} cx={px(i)} cy={py(v)} r={i === n - 1 ? 4.5 : 2.5} className={who === 'you' ? 't3-spark-dot' : 't3-spark-dot is-ghost'} />
         ))}
       </svg>
+      <p className="t3-chartkey" aria-hidden="true">
+        <i className="is-you" /> {c3.CHART.you} <i className="is-ghost" /> {c3.CHART.ghost} <i className="is-line" /> {c3.CHART.line} {lineY}
+      </p>
 
       <div className="t3-scrub">
         <input type="range" min={1} max={list.length} step={1} value={Math.min(n, list.length)} aria-label="Night" data-t3-scrub onChange={(e) => setN(Number(e.target.value))} />
@@ -404,7 +425,7 @@ export function ReplayDock({ state, world, reduced, play, onBack }: { state: Gam
           const v = verdictOf(s.ev)
           const d = tenth(s.scoreAfter - s.scoreBefore)
           const { missing, held } = defensesFor(s.def, night.closing.counters, state.scenario)
-          const helped = v === 'blocked' ? (s.ev.response ? copy.youDid(RESPONSE_TEXT[s.def.id]?.[s.ev.response.id] ?? '', s.ev.response.cost) : held ? `${PIECE[held.id]} held it.` : '') : missing ? (held ? copy.finishedIt(missing.name, missing.cost) : copy.wouldHaveHelped(missing.name, missing.cost)).join('') : copy.fixRespond(shortName(s.def))
+          const helped = v === 'blocked' ? (s.ev.response ? copy.youDid(RESPONSE_TEXT[s.def.id]?.[s.ev.response.id] ?? '', s.ev.response.cost) : held ? `${PIECE[held.id]} held it.` : '') : missing ? (held ? copy.finishedIt(PIECE[missing.id], missing.cost) : copy.wouldHaveHelped(PIECE[missing.id], missing.cost)).join('') : copy.fixRespond(shortName(s.def))
           return (
             <li key={s.index} className={s.index < shown ? 'is-in' : ''} data-t3-replay-event={v}>
               <SignatureGlyph id={s.def.id} size={22} />
