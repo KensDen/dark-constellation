@@ -51,7 +51,6 @@ export interface TitleProps {
   resumeTurn: number | null
   onContinue: () => void
   onPlay: () => void
-  onTry3d: () => void
   onDaily: () => void
   onBriefing: () => void
   onDossier: () => void
@@ -252,10 +251,6 @@ export default function Title(p: TitleProps) {
             NEXT DAILY OP IN <Countdown className="tabular-nums text-dc-ink" />
           </p>
         )}
-        {/* The 3D slice (experiment, exp/3d-slice): one night in a 3D world. */}
-        <button type="button" data-try3d onClick={p.onTry3d} className="min-h-11 border-2 border-dc-line px-3 font-display text-[10px] text-dc-ink">
-          TRY 3D (EXPERIMENT)
-        </button>
         {confirmDaily && (
           <div role="group" aria-label="Replace the operation in progress" data-confirm-daily className="border-2 border-dc-warn/50 bg-dc-panel p-3">
             <p className="font-mono text-sm text-dc-warn">The Daily Op replaces the operation in progress.</p>

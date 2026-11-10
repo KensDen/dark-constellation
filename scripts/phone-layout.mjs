@@ -1999,7 +1999,10 @@ export async function v16Guards(b, url) {
 
 export async function phoneLayout(chrome) {
   const server = await serve()
-  const url = `http://127.0.0.1:${server.address().port}${BASE}`
+  // v2.0 R1: these guards hold the pixel board, which answers at
+  // ?view=classic since the title's PLAY opens the 3D game (that one is
+  // watched by scripts/game3d-bot.mjs).
+  const url = `http://127.0.0.1:${server.address().port}${BASE}?view=classic`
   const b = await browser(chrome)
   try {
     const failures = []

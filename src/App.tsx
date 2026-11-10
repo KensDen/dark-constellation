@@ -2,6 +2,13 @@
 // rebuilt in v1.3 R1). The experience layer around the game: the title,
 // the briefing, the reference screens, the scoreboard, and the game.
 //
+// v2.0 R1 (Ken, 10 November 2026): the game is the 3D game. PLAY, CONTINUE,
+// DAILY OP, a replayed seed and a pasted code all open it (./ui/three/Game3D,
+// a deferred chunk), its opening is the briefing, and the title's DOSSIER
+// opens its Dossier. The pixel board, its briefing and its Dossier stay
+// reachable with ?view=classic in the address, where the flow below is
+// exactly as it was.
+//
 // THE FLOW (v1.3 R1, brief 5.1 and section 3): a first-ever visit lands on
 // the title; its first PLAY goes through the briefing and on to turn 1,
 // with no menu in between, and starts on EASY. Later PLAYs go straight to
@@ -11,22 +18,25 @@
 // phase, and the title offers CONTINUE TURN n whenever one exists.
 
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import Game from './ui/Game'
+import { classicGame, loadClassic } from './ui/classic'
 import Title from './ui/Title'
 import { hasSeenIntro } from './ui/introSeen'
 import { LocalStorageStore, SaveError, captureGame, decodeSaveCode, encodeSaveCode, type RestoredGame } from './persistence'
 import { useGestureUnlock, useSoundPrefs } from './audio'
 import { startDailyOp } from './ui/dailyOp'
-import { chooseDifficulty, deviceDifficulty, newOperation } from './ui/session'
+import { chooseDifficulty, deviceDifficulty, newOperation, parseSeed } from './ui/session'
 import { copyToClipboard } from './ui/clipboard'
 import { usePageVisible } from './ui/cues/motion'
 import type { Difficulty } from './engine/types'
 
 // SPLIT OUT OF THE INITIAL CHUNK (v1.2 R0, brief section 8). A player who
-// opens the game and plays a turn downloads the title and the board; every
-// screen below is a detour most sessions never take, and the briefing is a
-// detour every device takes at most once unless asked. Title and Game stay
-// static on purpose: they are the first thing anyone sees.
+// opens the game downloads the title; every screen below is a detour most
+// sessions never take, and the pixel briefing is a detour a device takes
+// at most once unless asked. The title stays static on purpose: it is the
+// first thing anyone sees. Through v1.7 the pixel board was static too;
+// since v2.0 R1 PLAY opens the 3D game, so the board is deferred with the
+// rest (./ui/classic, which keeps the loaded module so it still mounts in
+// the commit that asks for it).
 //
 // The list is not written down anywhere else. tests/lazy-screens.spec.ts
 // reads these declarations and proves that nothing reachable from main.tsx
@@ -55,9 +65,22 @@ const Library = lazy(() => import('./ui/Library').catch(() => ({ default: Screen
 // THE COLDVEIL DOSSIER (v1.3 R4, brief 5.7): the title's DOSSIER and GOAL 2.
 const Dossier = lazy(() => import('./ui/Dossier').catch(() => ({ default: ScreenUnavailable })))
 const IntroSequence = lazy(() => import('./ui/IntroSequence'))
-// THE 3D SLICE (experiment, exp/3d-slice): one night in a 3D world, in a
-// chunk of its own with its own three.js, behind TRY 3D and ?view=3d.
-const Slice3D = lazy(() => import('./ui/three/Slice3D').catch(() => ({ default: ScreenUnavailable })))
+// THE 3D GAME (v2.0 R1): the whole operation in a 3D world, in a chunk of
+// its own that shares one three.js with the title's constellation frame.
+type Game3DProps = Parameters<(typeof import('./ui/three/Game3D'))['default']>[0]
+const Game3D = lazy(() => import('./ui/three/Game3D').catch(() => ({ default: ({ onExit }: Game3DProps) => <ScreenUnavailable onBack={onExit} /> })))
+
+// The pixel board's address (v2.0 R1): ?view=classic. Read once a call, so
+// a link to it works without a reload of anything else.
+const classicView = () => typeof location !== 'undefined' && location.search.includes('view=classic')
+// ?view=3d&seed=n opens the 3D game on a seed, for a capture or a share.
+const seedInAddress = () => {
+  try {
+    return location.search.includes('view=3d') ? parseSeed(new URLSearchParams(location.search).get('seed') ?? '') : null
+  } catch {
+    return null
+  }
+}
 
 // The dev-only sound board (brief section 7). import.meta.env.DEV folds to
 // false in a production build, so the ternary collapses to null and Rollup
@@ -66,7 +89,7 @@ const Slice3D = lazy(() => import('./ui/three/Slice3D').catch(() => ({ default: 
 // board's marker rather than trusting this comment.
 const SoundBoard = import.meta.env.DEV ? lazy(() => import('./audio/SoundBoard')) : null
 
-type Screen = 'title' | 'briefing' | 'game' | 'slice3d' | 'library' | 'dossier' | 'scoreboard' | 'credits' | 'soundboard'
+type Screen = 'title' | 'briefing' | 'game' | 'game3d' | 'library' | 'dossier' | 'scoreboard' | 'credits' | 'soundboard'
 
 // The terminal chrome frames the credits and the dev board only. The
 // screens R4 rebuilt (LIBRARY, the Dossier, the scoreboard) carry the
@@ -107,13 +130,30 @@ function App() {
   // A new mount of Game for every operation started, so nothing of the
   // last one carries over.
   const [gameKey, setGameKey] = useState(0)
+  // The pixel board's module, fetched when its address is the page's or a
+  // game opens on it; `boardLoads` only re-renders once it has arrived.
+  const [, setBoardLoads] = useState(0)
   const [screen, setScreen] = useState<Screen>(() => {
     // The dev board's only entry point, and it costs the shipped game
     // nothing: SoundBoard is null in a production build.
     if (SoundBoard && typeof location !== 'undefined' && location.hash === '#soundboard') return 'soundboard'
-    if (typeof location !== 'undefined' && location.search.includes('view=3d')) return 'slice3d'
-    return store.loadAutosave() ? 'game' : 'title'
+    if (seedInAddress()) return 'game3d'
+    return store.loadAutosave() ? (classicView() ? 'game' : 'game3d') : 'title'
   })
+  // What the 3D game opens on: an operation, its Dossier alone, or the
+  // briefing replayed.
+  const [g3, setG3] = useState<{ initial: RestoredGame | null; mode: 'play' | 'dossier' | 'briefing' }>(() => {
+    const seed = seedInAddress()
+    return { initial: seed ? newOperation(deviceDifficulty(), seed) : store.loadAutosave(), mode: 'play' }
+  })
+  useEffect(() => {
+    if (classicGame() || !(classicView() || screen === 'game')) return
+    loadClassic().then(
+      () => setBoardLoads((n) => n + 1),
+      () => setScreen((s) => (s === 'game' ? 'title' : s)),
+    )
+  }, [screen])
+  const Game = classicGame()
   const [difficulty, setDifficulty] = useState<Difficulty>(() => deviceDifficulty())
   // The title re-reads the device's difficulty each time it shows (R6
   // question 14): a first finished game moves the default from EASY to
@@ -138,10 +178,20 @@ function App() {
   }, [screen])
 
   const start = (initial: RestoredGame) => {
-    setGameInitial(initial)
     setGameKey((k) => k + 1)
     setNotice('')
-    setScreen('game')
+    if (classicView()) {
+      setGameInitial(initial)
+      setScreen('game')
+    } else {
+      setG3({ initial, mode: 'play' })
+      setScreen('game3d')
+    }
+  }
+  const room3d = (mode: 'dossier' | 'briefing') => {
+    setGameKey((k) => k + 1)
+    setG3({ initial: null, mode })
+    setScreen('game3d')
   }
   const toTitle = () => {
     setGameInitial(null)
@@ -150,7 +200,8 @@ function App() {
 
   const play = () => {
     const op = newOperation(difficulty)
-    if (hasSeenIntro()) start(op)
+    // The 3D game's briefing is its own opening, in the world.
+    if (!classicView() || hasSeenIntro()) start(op)
     else {
       setBriefingNext(op)
       setScreen('briefing')
@@ -222,13 +273,13 @@ function App() {
                     if (resumable) start(resumable)
                   }}
                   onPlay={play}
-                  onTry3d={() => setScreen('slice3d')}
                   onDaily={() => start(startDailyOp(new Date()))}
                   onBriefing={() => {
+                    if (!classicView()) return room3d('briefing')
                     setBriefingNext(null)
                     setScreen('briefing')
                   }}
-                  onDossier={() => setScreen('dossier')}
+                  onDossier={() => (classicView() ? setScreen('dossier') : room3d('dossier'))}
                   onLibrary={() => setScreen('library')}
                   staleSave={store.autosaveIsStale()}
                   soundPrefs={soundPrefs}
@@ -241,7 +292,8 @@ function App() {
                   notice={notice}
                 />
               )}
-              {screen === 'game' && (
+              {screen === 'game' && !Game && <ScreenLoading />}
+              {screen === 'game' && Game && (
                 <Game
                   key={`${gameKey}`}
                   initial={gameInitial}
@@ -256,7 +308,7 @@ function App() {
                   }}
                 />
               )}
-              {screen === 'slice3d' && <Slice3D onBack={toTitle} difficulty={difficulty} />}
+              {screen === 'game3d' && <Game3D key={`${gameKey}`} initial={g3.initial} mode={g3.mode} onExit={toTitle} />}
               {screen === 'library' && <Library onBack={toTitle} />}
               {screen === 'dossier' && <Dossier onBack={toTitle} />}
               {screen === 'scoreboard' && <Scoreboard onBack={toTitle} />}

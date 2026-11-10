@@ -140,8 +140,10 @@ describe('the split screens stay out of the initial chunk (v1.2 R0)', () => {
     // Dossier (./ui/Dossier, brief 5.7) took the Glossary's old place
     // behind the title's DOSSIER. Eight on exp/3d-slice (10 November 2026):
     // the 3D slice experiment (./ui/three/Slice3D), behind the title's TRY
-    // 3D (EXPERIMENT) and ?view=3d, which carries its own three.js and so
+    // 3D (EXPERIMENT). Still eight since v2.0 R1: the slice became the 3D
+    // game (./ui/three/Game3D), which PLAY opens, and which with three.js
     // must never ride in the first download.
+    expect(lazySpecs, 'the 3D game is no longer a lazy screen of the shell').toContain('./ui/three/Game3D')
     expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(8)
     for (const spec of lazySpecs) {
       expect(resolveLocal(APP, spec), `lazy import ${spec} resolves to no file`).toBeTruthy()
@@ -162,17 +164,25 @@ describe('the split screens stay out of the initial chunk (v1.2 R0)', () => {
     expect(offenders.join('\n'), 'a screen the split makes lazy is in the initial chunk anyway').toBe('')
   })
 
-  it('keeps the screens a session always needs in the initial chunk', () => {
-    // The other direction. A split that lazily loaded the board would pass
-    // the check above and be worse for every player, so the two screens
-    // every session reaches are required to be static.
+  it('keeps the screen a session always needs in the initial chunk, and the pixel board out of it (v2.0 R1)', () => {
+    // The other direction. The title is the one screen every session
+    // reaches, so it is required to be static.
     const graph = staticGraphFrom(ENTRY)
-    // Since v1.3 R1 the title replaced the menu as the other one.
-    for (const required of ['./ui/Game', './ui/Title']) {
-      const target = resolveLocal(APP, required)!
-      expect(graph.has(target), `${required} is no longer in the initial chunk`).toBe(true)
-      expect(lazySpecs, `${required} was moved into the lazy set`).not.toContain(required)
-    }
+    const title = resolveLocal(APP, './ui/Title')!
+    expect(graph.has(title), './ui/Title is no longer in the initial chunk').toBe(true)
+    expect(lazySpecs, './ui/Title was moved into the lazy set').not.toContain('./ui/Title')
+    // Through v1.7 the board was required here too. Since v2.0 R1 (Ken, 10
+    // November 2026) PLAY opens the 3D game and the pixel board answers at
+    // ?view=classic, so it is deferred: ./ui/classic fetches it, keeps the
+    // module, and the app renders from that. A static import of the board
+    // anywhere in the first download would put about 40,000 gzipped bytes
+    // back into it.
+    const board = resolveLocal(APP, './ui/Game')!
+    const trail = graph.get(board)
+    expect(trail && [...trail.slice(1), board].map((f) => f.slice(SRC.length + 1)).join(' -> '), 'the pixel board is back in the initial chunk').toBeUndefined()
+    const classic = readFileSync(resolveLocal(APP, './ui/classic')!, 'utf8')
+    expect(classic, './ui/classic no longer fetches the board').toMatch(/\bimport\(\s*'\.\/Game'\s*\)/)
+    expect(graph.has(resolveLocal(APP, './ui/classic')!), 'the app no longer reaches ./ui/classic').toBe(true)
   })
 })
 
@@ -440,7 +450,13 @@ describe('the v1.5 R2 art stays out of the first download', () => {
     for (const f of ['ui/board/Playfield.tsx', 'ui/TitleArt.tsx', 'ui/sprites/emblems.ts']) {
       expect(graph.has(join(SRC, f)), `${f} is in the first download`).toBe(false)
     }
-    // Not vacuous: the strip itself is in it.
-    expect(graph.has(STRIP), 'the walk never reached the strip').toBe(true)
+    // Not vacuous: the walk reaches the strip from the board, and so would
+    // reach the playfield from it were the import static. (Through v1.7
+    // the strip was in the first download itself; since v2.0 R1 the board
+    // is deferred, src/ui/classic.ts, and the strip with it.)
+    const board = staticGraphFrom(join(SRC, 'ui', 'Game.tsx'))
+    expect(board.has(STRIP), 'the walk never reached the strip').toBe(true)
+    for (const f of ['ui/board/Playfield.tsx', 'ui/sprites/emblems.ts']) expect(board.has(join(SRC, f)), `${f} is static from the board`).toBe(false)
+    expect(graph.has(STRIP), 'the strip is back in the first download').toBe(false)
   })
 })

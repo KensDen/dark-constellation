@@ -87,7 +87,22 @@
   "v13r0EngineDeltaGzipBytes": -2335,
   "v13r0EngineDeferredGzipBytes": 154334,
   "v13r0EngineNote": "v1.3 Round 0 step 2 (the engine, brief section 6) took the first download on this Mac from v13r0DeleteInitialAfterGzipBytes to v13r0EngineInitialGzipBytes, 2,335 gzipped smaller: the engine and the UI lost more than they gained (surge, tiers, intel levels, the forecast, retrofits and slips out; the reacting adversary, the worst case, upkeep, the debris call and the learning stores in). Deferred is v13r0EngineDeferredGzipBytes in 15 chunks. The ceiling stays 155,000 and nothing here asks to raise it. Budget decisions use the CI figure: CI ran 210 above this Mac at 204d59b, so this step is expected near 147,396 there, about 7,600 under the ceiling.",
-  "experimentChunkMarker": "dc-3d-slice-experiment",
-  "experimentChunkBudgetGzipBytes": 170000,
-  "experimentChunkNote": "exp/3d-slice only (10 November 2026): the 3D slice experiment, behind TRY 3D (EXPERIMENT) and ?view=3d, loads in one deferred chunk that carries its own tree-shaken three.js (imported from three/src so the constellation frame chunk stays byte for byte as it was). The slice prompt allows the 10,000 per-chunk cap to be exceeded on this branch and asks for the size to be reported, so the chunk is recognised by its marker and held to this ceiling of its own; every other deferred chunk keeps the cap and the frame keeps its 132,000. If the game moves to 3D, three.js should become one shared chunk and the frame ruling be revisited; these three fields go either way."
+  "threeChunkMarker": "WebGL 1 is not supported",
+  "v20r1Note": "v2.0 Round 1 (10 November 2026, Ken's instructions for the round: the 3D game loads after the title in deferred chunks, INITIAL stays under 155,000, and the title and the game share one three.js). Three changes to what is measured, each in scripts/bundle-budget.mjs. (1) The pixel board is deferred (src/ui/classic.ts): PLAY opens the 3D game, so the board answers only at ?view=classic, and with it out the first download went from 154,961 to 128,721 on this Mac; with it in, and the 3D game sharing the engine and the stores with the first download, it measured 156,187, over the ceiling. (2) threeChunkMarker: three.js is one chunk the title's constellation frame and the 3D game both load, tree-shaken from three's source entry, recognised by a literal of its renderer, and bounded by frameBudgetGzipBytes as the frame was; a second chunk carrying it is refused. It measures 131,740 against 132,000, 260 to spare, which is inside what CI's gzip has differed by (65 bytes at most so far) but thin: any change to which parts of three.js either screen uses moves it, and the ceiling is Ken's to rule. Importing from the package root instead measured 133,158. (3) markedChunks: the 3D game's own chunk (57,310 gzipped, ceiling 72,000) and the pixel board's (18,434, ceiling 24,000) are each named and bounded; every other deferred chunk keeps the 10,000 cap (largest 8,099, the Field Library). The 3D slice's experimentChunk keys on exp/3d-slice are replaced by this list.",
+  "markedChunks": [
+    {
+      "name": "the 3D game",
+      "marker": "dc-3d-game-chunk",
+      "budgetGzipBytes": 72000
+    },
+    {
+      "name": "the pixel board",
+      "marker": "dc-classic-board-chunk",
+      "budgetGzipBytes": 24000
+    }
+  ],
+  "v20r1InitialGzipBytes": 128721,
+  "v20r1ThreeChunkGzipBytes": 131740,
+  "v20r1GameChunkGzipBytes": 57310,
+  "v20r1BoardChunkGzipBytes": 18434
 }

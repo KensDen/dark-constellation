@@ -315,14 +315,36 @@ export function measureBundle({
   // Which deferred chunk is the frame, by content. The markers are derived
   // only when there is a deferred chunk to look in, so a caller with none
   // never touches the frame's source.
-  const frameMarkers = deferred.length === 0 ? [] : (frameMarkersIn ?? frameSourceMarkers(readFileSync(FRAME_SOURCE, 'utf8')))
+  //
+  // ONE THREE.JS, SHARED (v2.0 R1, Ken's instruction of 10 November 2026:
+  // share one three.js between the title and the game). When
+  // bundle-budget.json records a threeChunkMarker, three.js is a chunk of
+  // its own that the title's frame and the 3D game both load, tree-shaken
+  // from three's source entry (which carries no __THREE__ mark, hence a
+  // marker of the build's own choosing: a literal of three's renderer).
+  // The frame's budget then bounds that one chunk; more than one chunk
+  // carrying the marker is a second copy of three.js and is refused; and
+  // the chunk built from src/ui/Constellation.tsx is a screen like any
+  // other, under the cap. With no marker recorded, the rule is the one
+  // above it always was.
+  const sharedThree = 'threeChunkMarker' in budget
+  if (sharedThree && (typeof budget.threeChunkMarker !== 'string' || budget.threeChunkMarker.length < 12)) {
+    throw new Error('bundle-budget.json records a threeChunkMarker too short to name three.js; it must be a string of 12 or more characters')
+  }
+  const frameMarkers = deferred.length === 0 || sharedThree ? [] : (frameMarkersIn ?? frameSourceMarkers(readFileSync(FRAME_SOURCE, 'utf8')))
   const deferredChunks = deferred.map((chunk) => {
     const text = contentOf(chunk)
-    const three = text.includes(THREE_MARKER)
-    const source = frameMarkers.some((marker) => text.includes(marker))
-    return { chunk, gz: gzipOf(chunk), three, source, frame: three && source }
+    const three = text.includes(sharedThree ? budget.threeChunkMarker : THREE_MARKER)
+    const source = sharedThree ? false : frameMarkers.some((marker) => text.includes(marker))
+    return { chunk, gz: gzipOf(chunk), three, source, frame: sharedThree ? three && chunk.endsWith('.js') : three && source }
   })
   const frames = deferredChunks.filter((c) => c.frame)
+  if (sharedThree && frames.length > 1) {
+    throw new Error(`${frames.map((c) => c.chunk).join(' and ')} all carry three.js; the title and the game share one copy, so a second is refused`)
+  }
+  if (sharedThree && frames.length === 0 && deferredChunks.some((c) => c.chunk.endsWith('.js'))) {
+    throw new Error(`no deferred chunk carries three.js's marker ${JSON.stringify(budget.threeChunkMarker)}; either three.js left the build or the marker no longer survives it`)
+  }
   if (frames.length > 1) {
     throw new Error(
       `${frames.map((c) => c.chunk).join(' and ')} all carry three.js and src/ui/Constellation.tsx; the frame budget is for one chunk, so which one it bounds is ambiguous`,
@@ -353,33 +375,32 @@ export function measureBundle({
     )
   }
   const frame = frames[0] ?? null
-  // THE EXPERIMENT CHUNK (exp/3d-slice, 10 November 2026). The 3D slice is
-  // an experiment behind its own entry, and it ships a second three.js in
-  // its own lazily loaded chunk, which the per-chunk cap refuses by design
-  // (a screen carrying three.js is a screen). So the exception is named and
-  // bounded rather than waved through: when bundle-budget.json records BOTH
-  // a marker and a ceiling, the one deferred chunk carrying that marker is
-  // held to that ceiling instead of the cap, and printed. With neither
-  // recorded, which is every branch but the experiment's, nothing here
-  // applies and such a chunk is a screen like any other. Recognised by
-  // content, as the frame is, and never the frame itself.
-  const hasMarker = 'experimentChunkMarker' in budget
-  const hasCeiling = 'experimentChunkBudgetGzipBytes' in budget
-  if (hasMarker !== hasCeiling) {
-    throw new Error('bundle-budget.json records one of experimentChunkMarker and experimentChunkBudgetGzipBytes; an experiment chunk needs both, a marker to find it and a ceiling to bound it')
+  // THE NAMED CHUNKS (the 3D slice's one experiment chunk on exp/3d-slice;
+  // a list since v2.0 R1). Two lazily loaded chunks are far over the
+  // per-chunk cap by what they are, the 3D game and, deferred with it, the
+  // pixel board, so each exception is named and bounded rather than waved
+  // through: bundle-budget.json lists, under markedChunks, a name, a
+  // marker and a ceiling for each, and the one deferred chunk carrying a
+  // marker is held to that ceiling instead of the cap, and printed. With
+  // none listed nothing here applies and every chunk is a screen like any
+  // other. Recognised by content, as the frame is, and never the frame.
+  const markedIn = budget.markedChunks ?? []
+  if (!Array.isArray(markedIn)) throw new Error('bundle-budget.json records markedChunks that is not a list')
+  const marked = markedIn.map((m) => {
+    if (!m || typeof m.name !== 'string' || !m.name) throw new Error('bundle-budget.json lists a marked chunk with no name')
+    if (typeof m.marker !== 'string' || m.marker.length < 12) {
+      throw new Error(`bundle-budget.json records a marker for ${m.name} too short to name one chunk; it must be a string of 12 or more characters`)
+    }
+    if (!Number.isFinite(m.budgetGzipBytes)) throw new Error(`bundle-budget.json records no finite budgetGzipBytes for ${m.name}; that chunk ships too and must be bounded`)
+    const found = deferredChunks.filter((c) => !c.frame && c.chunk.endsWith('.js') && contentOf(c.chunk).includes(m.marker))
+    if (found.length > 1) throw new Error(`${found.map((c) => c.chunk).join(' and ')} all carry the marker of ${m.name}; its ceiling is for one chunk`)
+    return { name: m.name, budget: m.budgetGzipBytes, found: found[0] ?? null }
+  })
+  const named = marked.filter((m) => m.found)
+  if (new Set(named.map((m) => m.found)).size !== named.length) {
+    throw new Error(`${named[0].found.chunk} carries the markers of more than one named chunk; each ceiling is for a chunk of its own`)
   }
-  if (hasMarker && (typeof budget.experimentChunkMarker !== 'string' || budget.experimentChunkMarker.length < 12)) {
-    throw new Error('bundle-budget.json records an experimentChunkMarker too short to name one chunk; it must be a string of 12 or more characters')
-  }
-  if (hasCeiling && !Number.isFinite(budget.experimentChunkBudgetGzipBytes)) {
-    throw new Error('bundle-budget.json records no finite experimentChunkBudgetGzipBytes; the experiment chunk ships too and must be bounded')
-  }
-  const experiments = hasMarker ? deferredChunks.filter((c) => !c.frame && c.chunk.endsWith('.js') && contentOf(c.chunk).includes(budget.experimentChunkMarker)) : []
-  if (experiments.length > 1) {
-    throw new Error(`${experiments.map((c) => c.chunk).join(' and ')} all carry the experiment marker; its ceiling is for one chunk`)
-  }
-  const experiment = experiments[0] ?? null
-  const others = deferredChunks.filter((c) => !c.frame && c !== experiment)
+  const others = deferredChunks.filter((c) => !c.frame && !named.some((m) => m.found === c))
   const largestOther = others.reduce((big, c) => (big && big.gz >= c.gz ? big : c), null)
   // A record, not a gate. See the header for why the sum stopped meaning
   // anything a player feels.
@@ -396,8 +417,8 @@ export function measureBundle({
     (shared.length > 0 ? `, with ${shared.join(', ')} loaded alongside the entry` : '') +
     `; baseline ${budget.baselineGzipBytes}, ` +
     `${delta >= 0 ? '+' : ''}${delta}; budget ${budget.budgetGzipBytes}, headroom ${headroom}), ` +
-    `deferred frame ${frame ? `${frame.chunk} ${frame.gz} (budget ${budget.frameBudgetGzipBytes}, headroom ${frameHeadroom})` : 'none'}, ` +
-    (experiment ? `experiment chunk ${experiment.chunk} ${experiment.gz} (budget ${budget.experimentChunkBudgetGzipBytes}, headroom ${headroomFor(experiment.gz, budget.experimentChunkBudgetGzipBytes)}), ` : '') +
+    `${sharedThree ? 'shared three.js chunk' : 'deferred frame'} ${frame ? `${frame.chunk} ${frame.gz} (budget ${budget.frameBudgetGzipBytes}, headroom ${frameHeadroom})` : 'none'}, ` +
+    named.map((m) => `${m.name} ${m.found.chunk} ${m.found.gz} (budget ${m.budget}, headroom ${headroomFor(m.found.gz, m.budget)}), `).join('') +
     `${others.length} other deferred chunk${others.length === 1 ? '' : 's'}` +
     (largestOther
       ? `, largest ${largestOther.chunk} ${largestOther.gz} (cap ${budget.deferredChunkBudgetGzipBytes} each, headroom ${otherHeadroom})`
@@ -420,13 +441,11 @@ export function measureBundle({
   }
   if (frame && frame.gz > budget.frameBudgetGzipBytes) {
     throw new Error(
-      `the constellation frame chunk ${frame.chunk} is ${frame.gz} bytes gzipped, over its ${budget.frameBudgetGzipBytes} byte budget`,
+      `the ${sharedThree ? 'shared three.js' : 'constellation frame'} chunk ${frame.chunk} is ${frame.gz} bytes gzipped, over its ${budget.frameBudgetGzipBytes} byte budget`,
     )
   }
-  if (experiment && experiment.gz > budget.experimentChunkBudgetGzipBytes) {
-    throw new Error(
-      `the experiment chunk ${experiment.chunk} is ${experiment.gz} bytes gzipped, over its ${budget.experimentChunkBudgetGzipBytes} byte budget`,
-    )
+  for (const m of named) {
+    if (m.found.gz > m.budget) throw new Error(`${m.name}, ${m.found.chunk}, is ${m.found.gz} bytes gzipped, over its ${m.budget} byte budget`)
   }
   // Every chunk that is not the frame, each on its own, whatever its size
   // or name. Listing all of them at once so a fix is not found one by one.
@@ -460,8 +479,7 @@ export function measureBundle({
     frame: frame ? frame.chunk : null,
     frameGz: frame ? frame.gz : null,
     largestOther: largestOther ? largestOther.chunk : null,
-    experiment: experiment ? experiment.chunk : null,
-    experimentGz: experiment ? experiment.gz : null,
+    marked: named.map((m) => ({ name: m.name, chunk: m.found.chunk, gz: m.found.gz, budget: m.budget })),
     staticBytes,
     staticFiles,
     delta,

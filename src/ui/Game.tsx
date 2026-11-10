@@ -196,6 +196,10 @@ function OverlayLoading() {
 }
 
 
+// The mark the bundle budget finds the pixel board's chunk by, now that it
+// is deferred (v2.0 R1; scripts/bundle-budget.mjs, tests/bundle-budget.json).
+const CLASSIC_MARK = 'dc-classic-board-chunk'
+
 const EMPTY_ACTIONS: TurnActions = {
   buyAssets: [],
   buyCounters: [],
@@ -977,6 +981,7 @@ export default function Game({
           sheets all sit inside this landmark for the same reason. */}
       <main
         data-board
+        data-chunk={CLASSIC_MARK}
         data-side={shownSheet || nightLog ? 'open' : 'none'}
         className={`relative flex flex-1 min-h-0 w-full max-w-[520px] mx-auto flex-col overflow-hidden bg-dc-ground text-dc-ink ${
           pageVisible ? '' : 'dc-board-hidden'

@@ -612,29 +612,65 @@ describe('the deferred group, budgeted per chunk (Ken, 2026-09-26)', () => {
     )
   })
 
-  it('holds the experiment chunk to its own recorded ceiling, and only when one is recorded (exp/3d-slice)', () => {
-    const MARK = 'dc-experiment-marker'
+  it('holds a named chunk to its own recorded ceiling, and only when one is listed (exp/3d-slice; a list since v2.0 R1)', () => {
+    const MARK = 'dc-game-chunk-marker'
+    const BOARD = 'dc-board-chunk-marker'
     const frame = { gz: 129_273, text: frameText() }
     const slice = (gz: number) => ({ gz, text: `${THREE_MARKER};${MARK};slice` })
-    const WITH = { ...RULED, experimentChunkMarker: MARK, experimentChunkBudgetGzipBytes: 160_000 }
-    // Nothing recorded: a second three.js in a lazy chunk is a screen.
+    const WITH = { ...RULED, markedChunks: [{ name: 'the 3D game', marker: MARK, budgetGzipBytes: 160_000 }, { name: 'the pixel board', marker: BOARD, budgetGzipBytes: 50_000 }] }
+    // Nothing listed: a second three.js in a lazy chunk is a screen.
     expect(() => ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(150_000) })).toThrow(/assets\/Slice-s1\.js is 150000 bytes gzipped, over the 10000 byte cap/)
-    // Recorded: at its ceiling it passes, a byte over it fails, by name.
-    const r = ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(160_000), [DECOY]: screen(2_000) }, WITH)
-    expect(r.experiment).toBe('assets/Slice-s1.js')
-    expect(r.frame, 'the experiment was taken for the frame').toBe(FRAME)
-    expect(r.largestOther, 'the experiment was still counted among the screens').toBe(DECOY)
-    expect(r.line).toContain('experiment chunk assets/Slice-s1.js 160000 (budget 160000, headroom 0)')
-    expect(() => ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(160_001) }, WITH)).toThrow(/the experiment chunk assets\/Slice-s1\.js is 160001 bytes gzipped, over its 160000 byte budget/)
-    // The exception is for the one chunk carrying the marker: every other
+    // Listed: at its ceiling it passes, a byte over it fails, by name.
+    const r = ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(160_000), 'assets/Board-b1.js': { gz: 41_000, text: `${BOARD};board` }, [DECOY]: screen(2_000) }, WITH)
+    expect(r.marked).toEqual([
+      { name: 'the 3D game', chunk: 'assets/Slice-s1.js', gz: 160_000, budget: 160_000 },
+      { name: 'the pixel board', chunk: 'assets/Board-b1.js', gz: 41_000, budget: 50_000 },
+    ])
+    expect(r.frame, 'a named chunk was taken for the frame').toBe(FRAME)
+    expect(r.largestOther, 'a named chunk was still counted among the screens').toBe(DECOY)
+    expect(r.line).toContain('the 3D game assets/Slice-s1.js 160000 (budget 160000, headroom 0)')
+    expect(r.line).toContain('the pixel board assets/Board-b1.js 41000 (budget 50000, headroom 9000)')
+    expect(() => ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(160_001) }, WITH)).toThrow(/the 3D game, assets\/Slice-s1\.js, is 160001 bytes gzipped, over its 160000 byte budget/)
+    expect(() => ruled({ [FRAME]: frame, 'assets/Board-b1.js': { gz: 50_001, text: BOARD } }, WITH)).toThrow(/the pixel board, assets\/Board-b1\.js, is 50001 bytes gzipped, over its 50000 byte budget/)
+    // The exception is for the one chunk carrying each marker: every other
     // chunk keeps the cap, and the frame keeps its own budget.
     expect(() => ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(150_000), 'assets/Big-b2.js': screen(10_001) }, WITH)).toThrow(/assets\/Big-b2\.js is 10001 bytes gzipped, over the 10000 byte cap/)
     expect(() => ruled({ [FRAME]: { gz: 132_001, text: `${frameText()};${MARK}` } }, WITH)).toThrow(/the constellation frame chunk/)
-    expect(() => ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(9_000), 'assets/Slice-s2.js': slice(9_000) }, WITH)).toThrow(/all carry the experiment marker/)
-    // A marker with no ceiling, or a ceiling with no marker, is refused.
-    expect(() => ruled({ [FRAME]: frame }, { ...RULED, experimentChunkMarker: MARK })).toThrow(/needs both/)
-    expect(() => ruled({ [FRAME]: frame }, { ...RULED, experimentChunkBudgetGzipBytes: 160_000 })).toThrow(/needs both/)
-    expect(() => ruled({ [FRAME]: frame }, { ...RULED, experimentChunkMarker: 'short', experimentChunkBudgetGzipBytes: 1 })).toThrow(/too short/)
+    expect(() => ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(9_000), 'assets/Slice-s2.js': slice(9_000) }, WITH)).toThrow(/all carry the marker of the 3D game/)
+    expect(() => ruled({ [FRAME]: frame, 'assets/Both-x1.js': { gz: 9_000, text: `${MARK};${BOARD}` } }, WITH)).toThrow(/carries the markers of more than one named chunk/)
+    // A marker with no ceiling, a ceiling with no marker, or no name, is refused.
+    expect(() => ruled({ [FRAME]: frame }, { ...RULED, markedChunks: [{ name: 'the 3D game', marker: MARK }] })).toThrow(/no finite budgetGzipBytes for the 3D game/)
+    expect(() => ruled({ [FRAME]: frame }, { ...RULED, markedChunks: [{ name: 'the 3D game', budgetGzipBytes: 160_000 }] })).toThrow(/too short/)
+    expect(() => ruled({ [FRAME]: frame }, { ...RULED, markedChunks: [{ name: 'the 3D game', marker: 'short', budgetGzipBytes: 1 }] })).toThrow(/too short/)
+    expect(() => ruled({ [FRAME]: frame }, { ...RULED, markedChunks: [{ marker: MARK, budgetGzipBytes: 1 }] })).toThrow(/no name/)
+  })
+
+  it('holds one shared three.js to the frame budget when a marker for it is recorded, and refuses a second copy (v2.0 R1)', () => {
+    // Ken's instruction of 10 November 2026: the title and the 3D game
+    // share one three.js. It is then a chunk of its own, recognised by a
+    // literal of three's renderer (the source entry carries no __THREE__),
+    // and the chunk built from src/ui/Constellation.tsx is a screen.
+    const THREE_LITERAL = 'WebGL 1 is not supported'
+    const GAME = 'dc-game-chunk-marker'
+    const SHARED = { ...RULED, threeChunkMarker: THREE_LITERAL, markedChunks: [{ name: 'the 3D game', marker: GAME, budgetGzipBytes: 90_000 }] }
+    const three = (gz: number) => ({ gz, text: `renderer;${THREE_LITERAL};` })
+    const component = { gz: 2_000, text: frameText().replace(THREE_MARKER, '') }
+    const game = { gz: 80_000, text: `${GAME};world` }
+    const r = ruled({ 'assets/Three-t1.js': three(131_000), [FRAME]: component, 'assets/Game-g1.js': game, [DECOY]: screen(2_500) }, SHARED)
+    expect(r.frame, 'the three.js chunk is the one the frame budget bounds').toBe('assets/Three-t1.js')
+    expect(r.marked.map((m) => m.chunk)).toEqual(['assets/Game-g1.js'])
+    expect(r.largestOther, 'the constellation component is a screen now, and counted among them').toBe(DECOY)
+    expect(r.line).toContain('shared three.js chunk assets/Three-t1.js 131000 (budget 132000, headroom 1000)')
+    // A byte over its budget fails, named for what it is.
+    expect(() => ruled({ 'assets/Three-t1.js': three(132_001), [FRAME]: component }, SHARED)).toThrow(/the shared three\.js chunk assets\/Three-t1\.js is 132001 bytes gzipped, over its 132000 byte budget/)
+    // A second copy, wherever it rides: in the game's chunk, or the title's.
+    expect(() => ruled({ 'assets/Three-t1.js': three(120_000), 'assets/Game-g1.js': { gz: 80_000, text: `${GAME};${THREE_LITERAL}` } }, SHARED)).toThrow(/all carry three\.js; the title and the game share one copy/)
+    expect(() => ruled({ 'assets/Three-t1.js': three(120_000), [FRAME]: { gz: 9_000, text: `${component.text};${THREE_LITERAL}` } }, SHARED)).toThrow(/all carry three\.js/)
+    // The component alone is held to the screens' cap, like any screen.
+    expect(() => ruled({ 'assets/Three-t1.js': three(120_000), [FRAME]: { ...component, gz: 10_001 } }, SHARED)).toThrow(/assets\/Zeta-q7\.js is 10001 bytes gzipped, over the 10000 byte cap/)
+    // A marker that names nothing in the build is refused, not passed.
+    expect(() => ruled({ [FRAME]: component, 'assets/Game-g1.js': game }, SHARED)).toThrow(/no deferred chunk carries three\.js's marker/)
+    expect(() => ruled({ 'assets/Three-t1.js': three(1) }, { ...RULED, threeChunkMarker: 'short' })).toThrow(/too short to name three\.js/)
   })
 
   it('recognises the frame when some of its source literals never reach the build', () => {

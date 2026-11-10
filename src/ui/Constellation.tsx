@@ -7,7 +7,10 @@
 // still reference frame instead of crashing.
 
 import { useEffect, useRef, useState } from 'react'
-import * as THREE from 'three'
+// From three's source entry, as the 3D game imports it (v2.0 R1): the two
+// then share one tree-shaken three.js chunk, where the package root would
+// ship the title a whole copy of its own.
+import * as THREE from 'three/src/Three.js'
 import frameUrl from './assets/constellation-frame.svg'
 
 const PHOSPHOR = 0x35f095
