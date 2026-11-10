@@ -1055,7 +1055,7 @@ a.t3-btn {
   animation: t3-pop 0.35s cubic-bezier(0.2, 1.5, 0.4, 1) both;
 }
 .t3-contact > span:not(.t3-q) {
-  max-width: 112px;
+  max-width: 136px;
   overflow: hidden;
   text-overflow: ellipsis;
 }

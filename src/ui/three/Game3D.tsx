@@ -275,11 +275,15 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const signs: { flip: boolean; h: number }[] = []
     list.forEach((a, i) => {
       const sign = a.el.querySelector<HTMLElement>('.t3-sign')
-      const w = Math.max(60, sign?.offsetWidth ?? 70)
-      const h = Math.max(22, sign?.offsetHeight ?? 26)
+      // A little air around each call sign, so two that only touch count
+      // as on each other.
+      const w = Math.max(60, sign?.offsetWidth ?? 70) + 14
+      const h = Math.max(22, sign?.offsetHeight ?? 26) + 4
       const under: Box = [a.x - w / 2, a.y + 20, a.x + w / 2, a.y + 20 + h]
       const above: Box = [a.x - w / 2, a.y - 20 - h, a.x + w / 2, a.y - 20]
-      const flip = cost(above, i) < cost(under, i) - 40
+      // It stays where it is unless the other side is clearly better.
+      const was = a.el.dataset.flip === '1'
+      const flip = was ? cost(above, i) < cost(under, i) + 60 : cost(above, i) < cost(under, i) - 12
       taken.push(flip ? above : under)
       signs.push({ flip, h })
       const want = flip ? '1' : ''

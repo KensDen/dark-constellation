@@ -230,6 +230,16 @@ Balance sweeps (not a pass/fail gate):
 npm run sweep
 ```
 
+The 3D game (v2.0, in work on the `v2.0/r1` branch: the title's PLAY opens it, and the pixel board
+described above stays at `?view=classic`) is played by a bot in a real headless Chrome, which
+captures every beat of whole six-night games at phone and desktop size and checks what a capture
+cannot show (no page error, every button named and thumb-sized, the frame rate):
+
+```
+npm run build
+node scripts/game3d-bot.mjs --out <dir> [--video] [--only <run>]
+```
+
 ### OPSEC gate (required before pushing)
 
 A pre-push hook scans everything a push would publish: each outgoing commit's tree content, file
