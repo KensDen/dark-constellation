@@ -609,6 +609,8 @@ async function run(b, base, view, plan, log, shots, table) {
       if (tapline.startsWith('GOOD')) stats.good += 1
       log.push(`- night ${nightNo} step ${i + 1}: ${verdict}${tapline ? `, ${tapline}` : ''}; ${await b.evaluate(`(document.querySelector('[data-t3-helped]')?.textContent ?? '').trim()`)}`)
       await shot(`n${nightNo}-s${i + 1}-result-${verdict}`, 'the result: what happened, why a defense held, what would have helped, the Dossier card')
+      // The Dossier card's head, brought clear of the way on before the tap.
+      await b.evaluate(`document.querySelector('.t3-dossier-head')?.scrollIntoView({ block: 'center' })`)
       if ((await exists(b, '[data-t3-file]')) && (await tap(b, '.t3-dossier-head'))) {
         await sleep(300)
         await shot(`n${nightNo}-s${i + 1}-card`, 'READ THE CARD: the Dossier card, in place')

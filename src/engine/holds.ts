@@ -3,8 +3,12 @@
 // defense stops one of the fleet's own actions, and the player overrides
 // the block or lets it stand. Sometimes the machine is right (the asset
 // was compromised) and sometimes it is wrong (a false positive that costs
-// the mission). Dealt from a stream of its own, so a seed deals the same
-// holds whatever the player orders, and adding them moved no other draw.
+// the mission). Dealt from a stream of its own, so adding them moved no
+// other draw. Which nights a seed's holds fall on, and whether each is a
+// compromise, are the seed's alone: two players on one Daily Op are asked
+// on the same nights and the same call is right. Which asset is held, and
+// on what action, is drawn from the fleet as it stands that night, so a
+// player who ordered another drone may see the hold on it.
 //
 // THE DEAL. A game has Scenario.watch2.holds of them, on nights drawn from night 2 to
 // the last (night 1 is the first watch's, and has enough to learn). At

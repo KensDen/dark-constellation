@@ -328,52 +328,7 @@ html.t3-on body {
 .t3-bar.is-hurt i {
   background: var(--t3-warn);
 }
-.t3-threats {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% - 12px);
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-}
-/* The ground station is the lowest tile: its chips hang under its name,
-   clear of the drones above it. */
-.t3-asset[data-t3-kind='groundStation'] .t3-threats {
-  bottom: auto;
-  top: calc(100% + 16px);
-}
-/* A verdict rising off a tile has the tile to itself. */
-.t3-tag:has(.t3-float) .t3-threats {
-  opacity: 0;
-}
-.t3-chip {
-  padding: 3px 8px;
-  border-radius: 999px;
-  white-space: nowrap;
-  font-size: 12px;
-  font-weight: 600;
-  background: rgba(8, 12, 22, 0.82);
-  animation: t3-pop 0.35s cubic-bezier(0.2, 1.5, 0.4, 1) both;
-}
-.t3-chip i {
-  font-size: 8px;
-  vertical-align: 1px;
-}
-.t3-chip-foe {
-  color: #ffd9d5;
-  box-shadow: inset 0 0 0 1px rgba(255, 90, 79, 0.8);
-}
-.t3-chip-foe i {
-  color: var(--t3-foe);
-}
-.t3-chip-held {
-  color: #d5f6ff;
-  box-shadow: inset 0 0 0 1px rgba(111, 227, 255, 0.7);
-  text-decoration: line-through;
-  text-decoration-color: rgba(111, 227, 255, 0.7);
-}
+
 .t3-float {
   position: absolute;
   left: 0;
@@ -516,7 +471,6 @@ html.t3-on body {
 .t3-hook,
 .t3-quiet,
 .t3-hint,
-.t3-alt,
 .t3-foot {
   font-size: 13px;
   color: var(--t3-dim);
@@ -536,12 +490,7 @@ html.t3-on body {
   background: rgba(255, 181, 71, 0.12);
   animation: t3-rise 0.3s both;
 }
-.t3-moves {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+
 .t3-move {
   display: flex;
   align-items: center;
@@ -564,19 +513,7 @@ html.t3-on body {
   color: var(--t3-foe);
   vertical-align: 2px;
 }
-.t3-foe-dot,
-.t3-held-dot {
-  flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--t3-foe);
-  box-shadow: 0 0 10px var(--t3-foe);
-}
-.t3-held-dot {
-  background: var(--t3-shield);
-  box-shadow: 0 0 10px var(--t3-shield);
-}
+
 .t3-threat {
   display: flex;
   flex-direction: column;
@@ -586,21 +523,7 @@ html.t3-on body {
   padding-top: 8px;
   border-top: 1px solid var(--t3-edge);
 }
-.t3-incoming {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 16px;
-}
-.t3-incoming span {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-}
-.t3-incoming i {
-  font-size: 12px;
-  color: var(--t3-foe);
-}
+
 .t3-choices {
   display: flex;
   flex-direction: column;
@@ -672,19 +595,7 @@ html.t3-on body {
   background: rgba(111, 227, 255, 0.2);
   box-shadow: 0 0 22px rgba(111, 227, 255, 0.25);
 }
-.t3-go {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.t3-go p {
-  margin: 0;
-  text-align: center;
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  color: var(--t3-dim);
-  text-shadow: 0 0 6px #04070d, 0 0 6px #04070d;
-}
+
 .t3-btn {
   min-height: 50px;
   padding: 0 18px;
@@ -802,12 +713,7 @@ html.t3-on body {
   color: var(--t3-dim);
   letter-spacing: 0.08em;
 }
-.t3-officer span {
-  display: block;
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  color: var(--t3-go);
-}
+
 .t3-stamp {
   display: grid;
   place-items: center;
@@ -891,7 +797,6 @@ html.t3-on body {
 /* Reduce Motion: things appear, nothing travels or pulses. */
 .t3-root[data-reduced] .t3-card,
 .t3-root[data-reduced] .t3-note,
-.t3-root[data-reduced] .t3-chip,
 .t3-root[data-reduced] .t3-stamp,
 .t3-root[data-reduced] .t3-worldscore {
   animation: none;
@@ -917,14 +822,12 @@ html.t3-on body {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .t3-card,
-  .t3-note,
-  .t3-chip,
-  .t3-stamp {
+.t3-card,
+.t3-note,
+.t3-stamp {
     animation: none;
   }
 }
-
 
 /* ===================================================================
    v2.0 R1: THE WHOLE GAME. Everything below is the full game's: the
@@ -1065,11 +968,6 @@ a.t3-btn {
   background: rgba(8, 12, 22, 0.86);
   box-shadow: inset 0 0 0 1.5px rgba(143, 160, 184, 0.7);
   animation: t3-pop 0.35s cubic-bezier(0.2, 1.5, 0.4, 1) both;
-}
-.t3-contact > span:not(.t3-q) {
-  max-width: 168px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .t3-contact i {
   font-size: 8px;
@@ -1239,10 +1137,6 @@ a.t3-btn {
 .t3-stakes b {
   font: 700 16px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-.t3-stakes small {
-  font-size: 12px;
-  color: var(--t3-dim);
-}
 .t3-lens {
   display: flex;
   flex-direction: column;
@@ -1337,16 +1231,7 @@ a.t3-btn {
   color: var(--t3-warn);
   font-weight: 800;
 }
-.t3-go .t3-riskline {
-  padding: 8px 12px;
-  border-radius: 12px;
-  font-size: 12.5px;
-  letter-spacing: 0;
-  text-align: left;
-  color: #1a1204;
-  background: var(--t3-warn);
-  text-shadow: none;
-}
+
 .t3-btn.t3-primary.t3-risk {
   background: linear-gradient(180deg, #ffd18a, #ffb547);
   box-shadow: 0 8px 26px rgba(255, 181, 71, 0.35);
@@ -1422,12 +1307,6 @@ a.t3-btn {
 .t3-gmark {
   margin-right: 6px;
   vertical-align: -3px;
-  color: var(--t3-shield);
-}
-.t3-choice-sub em {
-  font-style: normal;
-  font-size: 12px;
-  letter-spacing: 0.12em;
   color: var(--t3-shield);
 }
 .t3-root .t3-choice[data-gesture] {
@@ -2446,7 +2325,6 @@ a.t3-btn {
   margin-left: var(--t3-nudge, 0px);
 }
 
-
 /* =====================================================================
    v2.0 R2: THE PHONE PASS (14 November 2026), and what the round added.
    What two passes in Mobile Safari found, at 375x667 and at 440x956: the
@@ -3070,20 +2948,6 @@ a.t3-btn {
   min-height: 44px;
 }
 
-.t3-fps {
-  position: absolute;
-  top: max(4px, env(safe-area-inset-top, 0px));
-  left: 50%;
-  z-index: 5;
-  margin: 0;
-  padding: 1px 8px;
-  border-radius: 8px;
-  transform: translateX(-50%);
-  font: 600 12px ui-monospace, Menlo, monospace;
-  color: #04110a;
-  background: var(--t3-go);
-  pointer-events: none;
-}
 
 /* A SHORT SCREEN (v2.0 R2's phone pass): an iPhone SE in Mobile Safari
    leaves about 553 px between its own bars. The officer's line keeps to 1
@@ -3183,4 +3047,41 @@ a.t3-btn {
   max-width: 1100px;
   margin-left: auto;
   margin-right: auto;
+}
+
+@media (max-height: 700px) {
+  /* The dawn card says the night's change; under the big score it ran into the card. */
+  .t3-root:not(.t3-wide) .t3-worldscore i {
+    display: none;
+  }
+}
+
+.t3-learn small,
+.t3-dcard-body small {
+  font-size: 12px;
+}
+/* A result on a phone: what happened and what would have helped keep to a
+   few lines each, so the Dossier card and the way on are both in view. */
+.t3-root:not(.t3-wide) .t3-why p,
+.t3-root:not(.t3-wide) .t3-result-hit .t3-helped,
+.t3-root:not(.t3-wide) .t3-result-partial .t3-helped,
+.t3-root:not(.t3-wide) .t3-result-halved .t3-helped,
+.t3-root:not(.t3-wide) .t3-result-blocked .t3-helped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.t3-root:not(.t3-wide) [data-t3-card='result'] {
+  max-height: min(62vh, 480px);
+  max-height: min(62svh, 480px);
+}
+@media (max-height: 620px) {
+  .t3-root:not(.t3-wide) .t3-replay .t3-spark,
+  .t3-root:not(.t3-wide) .t3-replay .t3-chartkey {
+    display: none;
+  }
+  .t3-root:not(.t3-wide) .t3-replay .t3-events {
+    max-height: 9vh;
+  }
 }

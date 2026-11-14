@@ -1043,6 +1043,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   }
   const callHoldRef = useRef(callHold)
   callHoldRef.current = callHold
+  const visibleRef = useRef(visible)
+  visibleRef.current = visible
   const timedHold = phase === 'night' && stage.at === 'hold' && !assist && holdsSeen() > 0
   useEffect(() => {
     if (!timedHold) {
@@ -1050,12 +1052,14 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       return
     }
     const total = HOLD_CLOCK_S[gameRef.current.difficulty]
-    const started = performance.now()
+    let left = total
+    let last = performance.now()
     setHoldLeft(total)
     const id = window.setInterval(() => {
-      // The clock runs only while the page is in front.
-      if (document.visibilityState === 'hidden') return
-      const left = total - (performance.now() - started) / 1000
+      // The clock runs only while the page is in front (usePageVisible).
+      const now2 = performance.now()
+      if (visibleRef.current) left -= (now2 - last) / 1000
+      last = now2
       if (left <= 0) {
         window.clearInterval(id)
         callHoldRef.current('none')
@@ -1475,7 +1479,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       }
     >
       {fps !== null && (
-        <p className="t3-fps" data-t3-fps aria-hidden="true">
+        <p data-t3-fps aria-hidden="true" style={{ position: 'absolute', top: 2, left: '50%', zIndex: 5, margin: 0, padding: '1px 8px', borderRadius: 8, transform: 'translateX(-50%)', font: '600 12px ui-monospace, Menlo, monospace', color: '#04110a', background: '#7cff9b', pointerEvents: 'none' }}>
           {fps} fps{pf.lowPower ? ' · low power' : ''}
         </p>
       )}
