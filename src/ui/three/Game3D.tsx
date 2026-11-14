@@ -20,12 +20,15 @@ import { THREAT_EVENT_COUNT } from '../../content'
 import { RESPONSE_TEXT } from '../../content/responseText'
 import { CONDITION_CUES, MOMENT_CUES, outcomeSound, strikeSound } from '../../cues'
 import { planFor } from '../../engine/campaign'
+import { holdTemplate, holdTonight } from '../../engine/holds'
+import { newGame } from '../../engine/reducer'
+import { answersLeft, answersOf } from '../../engine/rules'
 import { defenseBonus } from '../../engine/learning'
 import { maiScore } from '../../engine/scoring'
-import type { AssetKind, CountermeasureId, DebrisChoice, GameState, TimingGrade } from '../../engine/types'
+import type { AssetKind, CountermeasureId, DebrisChoice, GameState, HoldCall, TimingGrade } from '../../engine/types'
 import { LocalDailyLedger, LocalScoreSink, LocalStorageStore, addRunTime, beginRun, dossier, fileCard, recordMet, recordNamed, runKey, type DailyOp, type DailyStanding, type RestoredGame } from '../../persistence'
 import { callSigns, cartCallSigns } from '../board/board'
-import { TONIGHT_REASON, shortName } from '../board/boardModel'
+import { shortName } from '../board/boardModel'
 import { useCountUp, usePageVisible, useReducedMotion } from '../cues/motion'
 import { hasSeenIntro, markIntroSeen } from '../introSeen'
 import { kindLabels } from '../labels'
@@ -33,7 +36,7 @@ import { callTerms } from '../night/closeModel'
 import * as copy from '../night/nightCopy'
 import type { Night, NightStep } from '../night/nightModel'
 import { deviceDifficulty, newOperation } from '../session'
-import { AssetCard, CallCard, ChoiceCard, ContactCard, DawnCard, FleetCard, PieceCard, ResultCard, StrikeBanner, Tray, VERDICT_WORD, dots, type AnswerView } from './cards3d'
+import { AssetCard, CallCard, ChoiceCard, ContactCard, DawnCard, FleetCard, HoldCard, HoldResultCard, PieceCard, PlanCard, ResultCard, StrikeBanner, Tray, VERDICT_WORD, dots, type AnswerView, type Queued } from './cards3d'
 import * as c3 from './copy3d'
 import {
   ASSIST_GRADE,
@@ -52,7 +55,9 @@ import {
   tapMatters,
   kitFor,
   nightNow,
+  postNow,
   scanState,
+  spotFor,
   stakesFor,
   verdictOf,
   withResponse,
@@ -66,7 +71,7 @@ import { SignatureGlyph } from './glyphs'
 import { Opening } from './opening3d'
 import { Debrief, DossierRoom, ReplayDock, SystemSheet } from './rooms3d'
 import { playMotif } from './sounds3d'
-import { clearNight, logNight, markNight, nightMark, placements, prefs as readPrefs, progress, recordFinish, setPlacements, setPrefs, unlocksFor, type Placements, type Prefs } from './store3d'
+import { clearNight, holdsSeen, logNight, markNight, nightMark, prefs as readPrefs, progress, recordFinish, sawHold, setPrefs, unlocksFor, type Prefs } from './store3d'
 import type { Impact } from './theater'
 import { World } from './world'
 
@@ -80,9 +85,16 @@ const WIDE = 1000
 
 const tenth = (n: number) => Math.round(n * 10) / 10
 const JAMS = new Set(['pnt-jamming', 'uplink-jamming'])
+const ADVERSARY_NAME = 'COLDVEIL'
+// The hold's clock, in seconds: generous on EASY, and none at all on the
+// first hold a device meets, with Assist, or with Reduce Motion.
+const HOLD_CLOCK_S = { easy: 25, standard: 18 } as const
 
 type Stage =
   | { at: 'fall' }
+  // The policy engine's hold (v2.0 R2): the call, then what it was worth.
+  | { at: 'hold' }
+  | { at: 'held' }
   | { at: 'launch'; i: number }
   | { at: 'choose'; i: number }
   | { at: 'call'; i: number }
@@ -138,6 +150,10 @@ function arrive(initial: RestoredGame | null): { state: GameState; daily?: Daily
   let state = op.state
   const fresh = state.status === 'playing' && state.turn === 1 && state.history.length === 0
   if (fresh && !op.daily && !state.posture && readPrefs().posture === 'dark' && unlocksFor(progress(), dossier().size).postures.dark) state = { ...state, posture: 'dark' }
+  // A game that begins here plays the 3D game's rules (v2.0 R2: the pool
+  // of answers, the watch post, the policy engine's holds). One already
+  // under way keeps the rules it was started under.
+  if (fresh && state.watch !== 2) state = newGame(state.scenario, state.seed, state.difficulty, state.posture, 2)
   return { state, daily: op.daily }
 }
 
@@ -168,7 +184,6 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const [stage, setStage] = useState<Stage>({ at: 'fall' })
   const [sel, setSel] = useState<Sel>(null)
   const run = runKey(game.seed, game.difficulty, daily?.dateKey)
-  const [placed, setPlaced] = useState<Placements>(() => placements(runKey(start.state.seed, start.state.difficulty, start.daily?.dateKey)))
   const [hud, setHud] = useState(() => ({ score: start.state.history.length ? start.state.history[start.state.history.length - 1].maiScore : maiScore(start.state), credits: start.state.credits }))
   const [shown, setShown] = useState<GameState>(start.state)
   const [last, setLast] = useState<{ before: GameState; night: Night; after: GameState } | null>(null)
@@ -185,6 +200,11 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const [drag, setDrag] = useState<Drag | null>(null)
   const [dwell, setDwell] = useState<string | null>(null)
   const [tapOpen, setTapOpen] = useState(false)
+  const [scanning, setScanning] = useState(false)
+  // The first frame of the world is drawn: until then, a word in its place.
+  const [ready, setReady] = useState(false)
+  // The hold's clock, in seconds left; null when there is none.
+  const [holdLeft, setHoldLeft] = useState<number | null>(null)
   // BEGIN asked once more on a night whose WORST CASE is below 0.
   const [atRisk, setAtRisk] = useState(false)
   const [guide, setGuide] = useState<GuideStep>(() => (mode === 'play' && !readPrefs().guideSeen && start.state.status === 'playing' && start.state.history.length === 0 ? 'scan' : null))
@@ -444,6 +464,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       return
     }
     world.current = t
+    // The first frames compile the shaders; the world is up once 2 have run.
+    requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)))
     t.onTapEmpty = () => setSel(null)
     t.onPress = () => t.tap()
     const size = () => {
@@ -470,6 +492,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   }, [])
 
   useEffect(() => world.current?.setRunning(visible), [visible, failed])
+  // Held still while there is something in the world to tap or drag onto.
+  const holdStill = phase === 'plan' || (phase === 'night' && (stage.at === 'choose' || stage.at === 'call' || stage.at === 'hold'))
+  useEffect(() => world.current?.setStill(holdStill), [holdStill, failed])
   useEffect(() => world.current?.setReduced(reduced), [reduced])
   useEffect(() => world.current?.setLowPower(pf.lowPower), [pf.lowPower, failed])
   useEffect(() => world.current?.setSkin(unlocksFor(progress(), dossier().size).skins[pf.skin] ? pf.skin : 'standard'), [pf.skin, failed])
@@ -533,21 +558,24 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   }, [board, phase, failed])
 
   // The defenses, where they were set down: owned ones and tonight's.
+  const post = postNow(game, orders)
   useEffect(() => {
     const t = world.current
     if (!t) return
     const counts = new Map<string, number>()
+    const at2: Record<string, string | undefined> = { ...game.placed, ...(orders.defense && orders.place ? { [orders.defense]: orders.place } : {}) }
     const ids = [...game.counters, ...(orders.defense && !game.counters.includes(orders.defense) ? [orders.defense] : [])]
     for (const id of ids) {
-      const where = placed[id] ?? game.assets.find((a) => a.integrity > 0 && a.kind === 'groundStation')?.id ?? game.assets[0]?.id
+      const where = at2[id] ?? (game.watch === 2 ? undefined : game.assets.find((a) => a.integrity > 0 && a.kind === 'groundStation')?.id)
       if (where) counts.set(where, (counts.get(where) ?? 0) + 1)
     }
     t.setModules(counts)
-  }, [game, orders.defense, placed, failed])
+  }, [game, orders.defense, orders.place, failed])
 
   // What is aimed. Before the night: every signature, in the tone of what
   // is known of it. In the night: the strikes still to come.
-  const stepNo = phase === 'night' && stage.at !== 'fall' ? stage.i : -1
+  const stageI = 'i' in stage ? stage.i : -1
+  const stepNo = phase === 'night' ? stageI : -1
   const planContacts = useRef<Contact[]>([])
   if (deciding) planContacts.current = contacts
   const shielded = useRef(new Set<string>())
@@ -558,7 +586,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     if (phase === 'plan') {
       t.setAims(contacts.filter((c) => c.targetId && !c.debris).map((c) => ({ key: `c:${c.id}`, targetId: c.targetId as string, blocked: c.known && c.exposed === 0, tone: tone(c) })))
     } else if (phase === 'night' && now) {
-      const from = stage.at === 'fall' ? 0 : stage.at === 'launch' ? stage.i : stage.i + 1
+      const from = !('i' in stage) ? 0 : stage.at === 'launch' ? stage.i : stage.i + 1
       t.setAims(
         now.night.steps
           .filter((s) => s.kind === 'threat' && s.index >= from && s.ev.targetAssetId)
@@ -578,10 +606,18 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   }, [phase, contacts, stepNo, stage.at, failed])
 
   // The card's anchor, the camera's focus, and the look of what is in hand.
-  const step: NightStep | undefined = phase === 'night' && now && stage.at !== 'fall' ? now.night.steps[stage.i] : undefined
+  const step: NightStep | undefined = phase === 'night' && now && 'i' in stage ? now.night.steps[stage.i] : undefined
   const selContact = sel?.kind === 'contact' ? contacts.find((c) => c.id === sel.id) : undefined
   const anchorId =
-    phase === 'plan' ? (sel?.kind === 'asset' ? sel.id : (selContact?.targetId ?? null)) : phase === 'night' && step && (stage.at === 'choose' || stage.at === 'call' || stage.at === 'result') ? (step.ev.targetAssetId ?? null) : null
+    phase === 'plan'
+      ? sel?.kind === 'asset'
+        ? sel.id
+        : (selContact?.targetId ?? null)
+      : phase === 'night' && (stage.at === 'hold' || stage.at === 'held')
+        ? (holdTonight(game)?.assetId ?? null)
+        : phase === 'night' && step && (stage.at === 'choose' || stage.at === 'call' || stage.at === 'result')
+          ? (step.ev.targetAssetId ?? null)
+          : null
   useLayoutEffect(() => {
     anchor.current = anchorId
     dockAt.current.set = false
@@ -705,10 +741,12 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const c = contacts.find((x) => x.id === id)
     if (!deciding || !c || !canScan(game, orders, c) || scanBusy.current) return
     scanBusy.current = true
+    setScanning(true)
     play('data-burst')
     setSel({ kind: 'contact', id })
     if (c.targetId) await world.current?.scan(c.targetId)
     scanBusy.current = false
+    setScanning(false)
     setOrders((o) => (o.scans.includes(id) ? o : { ...o, scans: [...o.scans, id] }))
     play('arrive-chime')
     setSay(c3.scannedSay(shortName(c.def)))
@@ -719,7 +757,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     if (!deciding || game.counters.includes(id)) return
     const cm = defenseDef(game, id)
     if (orders.defense === id && !assetId) {
-      setOrders({ ...orders, defense: null })
+      setOrders({ ...orders, defense: null, place: null })
       play('buy-click')
       setNote('')
       setSay(c3.removedSay(cm.name))
@@ -727,23 +765,20 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     }
     const piece = kit.find((p) => p.cm.id === id)
     if (!piece || (piece.blocked && !piece.ordered)) return play('denied-buzz')
-    const where = assetId ?? selContact?.targetId ?? game.assets.find((a) => a.integrity > 0 && piece.domain.includes(a.kind))?.id ?? game.assets[0]?.id
-    const next = { ...orders, defense: id }
+    // Where it goes: the asset it was dropped on, or the best spot for it
+    // (gameModel.ts, spotFor), which is where a tap on the piece puts it.
+    const where = (assetId && piece.domain.includes(assetById(game, assetId)?.kind ?? ('' as AssetKind)) ? assetId : undefined) ?? spotFor(game, orders, id) ?? game.assets.find((a) => a.integrity > 0 && piece.domain.includes(a.kind))?.id
+    const next = { ...orders, defense: id, place: where ?? null }
     const before = contacts
     const after = contactsFor(game, next)
     setOrders(next)
-    if (where) {
-      const at2 = { ...placed, [id]: where }
-      setPlaced(at2)
-      setPlacements(run, at2)
-      world.current?.placeFx(where)
-    }
+    if (where) world.current?.placeFx(where)
     play('buy-click')
     // COLDVEIL reacts to what is placed: say so when a track's favor moves.
     const moved = after.find((c) => c.favor === 'likely' && before.find((b) => b.id === c.id)?.favor !== 'likely' && before.some((b) => b.slot === c.slot && b.favor === 'likely'))
-    const reaimed = after.some((c) => !c.debris && before.find((b) => b.id === c.id)?.targetId !== c.targetId)
-    setNote(moved ? `${c3.trackOf(moved.slot + 1, tracks)}: COLDVEIL reroutes to ${moved.known ? shortName(moved.def) : 'an unidentified move'}. ${TONIGHT_REASON}` : reaimed ? c3.REAIMED : '')
-    setSay(c3.placedSay(cm.name, signs.get(where ?? '') ?? 'the fleet'))
+    const sign = signs.get(where ?? '') ?? 'the fleet'
+    setNote(`${moved ? `${ADVERSARY_NAME} switches to ${moved.known ? shortName(moved.def) : 'an unidentified move'}. ` : ''}${game.watch === 2 && where ? c3.postLine(sign) : ''}`)
+    setSay(c3.placedSay(cm.name, sign))
     if (guide === 'place' || guide === 'scan') setGuide('begin')
   }
 
@@ -752,10 +787,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const has = orders.assets.includes(kind)
     if (!has && !fleet.find((f) => f.kind === kind)?.fits) return play('denied-buzz')
     play('buy-click')
-    const next = { ...orders, assets: has ? orders.assets.filter((k) => k !== kind) : [...orders.assets, kind] }
-    const after = contactsFor(game, next)
-    if (after.some((c) => !c.debris && contacts.find((b) => b.id === c.id)?.targetId !== c.targetId)) setNote(c3.REAIMED)
-    setOrders(next)
+    setOrders({ ...orders, assets: has ? orders.assets.filter((k) => k !== kind) : [...orders.assets, kind] })
   }
 
   const begin = () => {
@@ -807,7 +839,23 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         setHud({ score: maiScore(night.opening), credits: night.opening.credits })
         if (pressed < -0.05) setSay(c3.pressed(night.pressed.join(', '), pressed))
         await t.wait(reduced ? 0.7 : 1.5)
-        if (live) setStage({ at: 'launch', i: 0 })
+        if (!live) return
+        // The policy engine's hold comes first, before COLDVEIL moves, so
+        // it never lands on top of a strike's own timed tap.
+        const held = holdTonight(g)
+        if (held && inputsRef.current.hold === undefined) {
+          t.setFocus(held.assetId)
+          play('denied-buzz')
+          setSay(`${c3.HOLD_HEAD}. ${c3.holdLead(names.get(held.assetId) ?? 'one of yours')}`)
+          setStage({ at: 'hold' })
+        } else setStage({ at: 'launch', i: 0 })
+        return
+      }
+      if (stage.at === 'hold' || stage.at === 'held') {
+        if (stage.at === 'held' && night.hold) {
+          setShown(night.hold.after)
+          setHud({ score: maiScore(night.hold.after), credits: night.hold.after.credits })
+        }
         return
       }
       const s = night.steps[stage.i]
@@ -962,6 +1010,48 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, stage])
 
+  // THE TIE-BREAK: the player's call on tonight's hold, or none when the
+  // clock runs out (the machine's block stands).
+  const holdPlan = phase === 'night' ? holdTonight(game) : undefined
+  const callHold = (made: HoldCall | 'none') => {
+    if (phase !== 'night' || stage.at !== 'hold' || !holdPlan) return
+    setHoldLeft(null)
+    const right = made === (holdPlan.compromised ? 'stand' : 'override')
+    play(right ? 'relief-chime' : 'denied-buzz')
+    sawHold()
+    answer({ ...inputsRef.current, hold: made })
+    setStage({ at: 'held' })
+    world.current?.setFocus(null)
+    if (guide === 'hold') setGuide(null)
+  }
+  const callHoldRef = useRef(callHold)
+  callHoldRef.current = callHold
+  const timedHold = phase === 'night' && stage.at === 'hold' && !assist && holdsSeen() > 0
+  useEffect(() => {
+    if (!timedHold) {
+      setHoldLeft(null)
+      return
+    }
+    const total = HOLD_CLOCK_S[gameRef.current.difficulty]
+    const started = performance.now()
+    setHoldLeft(total)
+    const id = window.setInterval(() => {
+      // The clock runs only while the page is in front.
+      if (document.visibilityState === 'hidden') return
+      const left = total - (performance.now() - started) / 1000
+      if (left <= 0) {
+        window.clearInterval(id)
+        callHoldRef.current('none')
+      } else setHoldLeft(left)
+    }, 100)
+    return () => window.clearInterval(id)
+  }, [timedHold])
+  useEffect(() => {
+    if (phase === 'night' && stage.at === 'hold' && mode === 'play' && holdsSeen() === 0) setGuide('hold')
+    // Once, as the first hold of a device arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, stage.at])
+
   const respond = (id: string | null, via?: string) => {
     if (phase !== 'night' || stage.at !== 'choose' || !step || !now) return
     const target = step.ev.targetAssetId
@@ -992,8 +1082,14 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     setStage({ at: 'land', i: stage.i })
   }
 
+  // A result card takes no tap for a moment after it arrives: the tap that
+  // was aimed at the closing ring must not file a card or skip a result.
+  const resultAt = useRef(0)
+  useEffect(() => {
+    if (stage.at === 'result' || stage.at === 'held') resultAt.current = performance.now()
+  }, [stage])
   const onward = (collect: boolean) => {
-    if (phase !== 'night' || stage.at !== 'result' || filed || !now) return
+    if (phase !== 'night' || stage.at !== 'result' || filed || !now || performance.now() - resultAt.current < 420) return
     const i = stage.i
     // The word the last move ended on goes with it.
     setFloaters([])
@@ -1067,7 +1163,6 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     setLast(null)
     setEarned([])
     setFloaters([])
-    setPlaced({})
     setReplayBoard(null)
     setHud({ score: maiScore(op.state), credits: op.state.credits })
     setPhase('plan')
@@ -1198,6 +1293,22 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     fn()
   }
 
+  // Tonight's moves still to come after move i, as the watch knows them: a
+  // name only where the scan named it before the night (or it is confirmed).
+  const queueAfter = (i: number): Queued[] =>
+    (now?.night.steps ?? [])
+      .filter((st) => st.kind === 'threat' && st.index > i)
+      .map((st) => {
+        const known = planContacts.current.find((c) => c.id === st.def.id)?.known ?? true
+        return {
+          id: st.def.id,
+          name: known ? (c3.TAG[st.def.id] ?? shortName(st.def)) : null,
+          strength: st.ev.baseSeverity + st.ev.chainBonus,
+          sign: signs.get(st.ev.targetAssetId ?? '') ?? 'the fleet',
+          state: st.ev.baseSeverity + st.ev.chainBonus - st.ev.mitigation <= 0 ? ('stopped' as const) : st.ev.hardened ? ('post' as const) : ('open' as const),
+        }
+      })
+
   // What the night lets the player do on the world itself.
   const choices = phase === 'night' && stage.at === 'choose' && step ? choicesFor(game, orders, inputs, stage.i, step) : []
   const rerouteChoice = choices.find((c) => c.fits && c.gesture === 'reroute')
@@ -1206,7 +1317,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   // Each card puts the way on under the thumb and in focus.
   const primary = useRef<HTMLButtonElement | null>(null)
   useEffect(() => {
-    if (phase === 'night' && (stage.at === 'choose' || stage.at === 'call' || stage.at === 'result')) primary.current?.focus({ preventScroll: true })
+    if (phase === 'night' && (stage.at === 'choose' || stage.at === 'call' || stage.at === 'result' || stage.at === 'held')) primary.current?.focus({ preventScroll: true })
     if (phase === 'dawn') primary.current?.focus({ preventScroll: true })
   }, [phase, stage])
 
@@ -1241,9 +1352,11 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
               ? c3.PHASE.opening
               : stage.at === 'fall'
                 ? copy.MOVING
-                : step?.kind === 'threat'
-                  ? c3.strikeOf(threatSteps.filter((s) => s.index <= (stage as { i: number }).i).length, threatSteps.length)
-                  : c3.PHASE.night
+                : stage.at === 'hold' || stage.at === 'held'
+                  ? 'HOLD'
+                  : step?.kind === 'threat'
+                    ? c3.strikeOf(threatSteps.filter((s) => s.index <= stageI).length, threatSteps.length)
+                    : c3.PHASE.night
 
   if (mode === 'dossier') {
     return (
@@ -1284,7 +1397,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const ownedName = orders.defense ? PIECE[orders.defense] : null
   const dragOk = drag ? new Set(board.assets.filter((a) => dropOk(drag, a.id)).map((a) => a.id)) : null
   const armed = selPiece && !selPiece.blocked && !selPiece.ordered ? new Set(board.assets.filter((a) => a.integrity > 0 && selPiece.domain.includes(a.kind)).map((a) => a.id)) : null
-  const modulesOn = (id: string) => [...game.counters, ...(orders.defense ? [orders.defense] : [])].filter((c) => placed[c] === id).map((c) => defenseDef(game, c).name)
+  const modulesOn = (id: string) => [...game.counters, ...(orders.defense && !game.counters.includes(orders.defense) ? [orders.defense] : [])].filter((c) => (c === orders.defense ? orders.place : game.placed?.[c]) === id).map((c) => defenseDef(game, c).name)
 
   // What a placed answer makes COLDVEIL do, for the card in hand.
   const answersFor = (c: Contact): AnswerView[] =>
@@ -1312,7 +1425,6 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const assetDown = (e: ReactPointerEvent<HTMLElement>, id: string) => {
     if (phase !== 'night' || !step || step.ev.targetAssetId !== id) return
     if (stage.at === 'choose' && rerouteChoice?.id) startDrag(e, 'link', rerouteChoice.id, RESPONSE_TEXT[step.def.id]?.[rerouteChoice.id] ?? '')
-    if (stage.at === 'call') startDrag(e, 'burn', id, copy.BURN)
   }
 
   const nightTarget = phase === 'night' && step ? step.ev.targetAssetId : undefined
@@ -1324,14 +1436,30 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       data-game3d={CHUNK_MARK}
       data-t3-phase={phase}
       data-t3-stage={phase === 'night' ? stage.at : phase}
-      data-t3-step={phase === 'night' && stage.at !== 'fall' ? stage.i : undefined}
+      data-t3-step={phase === 'night' && 'i' in stage ? stage.i : undefined}
       data-t3-turn={turnShown}
       data-t3-target={nightTarget}
       data-t3-pulses={deciding ? scan.left : undefined}
       data-t3-status={game.status}
       data-reduced={reduced || undefined}
-      onPointerDownCapture={tapOpen ? () => world.current?.tap() : undefined}
+      data-t3-ready={ready || undefined}
+      onPointerDownCapture={
+        tapOpen
+          ? () => world.current?.tap()
+          : phase === 'night' && stage.at === 'call' && nightTarget
+            ? (e) => {
+                // The burn is a drag anywhere across the sky, not only from
+                // the satellite: on a phone it is a few points wide.
+                if (!(e.target as HTMLElement).closest('[data-t3-dock], .t3-top')) startDrag(e as unknown as ReactPointerEvent<HTMLElement>, 'burn', nightTarget, copy.BURN)
+              }
+            : undefined
+      }
     >
+      {!ready && !failed && (
+        <p className="t3-loading" role="status">
+          {c3.LOADING}
+        </p>
+      )}
       <canvas ref={canvasRef} className="t3-canvas" role="img" aria-label="Orbital view: the STORMGLASS-9 satellites, the KESTREL drones and the ground station over the area of operations, with COLDVEIL off the night side. Drag to look around." />
 
       <svg className="t3-leader" aria-hidden="true">
@@ -1372,7 +1500,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           const isTarget = nightTarget === a.id
           const can = phase === 'plan' ? !lost : isTarget && ((stage.at === 'choose' && (!!isolateChoice || !!rerouteChoice)) || stage.at === 'call')
           const lit = dragOk?.has(a.id) || armed?.has(a.id)
-          const label = `${sign}, ${kindLabels[a.kind]}, ${lost ? 'lost' : `integrity ${asset.integrity}%`}${cond.length ? `. ${cond.map((c) => c.name).join(', ')}` : ''}${on.length ? `. ${on.length} signature${on.length === 1 ? '' : 's'} over it` : ''}${
+          const label = `${sign}, ${kindLabels[a.kind]}, ${lost ? 'lost' : `integrity ${asset.integrity}%`}${post === a.id ? `. ${c3.POST_HERE}` : ''}${cond.length ? `. ${cond.map((c) => c.name).join(', ')}` : ''}${on.length ? `. ${on.length} signature${on.length === 1 ? '' : 's'} over it` : ''}${
             armed?.has(a.id) && selPiece ? `. Place ${selPiece.cm.name} here` : isTarget && stage.at === 'choose' && isolateChoice ? '. Tap to isolate it' : ''
           }`
           return (
@@ -1399,6 +1527,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
                     </span>
                   )}
                   {lost && <b>LOST</b>}
+                  {!lost && post === a.id && phase !== 'dawn' && <em className="t3-post" data-t3-post>{c3.POST}</em>}
                   {!lost && hurt && phase !== 'plan' && <b>{asset.integrity}%</b>}
                   {cond.map((c) => (
                     <em key={c.eventId} className="t3-cond">
@@ -1429,13 +1558,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
                       })}
                     >
                       <SignatureGlyph id={c.id} size={30} named={c.known} />
-                      {c.known ? (
-                        <span>
-                          {c3.TAG[c.id] ?? shortName(c.def)} {!c.debris && <i>{dots(c.strength)}</i>}
-                        </span>
-                      ) : (
-                        <span className="t3-q">?</span>
-                      )}
+                      {c.known ? !c.debris && <i aria-hidden="true">{dots(c.strength)}</i> : <span className="t3-q">?</span>}
                     </button>
                   ))}
                 </div>
@@ -1495,9 +1618,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       </p>
 
       <div ref={dockRef} className={`t3-dock${anchorId && wide ? ' is-anchored' : ''}`} data-t3-dock>
-        {guide && (phase === 'plan' || phase === 'night' || phase === 'dawn') && (
+        {guide && guide !== 'hold' && (phase === 'plan' || phase === 'night' || phase === 'dawn') && (
           <p className="t3-coach" data-t3-guide={guide} role="status">
-            <span>{c3.GUIDE[guide]}</span>
+            <span>{guide === 'scan' && selContact && !selContact.known ? 'SCAN IT: 1 pulse names this signature.' : c3.GUIDE[guide]}</span>
             <button
               type="button"
               data-t3-guide-skip
@@ -1511,7 +1634,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           </p>
         )}
 
-        {phase === 'opening' && (
+        {phase === 'opening' && ready && (
           <Opening
             world={world}
             reduced={reduced}
@@ -1527,23 +1650,24 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         )}
 
         {showPlanHome && stakes && (
-          <div className="t3-card t3-plan" key={`brief-${game.turn}`} data-t3-card="plan">
-            <p className="t3-eyebrow">
-              WATCH OFFICER · {c3.nightOf(game.turn, totalTurns)}
-              {game.posture === 'dark' ? ' · RUNNING DARK' : ''}
-            </p>
-            <p className="t3-lead">{intro}</p>
-            {note ? <p className="t3-note">{note}</p> : <p className="t3-hint">{contacts.every((c) => c.known) && contacts.some((c) => !c.fixed) && orders.scans.length === 0 ? c3.ALLIED_FEED : c3.scanHint(tracks, contacts.length)}</p>}
-            <div className="t3-stakes" data-t3-stakes>
-              <p>
-                <span>{c3.AT_STAKE}</span>
-                <b className={stakes.atStake < -0.05 ? 't3-bad' : 't3-ok'}>{c3.upTo(stakes.atStake)}</b>
-              </p>
-              <p title={c3.worstNote(stakes.worst)}>
-                <span>{c3.WORST}</span>
-                <b className={stakes.worst < 0 ? 't3-bad' : ''}>{stakes.worst} CR</b>
-                <small>{stakes.worst < 0 ? c3.WORST_BAD : c3.WORST_OK}</small>
-              </p>
+          <PlanCard
+            key={`brief-${game.turn}`}
+            eyebrow={`WATCH OFFICER${game.posture === 'dark' ? ' · RUNNING DARK' : ''}`}
+            summary={c3.orderLine(ownedName, orders.assets.length, orders.scans.length)}
+            intro={contacts.every((c) => c.known) && contacts.some((c) => !c.fixed) && orders.scans.length === 0 ? `${intro} ${c3.ALLIED_FEED}` : intro}
+            note={atRisk && stakes.worst < 0 ? c3.riskLine(stakes.worst) : note}
+            contacts={contacts}
+            signs={signs}
+            stakes={stakes}
+            scanLeft={scan.left}
+            scanPulses={scan.pulses}
+            answers={answersLeft(game)}
+            answersOf={answersOf(game)}
+            onPick={(id) => {
+              setSel({ kind: 'contact', id })
+              play('soft-tick')
+            }}
+            lens={
               <button
                 type="button"
                 className={`t3-lens${scan.left === 0 || contacts.every((c) => c.known) ? ' is-out' : ''}`}
@@ -1561,8 +1685,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
                   {'○'.repeat(scan.pulses - scan.left)}
                 </b>
               </button>
-            </div>
-          </div>
+            }
+          />
         )}
 
         {deciding && selContact && (
@@ -1576,8 +1700,15 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             filed={dossier().has(selContact.id)}
             answers={selContact.known ? answersFor(selContact) : []}
             locked={ownedName}
+            scanning={scanning}
             onScan={() => void doScan(selContact.id)}
-            onPlace={(id) => place(id, orders.defense === id ? undefined : selContact.targetId)}
+            onPlace={(id) => place(id)}
+            onStep={(by) => {
+              const i = contacts.findIndex((c) => c.id === selContact.id)
+              const next = contacts[(i + by + contacts.length) % contacts.length]
+              if (next) setSel({ kind: 'contact', id: next.id })
+              play('soft-tick')
+            }}
             onClose={() => setSel(null)}
           />
         )}
@@ -1588,6 +1719,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             contacts={contactsOn(selAsset.id)}
             conditions={conds.get(selAsset.id) ?? []}
             modules={modulesOn(selAsset.id)}
+            post={post === selAsset.id}
             onContact={(id) => setSel({ kind: 'contact', id })}
             onClose={() => setSel(null)}
           />
@@ -1595,10 +1727,15 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         {deciding && selPiece && (
           <PieceCard
             piece={selPiece}
-            targets={[...game.assets]
-              .filter((a) => a.integrity > 0 && selPiece.domain.includes(a.kind))
-              .sort((a, b) => Number(selPiece.answers.some((x) => x.contact.targetId === b.id)) - Number(selPiece.answers.some((x) => x.contact.targetId === a.id)))
-              .map((a) => ({ id: a.id, sign: signs.get(a.id) ?? a.id }))}
+            targets={(() => {
+              // The best spot first (gameModel.ts, spotFor), then the rest.
+              const best = spotFor(game, orders, selPiece.cm.id)
+              return [...game.assets]
+                .filter((a) => a.integrity > 0 && selPiece.domain.includes(a.kind))
+                .sort((a, b) => Number(b.id === best) - Number(a.id === best))
+                .map((a) => ({ id: a.id, sign: signs.get(a.id) ?? a.id, best: a.id === best }))
+            })()}
+            placedOn={selPiece.ordered && orders.place ? signs.get(orders.place) : undefined}
             locked={orders.defense && orders.defense !== selPiece.cm.id ? PIECE[orders.defense] : null}
             upkeep={game.scenario.upkeepPerDefense}
             onPlace={(assetId) => place(selPiece.cm.id, assetId)}
@@ -1611,7 +1748,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         )}
 
         {deciding && (
-          <>
+          <div className="t3-kitbar">
             <Tray
               kit={kit}
               fleetOrdered={orders.assets.length}
@@ -1624,19 +1761,18 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
               onFleet={() => setSel(sel?.kind === 'fleet' ? null : { kind: 'fleet' })}
               startDrag={(e, id, label) => startDrag(e, 'piece', id, label)}
             />
-            <div className="t3-go">
-              {atRisk && stakes && stakes.worst < 0 ? (
-                <p className="t3-riskline" role="alert" data-t3-risk>
-                  {c3.riskLine(stakes.worst)}
-                </p>
-              ) : (
-                <p data-t3-order-line>{c3.orderLine(ownedName, orders.assets.length, orders.scans.length)}</p>
-              )}
-              <button type="button" data-t3-begin data-t3-worst={stakes?.worst} className={`t3-btn t3-primary${atRisk && stakes && stakes.worst < 0 ? ' t3-risk' : ''}`} onClick={begin}>
-                {atRisk && stakes && stakes.worst < 0 ? c3.BEGIN_AT_RISK : c3.BEGIN}
-              </button>
-            </div>
-          </>
+            {atRisk && stakes && stakes.worst < 0 && (
+              <p className="t3-sr" role="alert" data-t3-risk>
+                {c3.riskLine(stakes.worst)}
+              </p>
+            )}
+            <span className="t3-sr" data-t3-order-line>
+              {c3.orderLine(ownedName, orders.assets.length, orders.scans.length)}
+            </span>
+            <button type="button" data-t3-begin data-t3-worst={stakes?.worst} aria-label={atRisk && stakes && stakes.worst < 0 ? c3.BEGIN_AT_RISK : c3.BEGIN_LONG} className={`t3-btn t3-primary t3-begin${atRisk && stakes && stakes.worst < 0 ? ' t3-risk' : ''}`} onClick={begin}>
+              {atRisk && stakes && stakes.worst < 0 ? c3.BEGIN_AT_RISK : c3.BEGIN}
+            </button>
+          </div>
         )}
 
         {phase === 'night' && stage.at === 'fall' && (
@@ -1647,6 +1783,33 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           </div>
         )}
 
+        {phase === 'night' && stage.at === 'hold' && holdPlan && (
+          <HoldCard
+            template={holdTemplate(game.scenario, holdPlan.template)!}
+            dirty={holdPlan.dirty}
+            sign={signs.get(holdPlan.assetId) ?? ''}
+            kind={assetById(game, holdPlan.assetId)?.kind ?? 'drone'}
+            seconds={holdLeft}
+            total={HOLD_CLOCK_S[game.difficulty]}
+            hint={guide === 'hold' ? c3.GUIDE.hold : undefined}
+            first={primary}
+            onCall={callHold}
+          />
+        )}
+        {phase === 'night' && stage.at === 'held' && now?.night.hold && (
+          <HoldResultCard
+            hold={now.night.hold.ev}
+            template={holdTemplate(game.scenario, now.night.hold.ev.template)!}
+            sign={signs.get(now.night.hold.ev.assetId) ?? ''}
+            entry={game.history.filter((r) => r.hold).length + 1}
+            first={primary}
+            onContinue={() => {
+              if (performance.now() - resultAt.current < 420) return
+              setStage({ at: 'launch', i: 0 })
+            }}
+          />
+        )}
+
         {phase === 'night' && step && (stage.at === 'launch' || stage.at === 'land' || stage.at === 'impact') && step.kind === 'threat' && (
           <StrikeBanner
             step={step}
@@ -1655,7 +1818,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             tapOn={tapOpen}
             assist={assist}
             chain={step.def.id === 'blackout-chain'}
-            used={step.ev.room !== undefined && !step.ev.response && (step.ev.answered ?? 0) > 0}
+            used={step.ev.room !== undefined && !step.ev.response && (step.ev.left !== undefined ? step.ev.left === 0 : (step.ev.answered ?? 0) > 0)}
             onTap={() => world.current?.tap()}
           />
         )}
@@ -1675,7 +1838,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             sign={signs.get(step.ev.targetAssetId ?? '') ?? ''}
             credits={step.before.credits}
             chain={step.ev.chainBonus > 0 && chainArmed(step.before)}
-            more={now ? now.night.steps.filter((s) => s.kind === 'threat' && s.index > stage.i).length : 0}
+            queue={queueAfter(stage.i)}
+            pool={game.watch === 2 ? { left: step.ev.left ?? 0, of: answersOf(game), nightsLeft: totalTurns - game.turn } : null}
             first={primary}
             onRespond={(id) => {
               if (!swallow.current) respond(id)

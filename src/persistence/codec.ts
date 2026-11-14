@@ -59,7 +59,12 @@ import type { GameState } from '../engine/types'
 // state COLDVEIL's posture; all optional, so the shape a v6 reader meets
 // is a superset. A v4 to v6 save LOADS and resumes: the turns already
 // played keep their history.
-export const SAVE_VERSION = 7
+// v8 (v2.0 R2, Ken's rulings of 14 November 2026): the 3D game's rules. A
+// state may carry `watch` (2), where each defense sits and the answers
+// spent, and a record tonight's hold; all optional, so a v7 reader's shape
+// is a superset and a v4 to v7 save still LOADS and resumes by the rules
+// it was started under.
+export const SAVE_VERSION = 8
 // The oldest version a load resumes.
 export const OLDEST_RESUMABLE = 4
 
@@ -155,6 +160,9 @@ function isPlainState(s: unknown): s is Omit<GameState, 'scenario'> {
     num(st.briefFreeThrough) &&
     (st.briefRevealed === undefined || num(st.briefRevealed)) &&
     (st.posture === undefined || st.posture === 'dark') &&
+    (st.watch === undefined || st.watch === 2) &&
+    (st.answersUsed === undefined || num(st.answersUsed)) &&
+    (st.placed === undefined || isObj(st.placed)) &&
     num(st.streak) &&
     num(st.bestStreak) &&
     num(st.saved) &&

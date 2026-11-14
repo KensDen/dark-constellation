@@ -98,6 +98,10 @@ const RING_TILT = 0.96
 export const COLDVEIL_AT = new Vector3(-1.12, 2.3, -0.3)
 const LAYOUT = {
   tall: { foe: [-1.12, 2.3, -0.3], centre: [0, 0.56, 0], halfW: 1.66, halfH: 1.98 },
+  // A short phone (v2.0 R2's phone pass, 375x667): with COLDVEIL above the
+  // theater the height set the frame and the globe was 140 px across. It
+  // stands off the shoulder instead, and the width sets the frame.
+  squat: { foe: [-1.46, 1.74, -0.3], centre: [-0.04, 0.5, 0], halfW: 1.72, halfH: 1.52 },
   wide: { foe: [-2.05, 1.62, -0.3], centre: [-0.34, 0.42, 0], halfW: 2.12, halfH: 1.62 },
 }
 const SUN_DAY = new Vector3(0.74, 0.34, 0.58).normalize()
@@ -1129,7 +1133,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     this.renderer.setPixelRatio(ratio)
     this.renderer.setSize(w, h, false)
     this.camera.aspect = w / h
-    const lay = w > h * 1.15 ? LAYOUT.wide : LAYOUT.tall
+    const lay = w > h * 1.15 ? LAYOUT.wide : w > h * 0.52 ? LAYOUT.squat : LAYOUT.tall
     COLDVEIL_AT.fromArray(lay.foe)
     CENTRE.fromArray(lay.centre)
     HALF_W = lay.halfW
@@ -1178,8 +1182,19 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     this.placeAll()
   }
 
+  // HELD STILL (v2.0 R2): while the player has something to tap in the
+  // world, the camera's sway stops and the fleet's drift shrinks, so a
+  // target does not move under a finger.
+  private still = false
+  private drift = 1
+  setStill(on: boolean): void {
+    this.still = on
+  }
+
   protected poseBodies(time: number): void {
+    this.drift += ((this.still ? 0.15 : 1) - this.drift) * 0.08
     const calm = this.reduced ? 0 : 1
+    const k = this.drift
     for (const b of this.bodies.values()) {
       const s = b.station
       if (b.kind === 'groundStation') {
@@ -1191,8 +1206,8 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
         b.pos.multiplyScalar(1.1)
       } else if (b.kind === 'drone') {
         const a = time * 0.42 * calm + b.phase
-        const lat = s[0] + Math.sin(a) * 0.035
-        const lon = s[1] + Math.cos(a) * 0.05
+        const lat = s[0] + Math.sin(a) * 0.035 * k
+        const lon = s[1] + Math.cos(a) * 0.05 * k
         onGlobe(lat, lon, 1.15, b.pos)
         b.root.position.copy(b.pos)
         onGlobe(s[0] + Math.sin(a + 0.3) * 0.035, s[1] + Math.cos(a + 0.3) * 0.05, 1.15, this.tmp)
@@ -1200,7 +1215,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
         b.root.lookAt(this.tmp)
         b.model.rotation.z = 0.35
       } else {
-        const a = s[0] + Math.sin(time * 0.21 + b.phase) * 0.035 * calm
+        const a = s[0] + Math.sin(time * 0.21 + b.phase) * 0.035 * calm * k
         onRing(a, b.pos)
         b.root.position.copy(b.pos)
         b.root.up.copy(b.pos).normalize()
@@ -1252,7 +1267,7 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     cam.el += (this.want.el - cam.el) * k
     cam.dist += (this.want.dist - cam.dist) * k
     cam.look.lerp(this.want.look, k)
-    const sway = this.reduced ? 0 : Math.sin(time * 0.17) * 0.035
+    const sway = this.reduced ? 0 : Math.sin(time * 0.17) * 0.035 * this.drift
     const az = cam.az + this.drag.az + sway
     const el = clamp(cam.el + this.drag.el, -0.3, 1.25)
     const dist = cam.dist * this.drag.zoom

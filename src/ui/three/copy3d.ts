@@ -25,18 +25,19 @@ export const openingCount = (n: number, of: number) => `Briefing ${n} of ${of}`
 
 // THE GUIDE: the first night teaches by doing. One short line a step.
 export const GUIDE = {
-  scan: 'SCAN: tap a signature over the fleet to identify it.',
-  place: 'PLACE: drag a defense onto an asset, or tap one to place it.',
-  begin: 'Ready. BEGIN THE NIGHT when your orders are set.',
-  respond: 'RESPOND: 1 answer a night. Drag it onto the target, or let it ride.',
+  scan: 'SCAN: tap a signature below to identify it.',
+  place: 'PLACE: tap a defense that answers it, or drag one onto an asset.',
+  begin: 'Ready. BEGIN when your orders are set.',
+  respond: 'ANSWER: you have 3 for all 6 nights. Spend 1 here, or let it ride.',
   tap: 'TAP as the ring closes on the target for a bonus.',
-  done: 'That is the whole watch: scan, place, respond.',
+  done: 'That is the whole watch: scan, place, answer.',
+  hold: 'YOUR CALL: read the 3 checks, then override the block or let it stand.',
 } as const
 export const GUIDE_SKIP = 'Skip guide'
 
 // The phases and the top bar.
 export const nightOf = (n: number, of: number) => `NIGHT ${n} OF ${of}`
-export const PHASE = { plan: 'BEFORE THE NIGHT', night: 'THE NIGHT', dawn: 'DAWN', debrief: 'DEBRIEF', replay: 'AFTER ACTION', opening: 'BRIEFING' } as const
+export const PHASE = { plan: 'YOUR ORDERS', night: 'THE NIGHT', dawn: 'DAWN', debrief: 'DEBRIEF', replay: 'AFTER ACTION', opening: 'BRIEFING' } as const
 export const dailyTag = (n: number) => `DAILY OP #${n}`
 export const SCORE = 'SCORE'
 export const BUDGET = 'BUDGET'
@@ -53,7 +54,7 @@ export const NO_PULSES = 'No pulses left tonight'
 export const scanHint = (tracks: number, sigs: number) =>
   tracks === 1 ? `${ADVERSARY} makes 1 move tonight: 1 of the ${sigs} signature${sigs === 1 ? '' : 's'} over the fleet.` : `${ADVERSARY} makes ${tracks} moves tonight, 1 from each track: ${sigs} signatures over the fleet.`
 export const UNKNOWN_LEAD = 'Unidentified signature'
-export const unknownBody = (n: number) => (n > 1 ? `1 of ${n} moves this track could play tonight.` : 'The move this track plays tonight.')
+export const unknownBody = (n: number) => (n > 1 ? `${ADVERSARY} is choosing between ${n} moves here, and plays 1 of them tonight. This is 1 of the ${n}.` : `${ADVERSARY} plays this move tonight.`)
 export const KNOW_THE_LOOK = 'Know the look? Every card you file in the Dossier shows its signature.'
 export const trackOf = (n: number, of: number) => `TRACK ${n} OF ${of}`
 export const FAVOR = {
@@ -100,7 +101,15 @@ export const placeOn = (sign: string) => `PLACE ON ${sign}`
 export const PLACED = 'PLACED'
 export const TAKE_BACK = 'TAKE IT BACK'
 export const OWNED = 'IN SERVICE'
-export const PLACE_NOTE = 'A defense covers the whole fleet from the night it is placed. Where it sits is yours to choose.'
+export const PLACE_NOTE = 'It covers the whole fleet. Where it sits becomes the watch post: any strike on that asset is 1 weaker.'
+// THE WATCH POST (v2.0 R2).
+export const POST = 'POST'
+export const POST_HERE = 'WATCH POST: strikes here are 1 weaker'
+export const postLine = (sign: string) => `The watch post is on ${sign}: any strike there is 1 weaker.`
+export const postMoves = (from: string, to: string) => `The watch post moves from ${from} to ${to}.`
+export const BEST_SPOT = 'BEST SPOT'
+export const spotWhy = (sign: string, n: number) => (n > 0 ? `Most is aimed at ${sign} tonight.` : `Nothing is aimed where it can sit: ${sign} is as good as any.`)
+export const postTook = (n: number) => `Watch post -${n}`
 export const cantAfford = (need: number) => `Needs ${need} CR more`
 export const placedSay = (name: string, sign: string) => `${name} placed on ${sign}.`
 export const removedSay = (name: string) => `${name} taken back.`
@@ -115,16 +124,26 @@ export const fleetLead = 'More assets cover more ground. Coverage is 30% of the 
 export const coverageOf = (n: number) => `+${n} coverage`
 
 // THE STAKES.
-export const AT_STAKE = 'AT STAKE TONIGHT'
-export const upTo = (d: number) => (d < -0.05 ? `up to ${d.toFixed(1)}` : 'nothing')
-export const WORST = 'AFTER A BAD NIGHT'
-export const WORST_OK = 'free for answers'
-export const WORST_BAD = 'budget at risk'
+export const AT_STAKE = 'AT STAKE'
+export const upTo = (d: number) => (d < -0.05 ? d.toFixed(1) : '0')
+export const WORST = 'WORST CASE'
+export const WORST_OK = 'budget left'
+export const WORST_BAD = 'budget breaks'
+// THE ANSWERS (v2.0 R2): a pool for the whole operation.
+export const ANSWERS = 'ANSWERS'
+export const answersLeft = (n: number, of: number) => `${n} of ${of} answer${of === 1 ? '' : 's'} left for the operation`
+export const answersNote = (n: number, nightsLeft: number) => (n === 0 ? 'No answers left: a defense is all that stops a move now.' : `${n} answer${n === 1 ? '' : 's'} left for ${nightsLeft === 0 ? 'tonight' : `tonight and ${nightsLeft} more night${nightsLeft === 1 ? '' : 's'}`}.`)
+export const ONE_ANSWER = '1 ANSWER'
+export const NO_ANSWERS = 'NO ANSWERS LEFT'
+export const ALSO_TONIGHT = 'ALSO TONIGHT'
+export const SIGNATURES = 'TONIGHT'
+export const signaturesOver = (n: number) => `${n} signature${n === 1 ? '' : 's'} tonight. Tap one.`
 export const worstNote = (n: number) => (n < 0 ? 'A bad night would break the budget.' : 'The budget survives a bad night.')
-export const BEGIN = 'BEGIN THE NIGHT'
+export const BEGIN = 'BEGIN'
+export const BEGIN_LONG = 'Begin the night'
 export const BEGIN_AT_RISK = 'BEGIN AT RISK'
 export const RISKY = 'Risky: a bad night would break the budget'
-export const riskLine = (worst: number) => `After a bad night: ${worst} CR. If tonight goes as badly as it can, the budget breaks and the operation ends there. Take an order back, or tap again to begin.`
+export const riskLine = (worst: number) => `Worst case tonight: ${worst} CR. If the night goes as badly as it can, the budget breaks and the operation ends there. Take an order back, or tap BEGIN again.`
 export const orderLine = (defense: string | null, assets: number, scans: number) =>
   [defense ? `${defense} placed` : 'No defense placed', assets ? `${assets} asset${assets === 1 ? '' : 's'} ordered` : '', `${scans} scanned`].filter(Boolean).join(' · ')
 
@@ -137,6 +156,7 @@ export const strikeOf = (n: number, of: number) => `MOVE ${n} OF ${of}`
 export const needs = (need: number, room: number, repair: boolean, last: boolean) => `Needs ${need} CR${repair ? ' with its repair' : ''}; ${Math.max(0, room)} CR is free after tonight's bills${last ? '' : ' and the nights ahead'}`
 export const freeForAnswer = (room: number, budget: number, last: boolean) => `${Math.max(0, room)} CR free for an answer: the budget of ${budget} CR, less tonight's bills${last ? '' : ' and what the nights ahead need'}.`
 export const moreToCome = (n: number) => (n > 0 ? `${n} more move${n === 1 ? '' : 's'} to come tonight, and 1 answer between them.` : '')
+export const LAST_MOVE = 'The last move tonight.'
 export const ANSWER_USED = 'ANSWER ALREADY USED'
 // A signature that moved when an order changed: COLDVEIL reads the fleet.
 export const REAIMED = 'COLDVEIL re-aims as your orders change: a signature moved.'
@@ -165,7 +185,7 @@ export const CHAIN_LINE = `${ADVERSARY}'s signature move: jam GNSS, then fool th
 
 // THE DEBRIS CALL.
 export const YOUR_CALL = 'YOUR CALL'
-export const BURN_DRAG = 'Drag the satellite along its orbit to burn, or choose below.'
+export const BURN_DRAG = 'Or drag across the sky to burn.'
 
 // DAWN.
 export const dawnOf = (n: number) => `DAWN · NIGHT ${n}`
@@ -254,3 +274,33 @@ export const OPENINGS = {
   polar: { name: 'Over the pole', how: 'Finish 2 operations.' },
 } as const
 export const LOCKED = 'LOCKED'
+
+// THE TIE-BREAK (v2.0 R2, Ken's mechanic of 14 November 2026). The hold's
+// own words (the action, the rule, the checks) are content
+// (src/content/holds.ts); these are the frame around them.
+export const HOLD_HEAD = 'POLICY ENGINE · HOLD'
+export const holdLead = (sign: string) => `The fleet's own defense has stopped ${sign}.`
+export const RULE_TRIPPED = 'RULE TRIPPED'
+export const EVIDENCE = 'EVIDENCE'
+export const OVERRIDE = 'OVERRIDE'
+export const OVERRIDE_SUB = 'Let it go ahead'
+export const STAND = 'LET IT STAND'
+export const STAND_SUB = 'Keep the block'
+export const holdClock = (s: number) => `${s} s: no call, and the block stands`
+export const HOLD_NO_CLOCK = 'No clock on this one. Take your time.'
+export const HOLD_VERDICT = { right: 'RIGHT CALL', wrong: 'WRONG CALL', none: 'NO CALL' } as const
+export const HOLD_TRUTH = { compromised: 'It was compromised', clean: 'A false positive' } as const
+export const youCalled = { override: 'You overrode the block.', stand: 'You let the block stand.', none: 'The clock ran out and the block stood.' } as const
+export const holdTell = (labels: readonly string[]) => (labels.length ? `The tell: ${labels.join(', and ')}.` : 'Every check was clean: the rule tripped on something unusual, and nothing else was wrong.')
+export const holdCost = (d: number) => `Cost ${d.toFixed(1)} score`
+export const holdSaved = (d: number) => `Kept ${d.toFixed(1)} score`
+export const LOGGED = 'Logged'
+export const loggedAs = (n: number) => `Entry ${n} in the override log.`
+export const HOLD_LOG = 'THE TIE-BREAKS'
+export const holdLogLead = (right: number, of: number) => `${of} hold${of === 1 ? '' : 's'}, ${right} called right.`
+export const HIC_LINE = 'People write the policy. Machines enforce it. A person owns the tie-break.'
+export const HIC_TERM = 'HUMAN IN COMMAND'
+export const holdRow = (night: number, sign: string) => `Night ${night} · ${sign}`
+export const CALLED = { override: 'OVERRODE', stand: 'LET IT STAND', none: 'NO CALL' } as const
+export const NO_HOLDS = 'The policy engine raised no hold this operation.'
+export const LOADING = 'Bringing the theater up'

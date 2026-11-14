@@ -115,7 +115,7 @@ const shortOf = (state: GameState, id: string) => {
 // and the overnight recovery, to the score the turn closed on. Read off
 // the night's model, so only for a night played here, not a reload.
 export interface ScoreRow {
-  key: 'from' | 'conditions' | 'moves' | 'recovery' | 'to'
+  key: 'from' | 'conditions' | 'hold' | 'moves' | 'recovery' | 'to'
   label: string
   value: number
   note?: string
@@ -124,13 +124,17 @@ const tenth = (n: number) => Math.round(n * 10) / 10
 export function scoreRows(night: Night): ScoreRow[] {
   const from = maiScore(night.before)
   const opened = maiScore(night.opening)
-  const lastNight = night.steps.length ? night.steps[night.steps.length - 1].scoreAfter : opened
+  // The policy engine's hold (v2.0 R2) comes before the moves, with a row
+  // of its own when a wrong call cost something.
+  const held = night.hold ? maiScore(night.hold.after) : opened
+  const lastNight = night.steps.length ? night.steps[night.steps.length - 1].scoreAfter : held
   const to = night.record.maiScore
   const saved = tenth(night.record.events.reduce((n, e) => n + e.saved, 0))
   const rows: ScoreRow[] = [{ key: 'from', label: copy.SCORE_FROM, value: from }]
   if (tenth(opened - from) !== 0)
     rows.push({ key: 'conditions', label: copy.SCORE_CONDITIONS, value: tenth(opened - from), note: night.record.conditionsActive.join(', ') || undefined })
-  rows.push({ key: 'moves', label: copy.SCORE_MOVES, value: tenth(lastNight - opened), note: saved > 0 ? copy.savedNote(saved) : undefined })
+  if (tenth(held - opened) !== 0) rows.push({ key: 'hold', label: copy.SCORE_HOLD, value: tenth(held - opened) })
+  rows.push({ key: 'moves', label: copy.SCORE_MOVES, value: tenth(lastNight - held), note: saved > 0 ? copy.savedNote(saved) : undefined })
   const overnight = night.record.ledger.arrivals.length ? copy.SCORE_RECOVERY_ARRIVALS : copy.SCORE_RECOVERY
   if (tenth(to - lastNight) !== 0) rows.push({ key: 'recovery', label: overnight, value: tenth(to - lastNight) })
   rows.push({ key: 'to', label: copy.SCORE_TO, value: to })

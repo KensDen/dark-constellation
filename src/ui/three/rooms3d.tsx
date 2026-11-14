@@ -8,12 +8,15 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState, type RefObject } 
 import { createPortal } from 'react-dom'
 import { useSoundPrefs } from '../../audio'
 import { DEFAULT_SCENARIO, THREAT_EVENT_COUNT } from '../../content'
+import { HUMAN_IN_COMMAND } from '../../content/holds'
+import { holdTemplate } from '../../engine/holds'
 import { RESPONSE_TEXT } from '../../content/responseText'
 import { MOMENT_CUES, gradeSound, type SoundCue } from '../../cues'
 import { turnStrip } from '../../engine/grade'
 import { DIFFICULTIES } from '../../engine/reducer'
 import type { CountermeasureId, GameState, TurnActions } from '../../engine/types'
 import { captureGame, dossier, encodeSaveCode, readRun, type DailyOp, type DailyStanding } from '../../persistence'
+import { callSigns } from '../board/board'
 import { shortName, stoppedByLine } from '../board/boardModel'
 import { copyToClipboard, shareOrCopy } from '../clipboard'
 import { setMotionSettingOff, useMotionSettingOff } from '../cues/motion'
@@ -57,7 +60,7 @@ export function nextTimeText(state: GameState, next: NextTime | null): string {
     return `${lead}${ahead}. Played again with every other order the same, ${ends(next.final, next.was, next.won)}`
   }
   if (next?.kind === 'answer')
-    return `On night ${next.turn}, answer ${threatName(state, next.move)} when it comes: "${RESPONSE_TEXT[next.move]?.[next.response] ?? next.response}" (${next.cost} CR). Played again with every order the same, ${ends(next.final, next.was, next.won)}`
+    return `On night ${next.turn}, answer ${threatName(state, next.move)} when it comes: "${RESPONSE_TEXT[next.move]?.[next.response] ?? next.response}" (${state.watch === 2 ? '1 answer' : `${next.cost} CR`}). Played again with every order the same, ${ends(next.final, next.was, next.won)}`
   if (next?.kind === 'none') return 'No single change this game missed ends it higher.'
   return state.history.some((r) => r.events.some((e) => e.effectiveSeverity > 0)) ? 'Every move that got through met a defense you already had.' : 'Nothing got through.'
 }
@@ -79,7 +82,7 @@ export function ghostOf(state: GameState, next: NextTime | null): { states: Game
   } else if (next?.kind === 'answer') {
     const rec = state.history[next.turn - 1]
     const i = rec?.events.findIndex((e) => e.eventId === next.move) ?? -1
-    if (rec && i >= 0) changed = base.map((o, k) => (k === next.turn - 1 ? { ...o, responses: rec.events.map((_, j) => (j === i ? next.response : null)) } : o))
+    if (rec && i >= 0) changed = base.map((o, k) => (k === next.turn - 1 ? { ...o, responses: rec.events.map((e, j) => (j === i ? next.response : state.watch === 2 ? (e.response?.id ?? null) : null)) } : o))
   }
   if (changed) {
     const states = timeline(state, changed)
@@ -196,6 +199,8 @@ export function Debrief({
           )}
         </dl>
 
+        {state.watch === 2 && <HoldLog state={state} />}
+
         <section className="t3-next" data-t3-next-time>
           <h3>{c3.NEXT_TIME}</h3>
           <p>{nextTimeText(state, next)}</p>
@@ -250,6 +255,55 @@ export function Debrief({
         </div>
       </div>
     </div>
+  )
+}
+
+// THE TIE-BREAKS (v2.0 R2, Ken's mechanic of 14 November 2026): every
+// hold of the operation, the call made, whether it was the right one, and
+// what it cost or kept. The log is the record's own (TurnRecord.hold).
+// The term is named here, once, after the play has taught it.
+function HoldLog({ state }: { state: GameState }) {
+  const holds = state.history.flatMap((r) => (r.hold ? [{ night: r.turn, hold: r.hold }] : []))
+  const signs = callSigns(state)
+  const right = holds.filter((h) => h.hold.right).length
+  return (
+    <section className="t3-next t3-holdlog" data-t3-hold-log>
+      <h3>{c3.HOLD_LOG}</h3>
+      {holds.length === 0 ? (
+        <p>{c3.NO_HOLDS}</p>
+      ) : (
+        <>
+          <ul>
+            {holds.map(({ night, hold }) => {
+              const t = holdTemplate(state.scenario, hold.template)
+              const tells = t ? hold.dirty.map((i) => `${t.checks[i].label}: ${t.checks[i].dirty}`) : []
+              return (
+                <li key={night} data-t3-hold-row={hold.right ? 'right' : 'wrong'}>
+                  <p className="t3-holdrow">
+                    <span>{c3.holdRow(night, signs.get(hold.assetId) ?? hold.assetId)}</span>
+                    <b className={hold.right ? 't3-ok' : 't3-bad'}>{hold.right ? c3.HOLD_VERDICT.right : hold.call === 'none' ? c3.HOLD_VERDICT.none : c3.HOLD_VERDICT.wrong}</b>
+                  </p>
+                  <p>
+                    {t?.action}. {c3.CALLED[hold.call]}. {hold.compromised ? c3.HOLD_TRUTH.compromised : c3.HOLD_TRUTH.clean}: {c3.holdTell(tells).replace(/^The tell: /, '')}
+                  </p>
+                  <p className={hold.right ? 't3-ok' : 't3-warn'}>{hold.right ? c3.holdSaved(hold.saved) : `${c3.holdCost(hold.cost)}. ${hold.compromised ? t?.ifOverridden : t?.ifStood}`}</p>
+                </li>
+              )
+            })}
+          </ul>
+          <p data-t3-hold-summary>{c3.holdLogLead(right, holds.length)}</p>
+          <p className="t3-hic">
+            <b>{c3.HIC_TERM}.</b> {c3.HIC_LINE}
+          </p>
+          <p className="t3-hint">
+            The term:{' '}
+            <a href={HUMAN_IN_COMMAND.url} target="_blank" rel="noopener noreferrer" data-t3-source>
+              {HUMAN_IN_COMMAND.source}
+            </a>
+          </p>
+        </>
+      )}
+    </section>
   )
 }
 

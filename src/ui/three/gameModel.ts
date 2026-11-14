@@ -485,7 +485,7 @@ export function inputsOf(state: GameState): TurnActions[] {
       timing: r.events.map((e) => e.timing ?? 0),
       scans: r.scanned ?? [],
       // Where that night's defense was set down, and the call on its hold.
-      placeOn: Object.fromEntries(buyCounters.flatMap((id) => (state.placed?.[id] ? [[id, state.placed[id]]] : []))),
+      placeOn: { ...state.placed },
       tiebreak: r.hold && r.hold.call !== 'none' ? r.hold.call : null,
     }
   })

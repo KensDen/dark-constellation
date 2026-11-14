@@ -7,7 +7,7 @@
 // store here: a refused write changes nothing else. Nothing is sold, and
 // nothing here reaches a network.
 
-import type { CountermeasureId, GameState } from '../../engine/types'
+import type { GameState } from '../../engine/types'
 import type { NightInputs, Orders } from './gameModel'
 import type { SkinId } from './world'
 
@@ -132,12 +132,8 @@ export function nightMark(run: string, turn: number): NightMark | null {
   }
 }
 
-// Where each defense was set down, for the run in hand: the rules own a
-// defense fleet-wide, so this is the picture's memory, not the game's.
-const PLACED_KEY = 'dc-3d-placed'
-export type Placements = Partial<Record<CountermeasureId, string>>
-export function placements(run: string): Placements {
-  const all = read<{ run: string; at: Placements }>(PLACED_KEY, { run: '', at: {} })
-  return all.run === run ? all.at : {}
-}
-export const setPlacements = (run: string, at: Placements): void => write(PLACED_KEY, { run, at })
+// How many holds this device has called (v2.0 R2): the first one a device
+// meets has no clock, so the tie-break is learned before it is timed.
+const HOLDS_KEY = 'dc-3d-holds'
+export const holdsSeen = (): number => read<{ n: number }>(HOLDS_KEY, { n: 0 }).n
+export const sawHold = (): void => write(HOLDS_KEY, { n: holdsSeen() + 1 })

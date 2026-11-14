@@ -318,6 +318,11 @@ export function ordersOf(state: GameState): TurnActions[] {
       responses,
       ...(r.scanned ? { scans: r.scanned } : {}),
       ...(timing.some((t) => t > 0) ? { timing } : {}),
+      // And where each defense was set down and the call on that night's
+      // hold (v2.0 R2). Every night carries the whole map: the engine reads
+      // it only for a defense new that night, so a defense a replay moves
+      // to another night lands on the same asset.
+      ...(state.watch === 2 ? { placeOn: { ...state.placed }, tiebreak: r.hold && r.hold.call !== 'none' ? r.hold.call : null } : {}),
     }
   })
 }
@@ -325,7 +330,7 @@ export function ordersOf(state: GameState): TurnActions[] {
 // The same game played again from its seed with these orders, or null
 // where the engine refuses one (a budget the change no longer covers).
 export function replay(state: GameState, orders: TurnActions[]): GameState | null {
-  let s = newGame(state.scenario, state.seed, state.difficulty, state.posture)
+  let s = newGame(state.scenario, state.seed, state.difficulty, state.posture, state.watch)
   try {
     for (let t = 0; s.status === 'playing'; t += 1) s = resolveTurn(s, orders[t] ?? { buyAssets: [], buyCounters: [], intelBrief: false }, turnRng(s.seed, s.turn))
   } catch {
@@ -346,7 +351,9 @@ function bestAnswer(state: GameState, orders: TurnActions[], was: number): Extra
       const def = state.scenario.events.find((e) => e.id === ev.eventId)
       for (const r of def?.responses ?? []) {
         if (r.id === ev.response?.id) continue
-        const changed = orders.map((o, k) => (k === t ? { ...o, responses: rec.events.map((_, j) => (j === i ? r.id : null)) } : o))
+        // Under the pool (v2.0 R2) the night's other answers stand, and one
+        // the pool no longer reaches falls away in the replay by itself.
+        const changed = orders.map((o, k) => (k === t ? { ...o, responses: rec.events.map((e, j) => (j === i ? r.id : state.watch === 2 ? (e.response?.id ?? null) : null)) } : o))
         const played = replay(state, changed)
         const taken = played?.history[t]?.events[i]?.response
         // A response the budget could not meet is ridden out by the engine.

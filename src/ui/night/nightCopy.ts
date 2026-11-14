@@ -431,7 +431,7 @@ export const NO_CHANGE = 'HELD'
 // with the panel's word for it.
 export const bonusHint = (detail: string) => `Bonus missed: ${detail}`
 export const budgetPanel = (turn: number, last: boolean) => (last ? 'FINAL BUDGET' : `BUDGET · TURN ${turn + 1}`)
-export const SCORE_SHORT: Record<'from' | 'conditions' | 'moves' | 'recovery' | 'to', string> = { from: 'Start', conditions: 'Conditions', moves: 'Moves', recovery: 'Recovery', to: 'End' }
+export const SCORE_SHORT: Record<'from' | 'conditions' | 'hold' | 'moves' | 'recovery' | 'to', string> = { from: 'Start', conditions: 'Conditions', hold: 'Hold', moves: 'Moves', recovery: 'Recovery', to: 'End' }
 export const LEDGER_SHORT: Record<'left' | 'fuel' | 'responses' | 'windfall' | 'repairs' | 'keeping' | 'funding' | 'bonus' | 'total', string> = {
   responses: 'Responses',
   total: 'Next turn',
@@ -448,6 +448,7 @@ export const BUDGET_LINES = 'BUDGET'
 export const SCORE_FROM = 'Start of turn'
 export const SCORE_CONDITIONS = 'Ongoing conditions'
 export const SCORE_MOVES = 'Tonight’s moves'
+export const SCORE_HOLD = 'The hold'
 export const savedNote = (n: number) => `saved ${n}`
 export const SCORE_RECOVERY = 'Overnight recovery'
 export const SCORE_RECOVERY_ARRIVALS = 'Overnight recovery and arrivals'
