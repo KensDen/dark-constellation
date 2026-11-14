@@ -1686,7 +1686,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             eyebrow={`WATCH OFFICER${game.posture === 'dark' ? ' · RUNNING DARK' : ''}`}
             summary={c3.orderLine(ownedName, orders.assets.length, orders.scans.length)}
             intro={contacts.every((c) => c.known) && contacts.some((c) => !c.fixed) && orders.scans.length === 0 ? `${intro} ${c3.ALLIED_FEED}` : intro}
-            note={atRisk && stakes.worst < 0 ? c3.riskLine(stakes.worst) : note}
+            note={note}
+            risk={atRisk && stakes.worst < 0 ? c3.riskLine(stakes.worst) : undefined}
             contacts={contacts}
             signs={signs}
             stakes={stakes}
@@ -1823,6 +1824,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             seconds={holdLeft}
             total={HOLD_CLOCK_S[game.difficulty]}
             hint={guide === 'hold' ? c3.GUIDE.hold : undefined}
+            stake={Math.round((game.scenario.watch2?.holdStake ?? 0) * (game.difficulty === 'easy' ? 0.75 : 1) * 10) / 10}
             first={primary}
             onCall={callHold}
           />

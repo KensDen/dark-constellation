@@ -378,8 +378,8 @@ export function domainOf(scenario: Scenario, id: CountermeasureId): AssetKind[] 
 // placed defense hardening its asset for good: Prepared, who places 5,
 // had most of the fleet hardened by night 5 and won 94 percent where the
 // beginner won 39, and at the damage that brought Prepared to 87 the
-// beginner won 26. With the post alone, Prepared 86 and the beginner 39,
-// Prepared placing at random 55: where tonight's piece goes is a decision
+// beginner won 26. With the post alone, Prepared 86 and the beginner 40,
+// Prepared placing at random 53: where tonight's piece goes is a decision
 // every night it is made, and never a map that fills in.
 export const HARDEN = 1
 export function postOf(state: Pick<GameState, 'watch' | 'placed' | 'assets' | 'counters'>): string | undefined {

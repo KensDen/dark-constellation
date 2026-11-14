@@ -72,16 +72,16 @@ battery run (`tests/sweep.spec.ts`). On STANDARD:
 
 | line | wins |
 |---|---|
-| Prepared: scans, places the defense that answers the move COLDVEIL favors on the recommended spot, answers each move that would land while it has an answer, reads every hold right | 89.8% |
-| Novice: scans the first 2 signatures, places a piece the tray lights for one of them, answers 2 moves in 3, calls 2 holds in 3 right | 41.4% |
+| Prepared: scans, places the defense that answers the move COLDVEIL favors on the recommended spot, answers each move that would land while it has an answer, reads every hold right | 85.8% |
+| Novice: scans the first 2 signatures, places a piece the tray lights for one of them, answers 2 moves in 3, calls 2 holds in 3 right | 39.8% |
 | Nothing: no orders, no answers, no calls | 0% |
 
 No line that does less than Prepared wins more often than Prepared: not a line that places 2 or 3
 defenses and banks the rest, not a drone a night with no defense, not one written order of
 defenses, not answers with no orders. Prepared overriding every hold, and Prepared letting every
-block stand, each win about 15 points less than Prepared reading the evidence. Prepared placing
+block stand, each win about 10 points less than Prepared reading the evidence. Prepared placing
 its pieces at random wins about 30 points less. A perfect timed tap on every strike lifts the
-Novice by about 5 points.
+Novice by about 7 points.
 
 ## Daily Op, the Dossier and the reading
 

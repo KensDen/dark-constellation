@@ -3085,3 +3085,48 @@ a.t3-btn {
     max-height: 9vh;
   }
 }
+
+/* After the first-time review (v2.0 R2): the risk warning is said whole,
+   the dawn's big score keeps off the card on a short phone, the tray
+   fades where it runs under BEGIN. */
+.t3-root .t3-plan .t3-risknote {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+  color: #1a1204;
+  background: var(--t3-warn);
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 13.5px;
+}
+.t3-plan:has(.t3-risknote) .t3-sigs {
+  display: none;
+}
+@media (max-height: 700px) {
+  .t3-root:not(.t3-wide) .t3-worldscore {
+    display: none;
+  }
+  .t3-root:not(.t3-wide) [data-t3-card='contact'][data-known='true'] .t3-hook {
+    display: none;
+  }
+}
+.t3-root:not(.t3-wide) .t3-meter.is-big {
+  transform: none;
+}
+.t3-root:not(.t3-wide) .t3-dock > .t3-coach {
+  top: calc(max(10px, env(safe-area-inset-top, 0px)) + 78px);
+}
+.t3-kitbar .t3-tray {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent);
+}
+.t3-wide .t3-kitbar .t3-tray {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.t3-pool {
+  min-width: max-content;
+}
+.t3-root:not(.t3-wide) .t3-quizbar {
+  flex-wrap: wrap;
+}

@@ -148,13 +148,16 @@ export const FIRST_LIGHT: Scenario = {
   countermeasures: COUNTERMEASURES,
   holds: HOLDS,
   // THE 3D GAME'S NUMBERS (v2.0 R2), read under GameState.watch 2
-  // (src/engine/rules.ts). See the sweep's table in tests/sweep.spec.ts
-  // for what each was measured at.
+  // (src/engine/rules.ts). With the answers a pool that costs no credits
+  // (rules.ts, answersOf), credits buy defenses and assets and pay the
+  // bills, so the budget is smaller than the classic board's: 80 to start
+  // and 6 a night. tests/sweep.spec.ts has what each was measured at, and
+  // the settings either side.
   watch2: {
     startCredits: 80,
     incomePerTurn: 6,
-    recovery: { base: 4, withIrRetainer: 6 },
-    meterDamage: 12,
+    recovery: { base: 5, withIrRetainer: 7 },
+    meterDamage: 13,
     answers: 3,
     holds: 3,
     holdStake: 2,

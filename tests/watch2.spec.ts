@@ -332,7 +332,7 @@ describe('the policy engine’s holds: the human tie-break (v2.0 R2)', () => {
         clean.add(c.clean)
       }
       for (const text of [h.action, h.rule, h.ifOverridden, h.ifStood, ...h.checks.flatMap((c) => [c.label, c.clean, c.dirty])]) {
-        expect(text, h.id).not.toMatch(/[–—]/)
+        expect(text, h.id).not.toMatch(new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`))
         expect(text.trim().length, h.id).toBeGreaterThanOrEqual(3)
       }
     }
@@ -473,7 +473,7 @@ describe('the 3D rules replay to a pinned log (v2.0 R2)', () => {
     const idle = play(game(4041), line('nothing').policy, () => null).at(-1)!
     const actual = { prepared: hash(prepared), idle: hash(idle) }
     if (process.env.UPDATE_SNAPSHOTS) process.stderr.write(`\nwatch2 snapshot: ${JSON.stringify(actual)}\n`)
-    expect(actual).toEqual({ prepared: 'f8f3b72464128581cdbbaa6d8912a10ace9f60ce92eb208a097d4405f05e08ee', idle: '15568ad8bea5df520cb9315f65d367c2c32cf87d9465b611977951037f92f053' })
+    expect(actual).toEqual({ prepared: '6cfed94395cc28865dd7d7c9303e3227529080c1110a24b48024004ddedbbf11', idle: '6f5af3d24df49584e55e3089ea26747ccfaee83aa2cf1fa9ca1ab101d441060f' })
     expect(hash(play(game(20261114), line('prepared').policy, sensible).at(-1)!)).toBe(actual.prepared)
   })
 })

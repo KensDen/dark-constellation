@@ -143,7 +143,7 @@ export const BEGIN = 'BEGIN'
 export const BEGIN_LONG = 'Begin the night'
 export const BEGIN_AT_RISK = 'BEGIN AT RISK'
 export const RISKY = 'Risky: a bad night would break the budget'
-export const riskLine = (worst: number) => `Worst case tonight: ${worst} CR. If the night goes as badly as it can, the budget breaks and the operation ends there. Take an order back, or tap BEGIN again.`
+export const riskLine = (worst: number) => `Worst case: ${worst} CR. A bad night would break the budget and end the operation. Take an order back, or tap BEGIN again.`
 export const orderLine = (defense: string | null, assets: number, scans: number) =>
   [defense ? `${defense} placed` : 'No defense placed', assets ? `${assets} asset${assets === 1 ? '' : 's'} ordered` : '', `${scans} scanned`].filter(Boolean).join(' · ')
 
@@ -293,7 +293,9 @@ export const HOLD_TRUTH = { compromised: 'It was compromised', clean: 'A false p
 export const youCalled = { override: 'You overrode the block.', stand: 'You let the block stand.', none: 'The clock ran out and the block stood.' } as const
 export const holdTell = (labels: readonly string[]) => (labels.length ? `The tell: ${labels.join(', and ')}.` : 'Every check was clean: the rule tripped on something unusual, and nothing else was wrong.')
 export const holdCost = (d: number) => `Cost ${d.toFixed(1)} score`
-export const holdSaved = (d: number) => `Kept ${d.toFixed(1)} score`
+export const holdSaved = (d: number) => `A wrong call: -${d.toFixed(1)} score`
+export const holdStakes = (d: number) => `A wrong call costs about ${d} points of score, either way.`
+export const POST_STOPPED = 'The watch post stopped it: your newest defense sits on the asset it was aimed at, and a strike there is 1 weaker.'
 export const LOGGED = 'Logged'
 export const loggedAs = (n: number) => `Entry ${n} in the override log.`
 export const HOLD_LOG = 'THE TIE-BREAKS'

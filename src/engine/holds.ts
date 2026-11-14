@@ -65,6 +65,20 @@ export function holdNights(scenario: GameState['scenario'], seed: number): Map<n
   return out
 }
 
+// The order a seed takes its templates in, so the holds of one game are
+// different actions (the first reviewer of the round met the same relay
+// switch twice, word for word). The k-th hold takes the k-th template of
+// this order that some live asset can carry.
+function templateOrder(scenario: GameState['scenario'], seed: number): HoldTemplate[] {
+  const out = [...(scenario.holds ?? [])]
+  const r = stream(seed, 97)
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = r.int(i + 1)
+    ;[out[i], out[j]] = [out[j], out[i]]
+  }
+  return out
+}
+
 export const holdTemplate = (scenario: GameState['scenario'], id: string): HoldTemplate | undefined => scenario.holds?.find((h) => h.id === id)
 
 // Tonight's hold, when the seed deals one and an asset it can be raised
@@ -72,14 +86,21 @@ export const holdTemplate = (scenario: GameState['scenario'], id: string): HoldT
 // before the night resolves.
 export function holdTonight(state: Pick<GameState, 'scenario' | 'seed' | 'turn' | 'assets' | 'watch'>): HoldPlan | undefined {
   if (state.watch !== 2) return undefined
-  const compromised = holdNights(state.scenario, state.seed).get(state.turn)
+  const nights = holdNights(state.scenario, state.seed)
+  const compromised = nights.get(state.turn)
   if (compromised === undefined) return undefined
   const r = stream(state.seed, state.turn)
   const live = state.assets.filter((a) => a.integrity > 0)
-  const templates = (state.scenario.holds ?? []).filter((h) => live.some((a) => h.kinds.includes(a.kind)))
-  if (templates.length === 0) return undefined
-  const template = templates[r.int(templates.length)]
-  const pool = live.filter((a) => template.kinds.includes(a.kind))
+  const order = templateOrder(state.scenario, state.seed)
+  const k = [...nights.keys()].sort((a, b) => a - b).indexOf(state.turn)
+  let template: HoldTemplate | undefined
+  for (let i = 0; i < order.length && !template; i += 1) {
+    const t = order[(k + i) % order.length]
+    if (live.some((a) => t.kinds.includes(a.kind))) template = t
+  }
+  if (!template) return undefined
+  const kinds = template.kinds
+  const pool = live.filter((a) => kinds.includes(a.kind))
   const asset = pool[r.int(pool.length)]
   const dirty: number[] = []
   if (compromised) {

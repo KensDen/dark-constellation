@@ -30,9 +30,19 @@ const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 
 // The bands (Ken, 14 November 2026: keep Round 1's, Novice around 40
 // percent, Prepared around 80, Nothing at 0), in percent of games won,
-// inclusive.
+// inclusive. MEASURED at the numbers the scenario carries (watch2: 13
+// meter damage a point, 5 recovery a night, 3 answers, funding 6, a
+// starting budget of 80, 2 points for a wrong call): Prepared 85.8,
+// Novice 39.8, Nothing 0.0 on STANDARD; Prepared 92.0 and Novice 84.4 on
+// EASY. The points either side: 12 damage with 4 recovery, Prepared 89.8
+// and Novice 41.4; 13 with 4, 75.8 and 32.0; 12 with 3, 78.6 and 32.8.
+// Funding under 6 is a cliff (at 4 the WORST CASE guard stops every line
+// buying, and Prepared wins 45). A Prepared line that plays its orders
+// well and a beginner are about 46 points apart at every setting
+// measured, so the two bands cannot both be met to the point: this is
+// the setting nearest both.
 const TARGETS: { name: string; difficulty: Difficulty; label: string; min: number; max: number }[] = [
-  { name: 'prepared', difficulty: 'standard', label: 'Prepared', min: 75, max: 92 },
+  { name: 'prepared', difficulty: 'standard', label: 'Prepared', min: 75, max: 90 },
   { name: 'prepared', difficulty: 'easy', label: 'Prepared on EASY', min: 90, max: 100 },
   { name: 'novice', difficulty: 'standard', label: 'Novice', min: 35, max: 50 },
   { name: 'novice', difficulty: 'easy', label: 'Novice on EASY', min: 70, max: 100 },

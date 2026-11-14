@@ -48,6 +48,7 @@ export function PlanCard({
   summary,
   intro,
   note,
+  risk,
   contacts,
   signs,
   stakes,
@@ -63,6 +64,8 @@ export function PlanCard({
   summary: string
   intro: string
   note: string
+  // BEGIN was pressed on a night that could break the budget: said whole.
+  risk?: string
   contacts: Contact[]
   signs: Map<string, string>
   stakes: Stakes
@@ -81,7 +84,9 @@ export function PlanCard({
         {eyebrow}
         <span className="t3-right">{summary}</span>
       </p>
-      <p className={note ? 't3-note' : 't3-lead'}>{note || intro}</p>
+      <p className={risk ? 't3-note t3-risknote' : note ? 't3-note' : 't3-lead'} role={risk ? 'alert' : undefined}>
+        {risk || note || intro}
+      </p>
       <div className="t3-sigs" role="group" aria-label={c3.signaturesOver(contacts.length)} data-t3-sigs>
         {contacts.map((c, i) => {
           const sign = signs.get(c.targetId ?? '') ?? ''
@@ -557,9 +562,12 @@ export function HoldCard({
   seconds,
   total,
   hint,
+  stake,
   first,
   onCall,
 }: {
+  // What a wrong call costs, in points of score, at this difficulty.
+  stake: number
   // The first hold a device meets says what is being asked, once.
   hint?: string
   template: HoldTemplate
@@ -604,6 +612,9 @@ export function HoldCard({
           </div>
         ))}
       </dl>
+      <p className="t3-foot" data-t3-hold-stake>
+        {c3.holdStakes(stake)}
+      </p>
       <div className="t3-calls" role="group" aria-label="Your call">
         <button ref={first} type="button" data-t3-hold="override" className="t3-call t3-call-override" onClick={() => onCall('override')}>
           <b>{c3.OVERRIDE}</b>
@@ -783,6 +794,8 @@ export function ResultCard({
   const helped = missing ? joined(ev.response ? copy.lastingAnswer(piece, missing.cost) : held ? copy.finishedIt(piece, missing.cost) : copy.wouldHaveHelped(piece, missing.cost)) : ''
   const stops = missing && !held ? ` It ${stopVerb(missing.id, def) === 'stops' ? 'stops' : 'blunts'} ${shortName(def)} every night.` : ''
   const byDefense = verdict === 'blocked' && blockedBy(ev) === 'defense' && held
+  // Stopped with no defense that answers it and no answer: the post did it.
+  const byPost = verdict === 'blocked' && !ev.response && !held && !!ev.hardened
   const tap = tapLine(ev, assist, saved)
   const used = ev.room !== undefined && !ev.response && (ev.left !== undefined ? ev.left === 0 : (ev.answered ?? 0) > 0)
   return (
@@ -833,7 +846,9 @@ export function ResultCard({
         </div>
       )}
       <p className="t3-helped" data-t3-helped>
-        {byDefense && held
+        {byPost
+          ? c3.POST_STOPPED
+          : byDefense && held
           ? joined(partner ? copy.canNowSayWith(held.name, shortName(def), partner.name) : copy.canNowSay(held.name, shortName(def)))
           : `${ev.response ? `${copy.TONIGHT_ONLY} ` : ''}${helped}${stops}${could && could.id ? (ev.left !== undefined ? ` An answer was there: ${RESPONSE_TEXT[def.id]?.[could.id] ?? could.id}.` : ` ${joined(copy.couldHave(RESPONSE_TEXT[def.id]?.[could.id] ?? could.id, could.cost))}`) : ''}`}
       </p>
