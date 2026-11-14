@@ -297,10 +297,24 @@ export const holdSaved = (d: number) => `Kept ${d.toFixed(1)} score`
 export const LOGGED = 'Logged'
 export const loggedAs = (n: number) => `Entry ${n} in the override log.`
 export const HOLD_LOG = 'THE TIE-BREAKS'
-export const holdLogLead = (right: number, of: number) => `${of} hold${of === 1 ? '' : 's'}, ${right} called right.`
+export const holdLogLead = (right: number, of: number, none = 0) => `${of} hold${of === 1 ? '' : 's'}, ${right} called right${none ? `, ${none} left to the clock` : ''}.`
+export const MACHINE_RIGHT = 'The machine was right this time.'
+export const MACHINE_WRONG = 'The machine was wrong, and nobody said so.'
 export const HIC_LINE = 'People write the policy. Machines enforce it. A person owns the tie-break.'
 export const HIC_TERM = 'HUMAN IN COMMAND'
 export const holdRow = (night: number, sign: string) => `Night ${night} · ${sign}`
 export const CALLED = { override: 'OVERRODE', stand: 'LET IT STAND', none: 'NO CALL' } as const
 export const NO_HOLDS = 'The policy engine raised no hold this operation.'
 export const LOADING = 'Bringing the theater up'
+
+// NAME THAT SIGNATURE (v2.0 R2): a round in the Dossier on the cards filed.
+export const QUIZ = 'NAME THAT SIGNATURE'
+export const QUIZ_LOCKED = (n: number) => `File ${n} more card${n === 1 ? '' : 's'} to play.`
+export const QUIZ_LEAD = 'Know it on sight and you need no scan pulse to name it.'
+export const quizRound = (n: number, of: number) => `${n} OF ${of}`
+export const QUIZ_RIGHT = 'RIGHT'
+export const quizWrong = (name: string) => `It was ${name}.`
+export const quizEnd = (n: number, of: number, best: number) => `${n} of ${of} named. Best on this device: ${best} of ${of}.`
+export const QUIZ_AGAIN = 'ANOTHER ROUND'
+export const QUIZ_NEXT = 'NEXT'
+export const QUIZ_DONE = 'BACK TO THE CARDS'

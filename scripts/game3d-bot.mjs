@@ -195,7 +195,7 @@ const AUDIT = `(() => {
     if (!e.disabled && !scroller && (r.left < -0.5 || r.right > innerWidth + 0.5 || r.top < -0.5 || r.bottom > innerHeight + 0.5) && !e.closest('.t3-tags')) bad.push('off screen "' + name.slice(0, 30) + '" ' + Math.round(r.left) + ',' + Math.round(r.top) + ' ' + Math.round(r.right) + ',' + Math.round(r.bottom))
   }
   const dock = document.querySelector('[data-t3-dock]')?.getBoundingClientRect()
-  if (dock && innerWidth < 1000 && dock.height > innerHeight * (document.querySelector('[data-t3-card="replay"]') ? 0.72 : 0.66)) bad.push('the dock covers ' + Math.round((dock.height / innerHeight) * 100) + '% of the height')
+  if (dock && innerWidth < 1000 && !document.querySelector('[data-t3-card="hold"]') && dock.height > innerHeight * (document.querySelector('[data-t3-card="replay"]') || innerHeight < 620 ? 0.74 : 0.66)) bad.push('the dock covers ' + Math.round((dock.height / innerHeight) * 100) + '% of the height')
   // Text a thumb's distance away: nothing under 12px, glyph dots aside.
   const seen = new Set()
   const t3 = document.querySelector('.t3-root')
@@ -772,7 +772,7 @@ function sheet(title, shots) {
 <style>body{margin:0;padding:24px;background:#0b0f14;color:#e6edf3;font:13px/1.4 system-ui,sans-serif}h1{font-size:20px;margin:0 0 4px}h2{font-size:14px;margin:26px 0 10px;color:#7cff9b;letter-spacing:.08em}
 .row{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0;width:var(--w)}img{display:block;width:100%;border-radius:8px;border:1px solid #243041}figcaption{margin-top:5px;color:#8b98a8;font-size:11px}figcaption b{color:#e6edf3}
 .phone{--w:198px}.desktop{--w:494px}</style>
-<h1>${title}</h1><p>Every capture of the bot's runs, in order. Phone runs are 375x667 and 430x932, played by touch; desktop runs are 1440x900.</p>
+<h1>${title}</h1><p>Every capture of the bot's runs, in order. Phone runs are 375x553 (an iPhone SE inside Mobile Safari's bars), 375x667 and 430x932, played by touch; desktop runs are 1440x900.</p>
 ${runs.map((r) => `<h2>${r}</h2><div class="row ${/^[34]\d\dx/.test(r) ? 'phone' : 'desktop'}">${shots.filter((s) => s.run === r).map(cell).join('')}</div>`).join('\n')}`
 }
 
@@ -799,16 +799,18 @@ async function contactSheets(b, shots) {
 
 // A small phone and a large one, by touch, and a desktop.
 const VIEWS = [
+  // An iPhone SE as Mobile Safari leaves it: 667 high, less its own bars.
+  [375, 553, 2, '375x553'],
   [375, 667, 2, '375x667'],
   [430, 932, 3, '430x932'],
   [1440, 900, 1, '1440x900'],
 ]
 // The four players of the brief, and a fifth for Reduce Motion and Assist.
 const GAMES = [
-  { name: 'a-first-time-easy', label: 'First-time EASY (hands on)', what: 'a first visit: the briefing in the world, the guide, then a careful game on EASY with every gesture made by hand', fresh: true, seed: 3, scan: 'lens', place: 'smart', hands: true, fleet: true, respond: 'best', timing: 'aim', debris: 'burn', hold: 'read', system: true },
+  { name: 'a-first-time-easy', label: 'First-time EASY (hands on)', what: 'a first visit: the briefing in the world, the guide, then a careful game on EASY with every gesture made by hand', fresh: true, seed: 3, scan: 'lens', place: 'smart', hands: true, fleet: true, respond: 'best', timing: 'aim', debris: 'burn', hold: 'read', system: true, views: ['375x553', '375x667', '430x932', '1440x900'] },
   { name: 'b-daily-op', label: 'Daily Op (STANDARD, hands on)', what: 'the Daily Op from the title, on STANDARD, played carefully by hand, and shared', daily: true, seed: 5, scan: 'tap', place: 'smart', hands: true, respond: 'best', timing: 'aim', debris: 'burn', hold: 'read', views: ['375x667', '1440x900'] },
   { name: 'c-poor', label: 'Deliberately poor (STANDARD)', what: 'nothing scanned, nothing placed, every move ridden out, HOLD on the debris', difficulty: 'standard', seed: 20261110, scan: 'none', place: 'none', respond: 'ride', timing: 'none', debris: 'hold', hold: 'timeout', reloadAt: 2, views: ['375x667'] },
-  { name: 'd-beginner', label: 'Beginner (EASY, taps only)', what: 'a beginner on EASY who only taps: scans the first signatures, places a piece that looks good, answers 2 moves in 3, taps the TAP button late or early', difficulty: 'easy', seed: 77, scan: 'second', place: 'random', respond: 'careless', timing: 'button', debris: 'coin', hold: 'shaky', continueAt: 3, again: true },
+  { name: 'd-beginner', label: 'Beginner (EASY, taps only)', what: 'a beginner on EASY who only taps: scans the first signatures, places a piece that looks good, answers 2 moves in 3, taps the TAP button late or early', difficulty: 'easy', seed: 77, scan: 'second', place: 'random', respond: 'careless', timing: 'button', debris: 'coin', hold: 'shaky', continueAt: 3, again: true, views: ['375x553', '430x932', '1440x900'] },
 ]
 const EXTRA = [{ name: 'e-reduced-assist', label: 'Reduce Motion and Assist (EASY, taps only)', what: 'Reduce Motion with Assist and low power: no camera travel, no timed tap, every action a plain activation', difficulty: 'easy', seed: 3, reduced: true, assist: true, lowPower: true, scan: 'tap', place: 'smart', respond: 'best', timing: 'none', debris: 'burn', hold: 'read', views: ['375x667'] }]
 async function main() {

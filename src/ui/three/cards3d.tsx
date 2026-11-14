@@ -6,6 +6,7 @@
 
 import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 import { RESPONSE_TEXT } from '../../content/responseText'
+import { answersLeft, answersOf } from '../../engine/rules'
 import { maiScore } from '../../engine/scoring'
 import type { Asset, AssetKind, CountermeasureId, DebrisChoice, GameState, HoldCall, HoldTemplate, ResolvedHold } from '../../engine/types'
 import { COVERAGE_PER_KIND } from '../../engine/scoring'
@@ -273,7 +274,7 @@ export function ContactCard({
       </div>
       <p className="t3-hook">{copy.HOOK[def.id] ?? def.name}.</p>
       <p className="t3-fav" data-t3-favor>
-        {contact.debris ? c3.DEBRIS_NOTE : contact.favor === 'unlikely' ? (contact.exposed === 0 ? c3.FAVOR_STOPPED : c3.FAVOR.unlikely) : `${c3.FAVOR[contact.favor]} ${c3.aboutLoss(contact.loss)}`}
+        {contact.debris ? c3.DEBRIS_NOTE : `Strength ${contact.strength}. ${contact.favor === 'unlikely' ? (contact.exposed === 0 ? c3.FAVOR_STOPPED : c3.FAVOR.unlikely) : `${c3.FAVOR[contact.favor]} ${c3.aboutLoss(contact.loss)}`}`}
       </p>
       {answers.map((a) => {
         const lockedBy = !a.ordered && !a.owned && locked ? ` · ${c3.replaces(locked)}` : ''
@@ -621,7 +622,8 @@ export function HoldCard({
 // what it cost or kept, and its entry in the override log.
 export function HoldResultCard({ hold, template, sign, entry, first, onContinue }: { hold: ResolvedHold; template: HoldTemplate; sign: string; entry: number; first: RefObject<HTMLButtonElement | null>; onContinue: () => void }) {
   const tone = hold.right ? 'blocked' : 'hit'
-  const verdict = hold.call === 'none' && !hold.right ? c3.HOLD_VERDICT.none : hold.right ? c3.HOLD_VERDICT.right : c3.HOLD_VERDICT.wrong
+  // No call is no call, whichever way it fell: the machine's block stood.
+  const verdict = hold.call === 'none' ? c3.HOLD_VERDICT.none : hold.right ? c3.HOLD_VERDICT.right : c3.HOLD_VERDICT.wrong
   const tells = hold.dirty.map((i) => `${template.checks[i].label}: ${template.checks[i].dirty}`)
   return (
     <div className={`t3-card t3-result-${tone}`} key="hold-result" data-t3-card="hold-result" data-t3-verdict={hold.right ? 'right' : 'wrong'} data-t3-truth={hold.compromised ? 'compromised' : 'clean'}>
@@ -633,7 +635,7 @@ export function HoldResultCard({ hold, template, sign, entry, first, onContinue 
         </span>
       </div>
       <p className="t3-helped">
-        {sign}: {c3.youCalled[hold.call]} {c3.holdTell(tells)}
+        {sign}: {c3.youCalled[hold.call]} {hold.call === 'none' ? (hold.right ? c3.MACHINE_RIGHT : c3.MACHINE_WRONG) : ''} {c3.holdTell(tells)}
       </p>
       {!hold.right && <p className="t3-helped t3-warn">{hold.compromised ? template.ifOverridden : template.ifStood}</p>}
       <p className="t3-tagsline">
@@ -976,10 +978,18 @@ export function DawnCard({
         {/* What made the change, so a night's net is never a number no line explains. */}
         <small data-t3-scoreparts>{copy.scoreParts(scoreRows(night).filter((r) => r.key !== 'from' && r.key !== 'to'))}</small>
       </p>
+      {!over && answersOf(after) > 0 && (
+        <p className="t3-tagsline" data-t3-dawn-answers>
+          <span className={answersLeft(after) === 0 ? 't3-warn' : ''}>
+            {c3.ANSWERS} {'●'.repeat(answersLeft(after))}
+            {'○'.repeat(answersOf(after) - answersLeft(after))} · {answersLeft(after)} left for {before.scenario.totalTurns - rec.turn} more night{before.scenario.totalTurns - rec.turn === 1 ? '' : 's'}
+          </span>
+        </p>
+      )}
       {hold && (
         <p className="t3-tagsline" data-t3-dawn-hold>
           <span className={hold.right ? 't3-ok' : 't3-warn'}>
-            {hold.right ? c3.HOLD_VERDICT.right : hold.call === 'none' ? c3.HOLD_VERDICT.none : c3.HOLD_VERDICT.wrong} on the hold · {hold.right ? c3.holdSaved(hold.saved).toLowerCase() : c3.holdCost(hold.cost).toLowerCase()}
+            {hold.call === 'none' ? c3.HOLD_VERDICT.none : hold.right ? c3.HOLD_VERDICT.right : c3.HOLD_VERDICT.wrong} on the hold · {hold.right ? c3.holdSaved(hold.saved).toLowerCase() : c3.holdCost(hold.cost).toLowerCase()}
           </span>
         </p>
       )}

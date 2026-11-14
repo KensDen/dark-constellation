@@ -137,3 +137,10 @@ export function nightMark(run: string, turn: number): NightMark | null {
 const HOLDS_KEY = 'dc-3d-holds'
 export const holdsSeen = (): number => read<{ n: number }>(HOLDS_KEY, { n: 0 }).n
 export const sawHold = (): void => write(HOLDS_KEY, { n: holdsSeen() + 1 })
+
+// NAME THAT SIGNATURE (v2.0 R2): the best round on this device.
+const QUIZ_KEY = 'dc-3d-quiz'
+export const quizBest = (): number => read<{ best: number }>(QUIZ_KEY, { best: 0 }).best
+export const setQuizBest = (n: number): void => {
+  if (n > quizBest()) write(QUIZ_KEY, { best: n })
+}

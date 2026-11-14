@@ -160,7 +160,8 @@ export default function Title(p: TitleProps) {
               R6b's fresh eyes, item 9: "keep" read as every turn). "Finish",
               as the full brief's job says it: "End turn" is retired. */}
           <p className="mt-1 font-mono text-xs text-dc-go">
-            Finish turn {DEFAULT_SCENARIO.totalTurns} at{'\u00a0'}{DEFAULT_SCENARIO.winThreshold}+
+            {/* The 3D game counts nights; the pixel board (?view=classic) turns. */}
+            Finish {typeof location !== 'undefined' && location.search.includes('view=classic') ? 'turn' : 'night'} {DEFAULT_SCENARIO.totalTurns} at{'\u00a0'}{DEFAULT_SCENARIO.winThreshold}+
           </p>
           {/* Whether it is done yet, as GOAL 2 shows its count (v1.3 R5):
               an icon and a word, never colour alone (rule 8). */}

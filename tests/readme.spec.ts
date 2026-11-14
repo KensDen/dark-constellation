@@ -75,7 +75,8 @@ describe('README counts match the content data', () => {
   })
 
   it('states the scenario turn count', () => {
-    expect(README.replace(/\s+/g, ' ')).toContain(`across ${DEFAULT_SCENARIO.totalTurns} turns`)
+    // The 3D game's word for a turn is a night (v2.0 R2).
+    expect(README.replace(/\s+/g, ' ')).toContain(`across ${DEFAULT_SCENARIO.totalTurns} nights`)
   })
 
   it('does not claim any unverified references while the deck is fully verified', () => {

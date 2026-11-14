@@ -203,6 +203,21 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const [scanning, setScanning] = useState(false)
   // The first frame of the world is drawn: until then, a word in its place.
   const [ready, setReady] = useState(false)
+  // A frame-rate readout for a pass on a real phone: add fps=1 to the
+  // address once, and it stays for the tab's life.
+  const [fps, setFps] = useState<number | null>(null)
+  useEffect(() => {
+    let on = false
+    try {
+      if (location.search.includes('fps=1')) sessionStorage.setItem('dc-3d-fps', '1')
+      on = sessionStorage.getItem('dc-3d-fps') === '1'
+    } catch {
+      on = false
+    }
+    if (!on) return
+    const id = window.setInterval(() => setFps(Math.round(world.current?.fps() ?? 0)), 500)
+    return () => window.clearInterval(id)
+  }, [])
   // The hold's clock, in seconds left; null when there is none.
   const [holdLeft, setHoldLeft] = useState<number | null>(null)
   // BEGIN asked once more on a night whose WORST CASE is below 0.
@@ -372,7 +387,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       // top bar and over the cards: a signature is never cut by an edge or
       // hidden under the card it belongs to.
       const [sx, sy] = spots[best] ?? spots[0]
-      const dx = Math.round(Math.max(4, Math.min(right - 4 - w, a.x + sx)) - a.x)
+      const dx = Math.round(Math.max(8, Math.min(right - 8 - w, a.x + sx)) - a.x)
       const dy = Math.round(Math.max(top + 2, Math.min(floor - 4 - h, a.y + sy)) - a.y)
       taken.push([a.x + dx, a.y + dy, a.x + dx + w, a.y + dy + h])
       chipAt.current.set(a.key, { dx, dy, w, h })
@@ -536,6 +551,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const t = world.current
     if (!t || phase === 'replay') return
     const conds = conditionsOn(board)
+  const condHome = new Map<string, string>()
+  for (const a of game.assets) for (const c of conds.get(a.id) ?? []) if (!condHome.has(c.eventId)) condHome.set(c.eventId, a.id)
     const lingering = new Set<string>()
     t.clearSignatures('cond:')
     for (const a of board.assets) {
@@ -1394,6 +1411,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const selPiece = sel?.kind === 'piece' ? kit.find((p) => p.cm.id === sel.id) : undefined
   const contactsOn = (id: string) => (deciding ? contacts.filter((c) => c.targetId === id) : [])
   const conds = conditionsOn(board)
+  const condHome = new Map<string, string>()
+  for (const a of game.assets) for (const c of conds.get(a.id) ?? []) if (!condHome.has(c.eventId)) condHome.set(c.eventId, a.id)
   const ownedName = orders.defense ? PIECE[orders.defense] : null
   const dragOk = drag ? new Set(board.assets.filter((a) => dropOk(drag, a.id)).map((a) => a.id)) : null
   const armed = selPiece && !selPiece.blocked && !selPiece.ordered ? new Set(board.assets.filter((a) => a.integrity > 0 && selPiece.domain.includes(a.kind)).map((a) => a.id)) : null
@@ -1455,6 +1474,11 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             : undefined
       }
     >
+      {fps !== null && (
+        <p className="t3-fps" data-t3-fps aria-hidden="true">
+          {fps} fps{pf.lowPower ? ' · low power' : ''}
+        </p>
+      )}
       {!ready && !failed && (
         <p className="t3-loading" role="status">
           {c3.LOADING}
@@ -1496,7 +1520,10 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           const on = contactsOn(a.id)
           const lost = asset.integrity <= 0
           const hurt = asset.integrity < 100
-          const cond = board.status === 'playing' ? (conds.get(a.id) ?? []) : []
+          // A condition sits on a whole layer; its pill stands on the first
+          // asset it sits on, and the asset's card names it on the rest, so
+          // a bad night is not a pill on every asset.
+          const cond = board.status === 'playing' ? (conds.get(a.id) ?? []).filter((c) => condHome.get(c.eventId) === a.id) : []
           const isTarget = nightTarget === a.id
           const can = phase === 'plan' ? !lost : isTarget && ((stage.at === 'choose' && (!!isolateChoice || !!rerouteChoice)) || stage.at === 'call')
           const lit = dragOk?.has(a.id) || armed?.has(a.id)

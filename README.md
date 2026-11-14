@@ -4,81 +4,116 @@ By Ken Connell
 
 ![Split-sphere key art banner](docs/readme-banner.webp)
 
-**A turn-based space and drone cybersecurity strategy sim.** You are the mission assurance
-architect for a smallsat constellation and a drone squadron. Design and procure the
-architecture, defenses included, under budget while an adversary campaign escalates across 6 turns.
+**A turn-based space and drone cybersecurity strategy game, played in a 3D theater.** You are
+the mission assurance architect for a smallsat constellation and a drone squadron. An adversary,
+COLDVEIL, works on them across 6 nights. You scan for what is coming, place defenses, answer
+strikes, and make the call when your own automated defense stops one of your own.
 
-Play it: https://kensden.github.io/dark-constellation/
+Play it: https://kensden.github.io/dark-constellation/ (the released v1.6 pixel board, until
+v2.0 merges)
 
-Status: v1.6.2, released 29 October 2026: the title screen's desktop layout and curled apostrophes,
-on v1.6.0's COLDVEIL per seed, the phone night and the playtest passes. Each seed now plays one of
-two campaigns, so the hand-written order of six defenses no longer wins every seed. The board is
-decluttered for a phone, the night's strike holds long enough to read, a hit fits one screen and
-files to the Dossier, PROCURE is a loadout, END OF TURN is a turn summary, the debrief is an end
-screen with its long lists behind tabs, the coach shows once per device, and the drones fly in
-profile in every scene. It builds on v1.5.0's balance and art, v1.4.0's one new defense a night and
-v1.3.0's loop pass: six turns against a reacting adversary, with the title and briefing, the board
-and PROCURE, the night, the debrief, the Dossier and LIBRARY.
+Status: **v2.0, Round 2, in work on the `v2.0/r2` branch** (14 November 2026). This README
+describes the 3D game on this branch. The title's PLAY, CONTINUE and DAILY OP open it; the pixel
+board it grew from is still there at `?view=classic`, with the rules it was released with.
 
 ## How to play
 
-Each turn you read what COLDVEIL could hit tonight, order fleet and one new defense, then EXECUTE.
-In the night, each move that would land stops for your response: block it or halve it for CR, one
-response a night, or ride it out. The adversary reacts: it takes the move you have covered least.
-Finish turn 6 with the mission assurance score at 70 or higher to win; let it collapse, or run the budget
-below zero at a turn close, and the operation ends early. Every defense carries upkeep, repairs
-come due at the turn close, and coverage, trust, and redundancy trade off against each other. Each
-seed plays one of two campaigns: COLDVEIL opens as the briefing expects and works the ground last,
-or opens on the other layers and works the ground before the debris night. The hand-written order
-of six defenses that won all 500 measured seeds in v1.5 now wins 78 percent of them, below play
-that reads each night and answers the one move it flags (83): the adversary punishes the written
-script and narrow plans. A broad early core of defenses wins: the same six in another order win
-every one of those seeds, and no way of varying COLDVEIL's moves that keeps the game's balance
-changes that (1,728 measured). That is the game teaching layered defense, and it is the design on
-record (Ken, 27 October 2026).
+A game is 6 nights. Finish night 6 with the mission assurance score at 70 or above to win. Let it
+fall under 35, or let the budget go below zero at a dawn, and the operation ends early.
 
-## Daily Op and the debrief
+**Before the night.**
+
+- **Scan.** Tonight's possible moves stand over the fleet as signatures, each with a look of its
+  own, each on the asset it would strike. They are unidentified until you scan them, and you have
+  2 scan pulses a night. Every signature is also a button in a row at the foot of the screen.
+- **Place 1 defense.** A defense covers the whole fleet against the moves it answers, and COLDVEIL
+  reads it: it takes the move you have covered least. Where you set the piece down matters too.
+  The asset your newest defense sits on is the **watch post**, and any strike on that asset lands
+  1 point weaker. The piece's card recommends a spot.
+- **Order assets**, if the budget allows. More fleet covers more ground, and coverage is 30
+  percent of the score.
+- **WORST CASE** says what the budget reads after the worst night tonight could be. BEGIN asks
+  twice when that is below zero.
+
+**The night.**
+
+- **The tie-break.** On 3 nights of every operation the fleet's policy engine stops one of your
+  own drones, satellites or agents because a rule tripped. The card shows what it was doing, the
+  rule, and 3 checks. Sometimes the machine is right (the action was compromised) and sometimes it
+  is wrong (a false positive that costs the mission). You override the block or let it stand. No
+  call in time, and the block stands. The first hold a device meets has no clock, and there is
+  none with Assist or Reduce Motion on. Every call is logged, and the debrief lists each one with
+  whether it was right and what it cost or kept.
+- **Answers.** Each move that would land stops short of its target with its answers beside it:
+  block it, halve it, or ride it out. You have **3 answers for the whole operation**, they cost
+  no credits, and nothing buys another, so which moves get one is the decision of each night. The
+  card shows what else is coming tonight. A defense is the only thing that stops the rest.
+- **The timed tap.** As a move that will land closes on its target, a ring closes with it. A tap
+  as they meet takes a little off the damage (5 percent at best). It is a bonus only, and Assist
+  grants a steady half of it with no timing.
+- **The debris call** (night 4 or 5): burn the satellite off the crossing orbit, or hold and take
+  the odds.
+- **The BLACKOUT CHAIN** (night 6): COLDVEIL's signature move. It jams GNSS so the drones fall
+  back on LiDAR, then attacks the only sensor they have left.
+
+**Dawn** closes the night: the score against the win line, what made it move, the budget line by
+line, and what to fix. **The debrief** gives a grade from S to F, the tie-breaks, one thing to do
+differently NEXT TIME (measured by playing your game again with that one change), a replay of the
+nights beside a ghost run, and the Dossier.
+
+Every gesture has a tap in its place. A piece can be dragged onto an asset or placed from its
+card; an answer can be dragged onto its target or tapped; the scan lens can be dragged over a
+signature or the signature tapped.
+
+## How it is balanced
+
+`npm run sweep` plays 500 seeds a line through the engine and holds the game to these on every
+battery run (`tests/sweep.spec.ts`). On STANDARD:
+
+| line | wins |
+|---|---|
+| Prepared: scans, places the defense that answers the move COLDVEIL favors on the recommended spot, answers each move that would land while it has an answer, reads every hold right | 89.8% |
+| Novice: scans the first 2 signatures, places a piece the tray lights for one of them, answers 2 moves in 3, calls 2 holds in 3 right | 41.4% |
+| Nothing: no orders, no answers, no calls | 0% |
+
+No line that does less than Prepared wins more often than Prepared: not a line that places 2 or 3
+defenses and banks the rest, not a drone a night with no defense, not one written order of
+defenses, not answers with no orders. Prepared overriding every hold, and Prepared letting every
+block stand, each win about 15 points less than Prepared reading the evidence. Prepared placing
+its pieces at random wins about 30 points less. A perfect timed tap on every strike lifts the
+Novice by about 5 points.
+
+## Daily Op, the Dossier and the reading
 
 - **DAILY OP #n.** One mission a day from the title screen, the same for every player whose
-  calendar shows that date: FIRST LIGHT on Standard, seeded from the local date. The first Daily
+  calendar shows that date: FIRST LIGHT on STANDARD, seeded from the local date. The first Daily
   Op you finish on a date is recorded on your device as the official run. Replays that day are
   practice, and so is any Daily Op loaded from a save code, since a code is text anyone can edit.
-  A run belongs to the date it started on.
-- **The debrief.** A grade from S to F, the final mission assurance score, hits taken and budget
-  left, and a strip with one square per turn: green when the score held or rose, amber for a drop
-  under 3, red for a drop of 3 or more or a lost asset. Share it as a few lines of text through
-  your device's share sheet, or the clipboard where there is none.
-- **The Dossier.** Every threat you have met, with its framework technique and its sources, as a
-  study guide built from your own runs.
+- **The Dossier.** Every threat with its moving signature. A filed card says where it hit you and
+  how often you blocked it, and opens to what stops it, the framework technique and every source.
+  NAME THAT SIGNATURE is a round on the cards you have filed.
+- **Unlocks** are earned by playing and kept on the device: fleet finishes, a harder COLDVEIL
+  posture with 1 scan pulse a night, a second opening. Nothing is sold.
 
 ## The mechanics in brief
 
-- **Mission assurance score.** A weighted blend of Coverage, Link availability, Data integrity,
+- **Mission assurance score.** A weighted blend of Coverage, Link availability, Data integrity
   and Sensor integrity. It is the score and the loss condition at once.
-- **Active conditions.** GNSS denial, jamming, spoofing, eavesdropping, data leaks, and ransomware do not resolve and
-  vanish. They persist for a set number of turns, shown on the board, press the score every
-  turn, and stack.
-- **The BLACKOUT CHAIN.** The signature move: deny GNSS so the drones fall back to LiDAR
-  odometry, then attack the only sensor they have left. Layered sensing blunts it. Single-sensor
-  dependence is a vulnerability an adversary can manufacture on demand.
-- **The intel brief.** Free on the first night, then ordered each turn: without it the moves
-  COLDVEIL is choosing between stay unnamed.
-- **Deployment lead time.** Satellites take two turns to reach orbit. Procure ahead of the threat,
-  not into it.
-- **One new defense a night.** The integration team brings one new defense online each night (the
-  incident response retainer counts), so following COLDVEIL's LIKELY TARGET can no longer answer
-  every move at once: which defense comes first is the decision.
-- **Upkeep and WORST CASE.** Every defense needs upkeep in CR each turn, and repairs come out of
-  the budget at the turn close before funding arrives. The WORST CASE line on the board's dock
-  says, before you EXECUTE, whether a bad night could end the operation; tap it for the sum.
-- **A response in the night.** A move no defense stops pauses the night on one screen with two or
-  three answers, each real practice for that threat with its cost and its effect in numbers: a
-  block, a halving, or riding it out for nothing. One response a night, so on a night of two moves
-  the defense you ordered is what meets the other. A response never spends what tonight's bills
-  and the nights ahead could need.
-- **Defense streak.** Moves blocked in a row and the points your defenses saved add a small bonus
-  to the grade.
-- **Difficulty.** Easy scales damage and repair costs by 0.75. Standard is the tuned campaign.
+- **Active conditions.** GNSS denial, jamming, spoofing, eavesdropping, data leaks and ransomware
+  do not resolve and vanish. They persist for a set number of nights, press the score each night,
+  and stack.
+- **One new defense a night**, each with upkeep in CR every night. Repairs come out of the budget
+  at dawn before mission funding arrives.
+- **Deployment lead time.** A drone or a ground station arrives at the next dawn, a satellite
+  after 2 nights.
+- **Human in Command.** The lesson of the tie-break, named once, in the debrief: people write the
+  policy, machines enforce it, and a person owns the tie-break. The term is from the European
+  Commission High-Level Expert Group on AI's Ethics Guidelines for Trustworthy AI (2019). The
+  holds themselves are fiction; the checks on each card are ordinary public practice (a signature
+  on an order, a change on file, a firmware image against its seal, an allowlist, a command
+  counter that never repeats, where training data came from, a certificate's chain, whether a link
+  is encrypted).
+- **Difficulty.** EASY scales damage and repair costs by 0.75. STANDARD is the tuned campaign.
 
 ## The sourcing promise
 
@@ -111,30 +146,25 @@ operator's own incident report. Only public sources are used.
 
 ## Sound and feel
 
-Every state change in a turn is played back beat by beat rather than reported as a block of
-results: a threat card lands, a condition attaches to its layer, the score eases to its new
-value, and each beat carries its own visual cue and its own sound.
-
-- **Synthesized, not recorded.** Every effect is generated in the browser with Web Audio.
-  No audio files ship with the game.
+- **Synthesized, not recorded.** Every effect is generated in the browser with Web Audio. No audio
+  files ship with the game. Each of the 18 threats has a sound motif of its own, built from the
+  engine's own voices, played as its move leaves COLDVEIL.
 - **A procedural music bed** with layers that follow the campaign: a base pad, a tension layer
   when the score falls below the win line or a condition is active, and a threat layer while a
-  BLACKOUT CHAIN is armed or a lost campaign is resolving. It loops by construction, so there is
-  no seam. The briefing builds the same bed slide by slide and hands it on to the title or to turn 1.
-- **Three toggles, Sound, Music and Motion**, all remembered between visits. Nothing plays until
-  your first tap or click.
-- **Tapped through.** The night waits for you: each move that would land stops for your response
-  and shows its result on the same screen, with its Dossier card's headline and FILE TO DOSSIER
-  the first time you meet it. A move a defense stops plays its block on its own, in under a
-  second: the shield on the tile, BLOCKED, the streak, its own sound and a haptic tick. Reduced
-  motion is honored as a motion preference: the block stands still for its moment, every cue takes
-  its static form, and the sound is unchanged.
+  BLACKOUT CHAIN is armed or a lost campaign is resolving. It loops by construction.
+- **Playable with the sound off.** Nothing in the game is only a sound: every cue has its look,
+  and a screen reader hears every signature's look and every card.
+- **Reduce Motion, Assist and Low power** are in SYSTEM. Reduce Motion keeps one framing and no
+  camera travel. Assist removes the timed tap and the hold's clock. Low power lowers the
+  resolution, the particles and the frame rate, and a device that cannot hold 40 frames a second
+  is moved to it and told.
 - **Haptics** on Chrome-family Android browsers that support vibration. Nothing fires on iPhone,
   by design.
 
 ## Tech notes
 
-- React, TypeScript, Tailwind, Vite. Static build on GitHub Pages.
+- React, TypeScript, Tailwind, Vite, and three.js for the theater (one tree-shaken copy, in a
+  chunk of its own that the title's frame and the game share). Static build on GitHub Pages.
 - **Deterministic engine.** `resolveTurn(state, actions, rng)` is pure: no wall clock, no ambient
   randomness. A seeded PRNG with per-turn streams means the same seed and the same actions always
   produce the same game, which is what makes replays and save codes trustworthy. A committed
@@ -147,8 +177,13 @@ value, and each beat carries its own visual cue and its own sound.
   local storage. Save codes are portable base64 strings you can paste anywhere. The scoreboard
   and save layers sit behind interfaces so a remote implementation could drop in later, but no
   remote SDK is imported.
-- A validation battery gates every round: typecheck and build, determinism and content tests,
-  a copy-style scan, a local OPSEC tripwire, and an online link check of every cited source.
+- **Two rule sets, one engine.** A game the 3D game starts carries `watch: 2` in its state: the
+  pool of answers, the watch post, targets that stay where they were sighted, and the policy
+  engine's holds (`src/engine/rules.ts`, `src/engine/holds.ts`). A game without it plays the
+  rules the pixel board was released with, which its own suites still pin.
+- A validation battery gates every round: typecheck and build, a bundle budget, determinism and
+  content tests, the balance sweep, a copy-style scan, a local OPSEC tripwire, and an online link
+  check of every cited source.
 
 ## Not built yet
 
@@ -224,16 +259,17 @@ the event log against the committed snapshot in `tests/determinism.snap.json`. A
 engine or content change, regenerate it with `UPDATE_SNAPSHOTS=1 npx vitest run` and commit the
 diff knowingly.
 
-Balance sweeps (not a pass/fail gate):
+The balance sweep (part of the battery; this prints its table):
 
 ```
 npm run sweep
 ```
 
-The 3D game (v2.0, in work on the `v2.0/r1` branch: the title's PLAY opens it, and the pixel board
-described above stays at `?view=classic`) is played by a bot in a real headless Chrome, which
-captures every beat of whole six-night games at phone and desktop size and checks what a capture
-cannot show (no page error, every button named and thumb-sized, the frame rate):
+The 3D game is also played by a bot in a real headless Chrome, by touch at 375x667 and 430x932
+and with a mouse at 1440x900. It plays whole six-night games, captures every beat, and checks
+what a capture cannot show: no page error, every button named and at least 44 px, no text under
+12 px, the dock leaving the world in view, the target of a strike clear of the cards, and the
+frame rate:
 
 ```
 npm run build

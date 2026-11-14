@@ -29,7 +29,8 @@ import { VERDICT_WORD, dots } from './cards3d'
 import * as c3 from './copy3d'
 import { PIECE, coachRun, finalScore, inputsOf, nightsOf, placedOn, timeline, verdictOf } from './gameModel'
 import { SignatureGlyph } from './glyphs'
-import { hitLog, progress, unlocksFor, type OpeningId, type PostureId, type Prefs } from './store3d'
+import { SIGNATURE } from './signatures'
+import { hitLog, progress, quizBest, setQuizBest, unlocksFor, type OpeningId, type PostureId, type Prefs } from './store3d'
 import type { Impact } from './theater'
 import type { SkinId, World } from './world'
 
@@ -265,7 +266,8 @@ export function Debrief({
 function HoldLog({ state }: { state: GameState }) {
   const holds = state.history.flatMap((r) => (r.hold ? [{ night: r.turn, hold: r.hold }] : []))
   const signs = callSigns(state)
-  const right = holds.filter((h) => h.hold.right).length
+  const right = holds.filter((h) => h.hold.right && h.hold.call !== 'none').length
+  const none = holds.filter((h) => h.hold.call === 'none').length
   return (
     <section className="t3-next t3-holdlog" data-t3-hold-log>
       <h3>{c3.HOLD_LOG}</h3>
@@ -281,17 +283,18 @@ function HoldLog({ state }: { state: GameState }) {
                 <li key={night} data-t3-hold-row={hold.right ? 'right' : 'wrong'}>
                   <p className="t3-holdrow">
                     <span>{c3.holdRow(night, signs.get(hold.assetId) ?? hold.assetId)}</span>
-                    <b className={hold.right ? 't3-ok' : 't3-bad'}>{hold.right ? c3.HOLD_VERDICT.right : hold.call === 'none' ? c3.HOLD_VERDICT.none : c3.HOLD_VERDICT.wrong}</b>
+                    <b className={hold.right ? 't3-ok' : 't3-bad'}>{hold.call === 'none' ? c3.HOLD_VERDICT.none : hold.right ? c3.HOLD_VERDICT.right : c3.HOLD_VERDICT.wrong}</b>
                   </p>
                   <p>
-                    {t?.action}. {c3.CALLED[hold.call]}. {hold.compromised ? c3.HOLD_TRUTH.compromised : c3.HOLD_TRUTH.clean}: {c3.holdTell(tells).replace(/^The tell: /, '')}
+                    {t?.action}. {c3.CALLED[hold.call]}
+                    {hold.call === 'none' ? `: the block stood. ${hold.right ? c3.MACHINE_RIGHT : c3.MACHINE_WRONG}` : '.'} {hold.compromised ? c3.HOLD_TRUTH.compromised : c3.HOLD_TRUTH.clean}: {c3.holdTell(tells).replace(/^The tell: /, '')}
                   </p>
                   <p className={hold.right ? 't3-ok' : 't3-warn'}>{hold.right ? c3.holdSaved(hold.saved) : `${c3.holdCost(hold.cost)}. ${hold.compromised ? t?.ifOverridden : t?.ifStood}`}</p>
                 </li>
               )
             })}
           </ul>
-          <p data-t3-hold-summary>{c3.holdLogLead(right, holds.length)}</p>
+          <p data-t3-hold-summary>{c3.holdLogLead(right, holds.length, none)}</p>
           <p className="t3-hic">
             <b>{c3.HIC_TERM}.</b> {c3.HIC_LINE}
           </p>
@@ -509,7 +512,115 @@ export function ReplayDock({ state, world, reduced, play, onShow, onBack }: { st
 // moving in miniature, where it has hit this device, its technique and
 // every source the deck cites for it. An unfiled card shows its signature
 // and nothing else, so a move can be known by its look before its name.
+// NAME THAT SIGNATURE (v2.0 R2): the Dossier's lesson as a round. Each
+// turn shows one filed signature in motion with no name, and 3 names to
+// pick from; a miss says which it was and how it looks. Only filed cards
+// are asked or offered, so a round never names a move not yet met.
+const QUIZ_ROUNDS = 6
+const QUIZ_MIN = 3
+function shuffled<T>(xs: readonly T[]): T[] {
+  const out = [...xs]
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[out[i], out[j]] = [out[j], out[i]]
+  }
+  return out
+}
+function Quiz({ ids, onDone }: { ids: string[]; onDone: () => void }) {
+  const deal = () => shuffled(ids).slice(0, Math.min(QUIZ_ROUNDS, ids.length)).map((id) => ({ id, options: shuffled([id, ...shuffled(ids.filter((x) => x !== id)).slice(0, 2)]) }))
+  const [rounds, setRounds] = useState(deal)
+  const [n, setN] = useState(0)
+  const [picked, setPicked] = useState<string | null>(null)
+  const [score, setScore] = useState(0)
+  const name = (id: string) => c3.TAG[id] ?? id
+  const over = n >= rounds.length
+  const next = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    if (picked || over) next.current?.focus({ preventScroll: true })
+  }, [picked, over])
+  useEffect(() => {
+    if (over) setQuizBest(score)
+  }, [over, score])
+  if (over) {
+    return (
+      <div className="t3-quiz" data-t3-quiz="end">
+        <p className="t3-lead" role="status">
+          {c3.quizEnd(score, rounds.length, Math.max(quizBest(), score))}
+        </p>
+        <div className="t3-row t3-wrap">
+          <button
+            ref={next}
+            type="button"
+            className="t3-btn t3-primary"
+            data-t3-quiz-again
+            onClick={() => {
+              setRounds(deal())
+              setN(0)
+              setScore(0)
+              setPicked(null)
+            }}
+          >
+            {c3.QUIZ_AGAIN}
+          </button>
+          <button type="button" className="t3-btn" data-t3-quiz-done onClick={onDone}>
+            {c3.QUIZ_DONE}
+          </button>
+        </div>
+      </div>
+    )
+  }
+  const round = rounds[n]
+  const right = picked === round.id
+  return (
+    <div className="t3-quiz" data-t3-quiz={n + 1}>
+      <p className="t3-eyebrow">
+        {c3.QUIZ} · {c3.quizRound(n + 1, rounds.length)}
+      </p>
+      <SignatureGlyph id={round.id} size={132} named={false} className="t3-quizglyph" />
+      <div className="t3-choices" role="group" aria-label={c3.QUIZ}>
+        {round.options.map((id) => (
+          <button
+            key={id}
+            type="button"
+            data-t3-quiz-option={id}
+            disabled={picked !== null}
+            className={`t3-choice${picked && id === round.id ? ' t3-block' : picked === id ? ' t3-ride' : ''}`}
+            onClick={() => {
+              setPicked(id)
+              if (id === round.id) setScore((x) => x + 1)
+            }}
+          >
+            <span className="t3-choice-top">
+              <b>{name(id)}</b>
+            </span>
+          </button>
+        ))}
+      </div>
+      {picked && (
+        <>
+          <p className={right ? 't3-ok' : 't3-warn'} role="status" data-t3-quiz-result={right ? 'right' : 'wrong'}>
+            {right ? c3.QUIZ_RIGHT : c3.quizWrong(name(round.id))} {SIGNATURE[round.id] ? `Its look: ${SIGNATURE[round.id].look}.` : ''}
+          </p>
+          <button
+            ref={next}
+            type="button"
+            className="t3-btn t3-primary"
+            data-t3-quiz-next
+            onClick={() => {
+              setPicked(null)
+              setN(n + 1)
+            }}
+          >
+            {c3.QUIZ_NEXT}
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function DossierRoom({ onBack, backLabel = c3.TITLE, focus }: { onBack: () => void; backLabel?: string; focus?: string }) {
+  const [quiz, setQuiz] = useState(false)
   const filed = dossier()
   const log = hitLog()
   const threats = DEFAULT_SCENARIO.events.filter((e) => (e.kind ?? 'threat') === 'threat')
@@ -542,7 +653,14 @@ export function DossierRoom({ onBack, backLabel = c3.TITLE, focus }: { onBack: (
           <p data-t3-dossier-count>{c3.filedOf(filed.size, threats.length)}</p>
         </div>
       </header>
-      <div className="t3-cards">
+      <div className="t3-quizbar">
+        <button type="button" className="t3-btn" data-t3-quiz-open disabled={filed.size < QUIZ_MIN} aria-pressed={quiz} onClick={() => setQuiz((q) => !q)}>
+          {quiz ? c3.QUIZ_DONE : c3.QUIZ}
+        </button>
+        <p className="t3-hint">{filed.size < QUIZ_MIN ? c3.QUIZ_LOCKED(QUIZ_MIN - filed.size) : c3.QUIZ_LEAD}</p>
+      </div>
+      {quiz && <Quiz ids={threats.filter((t) => filed.has(t.id)).map((t) => t.id)} onDone={() => setQuiz(false)} />}
+      <div className="t3-cards" hidden={quiz}>
         {threats.map((def, i) => {
           const has = filed.has(def.id)
           const row = log[def.id]

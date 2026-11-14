@@ -3022,3 +3022,165 @@ a.t3-btn {
 .t3-evidence div {
   padding: 3px 10px 4px;
 }
+
+/* ---- name that signature (v2.0 R2) ------------------------------------ */
+.t3-quizbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 14px 10px;
+}
+.t3-quizbar .t3-btn {
+  flex: none;
+  min-height: 48px;
+}
+.t3-quizbar p {
+  margin: 0;
+}
+.t3-quiz {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 6px 14px 24px;
+}
+.t3-quiz p {
+  margin: 0;
+}
+.t3-quizglyph {
+  align-self: center;
+}
+.t3-quiz .t3-choice {
+  min-height: 52px;
+}
+.t3-cards[hidden] {
+  display: none;
+}
+
+.t3-eyebrow .t3-right {
+  white-space: nowrap;
+}
+.t3-scrub input::-webkit-slider-thumb {
+  width: 30px;
+  height: 30px;
+}
+.t3-scrub input {
+  min-height: 44px;
+}
+
+.t3-fps {
+  position: absolute;
+  top: max(4px, env(safe-area-inset-top, 0px));
+  left: 50%;
+  z-index: 5;
+  margin: 0;
+  padding: 1px 8px;
+  border-radius: 8px;
+  transform: translateX(-50%);
+  font: 600 12px ui-monospace, Menlo, monospace;
+  color: #04110a;
+  background: var(--t3-go);
+  pointer-events: none;
+}
+
+/* A SHORT SCREEN (v2.0 R2's phone pass): an iPhone SE in Mobile Safari
+   leaves about 553 px between its own bars. The officer's line keeps to 1
+   line, the cards lose their second lines, and the tie-break, which needs
+   every check in view at once and nothing from the world, takes the
+   screen under the top bar. */
+.t3-root:not(.t3-wide) .t3-hold {
+  max-height: calc(100vh - 84px);
+  max-height: calc(100svh - 84px);
+}
+@media (max-height: 620px) {
+  .t3-root:not(.t3-wide)[data-t3-phase='plan'] .t3-dock > .t3-card {
+    height: 176px;
+  }
+  .t3-root:not(.t3-wide) .t3-plan .t3-lead,
+  .t3-root:not(.t3-wide) .t3-plan .t3-note {
+    -webkit-line-clamp: 1;
+    min-height: 1.35em;
+  }
+  .t3-root:not(.t3-wide) .t3-card {
+    padding: 10px 12px;
+    gap: 6px;
+  }
+  .t3-root:not(.t3-wide) .t3-respond .t3-hook {
+    display: none;
+  }
+  .t3-root:not(.t3-wide) .t3-choice {
+    padding: 6px 12px;
+  }
+  .t3-root:not(.t3-wide) .t3-piece,
+  .t3-root:not(.t3-wide) .t3-begin {
+    min-height: 50px;
+  }
+  .t3-root:not(.t3-wide) .t3-top {
+    padding-bottom: 10px;
+  }
+}
+
+/* The guide's line, on a phone, stands under the top bar over the sky: in
+   the dock it pushed the cards up over the fleet it was pointing at. */
+.t3-root:not(.t3-wide) .t3-dock > .t3-coach {
+  position: fixed;
+  top: calc(max(10px, env(safe-area-inset-top, 0px)) + 66px);
+  left: max(10px, env(safe-area-inset-left, 0px));
+  right: max(10px, env(safe-area-inset-right, 0px));
+  z-index: 2;
+  min-height: 44px;
+  opacity: 0.96;
+}
+.t3-root:not(.t3-wide) .t3-title {
+  font-size: 19px;
+}
+
+.t3-final small {
+  white-space: nowrap;
+}
+
+/* ---- a wide screen (v2.0 R2) ------------------------------------------
+   The column beside the theater has room: the officer's line is whole,
+   tonight's signatures wrap, the tray wraps under them. */
+.t3-wide .t3-plan .t3-lead,
+.t3-wide .t3-plan .t3-note {
+  display: block;
+  -webkit-line-clamp: unset;
+  min-height: 0;
+}
+.t3-wide .t3-sigs {
+  flex-wrap: wrap;
+  overflow: visible;
+  margin: 0;
+  padding: 0;
+}
+.t3-wide .t3-sig[data-first] {
+  margin-left: 0;
+}
+.t3-wide .t3-plan .t3-eyebrow {
+  white-space: normal;
+  flex-wrap: wrap;
+}
+.t3-wide .t3-begin {
+  min-height: 52px;
+}
+/* The debrief in 2 columns: the grade and the nights on the left, what to
+   do about it on the right. */
+.t3-wide .t3-debrief-in {
+  display: block;
+  max-width: 1080px;
+  columns: 2;
+  column-gap: 32px;
+}
+.t3-wide .t3-debrief-in > * {
+  break-inside: avoid;
+  margin-bottom: 14px;
+}
+.t3-wide .t3-quizbar,
+.t3-wide .t3-quiz {
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+}
