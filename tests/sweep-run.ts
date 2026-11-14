@@ -47,9 +47,15 @@ export interface PolicyRun {
   // Runs whose best streak, recomputed from the record, is not the one the
   // engine kept (brief 6.8): the instrument and the rule must agree.
   streakMismatches: string[]
+  // The holds dealt and those called right, and the answers spent a run (v2.0 R2).
+  holds: number
+  holdsRight: number
+  answers: number[]
 }
 
-export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Responder = () => null, seeds = SEEDS, timing: 0 | 1 | 2 = 0): PolicyRun {
+// `watch` plays the 3D game's rules (GameState.watch 2, v2.0 R2): the gate's
+// own since R2. Without it, the classic board's, for the suites that hold those.
+export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Responder = () => null, seeds = SEEDS, timing: 0 | 1 | 2 = 0, watch?: 2): PolicyRun {
   const run: PolicyRun = {
     wins: 0,
     insolvencies: 0,
@@ -70,9 +76,12 @@ export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Resp
     creditsLeft: [],
     gradedWins: [],
     streakMismatches: [],
+    holds: 0,
+    holdsRight: 0,
+    answers: [],
   }
   for (let seed = 1; seed <= seeds; seed += 1) {
-    let state: GameState = newGame(DEFAULT_SCENARIO, seed, difficulty)
+    let state: GameState = newGame(DEFAULT_SCENARIO, seed, difficulty, undefined, watch)
     const met = new Set<string>()
     let streak = 0
     let best = 0
@@ -87,6 +96,10 @@ export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Resp
       if (read >= 0) {
         run.safeTurns += 1
         if (record.ledger.insolvent) run.unsafe.push(`seed ${seed} turn ${record.turn}: WORST CASE read ${read}, closed at ${record.ledger.after}`)
+      }
+      if (record.hold) {
+        run.holds += 1
+        if (record.hold.right) run.holdsRight += 1
       }
       for (const id of metOnTurn(record, DEFAULT_SCENARIO)) met.add(id)
       for (const ev of record.events) {
@@ -124,6 +137,7 @@ export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Resp
     run.halved.push(tally.halved)
     run.spentOnResponses.push(tally.spent)
     run.creditsLeft.push(state.credits)
+    run.answers.push(state.answersUsed ?? 0)
     run.grades[gradeOf(state)] += 1
   }
   return run

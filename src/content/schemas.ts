@@ -186,6 +186,36 @@ export const scenarioSchema = z
     briefIntro: z.string().min(1),
     events: z.array(threatEventSchema).min(1),
     countermeasures: z.array(countermeasureSchema).min(1),
+    // The policy engine's holds (v2.0 R2): three checks each, and words
+    // for both wrong calls.
+    holds: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1),
+            kinds: z.array(assetKindSchema).min(1),
+            action: z.string().min(1),
+            rule: z.string().min(1),
+            checks: z.tuple([z.object({ label: z.string().min(1), clean: z.string().min(1), dirty: z.string().min(1) }).strict(), z.object({ label: z.string().min(1), clean: z.string().min(1), dirty: z.string().min(1) }).strict(), z.object({ label: z.string().min(1), clean: z.string().min(1), dirty: z.string().min(1) }).strict()]),
+            meter: z.enum(['dataIntegrity', 'sensorIntegrity']),
+            ifOverridden: z.string().min(1),
+            ifStood: z.string().min(1),
+          })
+          .strict(),
+      )
+      .optional(),
+    watch2: z
+      .object({
+        startCredits: z.number().int().min(0),
+        incomePerTurn: z.number().int().min(0),
+        recovery: z.object({ base: z.number().int().min(0), withIrRetainer: z.number().int().min(0) }),
+        meterDamage: z.number().int().positive(),
+        answers: z.number().int().min(0),
+        holds: z.number().int().min(0),
+        holdStake: z.number().min(0),
+      })
+      .strict()
+      .optional(),
   })
   .superRefine((s, ctx) => {
     const eventIds = new Set(s.events.map((e) => e.id))

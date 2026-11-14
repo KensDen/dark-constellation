@@ -281,3 +281,209 @@ export const REPORTED: readonly { name: string; label: string; policy: Policy; r
   // sweep holds it to no more wins than Prepared (tests/sweep.spec.ts).
   { name: 'preparedScript', label: 'Prepared script (one written order)', policy: (state) => WIN_SCRIPT[state.turn] ?? NO_ORDERS, respond: ride },
 ]
+
+// ====================================================================
+// THE 3D GAME'S LINES (v2.0 R2, Ken's rulings of 14 November 2026). The
+// gate now plays the rules the 3D game plays (GameState.watch 2): the
+// answers are a pool for the operation, a defense hardens the asset it
+// sits on, and the policy engine's holds ask for a call. Each line below
+// is one of the orders above, with where it sets its defense down and how
+// it calls a hold. The lists above stay as they were: the classic board's
+// suites read them as a population of lines.
+//
+// WHERE A LINE PLACES ITS DEFENSE.
+//   - SPOT: the spot the piece's card recommends (src/ui/three/gameModel.ts,
+//     spotFor), which is what a tap on its first PLACE button does.
+//   - RANDOM: any asset the piece can sit on, on a stream of its own.
+// HOW A LINE CALLS A HOLD.
+//   - READS: the evidence settles it (src/engine/holds.ts), and this line
+//     reads it right every time. Prepared's.
+//   - SHAKY: right 2 times in 3. The beginner's.
+//   - ALWAYS and NEVER: overrides every hold, or lets every block stand
+//     (which is also what making no call does). The two extremes the sweep
+//     holds under the line that reads.
+// HOW A LINE SPENDS ITS ANSWERS.
+//   - SENSIBLE (above): answers each move that would land while it has
+//     one. Prepared's.
+//   - CARELESS (above): answers 2 moves in 3 while it has one. The
+//     beginner's.
+//   - SAVER: keeps its answers for a move that would land at 2 points or
+//     more, or for the last night. The expert's, reported.
+
+import { holdTonight, rightCall } from '../src/engine/holds'
+import { domainOf, newDefenses } from '../src/engine/rules'
+import { spotFor } from '../src/ui/three/gameModel'
+import type { HoldCall } from '../src/engine/types'
+
+export type Caller = (state: GameState) => HoldCall | null
+export const reads: Caller = (s) => {
+  const h = holdTonight(s)
+  return h ? rightCall(h) : null
+}
+export const alwaysOverride: Caller = () => 'override'
+export const neverOverride: Caller = () => 'stand'
+export const noCall: Caller = () => null
+export const shaky =
+  (p: number): Caller =>
+  (s) => {
+    const h = holdTonight(s)
+    if (!h) return null
+    const right = rightCall(h)
+    return streamFor(s, 0x0ddba115).chance(p) ? right : right === 'override' ? 'stand' : 'override'
+  }
+
+export type Placer = (state: GameState, actions: TurnActions) => string | undefined
+export const atSpot: Placer = (state, actions) => {
+  const id = newDefenses(state, actions)[0]
+  return id ? spotFor(state, { defense: null, assets: actions.buyAssets.map((b) => b.kind), scans: actions.scans ?? [] }, id) : undefined
+}
+export const atRandom: Placer = (state, actions) => {
+  const id = newDefenses(state, actions)[0]
+  if (!id) return undefined
+  const domain = domainOf(state.scenario, id)
+  const pool = state.assets.filter((a) => a.integrity > 0 && domain.includes(a.kind))
+  return pool.length ? streamFor(state, 0x1234abcd).pick(pool).id : undefined
+}
+
+// An orders policy with its placement and its call on tonight's hold.
+export const onWatch =
+  (orders: Policy, place: Placer, call: Caller): Policy =>
+  (state) => {
+    const a = orders(state)
+    const id = newDefenses(state, a)[0]
+    const where = id ? place(state, a) : undefined
+    return { ...a, ...(id && where ? { placeOn: { [id]: where } } : {}), tiebreak: call(state) }
+  }
+
+export const saver: Responder = ({ state, ev, options }) => {
+  const exposed = Math.max(0, ev.baseSeverity + ev.chainBonus - ev.mitigation - (ev.hardened ?? 0))
+  const last = state.turn >= state.scenario.totalTurns
+  return exposed >= 2 || last ? (options.find((o) => o.fits)?.id ?? null) : null
+}
+
+// THE BEGINNER OF THE 3D GAME. The R1 Novice ordered a defense at random
+// each night, which was a fair picture of the pixel board's PROCURE list.
+// The 3D game's first night teaches three steps by doing (scan, place,
+// respond), and its tray lights the pieces that answer what the scan has
+// named, so a beginner here does this: scans the first 2 signatures it
+// sees, places a piece the tray lights for one of them when there is one,
+// and otherwise a piece at random on half the nights; a drone on night 1
+// (FIRST ORDERS); WORST CASE kept at 0 or more; a coin on the debris call.
+// It never reads which move COLDVEIL favors beyond the tray's light. The
+// R1 line is still played and reported beside it (noviceR1 below).
+export const beginner: Policy = (state) => {
+  const r = streamFor(state, 0x0b5e55ed)
+  const slots = planFor(state, state.turn)?.slots ?? []
+  const scans = slots.flatMap((s) => (s.fixed ? [] : (s.drawFrom ?? []))).slice(0, scanPulses(state))
+  let actions: TurnActions = { ...NO_ORDERS, scans }
+  if (state.turn === 1 && safe(state, withAsset(actions, 'drone'))) actions = withAsset(actions, 'drone')
+  const denied = gnssDenied(state.conditions, state.scenario)
+  const hot: CountermeasureId[] = []
+  for (const read of adversaryPicks(state, state.counters)) {
+    for (const c of read.candidates) {
+      if (!scans.includes(c.id) || !read.least.includes(c.id)) continue
+      const ev = eventById(state.scenario, c.id)
+      if (ev.baseSeverity + chainBonusOf(ev, denied) - c.mitigation <= 0) continue
+      const d = ev.counters.find((x) => !state.counters.includes(x))
+      if (d && !hot.includes(d) && safe(state, withCounter(actions, d))) hot.push(d)
+    }
+  }
+  if (hot.length) actions = withCounter(actions, r.pick(hot))
+  else if (r.chance(0.5)) {
+    const options = state.scenario.countermeasures.map((cm) => cm.id).filter((id) => !state.counters.includes(id) && safe(state, withCounter(actions, id)))
+    if (options.length) actions = withCounter(actions, r.pick(options))
+  }
+  return debrisTonight(state) ? { ...actions, debris: r.chance(0.5) ? 'burn' : 'hold' } : actions
+}
+
+// THE THRIFTY LINES (the R1 finding, Ken's ruling: a bug). Scan the first
+// drawn track as far as the pulses go, place a defense only against a move
+// that track favors and the scan named, a drone on night 1, and nothing
+// else. `strict` places only against a move flagged alone (LIKELY TARGET);
+// otherwise the first of EITHER the scan named, which is the line that won
+// all 500 seeds under the R1 rules. `max` caps its defenses.
+export const thrifty =
+  (strict: boolean, max = 99): Policy =>
+  (state) => {
+    const slots = planFor(state, state.turn)?.slots ?? []
+    const track = slots.findIndex((s) => !s.fixed)
+    const scans = track >= 0 ? (slots[track].drawFrom ?? []).slice(0, scanPulses(state)) : []
+    let actions: TurnActions = { ...NO_ORDERS, scans }
+    if (state.turn === 1 && safe(state, withAsset(actions, 'drone'))) actions = withAsset(actions, 'drone')
+    const denied = gnssDenied(state.conditions, state.scenario)
+    if (track >= 0 && state.counters.length < max) {
+      const read = adversaryPicks(state, countersAfter(state, actions))[track]
+      const fav = strict ? (read.least.length === 1 ? read.least[0] : undefined) : read.least.find((id) => scans.includes(id))
+      if (fav && scans.includes(fav)) {
+        const ev = eventById(state.scenario, fav)
+        const d = ev.counters.find((c) => !state.counters.includes(c))
+        if (d && ev.baseSeverity + chainBonusOf(ev, denied) - mitigationOf(ev, state.counters) > 0 && safe(state, withCounter(actions, d))) actions = withCounter(actions, d)
+      }
+    }
+    return debrisTonight(state) ? { ...actions, debris: safe(state, actions) ? 'burn' : 'hold' } : actions
+  }
+
+// A line with a drone ordered on top each night through `until`, while
+// WORST CASE stays at 0 or more: the fleet as a place to bank credits.
+export const withDrones =
+  (base: Policy, until: number): Policy =>
+  (state) => {
+    const a = base(state)
+    return state.turn <= until && !a.buyAssets.some((b) => b.kind === 'drone') && safe(state, withAsset(a, 'drone')) ? withAsset(a, 'drone') : a
+  }
+
+export interface WatchLine {
+  name: string
+  label: string
+  policy: Policy
+  respond: Responder
+  timing?: 1 | 2
+}
+// THE GATED LINES: the brief's rows, on the 3D game's rules.
+export const WATCH: readonly WatchLine[] = [
+  { name: 'prepared', label: 'Prepared', policy: onWatch(prepared, atSpot, reads), respond: sensible },
+  { name: 'novice', label: 'Novice', policy: onWatch(beginner, atSpot, shaky(2 / 3)), respond: careless },
+  { name: 'buyEverything', label: 'Buy everything', policy: onWatch(buyEverything, atSpot, reads), respond: sensible },
+  { name: 'randomLegal', label: 'Random legal', policy: onWatch(randomLegal, atRandom, shaky(1 / 2)), respond: careless },
+  { name: 'nothing', label: 'Nothing', policy: onWatch(nothing, atSpot, noCall), respond: ride },
+]
+// THE FIXED LINES NO ONE OF WHICH MAY WIN MORE OFTEN THAN PREPARED (Ken's
+// ruling of 14 November 2026). Each does less than Prepared somewhere and
+// answers the way Prepared answers: fewer defenses, no defenses, credits
+// banked in drones, a written order, answers and nothing else, a call
+// made without reading, a piece set down anywhere.
+export const FIXED: readonly WatchLine[] = [
+  { name: 'thrifty', label: 'Thrifty (the R1 line: 1 track, the first move the scan names)', policy: onWatch(thrifty(false), atSpot, reads), respond: sensible },
+  { name: 'thriftyStrict', label: 'Thrifty, only against a move flagged alone', policy: onWatch(thrifty(true), atSpot, reads), respond: sensible },
+  { name: 'thrifty2', label: 'Thrifty, 2 defenses at most', policy: onWatch(thrifty(false, 2), atSpot, reads), respond: sensible },
+  { name: 'thriftyDrones', label: 'Thrifty, a drone a night', policy: onWatch(withDrones(thrifty(false), 4), atSpot, reads), respond: sensible },
+  { name: 'dronesOnly', label: 'No defenses, a drone a night', policy: onWatch(withDrones(nothing, 5), atSpot, reads), respond: sensible },
+  { name: 'respondOnly', label: 'Orders nothing, answers every move', policy: onWatch(nothing, atSpot, reads), respond: sensible },
+  { name: 'preparedScript', label: 'Prepared script (one written order)', policy: onWatch((state) => WIN_SCRIPT[state.turn] ?? NO_ORDERS, atSpot, reads), respond: sensible },
+  { name: 'alwaysOverride', label: 'Prepared, overriding every hold', policy: onWatch(prepared, atSpot, alwaysOverride), respond: sensible },
+  { name: 'neverOverride', label: 'Prepared, letting every block stand', policy: onWatch(prepared, atSpot, neverOverride), respond: sensible },
+  { name: 'randomPlace', label: 'Prepared, placing at random', policy: onWatch(prepared, atRandom, reads), respond: sensible },
+  { name: 'preparedRide', label: 'Prepared, riding every move out', policy: onWatch(prepared, atSpot, reads), respond: ride },
+]
+// THE SAME, ANSWERING AS THE EXPERT ANSWERS (saving the pool for a move
+// worth an answer), held under the Expert: a line that fields less than
+// Prepared and spends its answers better is measured against Prepared
+// spending them as well.
+export const FIXED_SAVING: readonly WatchLine[] = [
+  { name: 'thriftySaver', label: 'Thrifty, saving its answers', policy: onWatch(thrifty(false), atSpot, reads), respond: saver },
+  { name: 'thrifty2Saver', label: 'Thrifty, 2 defenses at most, saving its answers', policy: onWatch(thrifty(false, 2), atSpot, reads), respond: saver },
+  { name: 'thriftyDronesSaver', label: 'Thrifty, a drone a night, saving its answers', policy: onWatch(withDrones(thrifty(false), 4), atSpot, reads), respond: saver },
+  { name: 'dronesOnlySaver', label: 'No defenses, a drone a night, saving its answers', policy: onWatch(withDrones(nothing, 5), atSpot, reads), respond: saver },
+  { name: 'scriptSaver', label: 'Prepared script, saving its answers', policy: onWatch((state) => WIN_SCRIPT[state.turn] ?? NO_ORDERS, atSpot, reads), respond: saver },
+]
+// Reported beside them, held to no band.
+export const WATCH_REPORTED: readonly WatchLine[] = [
+  { name: 'expert', label: 'Expert (Prepared, saving answers for moves of 2 or more)', policy: onWatch(prepared, atSpot, reads), respond: saver },
+  { name: 'expertSight', label: 'Expert who also knows every signature on sight', policy: onWatch(expert, atSpot, reads), respond: saver },
+  { name: 'preparedDrones', label: 'Prepared, a drone a night as well', policy: onWatch(withDrones(prepared, 4), atSpot, reads), respond: sensible },
+  { name: 'noviceReads', label: 'Novice, reading every hold right', policy: onWatch(beginner, atSpot, reads), respond: careless },
+  { name: 'noviceR1', label: 'The R1 Novice (a defense at random each night)', policy: onWatch(novice, atRandom, shaky(2 / 3)), respond: careless },
+  { name: 'noviceAssist', label: 'Novice, Assist rate on every move', policy: onWatch(beginner, atSpot, shaky(2 / 3)), respond: careless, timing: 1 },
+  { name: 'novicePerfect', label: 'Novice, a perfect tap on every move', policy: onWatch(beginner, atSpot, shaky(2 / 3)), respond: careless, timing: 2 },
+  { name: 'preparedPerfect', label: 'Prepared, a perfect tap on every move', policy: onWatch(prepared, atSpot, reads), respond: sensible, timing: 2 },
+]

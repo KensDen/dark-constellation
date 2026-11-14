@@ -8,6 +8,7 @@
 import type { Scenario } from '../../engine/types'
 import { ADVERSARY, CONSTELLATION, PLAYER_ORG, SQUADRON } from '../../config'
 import { COUNTERMEASURES } from '../counters'
+import { HOLDS } from '../holds'
 import { OPPORTUNITIES } from '../opportunities'
 import { THREATS } from '../threats'
 
@@ -145,4 +146,17 @@ export const FIRST_LIGHT: Scenario = {
   briefIntro: `You are the mission assurance architect at ${PLAYER_ORG}, standing up ${CONSTELLATION} (nine planned smallsats, one with a docking LiDAR package) and ${SQUADRON} (an ISR drone squadron on LiDAR and GNSS navigation) for a disaster-response tasking. ${ADVERSARY}, a threat group with a taste for layered attacks, has taken an interest. Six turns. Keep the Mission Assurance Index at 70 or above and stay solvent.`,
   events: [...THREATS, ...OPPORTUNITIES],
   countermeasures: COUNTERMEASURES,
+  holds: HOLDS,
+  // THE 3D GAME'S NUMBERS (v2.0 R2), read under GameState.watch 2
+  // (src/engine/rules.ts). See the sweep's table in tests/sweep.spec.ts
+  // for what each was measured at.
+  watch2: {
+    startCredits: 80,
+    incomePerTurn: 6,
+    recovery: { base: 4, withIrRetainer: 6 },
+    meterDamage: 12,
+    answers: 3,
+    holds: 3,
+    holdStake: 2,
+  },
 }

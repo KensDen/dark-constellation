@@ -11,29 +11,34 @@
 
 import { adversaryPicks } from '../../engine/adversary'
 import { planFor } from '../../engine/campaign'
+import { holdTonight, rightCall } from '../../engine/holds'
 import { newGame, resolveTurn } from '../../engine/reducer'
 import { answered, responseOptions, type ResponseOption } from '../../engine/responses'
 import { turnRng } from '../../engine/rng'
 import {
   ASSET_DAMAGE_PER_SEVERITY,
   DEPLOY_TURNS,
-  METER_DAMAGE_PER_SEVERITY,
+  HARDEN,
   RESPONSE_DAMAGE_SHARE,
   TIMING_BONUS,
+  aimOf,
   billAfter,
   briefFree,
   chainBonusOf,
   countersAfter,
   debrisTarget,
+  domainOf as domainKinds,
   exposedOf,
   gnssDenied,
+  meterDamageOf,
   mitigationOf,
   orderCost,
+  postOf,
   scaled,
   scanPulses,
 } from '../../engine/rules'
 import { COVERAGE_PER_KIND } from '../../engine/scoring'
-import type { Asset, AssetKind, Countermeasure, CountermeasureId, DebrisChoice, GameState, Layer, ResolvedEvent, ThreatEvent, TimingGrade, TurnActions } from '../../engine/types'
+import type { Asset, AssetKind, Countermeasure, CountermeasureId, DebrisChoice, GameState, HoldCall, ResolvedEvent, ThreatEvent, TimingGrade, TurnActions } from '../../engine/types'
 import { worstCase } from '../../engine/worstCase'
 import { stopVerb } from '../board/boardModel'
 import { nightOf, type Night, type NightStep } from '../night/nightModel'
@@ -44,10 +49,12 @@ import { nightOf, type Night, type NightStep } from '../night/nightModel'
 // kinds ordered, one of each at most, and the signatures scanned.
 export interface Orders {
   defense: CountermeasureId | null
+  // The asset tonight's defense is set down on (v2.0 R2): it hardens it.
+  place?: string | null
   assets: AssetKind[]
   scans: string[]
 }
-export const NO_ORDERS: Orders = { defense: null, assets: [], scans: [] }
+export const NO_ORDERS: Orders = { defense: null, place: null, assets: [], scans: [] }
 
 // The night's answers so far: a response or null for each move reached, a
 // timed tap's grade for each, and the debris call once it is made.
@@ -55,6 +62,9 @@ export interface NightInputs {
   responses: (string | null)[]
   timing: (TimingGrade | 0)[]
   debris: DebrisChoice | null
+  // THE TIE-BREAK (v2.0 R2): the call on tonight's hold. Absent until the
+  // hold is settled; 'none' when the clock ran out and the block stood.
+  hold?: HoldCall | 'none'
 }
 export const NO_INPUTS: NightInputs = { responses: [], timing: [], debris: null }
 
@@ -64,7 +74,8 @@ export function actionsOf(orders: Orders, inputs?: NightInputs): TurnActions {
     buyCounters: orders.defense ? [orders.defense] : [],
     intelBrief: false,
     scans: [...orders.scans],
-    ...(inputs ? { responses: [...inputs.responses], timing: [...inputs.timing], debris: inputs.debris ?? 'hold' } : {}),
+    ...(orders.defense && orders.place ? { placeOn: { [orders.defense]: orders.place } } : {}),
+    ...(inputs ? { responses: [...inputs.responses], timing: [...inputs.timing], debris: inputs.debris ?? 'hold', tiebreak: inputs.hold === 'override' || inputs.hold === 'stand' ? inputs.hold : null } : {}),
   }
 }
 
@@ -96,17 +107,19 @@ export const PIECE: Record<CountermeasureId, string> = {
   irRetainer: 'IR retainer',
 }
 
-const KINDS_ON: Record<Layer, AssetKind[]> = { ORBIT: ['sat', 'rpoSat'], AIR: ['drone'], GROUND: ['groundStation'] }
-
 // WHERE A DEFENSE GOES: the kinds of asset on the layers its threats
-// strike. The rules own a defense fleet-wide the moment it is ordered;
-// where the piece sits is the player's, and says where the defense lives.
-export function domainOf(state: GameState, id: CountermeasureId): AssetKind[] {
-  const cm = defenseDef(state, id)
-  const out = new Set<AssetKind>()
-  for (const ev of state.scenario.events) if (cm.counters.includes(ev.id)) for (const l of ev.layers) for (const k of KINDS_ON[l]) out.add(k)
-  if (out.size === 0) out.add('groundStation')
-  return [...out]
+// strike (the engine's rule: rules.ts, domainOf). A defense covers the
+// fleet against its moves wherever it sits; the asset the newest one sits
+// on is the watch's post, and a strike there is 1 point weaker (rules.ts,
+// postOf).
+export const domainOf = (state: GameState, id: CountermeasureId): AssetKind[] => domainKinds(state.scenario, id)
+
+// The post as tonight's orders leave it: where tonight's piece is set
+// down, and otherwise where it already stands.
+export function postNow(state: GameState, orders: Orders): string | undefined {
+  if (state.watch !== 2) return undefined
+  if (orders.defense && !state.counters.includes(orders.defense)) return orders.place ?? undefined
+  return postOf(state)
 }
 
 // The gesture a response is made with in the world. Every response can
@@ -142,6 +155,8 @@ export interface Contact {
   targetId: string | undefined
   strength: number
   mitigation: number
+  // The point its target's own defense takes off (v2.0 R2).
+  hardened: number
   exposed: number
   // What COLDVEIL does with it, read against the defenses as ordered.
   favor: Favor
@@ -160,7 +175,7 @@ export function estimateLoss(state: GameState, def: ThreatEvent, exposed: number
   const w = state.scenario.maiWeights
   const total = w.coverage + w.linkAvailability + w.dataIntegrity + w.sensorIntegrity
   let loss = 0
-  for (const m of def.effect.meters) loss += Math.min(state.meters[m], scaled(METER_DAMAGE_PER_SEVERITY * exposed, state.difficulty)) * w[m]
+  for (const m of def.effect.meters) loss += Math.min(state.meters[m], scaled(meterDamageOf(state) * exposed, state.difficulty)) * w[m]
   if (target && def.effect.assetDamage !== false) loss += (Math.min(target.integrity, scaled(ASSET_DAMAGE_PER_SEVERITY * exposed, state.difficulty)) * COVERAGE_PER_KIND[target.kind] * w.coverage) / 100
   return -tenth(loss / total)
 }
@@ -179,16 +194,20 @@ export function contactsFor(state: GameState, orders: Orders): Contact[] {
   const events = lastEvents(resolve(state, orders))
   const denied = gnssDenied(state.conditions, state.scenario)
   const everything = allied(state)
+  const post = postNow(state, orders)
   const out: Contact[] = []
   reads.forEach((read, slot) => {
     read.candidates.forEach((c, nth) => {
       const def = eventDef(state, c.id)
       const debris = def.effect.special === 'debrisStrike'
       const played = events[slot]?.eventId === c.id ? events[slot] : undefined
-      const target = debris ? debrisTarget(state) : (assetById(state, played?.targetAssetId) ?? standIn(state, def, slot + nth))
+      // Under the 3D game's rules a signature's target is its own, whatever
+      // is ordered (rules.ts, aimOf): it stays where it was sighted.
+      const target = debris ? debrisTarget(state) : state.watch === 2 ? aimOf(state, slot, def) : (assetById(state, played?.targetAssetId) ?? standIn(state, def, slot + nth))
       const strength = def.baseSeverity + (played ? played.chainBonus : chainBonusOf(def, denied))
       const mitigation = mitigationOf(def, counters)
-      const exposed = debris ? 0 : Math.max(0, strength - mitigation)
+      const hardened = debris || !target || post !== target.id ? 0 : Math.min(HARDEN, Math.max(0, strength - mitigation))
+      const exposed = debris ? 0 : Math.max(0, strength - mitigation - hardened)
       out.push({
         id: c.id,
         slot,
@@ -199,6 +218,7 @@ export function contactsFor(state: GameState, orders: Orders): Contact[] {
         targetId: target?.id,
         strength,
         mitigation,
+        hardened,
         exposed,
         favor: read.fixed ? 'confirmed' : read.least.length === 1 && read.least[0] === c.id ? 'likely' : read.least.includes(c.id) ? 'either' : 'unlikely',
         loss: debris ? 0 : estimateLoss(state, def, exposed, target),
@@ -218,6 +238,36 @@ export function scanState(state: GameState, orders: Orders): { pulses: number; l
   return { pulses, left: Math.max(0, pulses - orders.scans.length) }
 }
 export const canScan = (state: GameState, orders: Orders, contact: Contact): boolean => !contact.known && scanState(state, orders).left > 0
+
+// WHERE TONIGHT'S PIECE DOES MOST: the asset it can sit on with the most
+// strength aimed at it tonight, read as the board shows it with the piece
+// ordered (COLDVEIL has already moved off what the piece covers). A move
+// COLDVEIL favors counts whole, one of several it may play its share, one
+// the scan has not named a guess. The recommended spot on the piece's
+// card, and the sweep's placement.
+export function spotFor(state: GameState, orders: Orders, id: CountermeasureId): string | undefined {
+  const domain = domainOf(state, id)
+  const contacts = contactsFor(state, { ...orders, defense: id, place: null })
+  const value = new Map<string, number>()
+  for (const c of contacts) {
+    if (c.debris || !c.targetId) continue
+    const peers = contacts.filter((x) => x.slot === c.slot)
+    const open = Math.min(1, Math.max(0, c.strength - c.mitigation))
+    const v = c.known ? (c.favor === 'unlikely' ? 0 : c.favor === 'either' ? open / Math.max(1, peers.filter((x) => x.favor === 'either').length) : open) : 0.6 / peers.length
+    value.set(c.targetId, (value.get(c.targetId) ?? 0) + v)
+  }
+  let best: string | undefined
+  let bestV = -Infinity
+  for (const a of state.assets) {
+    if (a.integrity <= 0 || !domain.includes(a.kind)) continue
+    const v = (value.get(a.id) ?? 0) + COVERAGE_PER_KIND[a.kind] / 1000
+    if (v > bestV) {
+      bestV = v
+      best = a.id
+    }
+  }
+  return best
+}
 
 // ---------------------------------------------------------------- the kit
 
@@ -302,13 +352,16 @@ export interface NightNow {
   night: Night
   // The step waiting on the player, or -1 when every choice is made.
   open: number
+  // Tonight's hold is still waiting on the player's call (v2.0 R2).
+  holdOpen: boolean
 }
 
 export function nightNow(state: GameState, orders: Orders, inputs: NightInputs): NightNow {
   const after = resolve(state, orders, inputs)
   const events = lastEvents(after)
-  const open = events.findIndex((ev, i) => (ev.debris ? !!ev.debris.assetId && inputs.debris === null : ev.room !== undefined && inputs.responses[i] === undefined))
-  return { after, night: nightOf(state, after), open }
+  // An answer is asked for only while the watch has one left.
+  const open = events.findIndex((ev, i) => (ev.debris ? !!ev.debris.assetId && inputs.debris === null : ev.room !== undefined && (ev.left === undefined || ev.left > 0) && inputs.responses[i] === undefined))
+  return { after, night: nightOf(state, after), open, holdOpen: !!holdTonight(state) && inputs.hold === undefined }
 }
 
 // One answer the night offers, with what the engine says it would do.
@@ -371,7 +424,7 @@ export const ASSIST_GRADE: TimingGrade = 1
 // Whether a tap can do anything to a move: it takes damage off one that
 // lands and pays back a response that blocked one; a move a defense holds
 // has nothing for it to improve, so the ring is not shown there.
-export const tapMatters = (ev: ResolvedEvent): boolean => ev.effectiveSeverity > 0 || ev.response?.effect === 'block'
+export const tapMatters = (ev: ResolvedEvent): boolean => ev.effectiveSeverity > 0 || (ev.response?.effect === 'block' && ev.response.cost > 0)
 
 // What a timed tap did, for the card: the share it took off a hit, or the
 // credits a clean block paid back; nothing on a move a defense held.
@@ -431,6 +484,9 @@ export function inputsOf(state: GameState): TurnActions[] {
       responses: r.events.map((e) => e.response?.id ?? null),
       timing: r.events.map((e) => e.timing ?? 0),
       scans: r.scanned ?? [],
+      // Where that night's defense was set down, and the call on its hold.
+      placeOn: Object.fromEntries(buyCounters.flatMap((id) => (state.placed?.[id] ? [[id, state.placed[id]]] : []))),
+      tiebreak: r.hold && r.hold.call !== 'none' ? r.hold.call : null,
     }
   })
 }
@@ -438,7 +494,7 @@ export function inputsOf(state: GameState): TurnActions[] {
 // The game played from its seed with these inputs: every state on the way,
 // the opening first. Stops where the engine refuses a turn.
 export function timeline(state: GameState, inputs: readonly TurnActions[]): GameState[] {
-  const out = [newGame(state.scenario, state.seed, state.difficulty, state.posture)]
+  const out = [newGame(state.scenario, state.seed, state.difficulty, state.posture, state.watch)]
   try {
     for (let t = 0; out[out.length - 1].status === 'playing' && t < state.scenario.totalTurns; t += 1) {
       const s = out[out.length - 1]
@@ -472,18 +528,22 @@ function coachOrders(state: GameState): TurnActions {
     if (def.baseSeverity + chainBonusOf(def, denied) - mitigationOf(def, state.counters) <= 0) continue
     const id = def.counters.find((c) => !state.counters.includes(c))
     if (!id) continue
-    const next = { ...actions, buyCounters: [id] }
+    const where = spotFor(state, NO_ORDERS, id)
+    const next = { ...actions, buyCounters: [id], ...(where ? { placeOn: { [id]: where } } : {}) }
     if (state.credits - orderCost(state, next) >= 0 && worstCase(state, next).value >= 0) {
       actions = next
       break
     }
   }
+  // It reads the evidence on a hold, and makes the right call.
+  const hold = holdTonight(state)
+  if (hold) actions = { ...actions, tiebreak: rightCall(hold) }
   const debris = (planFor(state, state.turn)?.slots ?? []).some((s) => s.fixed === 'debris-conjunction')
   return debris ? { ...actions, debris: worstCase(state, actions).value >= 0 ? 'burn' : 'hold' } : actions
 }
 
 export function coachRun(state: GameState): GameState[] {
-  const out = [newGame(state.scenario, state.seed, state.difficulty, state.posture)]
+  const out = [newGame(state.scenario, state.seed, state.difficulty, state.posture, state.watch)]
   while (out[out.length - 1].status === 'playing') {
     const s = out[out.length - 1]
     const actions = coachOrders(s)
@@ -493,7 +553,9 @@ export function coachRun(state: GameState): GameState[] {
       const events = lastEvents(after)
       const i = events.findIndex((ev, k) => ev.room !== undefined && responses[k] === undefined)
       if (i < 0) break
-      const pick = responseOptions(eventDef(s, events[i].eventId), events[i], s.difficulty).find((o) => o.fits)?.id ?? null
+      // Under the pool it keeps its answers for moves worth one.
+      const worth = events[i].left === undefined || exposedOf(events[i]) >= 2 || s.turn >= s.scenario.totalTurns
+      const pick = worth ? (responseOptions(eventDef(s, events[i].eventId), events[i], s.difficulty).find((o) => o.fits)?.id ?? null) : null
       responses = answered(responses, i, pick)
       after = resolveTurn(s, { ...actions, responses }, turnRng(s.seed, s.turn))
     }

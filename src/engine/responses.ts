@@ -21,11 +21,17 @@ export interface ResponseOption {
   fits: boolean
   // Why it cannot be taken: tonight's response is already used, or the
   // budget cannot meet it.
+  // budget cannot meet it. Under the pool (v2.0 R2), 'used': none is left.
   why?: 'used' | 'budget'
 }
 
 export function responseOptions(def: ThreatEvent, ev: ResolvedEvent, difficulty: GameState['difficulty']): ResponseOption[] {
   const exposed = exposedOf(ev)
+  // The pool (v2.0 R2): an answer costs nothing and is there while one is left.
+  if (ev.left !== undefined) {
+    const fits = ev.left > 0
+    return (def.responses ?? []).map((r) => ({ id: r.id, effect: r.effect, cost: 0, fits, ...(fits ? {} : { why: 'used' as const }) }))
+  }
   const used = (ev.answered ?? 0) >= RESPONSES_PER_NIGHT
   return (def.responses ?? []).map((r) => {
     const fits = responseFits(def, r, exposed, ev.room ?? 0, difficulty, ev.answered)

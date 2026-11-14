@@ -20,6 +20,7 @@
 
 import { adversaryPicks } from './adversary'
 import { candidatesTonight, planFor } from './campaign'
+import { holdTonight, resolveHold } from './holds'
 import { turnRng, type Rng } from './rng'
 import { heldForLater } from './worstCase'
 import {
@@ -28,10 +29,11 @@ import {
   CONDITION_PRESSURE_PER_SEVERITY,
   DEBRIS_LOSS_CHANCE,
   DEPLOY_TURNS,
-  METER_DAMAGE_PER_SEVERITY,
   NEW_DEFENSES_PER_NIGHT,
   RESPONSE_DAMAGE_SHARE,
   RIDESHARE_RESELL_CREDITS,
+  aimOf,
+  answersLeft,
   billAfter,
   briefActive,
   briefFree,
@@ -40,16 +42,21 @@ import {
   burnFuel,
   chainBonusOf,
   debrisTarget,
+  domainOf,
   eventById,
+  fundingOf,
   gnssDenied,
-  hasRetainer,
+  hardeningOn,
   lossReviewBill,
+  meterDamageOf,
   mitigationOf,
   newDefenses,
+  recoveryOf,
   responseCost,
   responseFits,
   scaled,
   scanPulses,
+  startCreditsOf,
   timingRefund,
   timingShare,
   worstBillOf,
@@ -70,6 +77,7 @@ import type {
   TurnActions,
   TurnLedger,
   TurnRecord,
+  Watch,
 } from './types'
 
 // The rules and numbers live in ./rules, and tonight's candidates in
@@ -94,7 +102,11 @@ export {
   RIDESHARE_RESELL_CREDITS,
   SCANS_PER_NIGHT,
   SECONDARY_MITIGATION,
+  HARDEN,
   TIMING_BONUS,
+  aimOf,
+  answersLeft,
+  answersOf,
   briefActive,
   briefFree,
   briefLocked,
@@ -103,12 +115,16 @@ export {
   damageShare,
   debrisTarget,
   defenseOpen,
+  domainOf,
   exposedOf,
+  fundingOf,
   gnssDenied,
   hasRetainer,
+  meterDamageOf,
   mitigationOf,
   newDefenses,
   orderCost,
+  postOf,
   responseCost,
   responseFits,
   scaled,
@@ -141,7 +157,7 @@ const liveAssets = (assets: Asset[]) => assets.filter((a) => a.integrity > 0)
 const round1 = (n: number) => Math.round(n * 10) / 10
 const METER_KEYS = ['linkAvailability', 'dataIntegrity', 'sensorIntegrity'] as const
 
-export function newGame(scenario: Scenario, seed: number, difficulty: Difficulty = 'standard', posture?: Posture): GameState {
+export function newGame(scenario: Scenario, seed: number, difficulty: Difficulty = 'standard', posture?: Posture, watch?: Watch): GameState {
   return {
     scenario,
     seed,
@@ -149,7 +165,8 @@ export function newGame(scenario: Scenario, seed: number, difficulty: Difficulty
     status: 'playing',
     difficulty,
     ...(posture ? { posture } : {}),
-    credits: scenario.startCredits,
+    ...(watch ? { watch, placed: {} } : {}),
+    credits: startCreditsOf(scenario, watch),
     assets: scenario.starterAssets.map((s, i) => ({ id: `start-${s.kind}-${i + 1}`, kind: s.kind, layer: layerFor(s.kind), integrity: 100 })),
     counters: [],
     meters: { linkAvailability: 100, dataIntegrity: 100, sensorIntegrity: 100 },
@@ -193,6 +210,9 @@ function applyOrders(state: GameState, actions: TurnActions, purchases: string[]
     spent += cm.cost
     state.counters.push(id)
     purchases.push(`${cm.name} (-${cm.cost})`)
+    // Where it is set down (v2.0 R2): a live asset of a kind it can sit on.
+    const where = state.watch === 2 ? state.assets.find((a) => a.id === actions.placeOn?.[id] && a.integrity > 0) : undefined
+    if (where && domainOf(scenario, id).includes(where.kind)) state.placed = { ...state.placed, [id]: where.id }
   }
   actions.buyAssets.forEach((buy, i) => {
     const price = scenario.prices[buy.kind]
@@ -225,7 +245,7 @@ export function revealBrief(state: GameState): GameState {
 function maiAfterHit(state: GameState, ev: ThreatEvent, target: Asset | undefined, strength: number): number {
   const meters = { ...state.meters }
   const integrity = target?.integrity
-  for (const m of ev.effect.meters) state.meters[m] = Math.max(0, state.meters[m] - scaled(METER_DAMAGE_PER_SEVERITY * strength, state.difficulty))
+  for (const m of ev.effect.meters) state.meters[m] = Math.max(0, state.meters[m] - scaled(meterDamageOf(state) * strength, state.difficulty))
   if (target) target.integrity = Math.max(0, target.integrity - scaled(ASSET_DAMAGE_PER_SEVERITY * strength, state.difficulty))
   const after = maiRaw(state)
   state.meters = meters
@@ -247,34 +267,46 @@ type Unscored = Omit<ResolvedEvent, 'scoreBefore' | 'scoreAfter'>
 // rules.ts TIMING_BONUS): it takes a share off the damage of a move that
 // gets through and pays back a share of a response that blocked it, and
 // changes nothing else.
-function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng, choice: string | null | undefined, room: number, earlier: number, tap: TimingGrade | 0 = 0): Unscored {
+function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng, choice: string | null | undefined, room: number, earlier: number, tap: TimingGrade | 0 = 0, slot = 0): Unscored {
   const { scenario, difficulty } = state
   const notes: string[] = []
   const chainBonus = chainBonusOf(ev, gnssDenied(state.conditions, scenario))
   const strength = ev.baseSeverity + chainBonus
+  // The tile it is aimed at: a live asset on its layers, held or not, and
+  // of a kind the move prefers when the player holds one (G-028: the
+  // docking dazzle strikes the RPO sat, not an imaging sat). Under the 3D
+  // game's rules it is the one the signature was sighted on (aimOf).
+  const v2 = state.watch === 2
+  let target: Asset | undefined
+  if (v2) target = aimOf(state, slot, ev)
+  else {
+    const onLayers = liveAssets(state.assets).filter((a) => ev.layers.includes(a.layer))
+    const preferred = ev.prefersKinds ? onLayers.filter((a) => ev.prefersKinds!.includes(a.kind)) : []
+    const pool = preferred.length > 0 ? preferred : onLayers
+    target = pool.length > 0 ? rng.pick(pool) : undefined
+  }
+  // THE POST (v2.0 R2): the newest defense's asset takes a point off a strike.
   const mitigation = mitigationOf(ev, state.counters)
-  const exposed = Math.max(0, strength - mitigation)
+  const hardened = Math.min(hardeningOn(state, target), Math.max(0, strength - mitigation))
+  const exposed = Math.max(0, strength - mitigation - hardened)
   const offered = exposed > 0 && !!ev.responses?.length
-  const taken = offered && choice ? ev.responses!.find((r) => r.id === choice && responseFits(ev, r, exposed, room, difficulty, earlier)) : undefined
+  // THE ANSWERS (v2.0 R2): under the 3D game's rules the watch has a fixed
+  // number for the whole operation, and they cost nothing.
+  const left = answersLeft(state)
+  const taken = offered && choice ? ev.responses!.find((r) => r.id === choice && (v2 ? left > 0 : responseFits(ev, r, exposed, room, difficulty, earlier))) : undefined
   const share = taken ? RESPONSE_DAMAGE_SHARE[taken.effect] : 1
   // A blocked move lets nothing through, whether a defense or a response
   // blocked it; a halved one lands at its strength and does half.
   const effectiveSeverity = share === 0 ? 0 : exposed
-  const outcome = effectiveSeverity === 0 ? 'held' : mitigation > 0 || taken ? 'reduced' : 'open'
-  const response = taken ? { id: taken.id, effect: taken.effect, cost: responseCost(taken.effect, exposed) } : undefined
+  const outcome = effectiveSeverity === 0 ? 'held' : mitigation + hardened > 0 || taken ? 'reduced' : 'open'
+  const response = taken ? { id: taken.id, effect: taken.effect, cost: v2 ? 0 : responseCost(taken.effect, exposed) } : undefined
   if (response) state.credits -= response.cost
+  if (response && v2) state.answersUsed = (state.answersUsed ?? 0) + 1
   const refund = response && share === 0 ? timingRefund(response.cost, tap) : 0
   state.credits += refund
   // What the move does of its damage: the response's share, less the tap's.
   const dealt = share * timingShare(tap)
 
-  // The tile it is aimed at: a live asset on its layers, held or not, and
-  // of a kind the move prefers when the player holds one (G-028: the
-  // docking dazzle strikes the RPO sat, not an imaging sat).
-  const onLayers = liveAssets(state.assets).filter((a) => ev.layers.includes(a.layer))
-  const preferred = ev.prefersKinds ? onLayers.filter((a) => ev.prefersKinds!.includes(a.kind)) : []
-  const pool = preferred.length > 0 ? preferred : onLayers
-  const target = pool.length > 0 ? rng.pick(pool) : undefined
   const struck = ev.effect.assetDamage !== false ? target : undefined
 
   const before = maiRaw(state)
@@ -283,7 +315,7 @@ function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng, choice: stri
   let integrityAfter: number | undefined
   if (effectiveSeverity > 0) {
     for (const m of ev.effect.meters) {
-      state.meters[m] = Math.max(0, state.meters[m] - scaled(METER_DAMAGE_PER_SEVERITY * effectiveSeverity * dealt, difficulty))
+      state.meters[m] = Math.max(0, state.meters[m] - scaled(meterDamageOf(state) * effectiveSeverity * dealt, difficulty))
     }
     if (struck) {
       integrityBefore = struck.integrity
@@ -341,6 +373,8 @@ function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng, choice: stri
     integrityAfter,
     condition: effectiveSeverity > 0 ? ev.condition : undefined,
     ...(offered ? { room, ...(earlier > 0 ? { answered: earlier } : {}) } : {}),
+    ...(hardened > 0 ? { hardened } : {}),
+    ...(v2 && offered ? { left } : {}),
     ...(response ? { response } : {}),
     ...(tap ? { timing: tap } : {}),
     ...(refund > 0 ? { refund } : {}),
@@ -481,6 +515,10 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
     }
   }
 
+  // THE POLICY ENGINE'S HOLD (v2.0 R2), settled before COLDVEIL moves.
+  const holdPlan = holdTonight(next)
+  const hold = holdPlan ? resolveHold(next, holdPlan, actions.tiebreak) : undefined
+
   // 3. The adversary plays each slot, reading the defenses owned now.
   const offStation = new Set<string>()
   const resolved: ResolvedEvent[] = []
@@ -498,7 +536,7 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
     const r =
       ev.effect.special === 'debrisStrike'
         ? resolveDebris(next, ev, actions.debris ?? 'hold', rng, offStation)
-        : resolveThreat(next, ev, rng, actions.responses?.[i], room, resolved.filter((r) => r.response).length, actions.timing?.[i] === 1 || actions.timing?.[i] === 2 ? actions.timing[i] as TimingGrade : 0)
+        : resolveThreat(next, ev, rng, actions.responses?.[i], room, resolved.filter((r) => r.response).length, actions.timing?.[i] === 1 || actions.timing?.[i] === 2 ? actions.timing[i] as TimingGrade : 0, i)
     resolved.push({ ...r, scoreBefore, scoreAfter: maiScore(next) })
   })
   const fuel = resolved.reduce((n, r) => n + (r.debris?.fuel ?? 0), 0)
@@ -533,11 +571,11 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
   }
 
   const bonusCoverage = coverage(next.assets, offStation)
-  const funding = insolvent ? 0 : scenario.incomePerTurn
+  const funding = insolvent ? 0 : fundingOf(next)
   const coverageBonus = !insolvent && bonusCoverage >= scenario.slaBonus.coverageMin ? scenario.slaBonus.credits : 0
   next.credits += funding + coverageBonus
 
-  const recovery = hasRetainer(next) ? scenario.recovery.withIrRetainer : scenario.recovery.base
+  const recovery = recoveryOf(next)
   for (const key of METER_KEYS) next.meters[key] = Math.min(METER_CAP, next.meters[key] + recovery)
   if (!insolvent) {
     for (const a of liveAssets(next.assets)) a.integrity = Math.min(100, a.integrity + ASSET_HEAL_PER_TURN)
@@ -577,6 +615,7 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
     named,
     ...(scanned.length > 0 ? { scanned } : {}),
     events: resolved,
+    ...(hold ? { hold } : {}),
     conditionsActive: pressing,
     ledger,
     creditsAfter: next.credits,

@@ -16,7 +16,7 @@
 // One function; the dock, the FIRST ORDERS check and the battery all call
 // it (brief 6.4).
 
-import { burnFuel, chainBonusOf, countersAfter, eventById, gnssDenied, lossReviewBill, mitigationOf, orderCost, repairBill, worstBillOf } from './rules'
+import { burnFuel, chainBonusOf, countersAfter, eventById, fundingOf, gnssDenied, lossReviewBill, mitigationOf, orderCost, repairBill, worstBillOf } from './rules'
 import { planFor } from './campaign'
 import type { CountermeasureId, GameState, TurnActions } from './types'
 
@@ -72,7 +72,7 @@ export function worstCase(state: GameState, actions: TurnActions): WorstCase {
 // above), so one number guards both: with money tight since responses, a
 // turn's orders could read 0 or more and still leave the next night's
 // bills unpayable before the player could do anything about it.
-export function heldForLater(state: Pick<GameState, 'scenario' | 'seed' | 'turn' | 'difficulty'>, counters: readonly CountermeasureId[]): number {
+export function heldForLater(state: Pick<GameState, 'scenario' | 'seed' | 'turn' | 'difficulty' | 'watch'>, counters: readonly CountermeasureId[]): number {
   const { scenario, difficulty } = state
   const upkeep = counters.length * scenario.upkeepPerDefense
   let running = 0
@@ -82,7 +82,7 @@ export function heldForLater(state: Pick<GameState, 'scenario' | 'seed' | 'turn'
     for (const slot of planFor(state, turn)?.slots ?? []) {
       bills += Math.max(0, ...(slot.fixed ? [slot.fixed] : (slot.drawFrom ?? [])).map((id) => worstBillOf(eventById(scenario, id), counters, difficulty)))
     }
-    running += bills + upkeep - scenario.incomePerTurn
+    running += bills + upkeep - fundingOf(state)
     held = Math.max(held, running)
   }
   return held

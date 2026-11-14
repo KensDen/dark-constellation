@@ -22,9 +22,10 @@
 // Pure, so the suite sweeps it without a DOM. Since v1.3 Round 3 it
 // replaces the v1.1 director's beat derivation (src/director, retired).
 
-import { CONDITION_PRESSURE_PER_SEVERITY, DEPLOY_TURNS, METER_DAMAGE_PER_SEVERITY, damageShare, exposedOf, mitigationOf, scaled } from '../../engine/reducer'
+import { resolveHold } from '../../engine/holds'
+import { CONDITION_PRESSURE_PER_SEVERITY, DEPLOY_TURNS, damageShare, exposedOf, meterDamageOf, mitigationOf, scaled } from '../../engine/reducer'
 import { maiScore } from '../../engine/scoring'
-import type { AssetKind, Countermeasure, GameState, PendingAsset, ResolvedEvent, ThreatEvent, TurnRecord } from '../../engine/types'
+import type { AssetKind, Countermeasure, GameState, PendingAsset, ResolvedEvent, ResolvedHold, ThreatEvent, TurnRecord } from '../../engine/types'
 import { callIndex, shortName, stopVerb } from '../board/boardModel'
 import type * as copy from './nightCopy'
 
@@ -58,6 +59,9 @@ export interface Night {
   // The conditions that pressed as it opened, by name (JAMMED), for the
   // HUD's labelled change under COLDVEIL IS MOVING (v1.3 R5).
   pressed: string[]
+  // The policy engine's hold (v2.0 R2), settled before COLDVEIL's first
+  // move: the board either side of it. Absent on a night with none.
+  hold?: { ev: ResolvedHold; before: GameState; after: GameState }
   steps: NightStep[]
   // The engine's own next state, by identity: END OF TURN shows it.
   closing: GameState
@@ -79,6 +83,7 @@ function copyBoard(s: GameState): GameState {
     conditions: s.conditions.map((c) => ({ ...c })),
     pipeline: s.pipeline.map((p) => ({ ...p })),
     counters: [...s.counters],
+    ...(s.placed ? { placed: { ...s.placed } } : {}),
   }
 }
 
@@ -106,6 +111,7 @@ export function nightOf(before: GameState, after: GameState): Night {
   const board = copyBoard(before)
   // EXECUTE: the orders land.
   board.counters = [...after.counters]
+  if (after.placed) board.placed = { ...after.placed }
   board.credits = before.credits - record.ledger.ordered
   board.pipeline = [...board.pipeline, ...orderedTonight(after, before.turn)]
   // The live conditions press, read against the defenses owned now.
@@ -118,10 +124,18 @@ export function nightOf(before: GameState, after: GameState): Night {
     for (const m of def.effect.meters) board.meters[m] = Math.max(0, board.meters[m] - scaled(CONDITION_PRESSURE_PER_SEVERITY * pressure, difficulty))
   }
   const opening = copyBoard(board)
+  // The hold, with the engine's own arithmetic on a copy of the board.
+  let hold: Night['hold']
+  let afterHold = opening
+  if (record.hold) {
+    afterHold = copyBoard(opening)
+    resolveHold(afterHold, record.hold, record.hold.call === 'none' ? null : record.hold.call)
+    hold = { ev: record.hold, before: opening, after: afterHold }
+  }
 
   const steps: NightStep[] = []
   let streak = before.streak
-  let shown = opening
+  let shown = afterHold
   for (const ev of record.events) {
     const def = eventDef(before, ev.eventId)
     const next = copyBoard(shown)
@@ -143,7 +157,7 @@ export function nightOf(before: GameState, after: GameState): Night {
       next.credits -= (ev.response?.cost ?? 0) - (ev.refund ?? 0)
       if (ev.effectiveSeverity > 0) {
         for (const m of def.effect.meters) {
-          next.meters[m] = Math.max(0, next.meters[m] - scaled(METER_DAMAGE_PER_SEVERITY * ev.effectiveSeverity * damageShare(ev), difficulty))
+          next.meters[m] = Math.max(0, next.meters[m] - scaled(meterDamageOf(before) * ev.effectiveSeverity * damageShare(ev), difficulty))
         }
       }
       if (ev.integrityAfter !== undefined && ev.targetAssetId !== undefined) {
@@ -171,7 +185,7 @@ export function nightOf(before: GameState, after: GameState): Night {
     steps.push({ kind, ev, def, before: shown, after: next, scoreBefore: ev.scoreBefore ?? maiScore(shown), scoreAfter: ev.scoreAfter ?? maiScore(next), streak, index: steps.length })
     shown = next
   }
-  return { turn: before.turn, before, record, opening, pressed, steps, closing: after }
+  return { turn: before.turn, before, record, opening, pressed, ...(hold ? { hold } : {}), steps, closing: after }
 }
 
 // THE RESULT PANEL (brief 5.5 item 2): one tile per point of strength,

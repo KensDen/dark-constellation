@@ -9,6 +9,14 @@
 // 5.1), and the sweep gate tunes those two (brief 7).
 export type Difficulty = 'easy' | 'standard'
 export type Posture = 'dark'
+// THE WATCH'S RULES (v2.0 R2). Absent, a game plays by the rules the
+// pixel board (?view=classic) has pinned since v1.7. 2 is the 3D game's:
+// every signature keeps the target it was sighted on (rules.ts, aimOf),
+// the answers are a pool for the operation (rules.ts, answersOf), where a
+// defense sits matters (rules.ts, postOf), and the policy
+// engine holds one of the fleet's own actions for the player's call
+// (src/engine/holds.ts).
+export type Watch = 2
 
 export type Layer = 'ORBIT' | 'AIR' | 'GROUND'
 // The three layers, as a value. Promoted out of ui/cues/Scene.tsx in Round
@@ -197,6 +205,55 @@ export interface CampaignOrder {
   variants: CampaignVariant[]
 }
 
+// THE POLICY ENGINE'S HOLD (v2.0 R2, Ken's mechanic of 14 November 2026:
+// the human tie-break). The fleet's automated defense stops one of the
+// fleet's own actions because a rule tripped, and the player overrides the
+// block or lets it stand. A template is the action, the rule that tripped,
+// and three checks; each check reads clean or dirty in the template's own
+// words. The engine decides which are dirty (src/engine/holds.ts): none on
+// a false positive, one or more on a compromise, so the evidence on screen
+// always settles the call.
+export interface HoldCheck {
+  label: string
+  clean: string
+  dirty: string
+}
+export interface HoldTemplate {
+  id: string
+  // The kinds of asset it can be raised on.
+  kinds: AssetKind[]
+  // What the asset was doing, and the policy rule that stopped it.
+  action: string
+  rule: string
+  checks: [HoldCheck, HoldCheck, HoldCheck]
+  // The meter the action served, which a wrong call costs: a compromise
+  // let through corrupts it, a good action blocked starves it.
+  meter: 'dataIntegrity' | 'sensorIntegrity'
+  // What each wrong call was, in one line, for the card and the debrief.
+  ifOverridden: string
+  ifStood: string
+}
+export type HoldCall = 'override' | 'stand'
+// Tonight's hold as the engine deals it: which template, on which asset,
+// whether the action really was compromised, and which checks read dirty.
+export interface HoldPlan {
+  template: string
+  assetId: string
+  compromised: boolean
+  dirty: number[]
+}
+// The hold as it resolved. `call` is 'none' when the player made no call:
+// the machine's block stood. `cost` is the score a wrong call took, and
+// `saved` what the right call kept, each to one decimal.
+export interface ResolvedHold extends HoldPlan {
+  call: HoldCall | 'none'
+  right: boolean
+  cost: number
+  saved: number
+  scoreBefore: number
+  scoreAfter: number
+}
+
 export interface Scenario {
   id: string
   name: string
@@ -233,6 +290,26 @@ export interface Scenario {
   // only through the scenario, never from module-level imports.
   events: ThreatEvent[]
   countermeasures: Countermeasure[]
+  // The policy engine's holds (v2.0 R2). A game deals them only under the
+  // 3D game's rules (GameState.watch).
+  holds?: HoldTemplate[]
+  // THE 3D GAME'S NUMBERS (v2.0 R2): what a game under GameState.watch 2
+  // reads in place of the figures above (rules.ts, fundingOf and the rest),
+  // so the classic board keeps the economy its tests pin.
+  watch2?: Watch2
+}
+
+export interface Watch2 {
+  startCredits: number
+  incomePerTurn: number
+  recovery: { base: number; withIrRetainer: number }
+  // Meter damage a point of strength that gets through.
+  meterDamage: number
+  // Answers the watch has for the whole operation.
+  answers: number
+  // Holds a game deals, and the score a wrong call costs, in points.
+  holds: number
+  holdStake: number
 }
 
 export interface Asset {
@@ -313,6 +390,13 @@ export interface ResolvedEvent {
   // move arrived (rules.ts, RESPONSES_PER_NIGHT). Absent for none.
   answered?: number
   response?: { id: string; effect: ResponseEffect; cost: number }
+  // THE POST (v2.0 R2): the points the watch's post took off this strike,
+  // when its target was the asset the newest defense sits on (rules.ts,
+  // HARDEN). Absent at 0.
+  hardened?: number
+  // The answers the watch had left for the operation as this move arrived
+  // (v2.0 R2, rules.ts answersOf). Absent under the classic rules.
+  left?: number
   // THE TIMED BLOCK (v2.0 R1): the grade of the player's tap as this move
   // landed, 1 for good and 2 for perfect (rules.ts, TIMING_BONUS), and the
   // credits a well-timed block of a response paid back. Absent with no tap.
@@ -379,6 +463,8 @@ export interface TurnRecord {
   // order the night lists them. Absent on a night with no scan.
   scanned?: string[]
   events: ResolvedEvent[]
+  // The policy engine's hold tonight, when there was one (v2.0 R2).
+  hold?: ResolvedHold
   // Names of the conditions that pressed this turn.
   conditionsActive: string[]
   ledger: TurnLedger
@@ -418,6 +504,14 @@ export interface GameState {
   // is the harder one a finished game unlocks, where COLDVEIL emits less
   // and the watch has one scan pulse a night (rules.ts, scanPulses).
   posture?: Posture
+  // THE WATCH'S RULES (v2.0 R2): 2 in the 3D game, absent on the classic
+  // board. Set when the game starts and never changed.
+  watch?: Watch
+  // Where each defense sits (v2.0 R2): the asset its piece was set down
+  // on. A defense with no entry was never placed, or its asset is gone.
+  placed?: Partial<Record<CountermeasureId, string>>
+  // Answers spent so far this operation (v2.0 R2).
+  answersUsed?: number
   // The defense streak, its best, and the points saved so far (brief 6.8).
   streak: number
   bestStreak: number
@@ -452,4 +546,11 @@ export interface TurnActions {
   // they come, the grade of the tap as it landed, or nothing. An input, so
   // a seed and the player's inputs replay exactly.
   timing?: (TimingGrade | 0 | null | undefined)[]
+  // WHERE TONIGHT'S DEFENSE GOES (v2.0 R2): the asset each new defense is
+  // set down on. Read only under the 3D game's rules; a defense with no
+  // asset named, or one it cannot sit on, is owned and stands nowhere.
+  placeOn?: Partial<Record<CountermeasureId, string>>
+  // THE TIE-BREAK (v2.0 R2): the player's call on tonight's hold. Absent,
+  // no call was made and the machine's block stands.
+  tiebreak?: HoldCall | null
 }

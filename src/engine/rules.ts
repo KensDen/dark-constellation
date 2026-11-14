@@ -15,6 +15,7 @@ import type {
   CountermeasureId,
   Difficulty,
   GameState,
+  Layer,
   ResolvedEvent,
   ResponseEffect,
   Scenario,
@@ -138,8 +139,8 @@ export const RESPONSES_PER_NIGHT = 1
 
 // The strength a move lands with before any response: what the defenses
 // leave of it.
-export const exposedOf = (ev: Pick<ResolvedEvent, 'baseSeverity' | 'chainBonus' | 'mitigation'>): number =>
-  Math.max(0, ev.baseSeverity + ev.chainBonus - ev.mitigation)
+export const exposedOf = (ev: Pick<ResolvedEvent, 'baseSeverity' | 'chainBonus' | 'mitigation' | 'hardened'>): number =>
+  Math.max(0, ev.baseSeverity + ev.chainBonus - ev.mitigation - (ev.hardened ?? 0))
 export const responseCost = (effect: ResponseEffect, exposed: number): number => RESPONSE_COST_PER_POINT[effect] * exposed
 // THE TIMED BLOCK (v2.0 R1, Ken's choice of 10 November 2026: a bonus
 // only). A tap as a strike lands, graded good (1) or perfect (2), takes
@@ -313,3 +314,106 @@ export function debrisTarget(state: Pick<GameState, 'assets'>): Asset | undefine
   const live = state.assets.filter((a) => a.layer === 'ORBIT' && a.integrity > 0)
   return live.find((a) => a.id === 'start-sat-2') ?? live[0]
 }
+
+// ------------------------------------------------- the 3D game's rules
+
+// WHERE A SIGNATURE IS AIMED (v2.0 R2: targets that do not move). Through
+// R1 a move's target was a draw from the turn's main stream, taken as the
+// move resolved: the same number picked from a different pool when
+// COLDVEIL changed its move, and the debris call's own roll came before
+// it, so a signature could jump to another asset when an order changed or
+// when the player burned. Under the 3D game's rules each move of each
+// track has an order of preference over the fleet, fixed by the seed, the
+// night, the track and the move, and strikes the first live asset in it
+// that it can reach. Nothing the player orders moves it; it changes only
+// when the asset it was aimed at is gone.
+const mix = (h: number, n: number) => Math.imul(h ^ n, 0x9e3779b1) >>> 0
+function textHash(text: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i += 1) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0
+  return h
+}
+export function aimOf(state: Pick<GameState, 'seed' | 'turn' | 'assets'>, slot: number, ev: ThreatEvent): Asset | undefined {
+  const onLayers = state.assets.filter((a) => a.integrity > 0 && ev.layers.includes(a.layer))
+  const preferred = ev.prefersKinds ? onLayers.filter((a) => ev.prefersKinds!.includes(a.kind)) : []
+  const pool = preferred.length > 0 ? preferred : onLayers
+  const base = mix(mix(mix(state.seed >>> 0, state.turn * 97 + slot), textHash(ev.id)), 0x51ed270b)
+  let best: Asset | undefined
+  let bestRank = -1
+  for (const a of pool) {
+    let rank = mix(base, textHash(a.id))
+    rank = (rank ^ (rank >>> 15)) >>> 0
+    if (rank > bestRank) {
+      bestRank = rank
+      best = a
+    }
+  }
+  return best
+}
+
+// WHERE A DEFENSE CAN SIT: the kinds of asset on the layers its threats
+// strike. A defense that counters nothing by name (the IR retainer) sits
+// at the ground station.
+const KINDS_ON: Record<Layer, AssetKind[]> = { ORBIT: ['sat', 'rpoSat'], AIR: ['drone'], GROUND: ['groundStation'] }
+export function domainOf(scenario: Scenario, id: CountermeasureId): AssetKind[] {
+  const cm = scenario.countermeasures.find((c) => c.id === id)
+  const out = new Set<AssetKind>()
+  for (const ev of scenario.events) if (cm?.counters.includes(ev.id)) for (const l of ev.layers) for (const k of KINDS_ON[l]) out.add(k)
+  if (out.size === 0) out.add('groundStation')
+  return [...out]
+}
+
+// WHERE A DEFENSE SITS MATTERS (v2.0 R2, Ken's ruling of 14 November 2026).
+// A defense still covers the whole fleet against the moves it answers, and
+// COLDVEIL still reads it and takes the move it covers least. The asset
+// the NEWEST defense sits on is also the watch's POST: any strike aimed at
+// that asset, of any kind, lands 1 point weaker. The post moves when the
+// next defense is set down, and is lost with its asset. COLDVEIL reads
+// what the fleet fields, not where the watch stands, so the post never
+// moves its choice: the piece's kind turns COLDVEIL off one move, and its
+// place blunts whatever comes at that asset instead. WORST CASE ignores
+// the post, so it can only be too careful.
+//
+// ONE POST, NOT ONE A DEFENSE. Measured over 500 seeds a line with every
+// placed defense hardening its asset for good: Prepared, who places 5,
+// had most of the fleet hardened by night 5 and won 94 percent where the
+// beginner won 39, and at the damage that brought Prepared to 87 the
+// beginner won 26. With the post alone, Prepared 86 and the beginner 39,
+// Prepared placing at random 55: where tonight's piece goes is a decision
+// every night it is made, and never a map that fills in.
+export const HARDEN = 1
+export function postOf(state: Pick<GameState, 'watch' | 'placed' | 'assets' | 'counters'>): string | undefined {
+  if (state.watch !== 2) return undefined
+  for (let i = state.counters.length - 1; i >= 0; i -= 1) {
+    const where = state.placed?.[state.counters[i]]
+    if (where) return state.assets.some((a) => a.id === where && a.integrity > 0) ? where : undefined
+  }
+  return undefined
+}
+export const hardeningOn = (state: Pick<GameState, 'watch' | 'placed' | 'assets' | 'counters'>, target: Asset | undefined): number =>
+  target && postOf(state) === target.id ? HARDEN : 0
+
+// THE 3D GAME'S NUMBERS (v2.0 R2). The scenario carries them
+// (Scenario.watch2), and the turn resolver reads them through these, so a
+// game under the classic rules reads the scenario's own as it always has.
+//
+// THE ANSWERS ARE A POOL (Ken's ruling of 14 November 2026: the thrifty
+// line that won 199 of 200 is a bug, and the night is to be a real
+// decision). Through R1 an answer was bought with credits, 1 a night, so
+// credits kept back were protection: a line that scanned 1 track, placed
+// 2 or 3 defenses and banked the rest blocked a move every night and won
+// all 500 seeds on STANDARD, above Prepared's 82 percent, and a line that
+// placed nothing and ordered a drone a night won 90. Under the 3D game's
+// rules the watch has a fixed number of answers for the whole operation,
+// they cost nothing, and nothing buys another: credits buy defenses and
+// assets and pay the bills. Which moves get an answer is the decision of
+// each night, and a defense is the only thing that stops the rest.
+export const answersOf = (state: Pick<GameState, 'scenario' | 'watch'>): number => (state.watch === 2 ? (state.scenario.watch2?.answers ?? 0) : 0)
+export const answersLeft = (state: Pick<GameState, 'scenario' | 'watch' | 'answersUsed'>): number => Math.max(0, answersOf(state) - (state.answersUsed ?? 0))
+export const fundingOf = (state: Pick<GameState, 'scenario' | 'watch'>): number => (state.watch === 2 ? (state.scenario.watch2?.incomePerTurn ?? state.scenario.incomePerTurn) : state.scenario.incomePerTurn)
+export const meterDamageOf = (state: Pick<GameState, 'scenario' | 'watch'>): number => (state.watch === 2 ? (state.scenario.watch2?.meterDamage ?? METER_DAMAGE_PER_SEVERITY) : METER_DAMAGE_PER_SEVERITY)
+export const recoveryOf = (state: Pick<GameState, 'scenario' | 'watch' | 'counters'>): number => {
+  const r = state.watch === 2 ? (state.scenario.watch2?.recovery ?? state.scenario.recovery) : state.scenario.recovery
+  return hasRetainer(state) ? r.withIrRetainer : r.base
+}
+export const startCreditsOf = (scenario: Scenario, watch: GameState['watch']): number => (watch === 2 ? (scenario.watch2?.startCredits ?? scenario.startCredits) : scenario.startCredits)
