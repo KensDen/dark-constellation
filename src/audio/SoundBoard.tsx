@@ -11,6 +11,12 @@
 // The list is derived from the registry, not typed out here. A cue added
 // to the game appears on the board without anyone remembering to add it,
 // which is the same reason the coverage test walks the registry.
+//
+// Since v2.0 R3 (Ken's ruling of 15 November 2026: voices for the threats)
+// the board opens with the threats' own voices, one button a threat in the
+// registry's order (THREAT_VOICES), so all of them can be heard one after
+// another and told apart by ear, which is the one check on them that no
+// measurement makes. Each is in the full list below as well.
 
 import { useState } from 'react'
 import {
@@ -20,6 +26,7 @@ import {
   LONG_SOUNDS,
   SECTION_6_ROWS,
   SOUND_MS,
+  THREAT_VOICES,
   type Cue,
   type SoundCue,
 } from '../cues'
@@ -43,6 +50,9 @@ function usersOf(sound: SoundCue): string[] {
     for (const [id, entry] of Object.entries(map)) {
       if (entry.sound === sound) out.push(`${ns}:${id}`)
     }
+  }
+  for (const [id, voice] of Object.entries(THREAT_VOICES)) {
+    if (voice === sound) out.push(`threat:${id}`)
   }
   for (const row of SECTION_6_ROWS) {
     if (row.sound === sound) out.push(`section 6: ${row.beat}`)
@@ -91,6 +101,20 @@ export default function SoundBoard({ onBack }: { onBack?: () => void }) {
         {intensity.toFixed(1)}
       </label>
 
+      <h3 className="mt-4 text-xs text-phosphor uppercase tracking-widest">
+        Threat voices ({Object.keys(THREAT_VOICES).length}), as each strike leaves
+      </h3>
+      <ul className="mt-2 flex flex-wrap gap-2" data-testid="threat-voices">
+        {Object.entries(THREAT_VOICES).map(([id, cue]) => (
+          <li key={id}>
+            <button onClick={() => play(cue)} className="border border-phosphor/60 text-phosphor px-3 min-h-11 text-xs">
+              {id} <span className="text-ink-dim">{SOUND_MS[cue]}ms</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <h3 className="mt-4 text-xs text-phosphor uppercase tracking-widest">Every voice</h3>
       <ul className="mt-3 grid gap-2">
         {CUES.map((cue) => (
           <li key={cue} className="border border-phosphor/20 bg-panel p-2">

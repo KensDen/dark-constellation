@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { mulberry32, turnRng } from '../src/engine/rng'
-import { SOUND_MS, DUCKS_MUSIC, type SoundCue } from '../src/cues'
+import { SOUND_MS, DUCKS_MUSIC, THREAT_VOICES, type SoundCue } from '../src/cues'
 import { AudioEngine, EFFECTS_LEVEL, MUSIC_LEVEL } from '../src/audio/engine'
 import { VOICES } from '../src/audio/voices'
 import {
@@ -38,14 +38,12 @@ import {
   MENU_MUSIC_STATE,
   MUSIC_LAYERS,
   MusicBed,
-  coldOpenMusicState,
   musicStateFrom,
   shouldPlayMusic,
   type MusicScheduler,
   type MusicState,
 } from '../src/audio/music'
 import { xorshift32 } from '../src/audio/musicRng'
-import { BEATS as SLIDES } from '../src/ui/coldOpenSlides'
 import { LOSS_SCRIPT, NO_OP } from './scripts'
 import { FakeAudioContext, FakeGain, FakeOscillator, type FakeNode } from './fakeAudio'
 
@@ -330,58 +328,6 @@ describe('music: the crossfade', () => {
     const after = MUSIC_LAYERS.map((l) => (bed.layerGain(l.name) as unknown as FakeGain).gain.events.length)
     expect(after, 'an unchanged state re-ramped a layer, which would restart every fade').toEqual(before)
     bed.stop()
-  })
-})
-
-describe('music: the cold open builds the bed and hands it to the menu (v1.2 R4)', () => {
-  // The intro variant (brief 6) is the same bed with its layers joining as
-  // the slides go by (the briefing's four beats since v1.3 R1, BEATS,
-  // imported as SLIDES here). Walked over the briefing's own beats and over
-  // MUSIC_LAYERS, so neither the slide count nor the layer names are
-  // restated here (principle 17).
-  let ctx: FakeAudioContext
-  beforeEach(() => {
-    ctx = new FakeAudioContext()
-  })
-  const lit = (state: MusicState) => MUSIC_LAYERS.filter((l) => l.active(state)).map((l) => l.name)
-
-  it('opens on the menu bed, adds layers slide by slide and never drops one, and reaches all of them', () => {
-    const bySlide = SLIDES.map((_, i) => lit(coldOpenMusicState(i)))
-    expect(bySlide[0], 'the first slide is not the menu bed').toEqual(lit(MENU_MUSIC_STATE))
-    for (let i = 1; i < bySlide.length; i += 1) {
-      for (const name of bySlide[i - 1]) expect(bySlide[i], `slide ${i + 1} drops ${name}`).toContain(name)
-    }
-    const grows = bySlide.filter((set, i) => i > 0 && set.length > bySlide[i - 1].length).length
-    expect(grows, 'the bed does not build across the slides').toBeGreaterThanOrEqual(MUSIC_LAYERS.length - 1)
-    expect(bySlide[bySlide.length - 1], 'the last slide does not have the whole bed').toEqual(MUSIC_LAYERS.map((l) => l.name))
-  })
-
-  it('moves the same bed by crossfade, and back to the menu when the cold open ends', () => {
-    const { bed } = bedOn(ctx, coldOpenMusicState(0))
-    for (let i = 1; i < SLIDES.length; i += 1) bed.update(coldOpenMusicState(i))
-    const top = SLIDES.length - 1
-    for (const layer of MUSIC_LAYERS) {
-      expect(layerTarget(bed, layer.name), `${layer.name} on the last slide`).toBeCloseTo(layer.active(coldOpenMusicState(top)) ? layer.level : 0)
-    }
-    bed.update(MENU_MUSIC_STATE)
-    for (const layer of MUSIC_LAYERS) {
-      expect(layerTarget(bed, layer.name), `${layer.name} after the hand-over`).toBeCloseTo(layer.active(MENU_MUSIC_STATE) ? layer.level : 0)
-      // The hand-over is a ramp, never a cut.
-      const gain = bed.layerGain(layer.name) as unknown as FakeGain
-      const last = gain.gain.events[gain.gain.events.length - 1]
-      expect(last.kind, `${layer.name} was cut rather than faded`).toBe('linear')
-    }
-    bed.stop()
-  })
-
-  it("leaves a campaign's bed alone: no game state carries a cold open slide", () => {
-    let state = newGame(DEFAULT_SCENARIO, 11)
-    for (let turn = 0; turn < DEFAULT_SCENARIO.totalTurns && state.status === 'playing'; turn += 1) {
-      expect(musicStateFrom(state).coldOpenSlide).toBeUndefined()
-      state = resolveTurn(state, LOSS_SCRIPT[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
-    }
-    expect(MENU_MUSIC_STATE.coldOpenSlide).toBeUndefined()
-    expect(coldOpenMusicState.length, 'coldOpenMusicState grew an argument').toBe(1)
   })
 })
 
@@ -805,7 +751,7 @@ describe('music: reduced motion', () => {
     expect(existsSync(motion), 'the reduced-motion reader moved; this guard is pointing at nothing').toBe(true)
     expect([...closure].some((f) => f === motion), 'the music bed can reach the reduced-motion preference').toBe(false)
     // Positive control: the walker does find it from a module that uses it.
-    const fromGame = closureOf(join(SRC, 'ui', 'Game.tsx'))
+    const fromGame = closureOf(join(SRC, 'ui', 'three', 'Game3D.tsx'))
     expect([...fromGame].some((f) => f === motion), 'the walker cannot find motion.ts even where it is imported').toBe(true)
   })
 
@@ -926,17 +872,18 @@ describe('music: the RNG boundary', () => {
   // all would report a clean boundary forever, which is the shape of every
   // set-nobody-walked defect this pass has found.
   //
-  // The entry is Game.tsx and NOT the reducer, which is the first thing
-  // this control taught its author: the reducer took its Rng as an
+  // The entry is the game's screen and NOT the reducer, which is the first
+  // thing this control taught its author: the reducer took its Rng as an
   // ARGUMENT and only type-imported the interface. Since v1.2 R5a it also
   // derives the adversary's deck stream itself, so it does reach rng.ts
   // now, and so does anything that value-imports a reducer constant (the
-  // music bed must not). Game.tsx is still the module that calls turnRng,
-  // and it is also the module that mounts the music, so this pair is the
-  // one worth proving: the stream and the bed live in the same component
-  // and the bed still cannot reach the stream.
+  // music bed must not). The 3D game's screen (ui/three/Game3D.tsx; the
+  // pixel board's Game.tsx until v2.0 R3) resolves its turns through
+  // turnRng, by way of its model, and it is also the module that mounts
+  // the music, so this pair is the one worth proving: the stream and the
+  // bed live in the same screen and the bed still cannot reach the stream.
   it('does reach the engine RNG from the module that holds a stream (positive control)', () => {
-    const closure = closureOf(join(SRC, 'ui', 'Game.tsx'))
+    const closure = closureOf(join(SRC, 'ui', 'three', 'Game3D.tsx'))
     expect([...closure].some((f) => f === RNG), 'the walker cannot find the RNG even where it is imported').toBe(true)
   })
 
@@ -1109,10 +1056,46 @@ describe('the mix record describes what ships and does not pick a verdict (Round
     expect(Object.keys(record.pad ?? {}).sort(), 'the record lost its pad figures').toEqual(['base', 'full'])
     expect(Object.keys(record.voices ?? {}).length, 'the record lost its voice figures').toBeGreaterThan(0)
     for (const [name, levels] of Object.entries({ ...record.voices, ...record.pad } as Record<string, Record<string, number>>)) {
-      for (const w of ['u', 'a', 'k']) {
+      // m since v2.0 R3: the K-weighted level of the loudest 400 ms, the
+      // one figure here that can tell a tick from a tone that holds.
+      for (const w of ['u', 'a', 'k', 'm']) {
         expect(Number.isFinite(levels[w]), `${name} has no ${w} figure`).toBe(true)
       }
     }
     expect(record.verdict, 'the record no longer states that the verdict is unsettled').toMatch(/^UNSETTLED/)
+  })
+
+  it("holds the threats' own voices to the ruling: in the mix, under the stab, and none shouting (v2.0 R3)", () => {
+    // Ken's ruling of 15 November 2026: voices for the threats, measured
+    // in the mix. Unlike the pad, this is a claim the record can settle,
+    // because it is a comparison of effects with effects under one
+    // weighting, not of a 55 Hz pad with a 1 kHz blip under three. It is
+    // asserted on the RECORD, which the staleness check ties to the
+    // source: tune a peak and that check fails until the mix is rendered
+    // again, and if the new figures break the ruling this one fails.
+    //
+    // Still not a listener. It says no threat is louder than the rest; it
+    // does not say any of them sounds like what it is.
+    const voices = record.voices as Record<string, Record<string, number>>
+    const family = Object.values(THREAT_VOICES)
+    const own = family.filter((v) => v !== 'blackout-chain')
+    expect(own.length, 'the threats have no voices of their own, so this asserts nothing').toBeGreaterThan(1)
+    const before = Object.keys(voices).filter((v) => !(own as string[]).includes(v))
+    const floor = Math.min(...before.map((v) => voices[v].k))
+    const stab = voices['hit-stab']
+    for (const v of own) {
+      // Inside the range the effects already occupied, and no louder
+      // leaving than the hit is landing, by either figure.
+      expect(voices[v].k, `${v} is under every effect that was there`).toBeGreaterThanOrEqual(floor)
+      expect(voices[v].k, `${v} is louder than the stab while it sounds`).toBeLessThanOrEqual(stab.k)
+      expect(voices[v].m, `${v} is louder than the stab at its loudest`).toBeLessThanOrEqual(stab.m)
+    }
+    // No threat shouts: the whole family, the set piece included, inside
+    // 4 dB while it sounds, and the new voices inside 4 dB at their
+    // loudest (the set piece is the game's loudest moment on purpose).
+    const ks = family.map((v) => voices[v].k)
+    expect(Math.max(...ks) - Math.min(...ks), 'the threats are more than 4 dB apart while they sound').toBeLessThanOrEqual(4)
+    const ms = own.map((v) => voices[v].m)
+    expect(Math.max(...ms) - Math.min(...ms), 'the threats are more than 4 dB apart at their loudest').toBeLessThanOrEqual(4)
   })
 })

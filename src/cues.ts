@@ -13,11 +13,21 @@
 // the result tiles, COLLECT, FILE IT and the end of turn (brief 8.4: "map
 // the existing voices", no new audio files). Moved here from
 // src/director/cues.ts with it.
+//
+// Since v2.0 R3 the 3D game is the only game, and it plays this registry
+// (src/ui/three/Game3D.tsx and rooms3d.tsx): the sound and the haptic of
+// each moment are as they were, and SECTION_6_ROWS below says where each
+// row lives now and which rows the 3D game does not play yet.
+//
+// Since v2.0 R3 (Ken's ruling of 15 November 2026: voices for the threats)
+// each threat in the deck has a voice of its own, played as its strike
+// leaves COLDVEIL: THREAT_VOICES below says which, by event id.
 
-// The visual treatments the presentation layer implements. Each maps to a
-// CSS class in src/index.css or in the night's own src/ui/night/night.css;
-// 'silent' is a real decision (the moment renders nothing of its own), not
-// an absence.
+// The visual treatment each moment takes, by name. 'silent' is a real
+// decision (the moment renders nothing of its own), not an absence. The
+// pixel board drew each from a CSS class of its own; the classes and their
+// durations (VISUAL_CLASS, VISUAL_MS) left with the board in v2.0 R3, and
+// the 3D game draws these moments in its world and on its cards.
 export type VisualCue =
   | 'placeholder'
   | 'silent'
@@ -66,6 +76,25 @@ export type SoundCue =
   | 'arrive-chime'
   | 'victory-fanfare'
   | 'defeat-sting'
+  // The threats' own voices (v2.0 R3), named for the event each belongs
+  // to. BLACKOUT CHAIN has none here: its voice is the set piece above.
+  | 'threat-pnt-jamming'
+  | 'threat-uplink-jamming'
+  | 'threat-gnss-spoofing'
+  | 'threat-time-spoof'
+  | 'threat-lidar-dazzle'
+  | 'threat-lidar-injection'
+  | 'threat-lidar-blinding'
+  | 'threat-training-data-poisoning'
+  | 'threat-supply-chain-implant'
+  | 'threat-rogue-ground-station'
+  | 'threat-telemetry-replay'
+  | 'threat-downlink-eavesdropping'
+  | 'threat-backhaul-exfil'
+  | 'threat-ground-ransomware'
+  | 'threat-ops-phishing'
+  | 'threat-insider-exfil'
+  | 'threat-debris-conjunction'
 
 export interface Cue {
   label: string
@@ -74,48 +103,6 @@ export interface Cue {
 }
 
 const cue = (label: string, visual: VisualCue, sound: SoundCue): Cue => ({ label, visual, sound })
-
-// The CSS class each visual applies to the element that carries it. A
-// treatment with no class of its own (it is expressed by a component's
-// own structure) maps to the empty string.
-export const VISUAL_CLASS: Record<VisualCue, string> = {
-  placeholder: '',
-  silent: '',
-  transmission: 'dc-transmission-in',
-  sweep: 'dc-moving-in',
-  strike: 'dc-banner-in',
-  shield: 'dc-shield-tile',
-  tiles: 'dc-tile-in',
-  'chip-in': 'dc-chip-in',
-  'card-rise': 'dc-card-rise',
-  'collect-glow': 'dc-collect-glow',
-  'intel-in': 'dc-intel-in',
-  'rows-in': 'dc-row-in',
-  'meter-ease': '',
-  strobe: 'dc-strobe',
-  'tile-press': '',
-}
-
-// How long each treatment runs, matching the stylesheets (a strike's
-// treatments take the strike's length, STRIKE_MS). tests/cues.spec.ts
-// reads these out of the CSS, so the two cannot drift.
-export const VISUAL_MS: Record<VisualCue, number> = {
-  placeholder: 0,
-  silent: 0,
-  transmission: 320,
-  sweep: 200,
-  strike: 210,
-  shield: 1125,
-  tiles: 350,
-  'chip-in': 500,
-  'card-rise': 250,
-  'collect-glow': 0,
-  'intel-in': 500,
-  'rows-in': 280,
-  'meter-ease': 0,
-  strobe: 0,
-  'tile-press': 0,
-}
 
 // How long each voice runs, in milliseconds. The audio layer schedules
 // against these, and the battery reads them back against the brief's own
@@ -148,6 +135,23 @@ export const SOUND_MS: Record<SoundCue, number> = {
   'arrive-chime': 340,
   'victory-fanfare': 400,
   'defeat-sting': 1200,
+  'threat-pnt-jamming': 620,
+  'threat-uplink-jamming': 490,
+  'threat-gnss-spoofing': 700,
+  'threat-time-spoof': 640,
+  'threat-lidar-dazzle': 460,
+  'threat-lidar-injection': 540,
+  'threat-lidar-blinding': 560,
+  'threat-training-data-poisoning': 700,
+  'threat-supply-chain-implant': 830,
+  'threat-rogue-ground-station': 540,
+  'threat-telemetry-replay': 660,
+  'threat-downlink-eavesdropping': 590,
+  'threat-backhaul-exfil': 450,
+  'threat-ground-ransomware': 760,
+  'threat-ops-phishing': 760,
+  'threat-insider-exfil': 540,
+  'threat-debris-conjunction': 790,
 }
 
 // The two voices allowed past the 400ms effect ceiling, and why. Both are
@@ -158,6 +162,14 @@ export const LONG_SOUNDS: Record<string, string> = {
   'blackout-chain': 'the brief writes this row as a drop-out tone, one beat of silence, then static',
   'defeat-sting': 'the brief writes this row as a fail sting followed by a hum',
 }
+
+// A threat's voice is a phrase, not an effect: a replay has to repeat, a
+// heartbeat has to beat twice, an approach needs room to speed up. So the
+// family has a ceiling of its own, the length the borrowed motifs it
+// replaces ran to, and the battery holds every member to it. It is one
+// rule for the family, not seventeen exemptions, so a voice that grows
+// past it cannot hide among reasons written one at a time.
+export const THREAT_VOICE_CEILING_MS = 900
 
 // Which cues the music bed steps back under (Round 6b, brief section 7:
 // "Ducks under fanfares and the BLACKOUT CHAIN sequence, then returns").
@@ -201,6 +213,26 @@ export const DUCKS_MUSIC: Record<SoundCue, boolean> = {
   'arrive-chime': false,
   'victory-fanfare': true,
   'defeat-sting': true,
+  // A threat's voice is a report on the move, not the moment itself: the
+  // strike has not landed yet, and the bed under it is the night's own
+  // tension. None of them ducks.
+  'threat-pnt-jamming': false,
+  'threat-uplink-jamming': false,
+  'threat-gnss-spoofing': false,
+  'threat-time-spoof': false,
+  'threat-lidar-dazzle': false,
+  'threat-lidar-injection': false,
+  'threat-lidar-blinding': false,
+  'threat-training-data-poisoning': false,
+  'threat-supply-chain-implant': false,
+  'threat-rogue-ground-station': false,
+  'threat-telemetry-replay': false,
+  'threat-downlink-eavesdropping': false,
+  'threat-backhaul-exfil': false,
+  'threat-ground-ransomware': false,
+  'threat-ops-phishing': false,
+  'threat-insider-exfil': false,
+  'threat-debris-conjunction': false,
 }
 
 // The haptic each cue fires (Round 6c, brief section 6).
@@ -292,6 +324,29 @@ export const HAPTIC_PATTERNS: Record<SoundCue, HapticStrength> = {
   // it: a win is a thing you read, a loss is a thing that happens to you.
   'victory-fanfare': 'none',
   'defeat-sting': 'long',
+  // A threat's voice is heard as its strike LEAVES. The hand is kept for
+  // what follows: the hit (medium) and the condition it leaves (short).
+  // The borrowed motifs buzzed for some threats and not for others, by the
+  // accident of which cues they borrowed (the two LiDAR attacks carried
+  // the win line's long warning); none is the one word that is no stronger
+  // than what any of them had.
+  'threat-pnt-jamming': 'none',
+  'threat-uplink-jamming': 'none',
+  'threat-gnss-spoofing': 'none',
+  'threat-time-spoof': 'none',
+  'threat-lidar-dazzle': 'none',
+  'threat-lidar-injection': 'none',
+  'threat-lidar-blinding': 'none',
+  'threat-training-data-poisoning': 'none',
+  'threat-supply-chain-implant': 'none',
+  'threat-rogue-ground-station': 'none',
+  'threat-telemetry-replay': 'none',
+  'threat-downlink-eavesdropping': 'none',
+  'threat-backhaul-exfil': 'none',
+  'threat-ground-ransomware': 'none',
+  'threat-ops-phishing': 'none',
+  'threat-insider-exfil': 'none',
+  'threat-debris-conjunction': 'none',
 }
 
 export function hapticPatternFor(cue: SoundCue): HapticPattern | null {
@@ -315,7 +370,9 @@ export function hapticMs(pattern: HapticPattern): number {
 
 // THE NIGHT'S MOMENTS (v1.3 brief 5.5 and 8.4), each with what it looks
 // and sounds like. The strike and the cards play them; the deck's own
-// entries below say which voice a particular event strikes with.
+// entries below say which voice a particular event strikes with. Three
+// are the pixel night's and have no place in the 3D game yet (turn-start,
+// result-tiles and collect): SECTION_6_ROWS marks their rows deferred.
 export type Moment =
   | 'turn-start'
   | 'moving'
@@ -352,11 +409,10 @@ export const MOMENTS: Moment[] = [
 ]
 
 export const MOMENT_CUES: Record<Moment, Cue> = {
-  // BEGIN TURN n: the next night's word arrives, and the TONIGHT card's
-  // intro comes in as a transmission.
+  // The next night's word arrives as a transmission.
   'turn-start': cue('Turn start: a transmission arrives', 'transmission', 'data-burst'),
-  // The 750ms overlay. Its sound is EXECUTE's own sweep, played by the
-  // press that opened it.
+  // The night falls. Its sound is BEGIN's own sweep, played by the press
+  // that began it.
   moving: cue('COLDVEIL is moving', 'sweep', 'silent'),
   'strike-hit': cue('A move lands', 'strike', 'hit-stab'),
   // A block is a win at a glance and to the ear (brief 5.5, section 12).
@@ -365,8 +421,8 @@ export const MOMENT_CUES: Record<Moment, Cue> = {
   // that got through.
   'result-tiles': cue('Result tiles', 'tiles', 'tick-up'),
   'streak': cue('Defense streak', 'chip-in', 'commendation-fanfare'),
-  // The family's stand-in: the hit card plays the deck's own alarm for
-  // the condition (CONDITION_CUES).
+  // The family's stand-in: a hit plays the deck's own alarm for the
+  // condition it leaves (CONDITION_CUES).
   condition: cue('Condition applied', 'chip-in', 'alarm-gnss'),
   // FILE TO DOSSIER, and the FILED stamp on the Dossier card (v1.6 R3,
   // Ken's playtest item 4: COLLECT INTEL CARD and FILE IT).
@@ -426,6 +482,35 @@ export const CONDITION_CUES: Record<string, Cue> = {
   'ground-ransomware': cue('Ransomware condition', 'chip-in', 'alarm-ransom'),
 }
 
+// THE THREATS' OWN VOICES (v2.0 R3, Ken's ruling of 15 November 2026:
+// voices for the threats), keyed by ThreatEvent.id: the voice a threat is
+// heard by as its strike leaves COLDVEIL, so the ear learns the threat
+// with the eye (src/ui/three/sounds3d.ts plays it). One voice a threat and
+// no voice twice, which the battery holds. Hand keyed like the rest of
+// this file: a threat added to the deck fails the battery until someone
+// decides what it sounds like. BLACKOUT CHAIN keeps the set piece it has
+// had since Round 4d.
+export const THREAT_VOICES: Record<string, SoundCue> = {
+  'pnt-jamming': 'threat-pnt-jamming',
+  'uplink-jamming': 'threat-uplink-jamming',
+  'gnss-spoofing': 'threat-gnss-spoofing',
+  'time-spoof': 'threat-time-spoof',
+  'lidar-dazzle': 'threat-lidar-dazzle',
+  'lidar-injection': 'threat-lidar-injection',
+  'lidar-blinding': 'threat-lidar-blinding',
+  'training-data-poisoning': 'threat-training-data-poisoning',
+  'supply-chain-implant': 'threat-supply-chain-implant',
+  'rogue-ground-station': 'threat-rogue-ground-station',
+  'telemetry-replay': 'threat-telemetry-replay',
+  'downlink-eavesdropping': 'threat-downlink-eavesdropping',
+  'backhaul-exfil': 'threat-backhaul-exfil',
+  'ground-ransomware': 'threat-ground-ransomware',
+  'ops-phishing': 'threat-ops-phishing',
+  'insider-exfil': 'threat-insider-exfil',
+  'debris-conjunction': 'threat-debris-conjunction',
+  'blackout-chain': 'blackout-chain',
+}
+
 // The sound a landed or blocked move strikes with (brief 8.4: strike, hit
 // or block). A move that got through takes the deck's voice for it; a
 // block is the same win whatever was blocked.
@@ -437,23 +522,28 @@ export function strikeSound(eventId: string, landed: boolean): SoundCue {
 export const outcomeSound = (won: boolean): SoundCue => (won ? MOMENT_CUES.outcome.sound : 'defeat-sting')
 
 // The grade landing on the debrief: the fanfare for a win, a tick down
-// for a loss, which the last END OF TURN has already stung.
+// for a loss, which the last dawn has already stung.
 export const gradeSound = (won: boolean): SoundCue => (won ? MOMENT_CUES.grade.sound : 'tick-down')
 
 // Every row of the brief's section 6 table, with the visual that now
 // carries it and where it lives. The battery walks this so "every row has
 // its visual, its sound and its haptic" is checked against the code
 // rather than asserted in a report.
+//
+// Since v2.0 R3 `where` and `soundWhere` name the 3D game's files (the
+// pixel board's are gone). A row the 3D game does not show, or does not
+// sound, says 'none' there and says what it owes in `deferred`.
 export interface Section6Row {
   beat: string
   visual: VisualCue
+  // The file that shows the row, from src, with a note; or 'none'.
   where: string
-  // The sound column, and where it is played: several rows split across
-  // two files.
+  // The sound column, and the file that plays it, from src; or 'none'.
   sound: SoundCue
   soundWhere: string
-  // Rows whose sound is chosen per subject: one alarm per condition.
-  soundPerSubject?: 'condition'
+  // Rows whose sound is chosen per subject: one alarm per condition
+  // (CONDITION_CUES), one voice per threat (THREAT_VOICES).
+  soundPerSubject?: 'condition' | 'threat'
   // The night's moments that carry this row.
   moments?: Moment[]
   // The brief's Haptic column, transcribed. Required, so a row added later
@@ -472,46 +562,61 @@ export const SECTION_6_ROWS: Section6Row[] = [
     beat: 'Turn start, a transmission arrives',
     moments: ['turn-start'],
     visual: 'transmission',
-    where: 'ui/board/Tonight.tsx (the turn intro arrives as a transmission)',
+    where: 'none',
     sound: 'data-burst',
     haptic: 'none',
-    soundWhere: 'ui/night/Night.tsx (BEGIN TURN n)',
+    soundWhere: 'none',
+    deferred:
+      'a start of its own for a night in the 3D game: the plan opens with no transmission and no sound, and the burst is heard there as the scan pulse instead (ui/three/Game3D.tsx)',
   },
   {
     beat: 'Buy fleet or countermeasure',
     visual: 'tile-press',
-    where: 'ui/Game.tsx procurement controls (fleet orders slide into the strip as ORDERED tiles; defenses hold their state on their PROCURE line)',
+    where: 'ui/three/Game3D.tsx (a defense set down on an asset, and an asset ordered, on the plan)',
     sound: 'buy-click',
     haptic: 'light',
-    soundWhere: 'ui/Game.tsx',
+    soundWhere: 'ui/three/Game3D.tsx',
   },
   {
     beat: 'Cannot afford',
     visual: 'tile-press',
-    where: 'ui/board/Procure.tsx (an order it cannot afford is disabled; ui/Game.tsx buzzes a refused toggle)',
+    where: 'ui/three/Game3D.tsx (an order the plan refuses: a defense or an asset the budget cannot take, a night that could break the budget)',
     sound: 'denied-buzz',
     haptic: 'double',
-    soundWhere: 'ui/Game.tsx',
-    deferred:
-      'a refusal the player can reach: since v1.3 R2 PROCURE disables an order the budget cannot take, and the TONIGHT brief toggle never refuses (it turns EXECUTE off instead), so the buzz waits for a control that can refuse',
+    soundWhere: 'ui/three/Game3D.tsx',
   },
   {
     beat: 'EXECUTE TURN',
     moments: ['moving'],
     visual: 'sweep',
-    where: 'ui/night/Night.tsx (COLDVEIL IS MOVING, 750ms)',
+    where: 'ui/three/Game3D.tsx (BEGIN: the night falls under COLDVEIL IS MOVING)',
     sound: 'execute-sweep',
     haptic: 'medium',
-    soundWhere: 'ui/Game.tsx',
+    soundWhere: 'ui/three/Game3D.tsx',
+  },
+  {
+    // v2.0 R3 (Ken's ruling of 15 November 2026: voices for the threats).
+    // Not a row of the brief's table: the 3D game's own moment, a strike
+    // leaving COLDVEIL under its name and its signature. The row names the
+    // family's stand-in, as the condition row does; the member played is
+    // the threat's own (THREAT_VOICES), and BLACKOUT CHAIN's is the set
+    // piece, which has a row of its own below.
+    beat: 'A strike leaves COLDVEIL',
+    visual: 'strike',
+    where: 'ui/three/Game3D.tsx (the strike leaves under a banner with its name and its signature, and a line for a screen reader)',
+    sound: 'threat-pnt-jamming',
+    haptic: 'none',
+    soundWhere: 'ui/three/sounds3d.ts',
+    soundPerSubject: 'threat',
   },
   {
     beat: 'Adversary event lands',
     moments: ['strike-hit'],
     visual: 'strike',
-    where: 'ui/night/Night.tsx (the banner) and ui/board/AssetStrip.tsx (the lock-on and the scorch)',
+    where: 'ui/three/Game3D.tsx (the strike reaches its asset, with the verdict over it)',
     sound: 'hit-stab',
     haptic: 'medium',
-    soundWhere: 'ui/night/Night.tsx',
+    soundWhere: 'ui/three/Game3D.tsx',
   },
   {
     // v1.3 R3: a block is its own moment, and a win (brief 5.5 and the
@@ -519,29 +624,30 @@ export const SECTION_6_ROWS: Section6Row[] = [
     beat: 'A defense blocks a move',
     moments: ['strike-block'],
     visual: 'shield',
-    where: 'ui/board/AssetStrip.tsx (the shield on the tile it was aimed at) and ui/night/Night.tsx (BLOCKED)',
+    where: 'ui/three/Game3D.tsx (the shield on the asset it was aimed at, and BLOCKED over it)',
     sound: 'all-clear',
     haptic: 'light',
-    soundWhere: 'ui/night/Night.tsx',
+    soundWhere: 'ui/three/Game3D.tsx',
   },
   {
     beat: 'Result tiles',
     moments: ['result-tiles'],
     visual: 'tiles',
-    where: 'ui/night/cards.tsx (the result panel)',
+    where: 'none',
     sound: 'tick-up',
     soundPartners: ['tick-down'],
     haptic: 'none',
-    soundWhere: 'ui/night/cards.tsx',
+    soundWhere: 'none',
+    deferred: 'result tiles in the 3D game: a move ends on one word over its asset and a card, with no tile a point to tick',
   },
   {
     beat: 'Opportunity lands',
     moments: ['opportunity'],
     visual: 'card-rise',
-    where: 'ui/night/cards.tsx',
+    where: 'ui/three/cards3d.tsx (the opportunity and what it did, on its card)',
     sound: 'resolve-chime',
     haptic: 'light',
-    soundWhere: 'ui/night/closeCards.tsx',
+    soundWhere: 'ui/three/Game3D.tsx',
   },
   {
     // v1.3 R3 (brief 5.5 item 5): the call arrives quietly, and its result
@@ -552,112 +658,115 @@ export const SECTION_6_ROWS: Section6Row[] = [
     beat: 'The debris call and its result',
     moments: ['debris-call', 'debris-result'],
     visual: 'card-rise',
-    where: 'ui/night/cards.tsx (the call and its result rise as cards)',
+    where: 'ui/three/cards3d.tsx (the call and its result, each on a card)',
     sound: 'all-clear',
     soundPartners: ['hit-stab'],
     haptic: 'light',
-    soundWhere: 'ui/night/closeCards.tsx',
+    soundWhere: 'ui/three/Game3D.tsx',
   },
   {
     beat: 'Condition applied',
     moments: ['condition'],
     visual: 'chip-in',
-    where: 'ui/night/cards.tsx (the new condition chip on the hit card)',
+    where: 'ui/three/cards3d.tsx (the condition a hit leaves, on its card)',
     sound: 'alarm-gnss',
     haptic: 'short',
-    soundWhere: 'ui/night/cards.tsx',
+    soundWhere: 'ui/three/Game3D.tsx',
     soundPerSubject: 'condition',
   },
   {
     beat: 'Condition persists into a new turn',
     visual: 'silent',
-    where: 'ui/board/AssetStrip.tsx (the chip keeps its turns left)',
+    where: 'none',
     sound: 'soft-tick',
     haptic: 'none',
     soundWhere: 'none',
-    deferred: 'a cue of its own: since v1.3 R3 a live condition presses during the night with no card, and its chip counts down on the strip',
+    deferred: 'a cue of its own: a live condition presses as the night opens, said in a line and with no sound or moment of its own',
   },
   {
     beat: 'Meter delta',
     visual: 'meter-ease',
-    where: 'ui/cues/Meter.tsx',
+    where: 'ui/three/Game3D.tsx (the score and the budget count to their new values)',
     sound: 'tick-down',
     haptic: 'none',
     soundPartners: ['tick-up'],
-    soundWhere: 'ui/cues/Meter.tsx',
+    soundWhere: 'none',
+    deferred: 'its tick in the 3D game: the score and the budget count up and down in silence',
   },
   {
     beat: 'Mission assurance crosses below the win line',
     visual: 'strobe',
-    where: 'ui/cues/Meter.tsx',
+    where: 'ui/three/Game3D.tsx (the score reads as under the win line while it is)',
     sound: 'warn-low',
     haptic: 'long',
     soundPartners: ['relief-chime'],
-    soundWhere: 'ui/cues/Meter.tsx',
+    soundWhere: 'none',
+    deferred: 'the crossing itself in the 3D game: the score shows that it is under the line, with no low tone on the way down and no relief chime on the way back',
   },
   {
     beat: 'BLACKOUT CHAIN fires',
     moments: ['strike-hit'],
     visual: 'strike',
-    where: 'ui/night/Night.tsx',
+    where: 'ui/three/Game3D.tsx (the lights over the area of operations go out)',
     sound: 'blackout-chain',
     haptic: 'long',
-    soundWhere: 'ui/night/Night.tsx',
+    soundWhere: 'ui/three/Game3D.tsx',
   },
   {
     // The commendation's successor (v1.3 brief 6.8).
     beat: 'Defense streak',
     moments: ['streak'],
     visual: 'chip-in',
-    where: 'ui/night/cards.tsx (the streak line on a BLOCKED card)',
+    where: 'ui/three/cards3d.tsx (the streak line on a blocked move)',
     sound: 'commendation-fanfare',
     haptic: 'light',
-    soundWhere: 'ui/night/cards.tsx',
+    soundWhere: 'ui/three/Game3D.tsx',
   },
   {
     beat: 'FILE TO DOSSIER',
     moments: ['collect'],
     visual: 'collect-glow',
-    where: 'ui/night/cards.tsx',
+    where: 'ui/three/cards3d.tsx (the FILE TO DOSSIER button on a first meeting)',
     sound: 'data-burst',
     haptic: 'none',
-    soundWhere: 'ui/night/Night.tsx',
+    soundWhere: 'none',
+    deferred: 'its own sound in the 3D game: the tap files the card and goes straight to the FILED chime, with no burst before it',
   },
   {
     beat: 'FILED stamp',
     moments: ['file'],
     visual: 'intel-in',
-    where: 'ui/night/cards.tsx (the Dossier card)',
+    where: 'ui/three/cards3d.tsx (FILED and the Dossier count, on the card as it is filed)',
     sound: 'arrive-chime',
     haptic: 'none',
-    soundWhere: 'ui/night/Night.tsx',
+    soundWhere: 'ui/three/Game3D.tsx',
   },
   {
     beat: 'End of turn',
     moments: ['end-of-turn'],
     visual: 'rows-in',
-    where: 'ui/night/closeCards.tsx (END OF TURN, its ledger rows stepping in)',
+    where: 'ui/three/cards3d.tsx (dawn: the night counted on its card)',
     sound: 'resolve-chime',
     haptic: 'light',
-    soundWhere: 'ui/night/closeCards.tsx',
+    soundWhere: 'ui/three/Game3D.tsx',
   },
   {
     beat: 'Campaign won',
     moments: ['outcome'],
     visual: 'card-rise',
-    where: 'ui/night/cards.tsx (the last END OF TURN)',
+    where: 'ui/three/cards3d.tsx (the ending on the last dawn)',
     sound: 'victory-fanfare',
     haptic: 'none',
-    soundWhere: 'ui/night/closeCards.tsx',
+    soundWhere: 'ui/three/Game3D.tsx',
   },
   {
     beat: 'Campaign lost',
     moments: ['outcome'],
     visual: 'card-rise',
-    where: 'ui/night/cards.tsx (the last END OF TURN)',
+    where: 'ui/three/cards3d.tsx (the ending on the last dawn)',
     sound: 'defeat-sting',
     haptic: 'long',
-    soundWhere: 'ui/night/closeCards.tsx',
+    soundWhere: 'ui/three/Game3D.tsx',
   },
 ]
 

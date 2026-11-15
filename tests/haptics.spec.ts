@@ -28,6 +28,7 @@ import {
   CONDITION_CUES,
   SECTION_6_ROWS,
   SOUND_MS,
+  THREAT_VOICES,
   hapticMs,
   hapticPatternFor,
   type HapticPattern,
@@ -332,6 +333,27 @@ describe('haptics: the map agrees with the brief', () => {
     }
   })
 
+  it('covers the threats\' own voices with the word of the row that stands for them', () => {
+    // v2.0 R3 (Ken's ruling of 15 November 2026: voices for the threats).
+    // One row, seventeen cues, joined the way the condition family is: by
+    // walking the registry's own map, not a prefix this test declared.
+    // The word is none, and that is the ruling's bound: no haptic stronger
+    // than the borrowed motifs gave, and for six threats they gave none.
+    // BLACKOUT CHAIN is the one member with a row of its own, which pins
+    // its long buzz there.
+    const row = SECTION_6_ROWS.find((r) => r.soundPerSubject === 'threat')
+    expect(row, 'no row stands for the threats\' voices, so this asserts nothing').toBeDefined()
+    const family = Object.values(THREAT_VOICES).filter((voice) => !SECTION_6_ROWS.some((r) => r !== row && r.sound === voice))
+    expect(family.length, 'the threat family is empty').toBeGreaterThan(1)
+    expect(family, 'the row stands for a voice that is not in the family').toContain(row!.sound)
+    for (const voice of family) {
+      expect(HAPTIC_PATTERNS[voice], `${voice} does not carry the threat row's strength`).toBe(row!.haptic)
+    }
+    expect(row!.haptic, 'a strike leaving buzzes, which the borrowed motifs did not do for every threat').toBe('none')
+    // The set piece is the member left out, and only it.
+    expect(Object.values(THREAT_VOICES).filter((voice) => !family.includes(voice))).toEqual(['blackout-chain'])
+  })
+
   it('keeps the brief win and loss asymmetry', () => {
     // The one place the table is counter-intuitive, and the one the first
     // version of the map overrode: a lost campaign buzzes long and a won
@@ -356,6 +378,11 @@ describe('haptics: the map agrees with the brief', () => {
       for (const partner of row.soundPartners ?? []) fromRows.add(partner)
     }
     for (const cue of Object.values(CONDITION_CUES)) fromRows.add(cue.sound)
+    // And the threats' own voices, which one row stands for as one row
+    // stands for the alarms (v2.0 R3).
+    if (SECTION_6_ROWS.some((r) => r.soundPerSubject === 'threat')) {
+      for (const voice of Object.values(THREAT_VOICES)) fromRows.add(voice)
+    }
     // The two non-sounds are the only cues allowed to belong to no row,
     // and they are decisions rather than absences on all three channels.
     const orphans = CUES.filter((c) => c !== 'placeholder' && c !== 'silent' && !fromRows.has(c))
@@ -520,7 +547,7 @@ describe('haptics: reduced motion, structurally', () => {
     expect(existsSync(motion), 'the reduced-motion reader moved; this guard points at nothing').toBe(true)
     expect([...closure].some((f) => f === motion), 'the haptic tier can reach the reduced-motion preference').toBe(false)
     // Positive control: the walker finds it from a module that uses it.
-    const fromGame = closureOf(join(SRC, 'ui', 'Game.tsx'))
+    const fromGame = closureOf(join(SRC, 'ui', 'three', 'Game3D.tsx'))
     expect([...fromGame].some((f) => f === motion), 'the walker cannot find motion.ts where it is imported').toBe(true)
   })
 

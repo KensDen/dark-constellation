@@ -1,146 +1,281 @@
 {
-  "what": "Rendered levels of every effect voice and of the music pad, from scripts/measure-mix.js run in Chromium (OfflineAudioContext, 48 kHz mono). The battery runs in node and cannot render audio; this file is what the instrument printed, and the instrument is in the tree so the figures can be re-run and audited.",
-  "measuredAt": "2026-10-08",
+  "what": "Rendered levels of every effect voice and of the music pad, from scripts/measure-mix.js run in Chromium (OfflineAudioContext, 48 kHz mono). The battery runs in node and cannot render audio; this file is what the instrument printed, and the instrument is in the tree so the figures can be re-run and audited. Taken again in v2.0 R3 (Ken's ruling of 15 November 2026: voices for the threats) with every voice old and new: the 23 that were there and the 17 written for the threats.",
+  "measuredAt": "2026-11-15",
   "instrument": "scripts/measure-mix.js",
+  "howRun": "Headless, with no console: `npx vite --port 4192 --strictPort` in one shell, then `node scripts/measure-mix.js http://localhost:4192 --write`. Under node the script starts the machine's Chrome (Google Chrome 157.0.8103.79, macOS) through the CDP client in scripts/phone-layout.mjs (flags: --headless=new --mute-audio --no-sandbox --enable-gpu --ignore-gpu-blocklist, a throwaway profile), opens the dev server's page and has it run measureMix() as the console recipe in the script's header does. An offline render needs no gesture, so no autoplay flag was used. --write put the figures, the date, the two levels and the two source hashes below into this file; the prose is written by hand.",
   "measuredAtLevels": {
     "MUSIC_LEVEL": 0.35,
     "EFFECTS_LEVEL": 1
   },
-  "units": "dBFS. u unweighted RMS; a A-weighted (IEC 61672); k K-weighted (ITU-R BS.1770). Voices over their sounding samples; the pad over seconds 4 to 14 of a real AudioEngine render.",
+  "units": "dBFS. u unweighted RMS; a A-weighted (IEC 61672); k K-weighted (ITU-R BS.1770); m, since v2.0 R3, the K-weighted level of the loudest 400 ms of the render, silence included (BS.1770's momentary window). u, a and k are means over a voice's sounding samples, so they say how loud it is while it sounds and not for how long; m is the figure that tells a 40 ms tick from a tone that holds. The pad over seconds 4 to 14 of a real AudioEngine render.",
   "voices": {
     "data-burst": {
       "u": -28.5,
       "a": -28.2,
-      "k": -27.8
+      "k": -27.8,
+      "m": -32.6
     },
     "buy-click": {
       "u": -28.5,
       "a": -28.8,
-      "k": -28.2
+      "k": -28.2,
+      "m": -32
     },
     "denied-buzz": {
       "u": -31,
       "a": -37.4,
-      "k": -32.3
+      "k": -32.3,
+      "m": -35.3
     },
     "execute-sweep": {
       "u": -30.3,
       "a": -34.4,
-      "k": -31.1
+      "k": -31.1,
+      "m": -31.5
     },
     "hit-stab": {
       "u": -25.2,
       "a": -28.9,
-      "k": -25.9
+      "k": -25.9,
+      "m": -28.8
     },
     "alarm-gnss": {
       "u": -26.3,
       "a": -26.8,
-      "k": -26.2
+      "k": -26.2,
+      "m": -28.8
     },
     "alarm-uplink": {
       "u": -26.3,
       "a": -27.1,
-      "k": -26.3
+      "k": -26.3,
+      "m": -28.9
     },
     "alarm-spoof": {
       "u": -26.4,
       "a": -26.8,
-      "k": -26.2
+      "k": -26.2,
+      "m": -28.5
     },
     "alarm-eavesdrop": {
       "u": -26.4,
       "a": -27.2,
-      "k": -26.3
+      "k": -26.3,
+      "m": -28.6
     },
     "alarm-exfil": {
       "u": -26.3,
       "a": -26.9,
-      "k": -26.1
+      "k": -26.1,
+      "m": -28.7
     },
     "alarm-ransom": {
       "u": -26.4,
       "a": -31.4,
-      "k": -27.4
+      "k": -27.4,
+      "m": -29.4
     },
     "all-clear": {
       "u": -33.5,
       "a": -35.6,
-      "k": -34.3
+      "k": -34.3,
+      "m": -35.9
     },
     "soft-tick": {
       "u": -34.8,
       "a": -33.9,
-      "k": -34
+      "k": -34,
+      "m": -39.9
     },
     "resolve-chime": {
       "u": -31.3,
       "a": -31.5,
-      "k": -31.4
+      "k": -31.4,
+      "m": -32.5
     },
     "tick-up": {
       "u": -34.8,
       "a": -34.4,
-      "k": -34.1
+      "k": -34.1,
+      "m": -40.7
     },
     "tick-down": {
       "u": -34.8,
       "a": -35.7,
-      "k": -34.8
+      "k": -34.8,
+      "m": -41.4
     },
     "warn-low": {
       "u": -32,
       "a": -36.8,
-      "k": -33
+      "k": -33,
+      "m": -33.8
     },
     "relief-chime": {
       "u": -31.5,
       "a": -32.2,
-      "k": -31.8
+      "k": -31.8,
+      "m": -32.5
     },
     "blackout-chain": {
       "u": -27.7,
       "a": -30.2,
-      "k": -27.2
+      "k": -27.2,
+      "m": -26.1
     },
     "commendation-fanfare": {
       "u": -26.6,
       "a": -27.8,
-      "k": -26.7
+      "k": -26.7,
+      "m": -27.7
     },
     "arrive-chime": {
       "u": -31.1,
       "a": -32.7,
-      "k": -31.5
+      "k": -31.5,
+      "m": -33
     },
     "victory-fanfare": {
       "u": -25.1,
       "a": -25.9,
-      "k": -25.1
+      "k": -25.1,
+      "m": -25.9
     },
     "defeat-sting": {
       "u": -31.2,
       "a": -38.7,
-      "k": -33.9
+      "k": -33.9,
+      "m": -32.1
+    },
+    "threat-pnt-jamming": {
+      "u": -31.3,
+      "a": -30.8,
+      "k": -30.4,
+      "m": -29.2
+    },
+    "threat-uplink-jamming": {
+      "u": -30.2,
+      "a": -29,
+      "k": -28.5,
+      "m": -29.5
+    },
+    "threat-gnss-spoofing": {
+      "u": -29.8,
+      "a": -31.3,
+      "k": -30.4,
+      "m": -29.2
+    },
+    "threat-time-spoof": {
+      "u": -28.4,
+      "a": -27.5,
+      "k": -26.8,
+      "m": -31.1
+    },
+    "threat-lidar-dazzle": {
+      "u": -31.9,
+      "a": -32.9,
+      "k": -29.7,
+      "m": -29.5
+    },
+    "threat-lidar-injection": {
+      "u": -28,
+      "a": -29.6,
+      "k": -28.6,
+      "m": -29.5
+    },
+    "threat-lidar-blinding": {
+      "u": -29.5,
+      "a": -30.2,
+      "k": -29.8,
+      "m": -29.5
+    },
+    "threat-training-data-poisoning": {
+      "u": -29.5,
+      "a": -31.1,
+      "k": -30.1,
+      "m": -29.5
+    },
+    "threat-supply-chain-implant": {
+      "u": -26,
+      "a": -33.5,
+      "k": -27.4,
+      "m": -29.5
+    },
+    "threat-rogue-ground-station": {
+      "u": -29.5,
+      "a": -29.6,
+      "k": -29.1,
+      "m": -29.5
+    },
+    "threat-telemetry-replay": {
+      "u": -29.5,
+      "a": -29,
+      "k": -28.7,
+      "m": -29.5
+    },
+    "threat-downlink-eavesdropping": {
+      "u": -31.3,
+      "a": -30.4,
+      "k": -30.4,
+      "m": -29.1
+    },
+    "threat-backhaul-exfil": {
+      "u": -30.2,
+      "a": -30.2,
+      "k": -29.6,
+      "m": -29.5
+    },
+    "threat-ground-ransomware": {
+      "u": -29.1,
+      "a": -35.1,
+      "k": -30.4,
+      "m": -29.4
+    },
+    "threat-ops-phishing": {
+      "u": -31,
+      "a": -30.7,
+      "k": -30.4,
+      "m": -28.9
+    },
+    "threat-insider-exfil": {
+      "u": -28.2,
+      "a": -29.2,
+      "k": -28.5,
+      "m": -29.5
+    },
+    "threat-debris-conjunction": {
+      "u": -27.3,
+      "a": -31.2,
+      "k": -28.4,
+      "m": -29.5
     }
   },
   "pad": {
     "base": {
       "u": -15.9,
       "a": -44.3,
-      "k": -20.7
+      "k": -20.7,
+      "m": -17.8
     },
     "full": {
       "u": -14.3,
       "a": -35.9,
-      "k": -18.6
+      "k": -18.6,
+      "m": -16.2
     }
   },
-  "notMeasured": "The bed's pentatonic notes. They are scheduled on the wall clock, which never advances inside an offline render, so neither the pad figures nor any other here include them.",
+  "threatVoices": {
+    "ruling": "Ken, 15 November 2026: voices for the threats, in, small or synthesized, measured in the mix, and the game fully playable with sound off.",
+    "tunedTo": "Each of the 17 new voices had all its peaks scaled by one factor until (1) its k sat inside one band, -30.4 to -26.8, which is inside the range the 23 older voices occupy (k -34.8 to -25.1) and under the stab (hit-stab, k -25.9), and (2) its m sat at or under the stab's (-28.8): -29.5 where the band allowed, and for the voices that hold a tone or a noise (PNT jamming, GNSS spoofing, eavesdropping, ransomware, phishing) as low as the bottom of the band let it go. The time spoof is the other end: five 40 ms ticks, at the top of the band on k and still the quietest of the family on m (-31.1). BLACKOUT CHAIN keeps the voice it had (k -27.2, m -26.1) and was not touched; with it the 18 span 3.6 dB on k.",
+    "beforeTuning": "As first written, with peaks chosen by reasoning and not by ear, the 17 spanned 11.5 dB on k (-30.7 for the debris ping to -19.2 for the spoof's held pair) and 14.7 dB on m (-31.8 to -17.1), with a from -34.4 to -20.1: four were louder than the stab on k (GNSS spoofing, time spoof, LiDAR blinding, the implant) and twelve on m. After tuning: k -30.4 to -26.8 (3.6 dB), m -31.1 to -28.9 (2.2 dB), a -35.1 to -27.5.",
+    "alsoChanged": "Five voices were re-voiced, not only scaled. Two because A and K disagreed about them by more than they disagree about any older voice: the implant's heartbeat (a sine falling from 190 Hz, a 11.4 dB under k) became a triangle falling from 330 Hz (6.1 dB under), and the ransomware's bolts and held buzz moved up about a fourth and the buzz from a square to a sawtooth (7.3 dB under to 4.7). Both are still the two lowest of the family on a, which is the figure nearest to what a phone speaker with nothing under 300 Hz gives. Two so that m could come under the stab's without k leaving the band: the spoof's pair holds for 70 percent of its length (it was 55), and the phishing chime's sour third note is quieter against its first two. And the insider's door latch was brought down against the run of notes after it, which it was burying.",
+    "heldBy": "tests/music.spec.ts holds the three claims against this record (inside the older effects' range, none over the stab on k or on m, the family inside 4 dB), and tests/mix-staleness.spec.ts fails on any edit to the voices until the mix is rendered again."
+  },
+  "notMeasured": "The bed's pentatonic notes. They are scheduled on the wall clock, which never advances inside an offline render, so neither the pad figures nor any other here include them. And nothing here was heard: no figure says whether a voice sounds like what it stands for, whether two threats can be told apart by ear, how a voice sits over the pad or over the voice of the move before it (each is rendered alone, and a night can launch one move while the last one's alarm is still sounding), or what a phone's speaker makes of it. The 17 threat voices were written and tuned by a model that cannot hear them; they are waiting for an ear at #soundboard.",
   "verdict": "UNSETTLED. Against the median effect voice the full pad measures about 14 dB OVER unweighted, 4 dB UNDER A-weighted and 10 dB OVER K-weighted. A models the ear at quiet listening levels and discounts a 55 Hz pad by about 30 dB; K discounts it by about 3 dB. Round 7 acted on the unweighted figure (a retune to 0.068), then on the A-weighted one (the revert), and each time chose the model that supported the conclusion in hand. The level stays at the brief's untuned 0.35 until an ear at a real listening level decides.",
   "measuredSources": {
-    "src/audio/voices.ts": "75c39055087782aef8da7e59adb8b5ed2871f2c9c2eced19df2fb31e5e6651d8",
-    "src/audio/music.ts": "f9d1066fd564095d08a4a7334db1988936b362c7bb3246f3fde6562daa864f6e"
+    "src/audio/voices.ts": "1a769f20e19cc86367f6026168358b28361641a8c9a5e72c9bc79c326a8ee752",
+    "src/audio/music.ts": "da08c66874e55597d7c02b74c00e567ce326b88a39ba7129eee734cb827848b6"
   },
-  "sourcesNote": "sha256 of the two files whose output this record describes. tests/mix-staleness.spec.ts recomputes them and fails on any change, comments included, until the mix is re-measured with the instrument and this record updated. Rehashed without a re-render in v1.3 Round 3: the one change to either file was the cue registry's import path (../director/cues to ../cues), and SOUND_MS and DUCKS_MUSIC, the only names they import from it, are byte-identical, so no rendered figure can have moved."
+  "sourcesNote": "sha256 of the two files whose output this record describes. tests/mix-staleness.spec.ts recomputes them and fails on any change, comments included, until the mix is re-measured with the instrument and this record updated. Rendered again in full on 2026-11-15 (v2.0 R3), after the threats' voices were added to src/audio/voices.ts and the pixel briefing's intro variant was taken out of src/audio/music.ts: every figure for the 23 older voices and for the pad came back the same to the tenth of a dB as the 2026-10-08 render, so neither change moved a sound that was already there. (The record of v1.3 Round 3 was rehashed without a render; the instrument still imported the registry from its old path then and could not run.)"
 }

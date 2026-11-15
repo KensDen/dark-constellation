@@ -12,8 +12,9 @@ import { AudioEngine, EFFECTS_LEVEL, MUSIC_LEVEL, SILENCE_FADE_S, shouldSchedule
 import { LEVEL_FADE_S, MUSIC_LAYERS } from '../src/audio/music'
 import { DEFAULT_SOUND_PREFS, parseSoundPref, serializeSoundPref } from '../src/audio/prefs'
 import { VOICES } from '../src/audio/voices'
-import { DUCKS_MUSIC, SOUND_MS, type SoundCue } from '../src/cues'
-import { FakeAudioContext, FakeGain, FakeOscillator, type FakeNode } from './fakeAudio'
+import { DEFAULT_SCENARIO } from '../src/content'
+import { DUCKS_MUSIC, SOUND_MS, THREAT_VOICES, THREAT_VOICE_CEILING_MS, type SoundCue } from '../src/cues'
+import { FakeAudioContext, FakeBiquad, FakeBufferSource, FakeGain, FakeOscillator, type FakeNode, type FakeParam } from './fakeAudio'
 
 // Every engine in this file gets its context injected and its visibility
 // injected, and none of them watches the document: there is no document in
@@ -479,6 +480,172 @@ describe('the voices themselves', () => {
     for (const cue of sounding.filter((c) => c !== 'hit-stab')) {
       expect(pitchOf(cue, 0), `${cue} changed pitch with severity`).toBe(pitchOf(cue, 1))
     }
+  })
+})
+
+describe("the threats' own voices, against the graph (v2.0 R3)", () => {
+  // Ken's ruling of 15 November 2026: voices for the threats, synthesized,
+  // measured in the mix, and the game fully playable with sound off. The
+  // registry half (one voice a threat, none twice) is in
+  // tests/sound.spec.ts and the mix in tests/music.spec.ts; this is what
+  // each voice does to the graph. The checks every voice gets (it starts
+  // and stops, it reaches the effects bus and only through it, it asks no
+  // AudioParam for a value a browser would refuse) are 'the voices
+  // themselves' above, which walks VOICES and so holds these too.
+  const threats = DEFAULT_SCENARIO.events.filter((e) => (e.kind ?? 'threat') === 'threat')
+  const voiceOf = (id: string): SoundCue => THREAT_VOICES[id]
+
+  // Everything one cue asked of the graph, written out: each node in the
+  // order it was made, its kind, and every value it was scheduled to
+  // take, at times measured from the moment of the call.
+  function graphOf(cue: SoundCue): string {
+    const { ctx, engine } = engineWith()
+    engine.unlock()
+    ctx.reset()
+    const t0 = ctx.currentTime
+    engine.play(cue)
+    const rel = (t: number | null) => (t === null ? 'never' : String(Math.round((t - t0) * 1e6) / 1e3))
+    const param = (p: FakeParam) => p.events.map((e) => `${e.kind} ${e.value} at ${rel(e.time)}`).join(', ')
+    const lines = ctx.created.map((node) => {
+      if (node instanceof FakeOscillator) return `tone ${node.type} ${rel(node.started)} to ${rel(node.stopped)}: ${param(node.frequency)}`
+      if (node instanceof FakeBufferSource) return `noise ${node.buffer?.length} ${rel(node.started)} to ${rel(node.stopped)}`
+      if (node instanceof FakeBiquad) return `filter ${node.type}: ${param(node.frequency)}; Q ${param(node.Q)}`
+      if (node instanceof FakeGain) return `gain: ${param(node.gain)}`
+      return node.role
+    })
+    engine.dispose()
+    return lines.join('\n')
+  }
+
+  it('gives every threat in the deck a voice that schedules something', () => {
+    expect(threats.length, 'the deck has no threats, so this asserts nothing').toBeGreaterThan(0)
+    for (const ev of threats) {
+      const { ctx, engine } = engineWith()
+      engine.unlock()
+      ctx.reset()
+      expect(engine.play(voiceOf(ev.id)), `${ev.id}: its voice was refused with sound on`).toBe(true)
+      expect(ctx.startedCount(), `${ev.id}: its voice scheduled nothing`).toBeGreaterThan(0)
+    }
+  })
+
+  it('gives no two threats the same graph', () => {
+    // Two names for one sound would pass every check on the registry. So
+    // the graphs themselves are compared: every tone's waveform, pitch
+    // and timing, every burst of noise and its filter, every envelope.
+    const graphs = new Map<string, string>()
+    for (const ev of threats) {
+      const graph = graphOf(voiceOf(ev.id))
+      const twin = graphs.get(graph)
+      expect(twin, `${ev.id} and ${twin} are the same sound under two names`).toBeUndefined()
+      graphs.set(graph, ev.id)
+    }
+    expect(graphs.size).toBe(threats.length)
+    // The control: the description is of the voice and not of the run. A
+    // voice described twice reads the same, or every pair would differ
+    // for a reason that has nothing to do with how it sounds.
+    for (const ev of threats) expect(graphOf(voiceOf(ev.id)), `${ev.id} is not the same sound twice`).toBe(graphOf(voiceOf(ev.id)))
+    // And it can see a difference as small as the one between two alarms,
+    // which are one shape at two pairs of pitches.
+    expect(graphOf('alarm-gnss')).not.toBe(graphOf('alarm-uplink'))
+  })
+
+  it('ends each voice exactly where the registry says it ends, inside the family ceiling', () => {
+    // 'every voice finishes inside its declared duration' above holds the
+    // upper side for all of VOICES. For this family the declaration is
+    // also not a loose ceiling: the last part ends on it, so the length
+    // the sound board shows and the record measures against is the
+    // length of the voice. BLACKOUT CHAIN is the set piece and has its own
+    // exemption (LONG_SOUNDS).
+    for (const ev of threats) {
+      const cue = voiceOf(ev.id)
+      const { ctx, engine } = engineWith()
+      engine.unlock()
+      ctx.reset()
+      const t0 = ctx.currentTime
+      engine.play(cue)
+      const ends = [...ctx.oscillators().map((o) => o.stopped ?? 0), ...ctx.sources().map((s) => s.stopped ?? 0)]
+      const longest = (Math.max(...ends) - t0) * 1000
+      expect(longest, `${cue} runs ${longest}ms against a declared ${SOUND_MS[cue]}ms`).toBeLessThanOrEqual(SOUND_MS[cue] + 1)
+      if (cue === 'blackout-chain') continue
+      expect(longest, `${cue} declares ${SOUND_MS[cue]}ms and ends at ${longest}ms`).toBeGreaterThan(SOUND_MS[cue] - 1)
+      expect(SOUND_MS[cue], `${cue} runs past the threats' ceiling`).toBeLessThanOrEqual(THREAT_VOICE_CEILING_MS)
+    }
+  })
+
+  it('schedules nothing for a threat with the sound off, before a gesture, or on a hidden page', () => {
+    // The engine's rule, shown to hold for this family: a voice that is
+    // not allowed to play makes no node at all. It is not played into a
+    // muted gain and it is not kept for later. What tells the player a
+    // strike is leaving with the sound off is the banner and the line for
+    // a screen reader (ui/three/Game3D.tsx, cards3d.tsx), which no test
+    // DOM can draw: the 3D game needs WebGL.
+    for (const ev of threats) {
+      const cue = voiceOf(ev.id)
+      const muted = engineWith({ effects: false })
+      muted.engine.unlock()
+      muted.ctx.reset()
+      expect(muted.engine.play(cue), `${cue} was scheduled with effects off`).toBe(false)
+      expect(muted.ctx.created, `${cue} built nodes with effects off`).toHaveLength(0)
+
+      const locked = engineWith()
+      expect(locked.engine.play(cue), `${cue} was scheduled before any gesture`).toBe(false)
+      expect(locked.ctx.created, `${cue} built nodes before any gesture`).toHaveLength(0)
+      // And it was refused, not queued: the unlock that follows plays
+      // nothing of it.
+      locked.engine.unlock()
+      expect(locked.ctx.startedCount(), `${cue} was kept and played on the unlock`).toBe(0)
+
+      const hidden = engineWith({ visible: false })
+      hidden.engine.unlock()
+      hidden.ctx.reset()
+      expect(hidden.engine.play(cue), `${cue} was scheduled on a hidden page`).toBe(false)
+      expect(hidden.ctx.created, `${cue} built nodes on a hidden page`).toHaveLength(0)
+    }
+  })
+
+  it('leaves the music alone, except for the set piece', () => {
+    // A strike leaving is a report on a move. The bed steps back for the
+    // moments that own the room, and of this family only BLACKOUT CHAIN is
+    // one (DUCKS_MUSIC).
+    for (const ev of threats) {
+      expect(DUCKS_MUSIC[voiceOf(ev.id)], `${ev.id}: its voice ducks the bed`).toBe(ev.id === 'blackout-chain')
+    }
+  })
+
+  it('writes every envelope and every slide in the order it happens', () => {
+    // The two things this round added to the helpers: a sound can hold at
+    // its peak before it dies away, and a band of noise can slide. A hold
+    // is one more event on the envelope, and an event out of order is not
+    // an error in a browser, only a different sound: a hold shorter than
+    // the attack would cut the attack off. So every value scheduled on
+    // every node, for every voice in the game, is in time order, and at
+    // least one voice uses each of the two.
+    let held = 0
+    let slid = 0
+    for (const cue of (Object.keys(VOICES) as SoundCue[]).filter((c) => c !== 'silent' && c !== 'placeholder')) {
+      const { ctx, engine } = engineWith()
+      engine.unlock()
+      ctx.reset()
+      engine.play(cue)
+      for (const node of ctx.created) {
+        const params: FakeParam[] =
+          node instanceof FakeGain ? [node.gain] : node instanceof FakeOscillator ? [node.frequency] : node instanceof FakeBiquad ? [node.frequency, node.Q] : []
+        for (const p of params) {
+          for (let i = 1; i < p.events.length; i += 1) {
+            expect(p.events[i].time, `${cue}: a ${node.role} is scheduled out of order`).toBeGreaterThanOrEqual(p.events[i - 1].time)
+          }
+        }
+        if (node instanceof FakeGain) {
+          // A held envelope: floor, attack, the same peak again later,
+          // and only then the fall.
+          const [, attack, hold, fall] = node.gain.events
+          if (fall && hold.kind === 'set' && hold.value === attack.value && hold.time > attack.time && fall.kind === 'exponential') held += 1
+        }
+        if (node instanceof FakeBiquad && node.frequency.events.some((e) => e.kind === 'exponential')) slid += 1
+      }
+    }
+    expect(held, 'no voice holds at its peak, so the hold is untested').toBeGreaterThan(0)
+    expect(slid, 'no band of noise slides, so the slide is untested').toBeGreaterThan(0)
   })
 })
 
