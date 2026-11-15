@@ -1479,7 +1479,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       }
     >
       {fps !== null && (
-        <p data-t3-fps aria-hidden="true" style={{ position: 'absolute', top: 2, left: '50%', zIndex: 5, margin: 0, padding: '1px 8px', borderRadius: 8, transform: 'translateX(-50%)', font: '600 12px ui-monospace, Menlo, monospace', color: '#04110a', background: '#7cff9b', pointerEvents: 'none' }}>
+        <p data-t3-fps aria-hidden="true" style={{ position: 'absolute', top: 2, left: '50%', zIndex: 20, margin: 0, padding: '1px 8px', borderRadius: 8, transform: 'translateX(-50%)', font: '600 12px ui-monospace, Menlo, monospace', color: '#04110a', background: '#7cff9b', pointerEvents: 'none' }}>
           {fps} fps{pf.lowPower ? ' · low power' : ''}
         </p>
       )}

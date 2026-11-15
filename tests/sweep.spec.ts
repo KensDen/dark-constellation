@@ -33,7 +33,7 @@ const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 // inclusive. MEASURED at the numbers the scenario carries (watch2: 13
 // meter damage a point, 5 recovery a night, 3 answers, funding 6, a
 // starting budget of 80, 2 points for a wrong call): Prepared 85.8,
-// Novice 39.8, Nothing 0.0 on STANDARD; Prepared 92.0 and Novice 84.4 on
+// Novice 40.2, Nothing 0.0 on STANDARD; Prepared 92.0 and Novice 84.2 on
 // EASY. The points either side: 12 damage with 4 recovery, Prepared 89.8
 // and Novice 41.4; 13 with 4, 75.8 and 32.0; 12 with 3, 78.6 and 32.8.
 // Funding under 6 is a cliff (at 4 the WORST CASE guard stops every line

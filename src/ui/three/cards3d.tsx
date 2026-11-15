@@ -345,7 +345,7 @@ export function PieceCard({ piece, targets, locked, upkeep, placedOn, onPlace, o
             {targets.slice(0, 4).map((t) => (
               <button key={t.id} type="button" data-t3-place={t.id} data-best={t.best || undefined} className={`t3-btn${t.best ? ' t3-primary' : ''}`} onClick={() => onPlace(t.id)}>
                 {c3.placeOn(t.sign)}
-                {t.best ? <small> · {c3.BEST_SPOT}</small> : null}
+                {t.best ? <span> · {c3.BEST_SPOT}</span> : null}
               </button>
             ))}
           </div>

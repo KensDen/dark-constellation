@@ -73,7 +73,7 @@ battery run (`tests/sweep.spec.ts`). On STANDARD:
 | line | wins |
 |---|---|
 | Prepared: scans, places the defense that answers the move COLDVEIL favors on the recommended spot, answers each move that would land while it has an answer, reads every hold right | 85.8% |
-| Novice: scans the first 2 signatures, places a piece the tray lights for one of them, answers 2 moves in 3, calls 2 holds in 3 right | 39.8% |
+| Novice: scans the first 2 signatures, places a piece the tray lights for one of them, answers 2 moves in 3, calls 2 holds in 3 right | 40.2% |
 | Nothing: no orders, no answers, no calls | 0% |
 
 No line that does less than Prepared wins more often than Prepared: not a line that places 2 or 3

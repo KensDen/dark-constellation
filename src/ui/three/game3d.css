@@ -2866,8 +2866,8 @@ a.t3-btn {
 }
 /* The answers, compact on a phone: riding it out is one line. */
 .t3-root:not(.t3-wide) .t3-respond {
-  max-height: min(60vh, 470px);
-  max-height: min(60svh, 470px);
+  max-height: min(56vh, 470px);
+  max-height: min(56svh, 470px);
 }
 .t3-root:not(.t3-wide) .t3-choice.t3-ride {
   flex-direction: row;
@@ -3126,6 +3126,10 @@ a.t3-btn {
 }
 .t3-pool {
   min-width: max-content;
+}
+.t3-card .t3-pool,
+.t3-card .t3-holdhint {
+  padding: 5px 10px;
 }
 .t3-root:not(.t3-wide) .t3-quizbar {
   flex-wrap: wrap;
