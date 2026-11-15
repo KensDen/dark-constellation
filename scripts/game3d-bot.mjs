@@ -429,6 +429,10 @@ async function run(b, base, view, plan, log, shots, table) {
         const names = await b.evaluate(`[...document.querySelectorAll('[data-t3-sight-option]')].map((e) => e.dataset.t3SightOption)`)
         if (names.length !== 4 || !names.includes(c.id)) fail(`night ${night}: the names offered for ${c.id} are ${JSON.stringify(names)}`)
         if (names.some((id) => id !== c.id && onBoard.includes(id))) fail(`night ${night}: a name offered for ${c.id} is a move on tonight's board (${JSON.stringify(names)})`)
+        // The terms of a name are read before it is given: the whole line is
+        // in the card, above the fade at its foot, with nothing to scroll to.
+        const terms = await b.evaluate(`(() => { const t = document.querySelector('[data-t3-sight-ask]'); const c = t?.closest('.t3-card'); if (!t || !c) return null; const a = t.getBoundingClientRect(), k = c.getBoundingClientRect(); return { over: Math.round(a.bottom - (k.bottom - parseFloat(getComputedStyle(c).paddingBottom))), scroll: c.scrollHeight - c.clientHeight } })()`)
+        if (!terms || terms.over > 0 || terms.scroll > 1) fail(`night ${night}: the terms of a name on sight are not whole in the card (${JSON.stringify(terms)})`)
         if (stats.sightAsked === 0) await shot(`n${night}-sight-ask`, 'the name on sight: 4 names for an unidentified signature, none of them on tonight’s board, no pulse spent')
         stats.sightAsked += 1
         const pick = plan.sight === 'knows' ? c.id : names[Math.floor(coin() * names.length)]

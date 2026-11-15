@@ -2264,6 +2264,33 @@ html.t3-on body {
   .t3-root:not(.t3-wide) .t3-top {
     padding-bottom: 10px;
   }
+  /* Naming on a short phone: the 4 names and their terms are whole in the
+     card's one height, so nothing scrolls and nothing fades. */
+  .t3-root:not(.t3-wide)[data-t3-phase='plan'] .t3-dock > .t3-card.is-naming {
+    padding-bottom: 10px;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  .t3-root:not(.t3-wide) .t3-card.is-naming .t3-head {
+    align-items: center;
+  }
+  .t3-root:not(.t3-wide) .t3-card.is-naming .t3-eyebrow {
+    display: none;
+  }
+  .t3-root:not(.t3-wide) .t3-card.is-naming .t3-glyph-big {
+    width: 32px;
+    height: 32px;
+  }
+  .t3-root:not(.t3-wide) .t3-card.is-naming .t3-round.t3-small {
+    margin: -6px -6px -6px 0;
+  }
+  .t3-root:not(.t3-wide) .t3-card.is-naming .t3-names {
+    gap: 4px;
+  }
+  .t3-root:not(.t3-wide) .t3-card.is-naming .t3-hint {
+    font-size: 12px;
+    line-height: 1.3;
+  }
 }
 
 /* The guide's line, on a phone, stands under the top bar over the sky: in

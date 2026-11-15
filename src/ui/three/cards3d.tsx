@@ -299,9 +299,10 @@ export function ContactCard({
   )
   if (!contact.known) {
     return (
-      <div className="t3-card" key={`c-${contact.id}`} data-t3-card="contact" data-known="false">
+      <div className={`t3-card${sight?.options ? ' is-naming' : ''}`} key={`c-${contact.id}`} data-t3-card="contact" data-known="false">
         <div className="t3-head">
-          <SignatureGlyph id={contact.id} size={56} named={false} className="t3-glyph-big" />
+          {/* Smaller beside the 4 names, so they and their terms fit the card's one height. */}
+          <SignatureGlyph id={contact.id} size={sight?.options ? 40 : 56} named={false} className="t3-glyph-big" />
           <div className="t3-grow">
             <p className="t3-eyebrow">
               {c3.UNIDENTIFIED} · {sign}

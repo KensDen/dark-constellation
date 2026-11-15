@@ -60,7 +60,9 @@ export const KNOW_THE_LOOK = 'Know the look? Name it and spend no pulse. A wrong
 // THE NAME ON SIGHT (v2.0 R3): an unidentified signature named from its look.
 export const SIGHT_BUTTON = 'NAME IT ON SIGHT'
 export const SIGHT_ASK = 'Which is it?'
-export const SIGHT_TERMS = 'Right: identified, no pulse spent. Wrong: no more naming tonight. Not sure? Close the card.'
+// One line on a phone: the card before the night keeps one height, and a
+// longer line sat under the fade at its foot.
+export const SIGHT_TERMS = 'Right saves a pulse. Wrong ends naming tonight.'
 export const SIGHT_MISSED = 'A name was wrong, so naming is over for tonight. A scan pulse still identifies a signature.'
 export const SIGHTED = 'NAMED ON SIGHT'
 export const sightRight = (name: string) => `Named on sight: ${name}. No pulse spent.`
