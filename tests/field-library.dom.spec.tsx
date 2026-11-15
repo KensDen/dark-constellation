@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 //
 // The Field Library on screen (v1.2 R5b, brief 4.8 and 7.3): the screen
-// itself, the menu's INTEL ARCHIVE, the event cards' "learn more", and the
-// met events that FILED stamps read.
+// itself, the title's READ row, and the met events that FILED stamps read.
 //
 // GUARD R5b (b): an entry paired with an event the player has met shows
 // FILED, and one that is not does not.
@@ -11,32 +10,39 @@
 // GUARD R5b (d): the total in the counter equals the number of entries in
 // the data.
 //
-// Doubles, as game.dom.spec.tsx names them: the three.js frame is stubbed,
-// storage is an in-memory map, and the clock is vitest's fake one.
+// v2.0 R3: the game is the 3D game, whose world a test DOM cannot draw
+// (no WebGL), so the events a night meets are recorded here the one way
+// the 3D game closes a night without its world: a night left in the middle
+// is closed when the page loads again (src/ui/three/Game3D.tsx, on the
+// mark src/ui/three/store3d.ts keeps). LEARN MORE from the 3D Dossier is
+// held in tests/reading-rooms.dom.spec.tsx; the pixel board's own LEARN
+// MORE links (a result's Dossier row, the intel card) are retired with it.
+//
+// Doubles: the three.js frame is stubbed, storage is an in-memory map, and
+// the clock is vitest's fake one.
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
+vi.mock('../src/ui/TitleWorld', () => ({ default: () => null }))
 
 import App from '../src/App'
-import Game from '../src/ui/Game'
 import FieldLibrary from '../src/ui/FieldLibrary'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { SHELVES_AS_DRAFTED } from '../src/content/fieldLibraryData'
-import { briefFree, resolveTurn, newGame } from '../src/engine/reducer'
+import { resolveTurn, newGame } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
-import { captureGame, encodeSaveCode } from '../src/persistence'
-import { BLOCK_MS } from '../src/ui/board/strike'
-import { FILED_BEAT_MS } from '../src/ui/night/cards'
+import { LocalStorageStore, captureGame, encodeSaveCode, runKey } from '../src/persistence'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
+import { NO_INPUTS, NO_ORDERS } from '../src/ui/three/gameModel'
+import * as c3 from '../src/ui/three/copy3d'
+import { markNight } from '../src/ui/three/store3d'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
-import { NO_OP, WIN_SCRIPT } from './scripts'
-import { briefCopy } from '../src/ui/brief'
-import { shortName } from '../src/ui/board/boardModel'
+import { prepared } from './policies'
+import { NO_OP } from './scripts'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -48,11 +54,11 @@ let root: Root
 let unlisten: () => void
 let mounts = 0
 
-// The night's chunks, loaded once, so React.lazy resolves on a microtask.
+// The game's chunk, loaded once, so React.lazy resolves on a microtask
+// under the fake clock.
 beforeAll(async () => {
-  await import('../src/ui/night/Night')
-  await import('../src/ui/night/cards')
-  await import('../src/ui/night/closeCards')
+  await import('../src/ui/three/Game3D')
+  await import('../src/ui/three/rooms3d')
 })
 
 function memoryStorage(): Storage {
@@ -233,353 +239,140 @@ describe('the library screen', () => {
   })
 })
 
+// A fresh App each call, as a page load is.
+function loadPage() {
+  mounts += 1
+  act(() => {
+    root.render(<App key={`a${mounts}`} />)
+  })
+}
+// The 3D game, which here is its fallback: the world cannot start.
+const inGame = () => container.querySelector('[data-game3d]') !== null
+const settleGame = async () => {
+  for (let i = 0; i < 20 && !inGame(); i += 1) await settle()
+}
+
 describe('the READ row on the title (v1.3 R1, brief 5.1)', () => {
   // The menu's INTEL ARCHIVE and its function keys left with the menu (M1).
-  // The title's READ row opens the two reading screens; until R4 rebuilds
-  // them, LIBRARY opens the Field Library and DOSSIER the Glossary, which
-  // lists every COLDVEIL move and its technique.
-  function loadPage() {
-    mounts += 1
-    act(() => {
-      root.render(<App key={`a${mounts}`} />)
-    })
-  }
+  // The title's READ row opens the reading screens.
   const readButton = (which: string) => container.querySelector(`[data-read="${which}"]`) as HTMLButtonElement | null
 
   it('opens LIBRARY from LIBRARY and the COLDVEIL Dossier from DOSSIER, and comes back to the title', async () => {
     // v1.3 R4 (brief 5.1 and 5.7): DOSSIER opens the Dossier, not the
-    // Glossary, which is LIBRARY's second tab now.
+    // Glossary, which is LIBRARY's second tab now. Since v2.0 R1 the
+    // Dossier is the 3D game's room, under its own heading.
     loadPage()
-    for (const [which, heading] of [
-      ['library', 'LIBRARY'],
-      ['dossier', 'COLDVEIL DOSSIER'],
+    for (const [which, heading, at] of [
+      ['library', 'LIBRARY', 'h1'],
+      ['dossier', 'COLDVEIL DOSSIER', '[data-t3-room="dossier"] h2'],
     ] as const) {
       expect(readButton(which), `the title has no ${which.toUpperCase()}`).not.toBeNull()
       click(readButton(which)!)
-      await settle()
-      expect(container.querySelector('h1')?.textContent?.trim(), `${which.toUpperCase()} did not open ${heading}`).toBe(heading)
+      for (let i = 0; i < 40 && !(container.querySelector(at) && !container.querySelector('[data-title]')); i += 1) await settle()
+      expect(container.querySelector(at)?.textContent?.trim(), `${which.toUpperCase()} did not open ${heading}`).toBe(heading)
       click(byText(/^back to title$/i)!)
       expect(container.querySelector('[data-title]'), 'not back on the title').not.toBeNull()
     }
+    expect(c3.DOSSIER_HEAD).toBe('COLDVEIL DOSSIER')
   })
 
-  it('offers CONTINUE TURN n above PLAY when a game is resumable, and none without one', () => {
+  it('offers CONTINUE NIGHT n above PLAY when a game is resumable, and none without one', async () => {
     loadPage()
     expect(container.querySelector('[data-continue]'), 'CONTINUE with nothing to continue').toBeNull()
     localStorage.setItem('dc-autosave', JSON.stringify(captureGame(newGame(DEFAULT_SCENARIO, 1, 'standard'), 'brief', '2026-09-29T00:00:00Z')))
     loadPage()
-    // A resumable save lands straight on the board; SYSTEM goes back.
-    click(container.querySelector('button[aria-label="System"]')!)
-    click(byText(/^Back to title$/)!)
-    click(byText(/^LEAVE$/)!)
+    // A resumable save lands straight in the game; its way out goes back.
+    await settleGame()
+    expect(inGame(), 'a resumable save did not resume').toBe(true)
+    click([...container.querySelectorAll('[data-game3d] button')].find((b) => (b.textContent ?? '').trim() === c3.TITLE)!)
     const cont = container.querySelector('[data-continue]')
     expect(cont, 'no CONTINUE for the game in progress').not.toBeNull()
-    expect(cont!.textContent?.trim()).toBe('CONTINUE TURN 1')
+    expect(cont!.textContent?.trim()).toBe('CONTINUE NIGHT 1')
     const order = [...container.querySelectorAll('[data-continue], [data-play]')].map((b) => (b.hasAttribute('data-play') ? 'PLAY' : 'CONTINUE'))
     expect(order, 'CONTINUE is not above PLAY').toEqual(['CONTINUE', 'PLAY'])
   })
 })
 
-describe("the event cards' learn more", () => {
-  function gameAt(turn: number, seed = 20260712, script = WIN_SCRIPT): GameState {
+describe('the events a night meets (v1.2 R5b)', () => {
+  const store = new LocalStorageStore()
+  const metNow = () => JSON.parse(localStorage.getItem('dc-met') ?? '[]') as string[]
+  // What a night with no orders draws from `state`, from the engine.
+  const drawnFrom = (state: GameState) => resolveTurn(state, NO_OP, turnRng(state.seed, state.turn)).history.at(-1)!.events
+  // The prepared line (tests/policies.ts) played to the given night.
+  function gameAt(turn: number, seed: number): GameState {
     let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
-    while (state.status === 'playing' && state.turn < turn) state = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+    while (state.status === 'playing' && state.turn < turn) state = resolveTurn(state, prepared(state), turnRng(state.seed, state.turn))
     return state
   }
-  // A night on which the intel brief is free and names a fixed move, so
-  // the TONIGHT card's full brief carries the lead's technique tag and its card the lead's
-  // REAL WORLD line: since v1.3 Round 0 the brief is on or off, free on
-  // turn 1 (which has no fixed slot) and on the turns an allied data share
-  // covers, and the empty cart these tests commit orders nothing. Found in
-  // v1.3 play by search over seeds of the given line.
-  function briefedWithLead(script = WIN_SCRIPT): GameState {
-    for (const seed of [20260712, 11, 41, 104, ...Array.from({ length: 100 }, (_, i) => i + 1)]) {
+  // A night that draws more than one event, one of them a move a defense
+  // owned stops outright, so "every event" is tested against one a
+  // landed-only record would miss. Found by search, so the fixture holds
+  // whatever the numbers are.
+  function nightWithABlock(): GameState {
+    const isMove = (id: string) => (DEFAULT_SCENARIO.events.find((e) => e.id === id)?.kind ?? 'threat') === 'threat'
+    for (let seed = 1; seed <= 200; seed += 1) {
       for (let turn = 2; turn <= DEFAULT_SCENARIO.totalTurns; turn += 1) {
-        const state = gameAt(turn, seed, script)
-        if (state.status === 'playing' && state.turn === turn && briefFree(state) && briefCopy(state).tag) return state
+        const state = gameAt(turn, seed)
+        if (state.status !== 'playing' || state.turn !== turn) break
+        const drawn = drawnFrom(state)
+        if (drawn.length > 1 && drawn.some((e) => isMove(e.eventId) && !e.debris && e.effectiveSeverity === 0)) return state
       }
     }
-    throw new Error('no turn of any line searched carries a technique tag')
+    throw new Error('no night of the prepared line draws a blocked move among others')
   }
-  function render(state: GameState) {
-    mounts += 1
-    act(() => {
-      root.render(<Game key={`g${mounts}`} initial={{ state, phase: 'brief' }} onExit={() => {}} />)
-    })
-  }
-  // A tap, and the lazy cards and effects it sets off, settled.
-  async function tap(el: Element) {
-    await act(async () => {
-      el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
-    })
-    await act(async () => {})
-  }
-  // EXECUTE is a plain button since v1.3 Round 0 (the hold went with the
-  // dwell), and a synthetic Enter does not click a button in jsdom, so the
-  // tests click it.
-  const execute = async () => {
-    const button = container.querySelector('nav[aria-label="Actions"] button[data-execute]')
-    expect(button, 'EXECUTE is not on screen').not.toBeNull()
-    await tap(button!)
-  }
-  // THE NIGHT (v1.3 R3, brief 5.5; a decision in the night since v1.7 R1).
-  // Where it is: the overlay, the block moment ('strike'), a card by its
-  // kind (respond, hit, call, debris, opportunity, end), or the board once
-  // it is over; and what it has up, by name. A result whose FILE TO
-  // DOSSIER has been tapped reads apart from the same card before it.
-  const stage = () =>
-    container.querySelector('[data-night-card]')?.getAttribute('data-night-card') ??
-    (container.querySelector('[data-moving]') ? 'moving' : container.querySelector('[data-block-moment]') ? 'strike' : container.querySelector('[data-dock]') ? 'board' : 'none')
-  const nightAt = () => {
-    const card = container.querySelector('[data-night-card]')
-    const stamp = container.querySelector('[data-filed-stamp]') ? ' (filed)' : ''
-    return `${stage()}: ${(card ? card.getAttribute('aria-label') : container.querySelector('[data-block-moment]')?.textContent) ?? ''}${stamp}`
-  }
-  // The tap a card asks for: RIDE IT OUT on the response, HOLD on the
-  // debris call, FILE TO DOSSIER or CONTINUE (END OF TURN's BEGIN is the
-  // test's to tap).
-  const wayOn = () =>
-    container.querySelector('[data-responses] button[data-response="ride"]') ??
-    container.querySelector('[data-call="hold"]') ??
-    container.querySelector('[data-collect]') ??
-    container.querySelector('[data-continue]')
-  // One move on, as a player makes it: only the 750ms overlay, the block
-  // moment (BLOCK_MS) and the FILED stamp's beat play on their own, so the
-  // timers run `ms` whenever no card waits for a tap; every card waits
-  // for its tap.
-  async function onward(ms = BLOCK_MS) {
-    const way = wayOn()
-    if (way) return tap(way)
-    await act(async () => {
-      vi.advanceTimersByTime(ms)
-    })
-    await act(async () => {})
-  }
-  const metNow = () => JSON.parse(localStorage.getItem('dc-met') ?? '[]') as string[]
-  const filedNow = () => JSON.parse(localStorage.getItem('dc-dossier') ?? '[]') as string[]
-  const escape = () =>
-    act(() => {
-      ;(document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    })
-  // What the empty cart's turn from `state` draws, from the engine.
-  const drawnFrom = (state: GameState) => resolveTurn(state, NO_OP, turnRng(state.seed, state.turn)).history.at(-1)!.events
-  // The night, played on until a threat's link is up. Since v1.7 R1 it is
-  // on the move's own result, in the Dossier row every result carries (the
-  // full-screen Dossier card it stood on is gone): the row is opened as a
-  // player opens it, and LEARN MORE is inside.
-  async function untilLearnMore(): Promise<HTMLButtonElement> {
-    for (let i = 0; i < 60 && stage() !== 'end'; i += 1) {
-      const row = container.querySelector<HTMLDetailsElement>('[data-night-card="hit"] details[data-dossier-row]')
-      const link = row?.querySelector<HTMLButtonElement>('button[data-learn-more]')
-      if (row && link) {
-        row.open = true
-        return link
-      }
-      await onward()
-    }
-    throw new Error('no result with a link reached the screen')
-  }
-  // The entries a threat's filtered view may show: those naming it, and
-  // SPARTA's when the threat carries a SPARTA technique.
-  const allowedFor = (id: string) => {
-    const sparta = DEFAULT_SCENARIO.events.find((e) => e.id === id)!.techniqueRefs.some((r) => r.framework === 'SPARTA')
-    return [...naming(id), ...(sparta ? [SPARTA] : [])]
+  // The night of the operation in progress, closed the way a reload closes
+  // one left in the middle: marked as begun with no orders and no answers,
+  // then the page loaded again.
+  async function closeNight() {
+    const op = store.loadAutosave()!
+    markNight({ run: runKey(op.state.seed, op.state.difficulty, op.daily?.dateKey), turn: op.state.turn, orders: NO_ORDERS, inputs: NO_INPUTS })
+    loadPage()
+    await settleGame()
+    expect(inGame(), 'the reload did not resume the operation').toBe(true)
+    const next = store.loadAutosave()
+    expect(next === null || next.state.turn === op.state.turn + 1, 'the reload did not close the night').toBe(true)
   }
 
-  it('records every event a turn resolved here draws, held ones and opportunities too, and nothing a load brings in', async () => {
-    const state = gameAt(3)
+  it('records every event a night played here draws, blocked ones too, and nothing a load brings in', async () => {
+    const state = nightWithABlock()
     const drawn = drawnFrom(state)
-    // The fixture turn draws more than one event, and one that did not
-    // land, so "every event" is tested against one a landed-only record
-    // would miss.
     expect(drawn.length).toBeGreaterThan(1)
-    expect(drawn.some((e) => e.effectiveSeverity === 0), 'every event landed, so held ones are untested').toBe(true)
+    expect(drawn.some((e) => e.effectiveSeverity === 0), 'every event landed, so blocked ones are untested').toBe(true)
     expect(state.history.flatMap((r) => r.events).length, 'the loaded campaign has no history, so a load could record nothing').toBeGreaterThan(0)
-    render(state)
+    store.autosave(state, 'brief')
+    loadPage()
+    await settleGame()
+    expect(inGame()).toBe(true)
     expect(metNow(), 'loading a campaign recorded its history as met').toEqual([])
-    await execute()
+    await closeNight()
     expect(metNow().sort()).toEqual([...new Set(drawn.map((e) => e.eventId))].sort())
   })
 
   it('counts a campaign loaded from a pasted code, which is learning, not a score', async () => {
-    const state = gameAt(4)
-    // Pasted through SYSTEM, where the box lives since v1.3 R1.
-    render(gameAt(1))
-    click(container.querySelector('button[aria-label="System"]')!)
-    const box = container.querySelector('[data-sheet="system"] textarea[aria-label="save code"]') as HTMLTextAreaElement
+    const state = nightWithABlock()
+    // Pasted through the title's SYSTEM, where the box lives since v1.3 R1.
+    loadPage()
+    click(buttons().find((b) => b.getAttribute('aria-haspopup') === 'dialog' && (b.textContent ?? '').trim() === 'SYSTEM')!)
+    const box = container.querySelector('textarea[aria-label="save code"]') as HTMLTextAreaElement
     const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
     act(() => {
       setValue.call(box, encodeSaveCode(captureGame(state, 'brief', '2026-09-29T00:00:00Z', { dateKey: '20260929', n: 3 })))
       box.dispatchEvent(new Event('input', { bubbles: true }))
     })
     click(byText(/^load save code$/i)!)
+    await settleGame()
+    expect(inGame(), 'the code did not load').toBe(true)
     expect(metNow()).toEqual([])
-    await execute()
-    // A night with the debris call is committed (and its events met) once
-    // the call is made, so the night is played to END OF TURN whatever it
-    // holds.
-    for (let i = 0; i < 60 && stage() !== 'end'; i += 1) await onward()
-    expect(stage()).toBe('end')
+    await closeNight()
     expect(metNow().length, 'a pasted practice run met nothing').toBeGreaterThan(0)
+    expect(metNow().sort()).toEqual([...new Set(drawnFrom(state).map((e) => e.eventId))].sort())
   })
 
-  it('opens the library over the board at that threat, holds the night, and lets it go on after Escape', async () => {
-    render(gameAt(4))
-    await execute()
-    const link = await untilLearnMore()
-    const id = link.getAttribute('data-learn-more')!
-    expect(DEFAULT_SCENARIO.events.find((e) => e.id === id)?.kind ?? 'threat').toBe('threat')
-    expect(link.closest('[data-dossier-row]')!.getAttribute('data-dossier-row'), 'the link is not for the Dossier row it is in').toBe(id)
-    const def = DEFAULT_SCENARIO.events.find((e) => e.id === id)!
-    expect(container.querySelector('[data-night-card="hit"] [data-move-name]')!.textContent, 'the link is not for the move whose result it is on').toBe(shortName(def))
-    // A first meeting: the row says so, and FILE TO DOSSIER is the way on.
-    expect(link.closest('[data-dossier-row]')!.hasAttribute('data-fresh')).toBe(true)
-    expect(container.querySelector('[data-collect]'), 'a first meeting does not offer FILE TO DOSSIER').not.toBeNull()
-    expect(link.getAttribute('aria-haspopup')).toBe('dialog')
-    link.focus()
-    click(link)
-    await settle()
-    const overlay = container.querySelector('[data-library-overlay]')!
-    expect(overlay, 'learn more opened nothing').not.toBeNull()
-    expect(overlay.querySelector('[data-library-filter]')!.getAttribute('data-library-filter')).toBe(id)
-    expect(titles().sort()).toEqual(allowedFor(id).sort())
-    expect(container.querySelector('main[data-board]')!.hasAttribute('inert'), 'the board behind is not inert').toBe(true)
-    expect(document.querySelectorAll('main').length, 'a second main').toBe(1)
-    expect(document.querySelectorAll('h1').length, 'a second h1').toBeLessThanOrEqual(1)
-    // Held: the night has no keys of its own (its cards are tapped), so
-    // what could run it on behind the library is time. A minute passes,
-    // and the same result is up, its card still to file (v1.7 R1: nothing
-    // files a card but FILE TO DOSSIER).
-    const held = nightAt()
-    await act(async () => {
-      vi.advanceTimersByTime(60_000)
-    })
-    expect(nightAt(), 'the night ran on behind the library').toBe(held)
-    expect(filedNow(), 'reading the library filed the card').not.toContain(id)
-    escape()
-    expect(container.querySelector('[data-library-overlay]'), 'Escape did not close the library').toBeNull()
-    expect(nightAt(), 'Escape on the library moved the night on').toBe(held)
-    expect(document.activeElement?.getAttribute('data-learn-more'), 'focus did not come back to the link').toBe(id)
-    // Let go: once the library is closed, FILE TO DOSSIER files the card
-    // at once, stamps it, and the night goes on by itself after the beat.
-    await tap(container.querySelector('[data-collect]')!)
-    expect(filedNow(), 'FILE TO DOSSIER did not file the card').toContain(id)
-    expect(container.querySelector('[data-filed-stamp]')?.textContent).toBe(`FILED · ${filedNow().length} / 18`)
-    expect(container.querySelector('[data-collect]'), 'FILE TO DOSSIER is still offered beside its stamp').toBeNull()
-    await act(async () => {
-      vi.advanceTimersByTime(FILED_BEAT_MS - 20)
-    })
-    expect(container.querySelector('[data-filed-stamp]'), 'the FILED stamp did not stand for its beat').not.toBeNull()
-    await act(async () => {
-      vi.advanceTimersByTime(40)
-    })
-    await act(async () => {})
-    expect(container.querySelector('[data-filed-stamp]'), 'the night stayed on the FILED stamp').toBeNull()
-    expect(nightAt(), 'the night stayed held after the library closed').not.toBe(held)
-  })
-
-  it('returns focus to a tapped link, which a phone never focused', async () => {
-    render(gameAt(4))
-    await execute()
-    const link = await untilLearnMore()
-    ;(document.activeElement as HTMLElement | null)?.blur?.()
-    expect(document.activeElement).toBe(document.body)
-    click(link)
-    await settle()
-    escape()
-    expect(document.activeElement, 'focus fell to the page').toBe(link)
-  })
-
-  it('from the intel card, closes the card, opens the library, and returns focus to what opened the card', async () => {
-    // Under the intel brief COLDVEIL's card names the lead threat with its
-    // REAL WORLD line. It opens from COLDVEIL's name and emblem on TONIGHT's
-    // header since v1.6 R3 (Ken's playtest item 6).
-    render(briefedWithLead())
-    const banner = container.querySelector<HTMLButtonElement>('button[data-coldveil]')!
-    expect(banner, 'TONIGHT has no COLDVEIL chip').not.toBeNull()
-    banner.focus()
-    click(banner)
-    await settle()
-    const link = container.querySelector<HTMLButtonElement>('section[data-intel-card] button[data-learn-more]')
-    expect(link, 'the intel card has no learn more').not.toBeNull()
-    click(link!)
-    await settle()
-    expect(container.querySelector('section[data-intel-card]'), 'the intel card stayed open under the library').toBeNull()
-    expect(container.querySelector('[data-library-overlay]')).not.toBeNull()
-    escape()
-    expect(container.querySelector('[data-library-overlay]')).toBeNull()
-    expect(document.activeElement, 'focus did not come back to what opened the card').toBe(banner)
-  })
-
-  it("holds the night under a tile's intel card too: the card a block moment leads to waits under it", async () => {
-    // Turn 3 of the fixture opens on a move a defense stops (v1.7 R1: the
-    // block moment, the one stage left that plays on its own clock; a hit
-    // has no strike stage any more), on a device that has filed nothing,
-    // so the block leads to its result with FILE TO DOSSIER.
-    const state = gameAt(3)
-    const blocked = drawnFrom(state)[0]
-    expect(blocked.effectiveSeverity === 0 && blocked.room === undefined, 'the fixture night does not open on a block').toBe(true)
-    render(state)
-    await execute()
-    // To the block moment, and a tile's card opened over it. COLDVEIL's is
-    // off the board with the TONIGHT card while a night plays (v1.3 R2).
-    for (let i = 0; i < 40 && stage() !== 'strike'; i += 1) await onward(100)
-    expect(stage(), 'the night blocked nothing').toBe('strike')
-    expect(container.querySelector('[data-block-moment] [data-strike-word="held"]')!.textContent).toBe('BLOCKED')
-    click(container.querySelector('button[data-asset-id]')!)
-    await settle()
-    expect(container.querySelector('section[data-intel-card]'), 'the intel card did not open').not.toBeNull()
-    // The block moment plays out on its clock, as it does with the tab in
-    // view, and the result it leads to arrives under the intel card and
-    // waits there: a minute on, the same card is up.
-    for (let i = 0; i < 3 && !wayOn(); i += 1) await onward()
-    expect(wayOn(), 'no card arrived under the intel card').not.toBeNull()
-    expect(stage()).toBe('hit')
-    expect(container.querySelector('[data-night-card="hit"] [data-dossier-row]')!.getAttribute('data-dossier-row')).toBe(blocked.eventId)
-    const held = nightAt()
-    await act(async () => {
-      vi.advanceTimersByTime(60_000)
-    })
-    expect(nightAt(), 'the night ran on behind the intel card').toBe(held)
-    escape()
-    expect(container.querySelector('section[data-intel-card]')).toBeNull()
-    expect(nightAt(), 'Escape on the intel card moved the night on').toBe(held)
-    // The positive control: with the card closed, the card's tap moves the
-    // night on.
-    await onward()
-    expect(nightAt(), 'a tap with no intel card open did not move the night on').not.toBe(held)
-  })
-
-  it('shows no link on an opportunity, which has no entries', async () => {
-    // The fixture turn draws an opportunity, and its card is seen. The
-    // six-turn campaign of v1.3 Round 0 rolls one at 0.2 on turns 2 to 5,
-    // and seed 20260712 draws none, so the prepared line on seed 5, whose
-    // turn 3 draws the appropriations rider, is the fixture.
-    const state = gameAt(3, 5)
-    const opportunities = drawnFrom(state).filter((e) => DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)?.kind === 'opportunity')
-    expect(opportunities.length, 'the turn draws no opportunity, so this asserts nothing').toBeGreaterThan(0)
-    const names = opportunities.map((e) => DEFAULT_SCENARIO.events.find((d) => d.id === e.eventId)!.name)
-    const ids = new Set(opportunities.map((e) => e.eventId))
-    render(state)
-    await execute()
-    // Every card of the night, tapped through (the results with their
-    // Dossier rows' links among them), and the END OF TURN it ends on.
-    let seen = false
-    let links = 0
-    for (let i = 0; i < 60; i += 1) {
-      const card = container.querySelector('[data-night-card="opportunity"]')
-      if (card && names.some((n) => card.textContent!.includes(n))) seen = true
-      for (const b of container.querySelectorAll('button[data-learn-more]')) {
-        links += 1
-        expect(ids.has(b.getAttribute('data-learn-more')!), 'an opportunity card links to the library').toBe(false)
-      }
-      if (stage() === 'end') break
-      await onward()
-    }
-    expect(stage(), 'the night never finished').toBe('end')
-    expect(seen, 'no opportunity card was ever on screen').toBe(true)
-    // The control: a threat's result did carry its link, so the check
-    // above could see one.
-    expect(links, 'no link was ever on screen, so their absence proves nothing').toBeGreaterThan(0)
+  it('has no entry for an opportunity, so no opportunity leads to the library', () => {
+    const opportunities = DEFAULT_SCENARIO.events.filter((e) => e.kind === 'opportunity')
+    expect(opportunities.length, 'the deck has no opportunity, so this asserts nothing').toBeGreaterThan(0)
+    for (const o of opportunities) expect(naming(o.id), `${o.id} has library entries`).toEqual([])
+    // The control: a threat does.
+    expect(naming('lidar-dazzle').length).toBeGreaterThan(0)
   })
 })

@@ -8,10 +8,8 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { PRIMARY_MITIGATION, SECONDARY_MITIGATION, mitigationOf } from '../src/engine/rules'
-import { newGame } from '../src/engine/reducer'
 import type { CountermeasureId, ThreatEvent } from '../src/engine/types'
-import { STATUS, firstOrders, moveStatus, shortName, stopVerb, stoppedByLine, stopsLine, turnsLeft } from '../src/ui/board/boardModel'
-import { sayVerb } from '../src/ui/debriefModel'
+import { shortName, stopVerb, stoppedByLine } from '../src/ui/board/boardModel'
 import * as copy from '../src/ui/night/nightCopy'
 import { defensesFor } from '../src/ui/night/nightModel'
 
@@ -36,29 +34,7 @@ describe('the stops rule (R6 question 2)', () => {
     }
   })
 
-  it("GUARD: PROCURE's line names under Stops only what the defense blocks alone, and under Blunts only what it does not", () => {
-    const state = newGame(scenario, 1, 'standard')
-    const all = new Set(threats.map((e) => e.id))
-    for (const cm of scenario.countermeasures) {
-      if (cm.counters.length === 0 || cm.id === 'ssaManeuver') continue
-      const line = stopsLine(cm, state, new Set(), all)
-      const stops = line.match(/Stops: ([^·]*)/)?.[1] ?? ''
-      const blunts = line.match(/Blunts: ([^·+]*)/)?.[1] ?? ''
-      for (const id of cm.counters) {
-        const ev = threats.find((e) => e.id === id)!
-        const name = shortName(ev)
-        if (blocksAlone(cm.id, ev)) {
-          expect(stops, `${cm.id}: ${name} is not under Stops in "${line}"`).toContain(name)
-          expect(blunts, `${cm.id}: ${name} is under Blunts in "${line}"`).not.toContain(name)
-        } else {
-          expect(blunts, `${cm.id}: ${name} is not under Blunts in "${line}"`).toContain(name)
-          expect(stops, `${cm.id}: ${name} is under Stops in "${line}"`).not.toContain(name)
-        }
-      }
-    }
-  })
-
-  it('GUARD: STOPPED BY on the intel card and the Dossier lists only defenses that block alone, and says when none does', () => {
+  it('GUARD: STOPPED BY on a move\'s card and the Dossier lists only defenses that block alone, and says when none does', () => {
     for (const ev of threats) {
       const { label, text } = stoppedByLine(ev, scenario)
       if (ev.effect.special === 'debrisStrike') {
@@ -79,19 +55,17 @@ describe('the stops rule (R6 question 2)', () => {
   })
 
   // R6b fresh eyes: a block two defenses make together was said of the
-  // first alone ("Link-layer auth ... blocked Rogue ground station"; the
-  // debrief's "stopped"), which its own points never do.
-  it('names a joint block with its partner on the hit card, and the debrief says the credited defense helped block it', () => {
+  // first alone ("Link-layer auth ... blocked Rogue ground station"),
+  // which its own points never do.
+  it('names a joint block with its partner on the move\'s card', () => {
     for (const ev of threats) {
       if (mitigationOf(ev, ev.counters) < ev.baseSeverity) continue
       const { held, partner } = defensesFor(ev, ev.counters, scenario)
       if (blocksAlone(held!.id, ev)) {
         expect(partner, ev.id).toBeUndefined()
-        expect(sayVerb('held', stopVerb(held!.id, ev))).toBe('stopped')
       } else {
         expect(partner, `${ev.id}: a block no one defense makes, with no partner named`).toBeDefined()
         expect(mitigationOf(ev, [held!.id, partner!.id])).toBeGreaterThanOrEqual(ev.baseSeverity)
-        expect(sayVerb('held', stopVerb(held!.id, ev))).toBe('helped block')
       }
     }
     const rogue = threats.find((e) => e.id === 'rogue-ground-station')!
@@ -102,40 +76,13 @@ describe('the stops rule (R6 question 2)', () => {
   })
 
   // R6b fresh eyes: the hit card said JAMMED · 2 TURNS beside a chip that
-  // said 1T; the card now counts turns left the one way (G-103).
-  it("tags a hit's new condition with the turns left the night's chips show", () => {
+  // said 1T; a card counts turns left the one way (G-103): the nights the
+  // condition still presses after the one it landed on.
+  it("tags a hit's new condition with the nights it still presses after this one", () => {
     for (const ev of threats.filter((e) => e.condition)) {
-      const left = turnsLeft({ remainingTurns: ev.condition!.turns }, true)
+      const left = Math.max(0, ev.condition!.turns - 1)
       expect(copy.conditionTag(ev.condition!.name, left), ev.id).toBe(`${ev.condition!.name} · ${left === 1 ? '1 TURN LEFT' : `${left} TURNS LEFT`}`)
     }
     expect(copy.conditionTag('JAMMED', 0)).toBe('JAMMED · TONIGHT ONLY')
-  })
-
-  // GUARD R7 (a), the model half: SSA answers the debris call; it never
-  // blocks it (mitigation is 0 and HOLD can still lose the satellite), and
-  // ANSWERED is a status of its own, its own word and icon.
-  it('reads the debris call ANSWERED with SSA and YOUR CALL without, and nothing else ever ANSWERED or YOUR CALL', () => {
-    const state = newGame(scenario, 1, 'standard')
-    const debris = threats.find((e) => e.effect.special === 'debrisStrike')!
-    expect(moveStatus(state, debris, ['ssaManeuver'])).toBe('answered')
-    // YOUR CALL since v1.5 R1 (EXPOSED before): a hazard to decide.
-    expect(moveStatus(state, debris, [])).toBe('call')
-    for (const ev of threats) if (ev !== debris) expect(moveStatus(state, ev, []), ev.id).not.toBe('call')
-    const everything = scenario.countermeasures.map((c) => c.id)
-    for (const ev of threats) if (ev !== debris) expect(moveStatus(state, ev, everything), ev.id).not.toBe('answered')
-    expect(moveStatus(state, debris, everything)).toBe('answered')
-    const others = (['exposed', 'partial', 'blocked'] as const).map((k) => STATUS[k])
-    expect(others.map((s) => s.word)).not.toContain(STATUS.answered.word)
-    expect(others.map((s) => s.icon)).not.toContain(STATUS.answered.icon)
-    expect([...others, STATUS.answered].map((s) => s.word)).not.toContain(STATUS.call.word)
-    expect([...others, STATUS.answered].map((s) => s.icon)).not.toContain(STATUS.call.icon)
-  })
-
-  it('ticks FIRST ORDERS only when a move reads BLOCKED, not when an order only blunts it', () => {
-    const state = newGame(scenario, 1, 'standard')
-    const ticked = (buyCounters: CountermeasureId[]) => firstOrders(state, { buyAssets: [], buyCounters, intelBrief: false }).find((o) => o.id === 'defense')!.done
-    expect(ticked([]), 'nothing ordered').toBe(false)
-    expect(ticked(['linkAuth']), 'an order that at most blunts uplink jamming').toBe(false)
-    expect(ticked(['antiJam']), 'the primary blocks uplink jamming').toBe(true)
   })
 })

@@ -14,7 +14,8 @@ import { adversaryPicks } from '../src/engine/adversary'
 import { candidatesTonight } from '../src/engine/campaign'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
-import { SCANS_PER_NIGHT, TIMING_BONUS, scanPulses, timingRefund } from '../src/engine/rules'
+import { holdTonight, rightCall } from '../src/engine/holds'
+import { SCANS_PER_NIGHT, TIMING_BONUS, scanPulses } from '../src/engine/rules'
 import type { GameState, TimingGrade } from '../src/engine/types'
 import {
   ASSIST_GRADE,
@@ -35,6 +36,7 @@ import {
   nightNow,
   nightsOf,
   scanState,
+  spotFor,
   stakesFor,
   timeline,
   withResponse,
@@ -44,7 +46,8 @@ import {
 } from '../src/ui/three/gameModel'
 import { TAG } from '../src/ui/three/copy3d'
 import { SIGNATURE } from '../src/ui/three/signatures'
-import { MOTIF } from '../src/ui/three/sounds3d'
+import { THREAT_VOICES } from '../src/cues'
+import { VOICES } from '../src/audio/voices'
 import { unlocksFor } from '../src/ui/three/store3d'
 import { maiScore } from '../src/engine/scoring'
 
@@ -52,11 +55,12 @@ const SEEDS = Array.from({ length: 60 }, (_, i) => i * 7919 + 1)
 const THREATS = DEFAULT_SCENARIO.events.filter((e) => (e.kind ?? 'threat') === 'threat')
 const fresh = (seed: number, difficulty: 'easy' | 'standard' = 'standard') => newGame(DEFAULT_SCENARIO, seed, difficulty)
 
-// A whole game through the model, as the 3D game plays it: scan what the
+// A whole game through the model, as the game plays it: scan what the
 // pulses allow, place the piece that answers the first favored signature
-// the scan has named, order a drone on night 1 (each only while the
-// stakes' WORST CASE stays at 0 or more), take the first answer that fits,
-// burn on the debris, and tap every move at `grade`.
+// the scan has named, on the spot its card recommends, order a drone on
+// night 1 (each only while the stakes' WORST CASE stays at 0 or more),
+// read tonight's hold right, take the first answer that fits, burn on the
+// debris, and tap every move at `grade`.
 function playThrough(start: GameState, grade: TimingGrade | 0 = 0): GameState {
   let state = start
   while (state.status === 'playing') {
@@ -66,9 +70,10 @@ function playThrough(start: GameState, grade: TimingGrade | 0 = 0): GameState {
     const want = contacts.find((c) => c.known && !c.debris && c.exposed > 0 && c.favor !== 'unlikely')
     const piece = want && kitFor(state, orders, contacts).find((p) => !p.blocked && p.answers.some((a) => a.contact.id === want.id))
     const safe = (o: Orders) => stakesFor(state, o, contacts, 0).worst >= 0
-    if (piece && safe({ ...orders, defense: piece.cm.id })) orders = { ...orders, defense: piece.cm.id }
+    if (piece && safe({ ...orders, defense: piece.cm.id })) orders = { ...orders, defense: piece.cm.id, place: spotFor(state, orders, piece.cm.id) ?? null }
     if (state.turn === 1 && safe({ ...orders, assets: ['drone'] })) orders = { ...orders, assets: ['drone'] }
-    let inputs: NightInputs = { ...NO_INPUTS, debris: 'burn' }
+    const hold = holdTonight(state)
+    let inputs: NightInputs = { ...NO_INPUTS, debris: 'burn', ...(hold ? { hold: rightCall(hold) } : {}) }
     for (;;) {
       const now = nightNow(state, orders, inputs)
       now.night.steps.forEach((s) => {
@@ -139,13 +144,14 @@ describe('the signatures over the fleet are the engine’s own (v2.0 R1)', () =>
     const looks = new Set<string>()
     for (const ev of THREATS) {
       expect(SIGNATURE[ev.id], `${ev.id} has no signature`).toBeTruthy()
-      expect(MOTIF[ev.id]?.length, `${ev.id} has no sound`).toBeGreaterThan(0)
+      expect(typeof VOICES[THREAT_VOICES[ev.id]], `${ev.id} has no voice`).toBe('function')
       expect(TAG[ev.id], `${ev.id} has no short name`).toBeTruthy()
       looks.add(`${SIGNATURE[ev.id].form}:${SIGNATURE[ev.id].color}:${SIGNATURE[ev.id].wide ?? ''}`)
       for (const r of ev.responses ?? []) expect(['reroute', 'isolate', 'shield'], `${ev.id} ${r.id}`).toContain(gestureOf(r.id))
     }
     expect(looks.size, 'two threats look the same').toBe(THREATS.length)
-    expect(new Set(Object.values(MOTIF).map((m) => JSON.stringify(m))).size, 'two threats sound the same').toBe(Object.keys(MOTIF).length)
+    expect(Object.keys(THREAT_VOICES).sort(), 'a voice is keyed by something that is not a threat in the deck').toEqual(THREATS.map((e) => e.id).sort())
+    expect(new Set(Object.values(THREAT_VOICES)).size, 'two threats sound the same').toBe(THREATS.length)
     expect(Object.keys(SIGNATURE).sort()).toEqual(THREATS.map((e) => e.id).sort())
     const gestures = new Set(Object.values(RESPONSE_TEXT).flatMap((r) => Object.keys(r).map(gestureOf)))
     expect([...gestures].sort()).toEqual(['isolate', 'reroute', 'shield'])
@@ -173,9 +179,8 @@ describe('the scan and the timed tap are engine inputs, with the rules’ limits
     expect(ok.history[0].maiScore).toBe(blind.history[0].maiScore)
   })
 
-  it('lets a tap take a little off a hit or pay a little of a block back, and never decide a move', () => {
+  it('lets a tap take a little off a hit, and never decide a move', () => {
     let hits = 0
-    let refunds = 0
     for (const seed of SEEDS) {
       const plain = playThrough(fresh(seed), 0)
       for (const grade of [1, 2] as const) {
@@ -185,11 +190,6 @@ describe('the scan and the timed tap are engine inputs, with the rules’ limits
           rec.events.forEach((ev, i) => {
             if (ev.timing === undefined) return
             expect(ev.timing).toBe(grade)
-            if (ev.refund) {
-              refunds += 1
-              expect(ev.response?.effect).toBe('block')
-              expect(ev.refund).toBe(timingRefund(ev.response!.cost, grade))
-            }
             if (ev.effectiveSeverity > 0) hits += 1
             const same = plain.history[t]?.events[i]
             if (t === 0 && same) {
@@ -203,7 +203,6 @@ describe('the scan and the timed tap are engine inputs, with the rules’ limits
       }
     }
     expect(hits).toBeGreaterThan(100)
-    expect(refunds).toBeGreaterThan(20)
     expect(TIMING_BONUS[2]).toBeLessThanOrEqual(0.05)
     expect(TIMING_BONUS[1]).toBe(TIMING_BONUS[2] / 2)
   })
@@ -268,28 +267,28 @@ describe('the guard on the one way to lose by accident (v2.0 R1)', () => {
   it('marks as risky exactly the pieces and assets that would put WORST CASE below 0', () => {
     let risky = 0
     let safe = 0
-    for (const seed of SEEDS.slice(0, 20)) {
-      // Deep in a game that has spent freely, so some orders are risky.
+    for (const seed of SEEDS) {
+      // Every night of a game that spends freely (a piece a night, and a
+      // satellite on night 1), so some orders are risky.
       let state = fresh(seed)
-      for (let turn = 1; turn <= 4 && state.status === 'playing'; turn += 1) {
-        const piece = kitFor(state, NO_ORDERS, contactsFor(state, NO_ORDERS)).find((p) => !p.blocked)
+      for (let turn = 1; turn <= 5 && state.status === 'playing'; turn += 1) {
+        const contacts = contactsFor(state, NO_ORDERS)
+        const kit = kitFor(state, NO_ORDERS, contacts)
+        for (const p of kit) {
+          if (p.blocked) {
+            expect(p.risky, `${p.cm.id} is blocked and risky at once`).toBe(false)
+            continue
+          }
+          const worst = stakesFor(state, { ...NO_ORDERS, defense: p.cm.id }, contacts, 0).worst
+          expect(p.risky, `seed ${seed} turn ${state.turn}: ${p.cm.id} at WORST CASE ${worst}`).toBe(worst < 0)
+          if (p.risky) risky += 1
+          else safe += 1
+        }
         try {
-          state = resolveTurn(state, actionsOf({ ...NO_ORDERS, defense: piece?.cm.id ?? null, assets: turn === 1 ? ['sat'] : [] }), turnRng(state.seed, state.turn))
+          state = resolveTurn(state, actionsOf({ ...NO_ORDERS, defense: kit.find((p) => !p.blocked)?.cm.id ?? null, assets: turn === 1 ? ['sat'] : [] }), turnRng(state.seed, state.turn))
         } catch {
           break
         }
-      }
-      if (state.status !== 'playing') continue
-      const contacts = contactsFor(state, NO_ORDERS)
-      for (const p of kitFor(state, NO_ORDERS, contacts)) {
-        if (p.blocked) {
-          expect(p.risky, `${p.cm.id} is blocked and risky at once`).toBe(false)
-          continue
-        }
-        const worst = stakesFor(state, { ...NO_ORDERS, defense: p.cm.id }, contacts, 0).worst
-        expect(p.risky, `seed ${seed} turn ${state.turn}: ${p.cm.id} at WORST CASE ${worst}`).toBe(worst < 0)
-        if (p.risky) risky += 1
-        else safe += 1
       }
     }
     // Not vacuous either way.

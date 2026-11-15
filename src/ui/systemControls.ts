@@ -1,10 +1,9 @@
 // The SYSTEM sheet's controls as data (v1.3 R1, brief 5.8), apart from
-// the components that render them (./SystemPanel.tsx, ./board/SystemSheet.tsx)
-// so neither imports the other.
+// the component that renders them (./SystemPanel.tsx).
 
 import { ADVERSARY } from '../config'
 import { ADVISORY_COUNT, COUNTERMEASURE_COUNT, DEFAULT_SCENARIO, FRAMEWORK_TECHNIQUE_COUNT, OPPORTUNITY_EVENT_COUNT, SOURCE_COUNT, THREAT_EVENT_COUNT } from '../content'
-import { NEW_DEFENSES_PER_NIGHT, RESPONSES_PER_NIGHT } from '../engine/rules'
+import { HARDEN, NEW_DEFENSES_PER_NIGHT, SCANS_PER_NIGHT } from '../engine/rules'
 
 // The two audio toggles (Round 4d), one word each, ON or OFF beside them
 // since the v1.3 R1 fixes.
@@ -44,17 +43,16 @@ export const SYSTEM_CONTROLS: readonly SystemControl[] = [
 // README counts them.
 export const DECK_LINE = `The deck: ${THREAT_EVENT_COUNT} threats, ${OPPORTUNITY_EVENT_COUNT} opportunities, ${COUNTERMEASURE_COUNT} countermeasures, ${FRAMEWORK_TECHNIQUE_COUNT} framework techniques, ${ADVISORY_COUNT} NSA ${ADVISORY_COUNT === 1 ? 'advisory' : 'advisories'}, ${SOURCE_COUNT} cited sources.`
 
-// HOW TO PLAY (v1.6 R3, Ken's playtest item 6): the full brief's YOUR JOB
-// left the board for the turn-1 coach's first step and for this, which
-// SYSTEM opens on the title and on the board. Every number is the
-// scenario's.
+// HOW TO PLAY (v1.6 R3, Ken's playtest item 6; the 3D game's since v2.0
+// R3), which SYSTEM opens on the title. Every number is the scenario's or
+// the engine's.
 export function howToLines(scenario = DEFAULT_SCENARIO): string[] {
-  const { totalTurns, winThreshold, collapseThreshold, upkeepPerDefense } = scenario
+  const { totalTurns, winThreshold, collapseThreshold, upkeepPerDefense, answers } = scenario
   return [
-    `Finish turn ${totalTurns} with the mission assurance score at ${winThreshold} or higher. You start above the win line, and ${ADVERSARY} spends ${totalTurns} turns eroding it.`,
-    `Each turn TONIGHT names ${ADVERSARY}’s moves. They go for the move your defenses take the fewest points off. Tap a move to see what answers it.`,
-    `PROCURE fleet and defenses, ${NEW_DEFENSES_PER_NIGHT} new defense a turn, then EXECUTE to play out the night. Each defense takes ${upkeepPerDefense} CR a turn to keep, and deployments take turns to arrive.`,
-    `In the night, a move that would land stops for your response: block it or halve it for CR, ${RESPONSES_PER_NIGHT} response a night, or ride it out. A defense you own blocks its move every night for free.`,
-    `Some attacks become conditions that press every turn until they lift. A score under ${collapseThreshold} or a budget under 0 ends the operation.`,
+    `Finish night ${totalTurns} with the mission assurance score at ${winThreshold} or higher. You start above the win line, and ${ADVERSARY} spends ${totalTurns} nights eroding it.`,
+    `Before each night, ${ADVERSARY}’s possible moves stand over the fleet as signatures. Scan ${SCANS_PER_NIGHT} of them, or name one on sight, to see what it is and what answers it. ${ADVERSARY} plays the move your defenses take the fewest points off.`,
+    `Place ${NEW_DEFENSES_PER_NIGHT} new defense a night. It covers the whole fleet against its moves, and a strike on the asset it sits on lands ${HARDEN} point weaker. Each defense takes ${upkeepPerDefense} CR a night to keep, and new assets take nights to arrive.`,
+    `In the night, a move that would land stops for your answer: block it, halve it, or ride it out. You have ${answers} answers for the whole operation. Some nights your own policy engine stops one of your assets: read the checks, then override the block or let it stand.`,
+    `Some attacks become conditions that press every night until they lift. A score under ${collapseThreshold} or a budget under 0 ends the operation.`,
   ]
 }

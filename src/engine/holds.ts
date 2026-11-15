@@ -10,7 +10,7 @@
 // on what action, is drawn from the fleet as it stands that night, so a
 // player who ordered another drone may see the hold on it.
 //
-// THE DEAL. A game has Scenario.watch2.holds of them, on nights drawn from night 2 to
+// THE DEAL. A game has Scenario.holdCount of them, on nights drawn from night 2 to
 // the last (night 1 is the first watch's, and has enough to learn). At
 // least one is a compromise and at least one a false positive, so a
 // player who always overrides and one who never does are each wrong at
@@ -27,7 +27,7 @@
 // WHAT A WRONG CALL COSTS. Each hold's template names the meter its action
 // served. Overriding a compromise corrupts it; letting a false positive
 // stand starves it, the fleet's own defense having denied its own
-// mission. Either is watch2.holdStake points of score at STANDARD, scaled
+// mission. Either is Scenario.holdStake points of score at STANDARD, scaled
 // like every other damage on EASY. (Measured: with a false positive
 // charged to link availability, which a careful fleet keeps at its cap,
 // the nightly recovery gave the points back and letting every block stand
@@ -45,8 +45,8 @@ const stream = (seed: number, n: number): Rng => mulberry32((Math.imul(seed ^ HO
 // The nights a seed's holds fall on, with whether each is a compromise.
 export function holdNights(scenario: GameState['scenario'], seed: number): Map<number, boolean> {
   const out = new Map<number, boolean>()
-  const count = Math.min(scenario.watch2?.holds ?? 0, scenario.totalTurns - 1)
-  if (!scenario.holds?.length || count <= 0) return out
+  const count = Math.min(scenario.holdCount, scenario.totalTurns - 1)
+  if (!scenario.holds.length || count <= 0) return out
   const r = stream(seed, 0)
   const nights: number[] = []
   for (let t = 2; t <= scenario.totalTurns; t += 1) nights.push(t)
@@ -70,7 +70,7 @@ export function holdNights(scenario: GameState['scenario'], seed: number): Map<n
 // switch twice, word for word). The k-th hold takes the k-th template of
 // this order that some live asset can carry.
 function templateOrder(scenario: GameState['scenario'], seed: number): HoldTemplate[] {
-  const out = [...(scenario.holds ?? [])]
+  const out = [...scenario.holds]
   const r = stream(seed, 97)
   for (let i = out.length - 1; i > 0; i -= 1) {
     const j = r.int(i + 1)
@@ -79,13 +79,12 @@ function templateOrder(scenario: GameState['scenario'], seed: number): HoldTempl
   return out
 }
 
-export const holdTemplate = (scenario: GameState['scenario'], id: string): HoldTemplate | undefined => scenario.holds?.find((h) => h.id === id)
+export const holdTemplate = (scenario: GameState['scenario'], id: string): HoldTemplate | undefined => scenario.holds.find((h) => h.id === id)
 
 // Tonight's hold, when the seed deals one and an asset it can be raised
 // on is alive. Read from the state alone, so the presentation can show it
 // before the night resolves.
-export function holdTonight(state: Pick<GameState, 'scenario' | 'seed' | 'turn' | 'assets' | 'watch'>): HoldPlan | undefined {
-  if (state.watch !== 2) return undefined
+export function holdTonight(state: Pick<GameState, 'scenario' | 'seed' | 'turn' | 'assets'>): HoldPlan | undefined {
   const nights = holdNights(state.scenario, state.seed)
   const compromised = nights.get(state.turn)
   if (compromised === undefined) return undefined
@@ -121,7 +120,7 @@ function wrongDamage(state: GameState, plan: HoldPlan): { meter: 'dataIntegrity'
   const w = state.scenario.maiWeights
   const total = w.coverage + w.linkAvailability + w.dataIntegrity + w.sensorIntegrity
   const meter = holdTemplate(state.scenario, plan.template)?.meter ?? 'dataIntegrity'
-  return { meter, amount: scaled(((state.scenario.watch2?.holdStake ?? 0) * total) / w[meter], state.difficulty) }
+  return { meter, amount: scaled((state.scenario.holdStake * total) / w[meter], state.difficulty) }
 }
 
 // Resolve tonight's hold on the state, in place, with the player's call.

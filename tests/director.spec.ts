@@ -7,17 +7,17 @@
 // presentation lands on the engine's after-state, is now
 // tests/night-model.spec.ts (the board the night ends on, closed by the
 // engine's ledger, is the engine's next state on every turn of 600
-// games); that nothing advances without the player is GUARD R3 (a) in
-// tests/night-r3.dom.spec.tsx; the declared spend is in
-// tests/game.dom.spec.tsx and tests/director-view.dom.spec.tsx.
+// games).
 //
 // What stays here are the grains the old sweep and its fixtures were built
 // to reach, re-pointed at the night's model (src/ui/night/nightModel.ts):
 // that deriving a night touches neither state, that each step is the
-// record's event and its strike is on the tile the record names, that the
-// orders land before the first move, and the jam, the chain and the
-// rideshare as the night shows them. Nothing here touches resolveTurn's
-// output; the engine is the oracle.
+// record's event and moves the asset the record names, that the orders
+// land before the first move, and the jam, the chain and the rideshare as
+// the night shows them. Nothing here touches resolveTurn's output; the
+// engine is the oracle. The pixel night's strike and cards, which this
+// file also read, were retired with the board in v2.0 R3; the cards read
+// here are the 3D game's (src/ui/three/cards3d.tsx).
 
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -28,11 +28,9 @@ import { CHAIN_BONUS, DEPLOY_TURNS, gnssDenied, newGame, resolveTurn } from '../
 import { turnRng } from '../src/engine/rng'
 import type { ActiveCondition, Difficulty, GameState, TurnActions } from '../src/engine/types'
 import { callSigns } from '../src/ui/board/board'
-import { strikeOf } from '../src/ui/board/strike'
-import { HitCard } from '../src/ui/night/cards'
-import { DebrisResult, OpportunityCard } from '../src/ui/night/closeCards'
-import { defensesFor, nightOf, resultOf } from '../src/ui/night/nightModel'
-import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT, randomPolicy } from './scripts'
+import { defensesFor, nightOf } from '../src/ui/night/nightModel'
+import { ResultCard } from '../src/ui/three/cards3d'
+import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT, randomPolicy, scripted } from './scripts'
 
 const WIN_SEED = 20260712
 const LOSS_SEED = 4041
@@ -41,11 +39,9 @@ const SEEDS = 40
 // title offers EASY or STANDARD, and the engine has no profile for a third.
 const DIFFICULTIES: Difficulty[] = ['easy', 'standard']
 
+// A written script is played as a line the engine takes: what the budget
+// cannot meet on a night is left out (tests/scripts.ts, scripted).
 type Line = (state: GameState) => TurnActions
-const scripted =
-  (script: Record<number, TurnActions>): Line =>
-  (state) =>
-    script[state.turn] ?? NO_OP
 
 // The fifth line was a prepared line that also spent surge authority, so
 // the surge-clear grain was exercised alongside everything else. SURGE
@@ -81,7 +77,7 @@ function* playTurns(seed: number, line: Line, difficulty: Difficulty = 'standard
 
 // What the night reads off both states. An in-place edit of any of it would
 // corrupt live state with every other guard still green: the after-state
-// is what END OF TURN shows and what the night model is measured against.
+// is what the close shows and what the night model is measured against.
 const readable = (s: GameState) => ({
   credits: s.credits,
   assets: s.assets,
@@ -95,6 +91,8 @@ const readable = (s: GameState) => ({
   saved: s.saved,
   learned: s.learned,
   briefFreeThrough: s.briefFreeThrough,
+  placed: s.placed,
+  answersUsed: s.answersUsed,
   // The scenario is a shared module singleton, so a write there would
   // outlive the call and poison every later game in the process.
   scenario: s.scenario,
@@ -117,7 +115,7 @@ const SWEEP_TIMEOUT_MS = 30_000
 
 describe('the night model over every line, seed and difficulty', () => {
   it(
-    'derives every night without touching either state, one step per event of the record, each strike on the tile the record names',
+    'derives every night without touching either state, one step per event of the record, each moving only the asset the record names',
     () => {
       let turns = 0
       let strikes = 0
@@ -143,23 +141,21 @@ describe('the night model over every line, seed and difficulty', () => {
               const night = nightOf(before, after)
               expect(JSON.stringify(readable(before)), `${where}: before mutated`).toBe(beforeUntouched)
               expect(JSON.stringify(readable(after)), `${where}: after mutated`).toBe(afterUntouched)
-              expect(night.closing, `${where}: END OF TURN would show a copy rather than the engine's state`).toBe(after)
+              expect(night.closing, `${where}: the close would show a copy rather than the engine's state`).toBe(after)
               // One step per event the engine recorded, in its order: the
               // cards are the record, not a reading of it.
               expect(night.steps.map((s) => s.ev), `${where}: steps out of step with the record`).toEqual(record.events)
-              night.steps.forEach((step, i) => {
+              night.steps.forEach((step) => {
                 const { ev } = step
-                // The hit's asset (v1.2 R3, now the night's strike): the
-                // board lands the strike on whatever strikeOf names, so this
-                // is the link between the engine's record and the tile.
-                // The record names the AIMED tile even when a defense held
-                // (v1.3 Round 0), so a block flashes its shield there.
+                // The move's asset: the record names the AIMED asset even
+                // when a defense held (v1.3 Round 0), and the world strikes
+                // there, so it has to be one the board the move met holds,
+                // on a layer the move reaches.
                 if (step.kind === 'threat' && ev.targetAssetId !== undefined) {
-                  const strike = strikeOf(`t${night.turn}-${i}`, ev, step.def.layers, step.before, true)
-                  expect(strike, `${where}: ${ev.eventId} has no strike`).not.toBeNull()
-                  expect(strike!.kind, `${where}: ${ev.eventId}`).toBe(ev.effectiveSeverity > 0 ? 'hit' : 'held')
-                  expect('assetId' in strike! ? strike.assetId : undefined, `${where}: ${ev.eventId} strikes another tile`).toBe(ev.targetAssetId)
-                  if (strike!.kind === 'hit') strikes += 1
+                  const target = step.before.assets.find((a) => a.id === ev.targetAssetId)
+                  expect(target, `${where}: ${ev.eventId} is aimed at an asset the board does not hold`).toBeDefined()
+                  expect(step.def.layers, `${where}: ${ev.eventId} is aimed off its layers`).toContain(target!.layer)
+                  if (ev.effectiveSeverity > 0) strikes += 1
                   else held += 1
                 }
                 // And the step moves that asset's integrity to the record's
@@ -181,8 +177,8 @@ describe('the night model over every line, seed and difficulty', () => {
       // covering a fraction of what it used to.
       expect(turns, 'the sweep now covers far fewer turns than it did').toBeGreaterThanOrEqual(1500)
       // Both kinds of strike occurred in real play.
-      expect(strikes, 'no strike landed on a tile in the sweep').toBeGreaterThan(0)
-      expect(held, 'no block flashed on a tile in the sweep').toBeGreaterThan(0)
+      expect(strikes, 'no strike landed on an asset in the sweep').toBeGreaterThan(0)
+      expect(held, 'no move aimed at an asset was blocked in the sweep').toBeGreaterThan(0)
       // The insolvent close is a grain the sweep exists to cover (the fifth
       // line was chosen for it), so a sweep that never reaches one has
       // quietly lost it.
@@ -200,8 +196,9 @@ describe('the night model over every line, seed and difficulty', () => {
   it('puts no engine id or raw enum on any card the night shows', () => {
     // This was a check on the beats' titles. The night's cards are built
     // from the record and its notes (an opportunity's note names the asset
-    // it expedited), so every card of every step is rendered here, with the
-    // call signs the night gives them, on the prepared and random lines.
+    // it expedited), so the 3D game's result card of every step is rendered
+    // here, opened, with the call signs the night gives it, on the prepared
+    // and random lines.
     const read = (markup: string) => markup.replace(/<[^>]+>/g, ' ').replaceAll('&amp;', '&').replace(/\s+/g, ' ')
     let cards = 0
     for (const line of [scripted(WIN_SCRIPT), randomLine]) {
@@ -210,19 +207,24 @@ describe('the night model over every line, seed and difficulty', () => {
           const night = nightOf(before, after)
           const signs = new Map([...callSigns(before), ...callSigns(after)])
           for (const step of night.steps) {
-            const props = {
-              step,
-              turn: night.turn,
-              lastTurn: false,
-              signs,
-              known: new Set<string>(),
-              first: false,
-              reduced: true,
-              play: () => {},
-              onContinue: () => {},
-            }
-            const card = step.kind === 'opportunity' ? OpportunityCard : step.kind === 'debris' ? DebrisResult : HitCard
-            const text = read(renderToStaticMarkup(createElement(card, props)))
+            const text = read(
+              renderToStaticMarkup(
+                createElement(ResultCard, {
+                  step,
+                  sign: signs.get(step.ev.targetAssetId ?? step.ev.debris?.assetId ?? '') ?? '',
+                  signs,
+                  assist: false,
+                  fresh: true,
+                  filed: null,
+                  open: true,
+                  onOpen: () => {},
+                  last: false,
+                  first: { current: null },
+                  could: undefined,
+                  onContinue: () => {},
+                }),
+              ),
+            )
             const where = `seed ${seed}, turn ${night.turn}, ${step.def.id}`
             expect(text, `${where}: engine id on the card`).not.toMatch(/\b(?:start|t\d+)-(?:sat|rpoSat|drone|groundStation)-\d+\b/)
             expect(text, `${where}: raw enum on the card`).not.toMatch(/\b(?:rpoSat|groundStation|supplyChain)\b/)
@@ -237,17 +239,17 @@ describe('the night model over every line, seed and difficulty', () => {
 
 describe('the night at known turns', () => {
   it('turn 1 of the prepared line: the orders land as the night opens, at the exact spend', () => {
-    // v1.3 Round 0 (brief 5.5): the orders land at EXECUTE, before
-    // anything else happens tonight, so the board the first move meets
-    // already carries them.
+    // v1.3 Round 0 (brief 5.5): the orders land as the night begins,
+    // before anything else happens tonight, so the board the first move
+    // meets already carries them.
     const { before, after } = turnAt(WIN_SEED, scripted(WIN_SCRIPT), 1)
     const night = nightOf(before, after)
     // The prepared script's turn 1 (tests/scripts.ts): a drone and
     // anti-jam, one new defense a night since v1.4 (both turn-1 primaries
-    // before it). The intel brief is free on turn 1 (D2 a) and the script
-    // does not order it, so it costs nothing.
+    // before it), and the opening budget meets both.
     const s = DEFAULT_SCENARIO
     const expected = s.countermeasures.find((c) => c.id === 'antiJam')!.cost + s.prices.drone
+    expect(scripted(WIN_SCRIPT)(before), 'the opening budget no longer meets the script\'s first night').toEqual(WIN_SCRIPT[1])
     expect(before.credits - night.opening.credits).toBe(expected)
     expect(expected).toBe(after.history[0].ledger.ordered)
     // The defense is active the night it is ordered (brief 6.1), and the
@@ -271,21 +273,22 @@ describe('the night at known turns', () => {
     // door, so no night of WIN_SEED meets the defense it ordered, and the
     // night is found instead: the prepared script's first, over seeds 1 to
     // 100, where a move meets a defense ordered that night.
-    const meets = (t: Turn) =>
-      nightOf(t.before, t.after).steps.some((x) => x.kind === 'threat' && x.def.counters.some((c) => (WIN_SCRIPT[t.before.turn]?.buyCounters ?? []).includes(c)))
+    // What the line ordered that night, the budget having had its say.
+    const ordered = (t: Turn) => scripted(WIN_SCRIPT)(t.before).buyCounters
+    const meets = (t: Turn) => nightOf(t.before, t.after).steps.some((x) => x.kind === 'threat' && x.def.counters.some((c) => ordered(t).includes(c)))
     let found: Turn | undefined
     for (let seed = 1; seed <= 100 && !found; seed += 1) found = [...playTurns(seed, scripted(WIN_SCRIPT))].find(meets)
     expect(found, 'no night of the prepared script meets a defense ordered that night').toBeDefined()
     const { before, after } = found!
     const night = nightOf(before, after)
-    const bought = WIN_SCRIPT[before.turn].buyCounters
+    const bought = ordered(found!)
     expect(bought.length).toBeGreaterThan(0)
     for (const id of bought) expect(before.counters, `the fixture owned ${id} already`).not.toContain(id)
     const threats = night.steps.filter((s) => s.kind === 'threat')
     expect(threats.length).toBeGreaterThan(0)
     for (const t of threats) for (const id of bought) expect(t.before.counters, `${t.def.id} met the board before ${id} landed`).toContain(id)
-    // A move one of them answers is met by it already, and its card's
-    // outcome block (HELD or REDUCED) names one of tonight's orders.
+    // A move one of them answers is met by it already, and its card names
+    // one of tonight's orders as the defense that held or reduced it.
     const answered = threats.filter((t) => t.def.counters.some((c) => bought.includes(c)))
     expect(answered.length, 'no move tonight is one the new defenses answer').toBeGreaterThan(0)
     for (const t of answered) expect(t.ev.mitigation, `${t.def.id} was not met by tonight's defense`).toBeGreaterThan(0)
@@ -367,13 +370,10 @@ describe('the night at known turns', () => {
     const chain = night.steps.find((s) => s.kind === 'threat' && s.def.id === 'blackout-chain')
     expect(chain, 'the built night has no BLACKOUT CHAIN').toBeDefined()
     expect(chain!.ev.chainBonus).toBe(CHAIN_BONUS)
-    // The card's result panel says the chain added a point, and the step
-    // takes sensor integrity down.
-    expect(resultOf(chain!.ev).chained).toBe(true)
-    expect(resultOf(chain!.ev).strength).toBe(chain!.def.baseSeverity + CHAIN_BONUS)
+    // The step takes sensor integrity down.
     expect(chain!.after.meters.sensorIntegrity).toBeLessThan(chain!.before.meters.sensorIntegrity)
     // And the night still lands on the engine's budget on the built state.
-    expect((night.steps.at(-1)?.after ?? night.opening).credits).toBe(after.history.at(-1)!.ledger.afterNight)
+    expect((night.steps.at(-1)?.after ?? night.hold?.after ?? night.opening).credits).toBe(after.history.at(-1)!.ledger.afterNight)
   })
 
   // RETIRED in v1.3 R3: "a condition expiring yields a condition-cleared
@@ -389,7 +389,7 @@ describe('the night at known turns', () => {
     // slip since v1.3 Round 0 (brief 6.1), so the night opens with the
     // entry at the kind's fixed ETA. A satellite takes two turns, so an
     // expedite the night it is ordered brings it in at this close, which
-    // END OF TURN shows from the engine's own state. Search the seed space
+    // the close shows from the engine's own state. Search the seed space
     // for the case rather than pin a seed by hand.
     const buySat: Record<number, TurnActions> = { ...LOSS_SCRIPT, 3: { ...NO_OP, buyAssets: [{ kind: 'sat' }] } }
     let expedited = 0
@@ -402,7 +402,7 @@ describe('the night at known turns', () => {
       expect(night.opening.pipeline.find((p) => p.id === 't3-sat-1')?.etaTurns, `seed ${seed}`).toBe(DEPLOY_TURNS.sat)
       const opp = night.steps.find((s) => s.kind === 'opportunity' && s.def.id === 'rideshare-slot')
       expect(opp, `seed ${seed}: the rideshare has no card`).toBeDefined()
-      // Due at this close: END OF TURN shows it on station.
+      // Due at this close: the close shows it on station.
       expect(night.closing).toBe(after)
       expect(after.pipeline.some((p) => p.id === 't3-sat-1')).toBe(false)
       expect(after.assets.some((a) => a.id === 't3-sat-1')).toBe(true)
@@ -410,9 +410,6 @@ describe('the night at known turns', () => {
     expect(expedited, 'no seed exercised a same-turn expedite').toBeGreaterThan(0)
   })
 
-  // MOVED in v1.3 R3: "the deciding turn ends on an outcome beat". The
-  // night ends on END OF TURN, whose ending block is rendered over real
-  // play in tests/director-view.dom.spec.tsx.
 })
 
 // RETIRED in v1.3 R3 with the director (src/director): the residual
@@ -421,7 +418,4 @@ describe('the night at known turns', () => {
 // bookkeeping beats, and the whole playback block (tap-through completion,
 // waiting for the player, SKIP from any point, and the spend declared per
 // beat by chosenCreditsOf). The night has no patches to replay and no SKIP;
-// tests/night-model.spec.ts proves it lands on the engine, GUARD R3 (a) in
-// tests/night-r3.dom.spec.tsx that it waits for a tap, and the declared
-// spend is driven through the night in tests/game.dom.spec.tsx and
-// tests/director-view.dom.spec.tsx.
+// tests/night-model.spec.ts proves it lands on the engine.

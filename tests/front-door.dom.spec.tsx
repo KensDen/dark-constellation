@@ -2,30 +2,36 @@
 //
 // The front door (v1.3 R1, brief 5.1, 5.2 and section 3). Two guards:
 //   GUARD R1 (a), THE FIRST-VISIT FLOW: a first-ever visit lands on the
-//   title, and its PLAY goes through the briefing to turn 1 with no menu in
-//   between, on EASY. A later PLAY skips the briefing, every PLAY draws a
-//   fresh seed, and a device that has finished a campaign starts on
-//   STANDARD. PLAY says which (its [data-play-mode] line), and SYSTEM is
-//   the one place the difficulty changes: the title's difficulty chip
-//   went in v1.3 R2 (Ken's ruling).
+//   title, and its PLAY opens the game on its briefing, on EASY. A later
+//   PLAY skips the briefing, every PLAY draws a fresh seed, and a device
+//   that has won a campaign starts on STANDARD. PLAY says which (its
+//   [data-play-mode] line), and SYSTEM is the one place the difficulty
+//   changes: the title's difficulty chip went in v1.3 R2 (Ken's ruling).
 //   GUARD R1 (b), NO RETIRED WORD: nothing on an R1 screen (the title, its
 //   SYSTEM, the briefing) says buy, purchase, money, MAI or RESOLVE (brief
 //   section 4).
-// The third R1 guard, that the briefing fits one phone screen with
-// CONTINUE showing, needs a real layout engine and lives in the battery
-// (scripts/phone-layout.mjs), with the R1 fixes' SYSTEM bounds, scroll
-// reset and tagline checks. The fixes' flow checks are at the foot of
-// this file.
+// The R1 fixes' SYSTEM bounds, scroll reset and tagline checks need a real
+// layout engine and live in the battery (scripts/phone-layout.mjs). The
+// fixes' flow checks are at the foot of this file.
+//
+// v2.0 R3: the game is the 3D game (the pixel board is retired). A test
+// DOM has no WebGL, so past the title this file sees the 3D game's own
+// fallback (tests/game3d.dom.spec.tsx holds it), and reads what an
+// operation started with off its autosave, which the game writes as night
+// 1's orders open and not while its briefing is still on. Walking the
+// briefing itself needs the 3D world, so its words are read here as the
+// data the opening prints (src/ui/three/copy3d.ts, OPENING).
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
+vi.mock('../src/ui/TitleWorld', () => ({ default: () => null }))
 
 import App from '../src/App'
-import { BEATS } from '../src/ui/coldOpenSlides'
+import { DEFAULT_SCENARIO } from '../src/content'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
+import * as c3 from '../src/ui/three/copy3d'
 import { MOVED_TO_STANDARD } from '../src/ui/session'
 import { glossaryEntries } from '../src/ui/reference'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
@@ -103,57 +109,56 @@ const click = (el: Element) => {
 const buttons = () => [...container.querySelectorAll('button')]
 const byText = (re: RegExp) => buttons().find((b) => re.test((b.textContent ?? '').trim()))
 const onTitle = () => container.querySelector('[data-title]') !== null
-const onBriefing = () => container.querySelector('[data-briefing]') !== null
-const onBoard = () => container.querySelector('[data-board]') !== null
+const inGame = () => container.querySelector('[data-game3d]') !== null
+// The 3D game is a lazy chunk, and its rooms another: a few turns of the
+// loop bring each in.
+const settleFor = async (selector: string) => {
+  for (let i = 0; i < 300 && !container.querySelector(selector); i += 1) await act(async () => new Promise((r) => setTimeout(r, 10)))
+}
+const settleGame = () => settleFor('[data-game3d]')
+// The fallback's one way out.
+const leaveGame = () => click([...container.querySelectorAll('[data-game3d] button')].find((b) => (b.textContent ?? '').trim() === c3.TITLE)!)
 const autosave = () => JSON.parse(localStorage.getItem('dc-autosave') ?? 'null') as { state: { turn: number; difficulty: string; seed: number } } | null
 
 describe('GUARD R1 (a): the first-visit flow', () => {
-  it('goes title, briefing, turn 1, with no menu in between, on EASY, and remembers the briefing', async () => {
+  it('goes from the title into the game on its briefing, with no menu in between, and a later PLAY goes straight to night 1 on EASY, on a fresh seed', async () => {
     loadPage()
     expect(onTitle(), 'a first visit did not land on the title').toBe(true)
-    expect(onBoard()).toBe(false)
+    expect(inGame()).toBe(false)
     expect(container.querySelector('[data-play-mode]')!.textContent).toBe('EASY')
 
     click(container.querySelector('[data-play]')!)
-    await settle()
-    expect(onBriefing(), "a first device's PLAY did not go through the briefing").toBe(true)
-    expect(onTitle()).toBe(false)
-    for (let i = 0; i < BEATS.length; i += 1) {
-      const next = container.querySelector('[data-briefing-next]')!
-      expect(next.textContent!.trim()).toBe(i === BEATS.length - 1 ? 'BEGIN TURN 1' : 'CONTINUE')
-      click(next)
-    }
-    await settle()
-    expect(onBoard(), 'BEGIN TURN 1 did not reach the board').toBe(true)
-    expect(onTitle(), 'a menu or the title came between the briefing and the board').toBe(false)
-    const saved = autosave()!
-    expect(saved.state.turn).toBe(1)
-    expect(saved.state.difficulty, 'a first device did not start on EASY').toBe('easy')
-    expect(localStorage.getItem(INTRO_SEEN_KEY)).toBe('1')
-
-    // Back to title from a game in progress asks first (v1.3 R1 fixes,
-    // item 10): STAY keeps the board, LEAVE goes to the title.
-    click(container.querySelector('button[aria-label="System"]')!)
-    click(byText(/^Back to title$/)!)
-    const ask = container.querySelector('[data-confirm-leave]')
-    expect(ask, 'Back to title left a game in progress without asking').not.toBeNull()
-    expect(ask!.textContent).toContain('Leave this operation? It is saved; CONTINUE picks it up.')
-    click(byText(/^STAY$/)!)
-    expect(onBoard()).toBe(true)
-    expect(container.querySelector('[data-confirm-leave]')).toBeNull()
-    click(byText(/^Back to title$/)!)
-    click(byText(/^LEAVE$/)!)
+    await settleGame()
+    expect(inGame(), "a first device's PLAY did not open the game").toBe(true)
+    expect(onTitle(), 'a menu or the title came between PLAY and the game').toBe(false)
+    // On its briefing: night 1's orders, which write the autosave, have
+    // not opened, and the briefing is not yet marked seen.
+    expect(autosave(), "a first device's PLAY skipped the briefing").toBeNull()
+    expect(localStorage.getItem(INTRO_SEEN_KEY)).toBeNull()
+    leaveGame()
     expect(onTitle()).toBe(true)
 
-    // A later PLAY goes straight to turn 1, on a fresh seed.
+    // A device that has been through the briefing: PLAY goes straight to
+    // night 1.
+    localStorage.setItem(INTRO_SEEN_KEY, '1')
     click(container.querySelector('[data-play]')!)
-    await settle()
-    expect(onBriefing(), 'a later PLAY replayed the briefing').toBe(false)
-    expect(onBoard()).toBe(true)
-    expect(autosave()!.state.seed, 'two PLAYs drew the same seed').not.toBe(saved.state.seed)
+    await settleGame()
+    expect(inGame()).toBe(true)
+    const saved = autosave()
+    expect(saved, 'a later PLAY replayed the briefing').not.toBeNull()
+    expect(saved!.state.turn).toBe(1)
+    expect(saved!.state.difficulty, 'a first device did not start on EASY').toBe('easy')
+    leaveGame()
+    expect(onTitle()).toBe(true)
+
+    // And again, on a fresh seed.
+    click(container.querySelector('[data-play]')!)
+    await settleGame()
+    expect(inGame()).toBe(true)
+    expect(autosave()!.state.seed, 'two PLAYs drew the same seed').not.toBe(saved!.state.seed)
   })
 
-  it('starts on STANDARD once this device has finished a campaign', () => {
+  it('starts on STANDARD once this device has finished a campaign', async () => {
     localStorage.setItem(
       'dc-scores',
       JSON.stringify([{ outcome: 'won', mai: 80, seed: 1, turnsSurvived: 6, totalTurns: 6, scenarioId: 'first-light', difficulty: 'easy', recordedAt: '2026-10-20T00:00:00Z' }]),
@@ -162,7 +167,8 @@ describe('GUARD R1 (a): the first-visit flow', () => {
     loadPage()
     expect(container.querySelector('[data-play-mode]')!.textContent).toBe('STANDARD')
     click(container.querySelector('[data-play]')!)
-    expect(onBoard()).toBe(true)
+    await settleGame()
+    expect(inGame()).toBe(true)
     expect(autosave()!.state.difficulty, 'PLAY started another mode than it showed').toBe('standard')
   })
 
@@ -201,17 +207,20 @@ describe('GUARD R1 (a): the first-visit flow', () => {
     expect(container.querySelector('[data-play-mode]')!.textContent).toBe('STANDARD')
   })
 
-  it("says GOAL 1 is the last turn's score, not every turn's (v1.5 R1)", () => {
+  it("says GOAL 1 is the last night's score, not every night's (v1.5 R1)", () => {
     // R6b's fresh eyes, item 9: "Keep the score at 70+" read as every turn,
-    // where only the score at the end of the last turn counts.
+    // where only the score at the end of the last one counts.
     loadPage()
     const goal = container.querySelector('[data-goal="1"]')!.textContent!.replace(/\u00a0/g, ' ')
-    // "Finish", as the full brief's job says it: "End turn" is retired.
-    expect(goal).toContain('Finish turn 6 at 70+')
+    // "Finish": "End turn" is retired. The 3D game counts nights.
+    expect(goal).toContain(`Finish night ${DEFAULT_SCENARIO.totalTurns} at ${DEFAULT_SCENARIO.winThreshold}+`)
     expect(goal).not.toMatch(/keep/i)
   })
 
   it('shows the mode PLAY starts, and changes it in SYSTEM only', async () => {
+    // Past the briefing, so PLAY opens night 1 and the autosave says what
+    // it started.
+    localStorage.setItem(INTRO_SEEN_KEY, '1')
     loadPage()
     // No chip, and no difficulty control anywhere on the title outside
     // SYSTEM: the one place a difficulty word shows is PLAY's mode line.
@@ -235,13 +244,10 @@ describe('GUARD R1 (a): the first-visit flow', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull()
     expect(container.querySelector('[data-play-mode]')!.textContent).toBe('STANDARD')
 
-    // And PLAY starts the mode it shows: through the briefing, a first
-    // device's PLAY lands on turn 1 on STANDARD.
+    // And PLAY starts the mode it shows.
     click(container.querySelector('[data-play]')!)
-    await settle()
-    for (let i = 0; i < BEATS.length; i += 1) click(container.querySelector('[data-briefing-next]')!)
-    await settle()
-    expect(onBoard()).toBe(true)
+    await settleGame()
+    expect(inGame()).toBe(true)
     expect(autosave()!.state.difficulty, 'PLAY started another mode than it showed').toBe('standard')
   })
 })
@@ -259,7 +265,7 @@ describe('GUARD R1 (b): no retired word on an R1 screen', () => {
   const RETIRED: RegExp[] = [/\b(buy|buys|bought|purchas\w*|money|cart)\b/i, /\bMAI\b/, /\bRESOLVE\b/i]
   const offending = (text: string) => RETIRED.filter((re) => re.test(text)).map((re) => `${re} in "${text.match(re)![0]}"`)
 
-  it('finds none on the title and its SYSTEM, or in any beat of the briefing', async () => {
+  it('finds none on the title and its SYSTEM, or in any beat of the briefing', () => {
     loadPage()
     const title = words(container)
     expect(title.length, 'the title rendered nothing, so this asserts nothing').toBeGreaterThan(100)
@@ -269,51 +275,42 @@ describe('GUARD R1 (b): no retired word on an R1 screen', () => {
     expect(system).toMatch(/Replay a seed/i)
     expect(offending(system), "a retired word in the title's SYSTEM").toEqual([])
 
-    act(() => root.unmount())
-    root = createRoot(container)
-    loadPage()
-    click(container.querySelector('[data-play]')!)
-    await settle()
-    for (let i = 0; i < BEATS.length; i += 1) {
-      const beat = words(container.querySelector('[data-briefing]')!)
-      expect(beat).toContain(BEATS[i].caption[0])
-      expect(offending(beat), `a retired word on briefing beat ${i + 1}`).toEqual([])
-      click(container.querySelector('[data-briefing-next]')!)
-    }
+    // The briefing is the 3D game's opening, which a test DOM cannot
+    // draw: its beats are read as the lines the opening prints, with its
+    // speaker and its buttons.
+    expect(c3.OPENING.length, 'the briefing has no beats, so this asserts nothing').toBeGreaterThan(2)
+    c3.OPENING.forEach((beat, i) => {
+      expect(beat.line.length, `briefing beat ${i + 1} says nothing`).toBeGreaterThan(20)
+      expect(offending(`${beat.clock} ${beat.line}`), `a retired word on briefing beat ${i + 1}`).toEqual([])
+    })
+    expect(offending([c3.OPENING_SPEAKER, c3.OPENING_NEXT, c3.OPENING_GO, c3.OPENING_SKIP, c3.PHASE.opening].join(' · ')), "a retired word on the briefing's chrome").toEqual([])
   })
 })
 
 describe("the title's menu (Ken's R2 notes, 22 October 2026)", () => {
-  it('has no top bar: the key art leads, and SYSTEM is the last row of the menu, under READ', () => {
+  it('has no top bar: the hero leads, and SYSTEM is the last row of the menu, under READ', () => {
     loadPage()
     const title = container.querySelector('[data-title]')!
-    // The key art, with the title over it, is the title's first element
+    // The hero, with the title over it, is the title's first element
     // (v1.5 R2, where the ripple band was); nothing sits above it. Since
     // the desktop recomposition (29 October 2026) it leads the first
-    // screen's wrapper, which leads the title and steps aside on a phone.
+    // screen's wrapper, which leads the title. How the wrapper lays out
+    // on a phone is the stylesheet's since v2.0 R3 (src/index.css), which
+    // a test DOM does not load.
     const screen = title.firstElementChild!
     expect(screen.hasAttribute('data-title-screen'), 'something sits above the first screen').toBe(true)
-    expect(screen.classList.contains('contents'), 'the first screen boxes the phone title').toBe(true)
     const lead = screen.firstElementChild!
-    expect(lead.hasAttribute('data-key-art'), 'something sits above the key art').toBe(true)
-    expect(lead.querySelector('h1'), 'the title is not over the key art').not.toBeNull()
+    expect(lead.hasAttribute('data-key-art'), 'something sits above the hero').toBe(true)
+    expect(lead.querySelector('h1'), 'the title is not over the hero').not.toBeNull()
     const system = buttons().filter((b) => (b.textContent ?? '').trim() === 'SYSTEM')
     expect(system, 'the title shows SYSTEM more than once, or not at all').toHaveLength(1)
     expect(system[0].hasAttribute('data-title-system')).toBe(true)
     expect(system[0].getAttribute('aria-haspopup')).toBe('dialog')
-    // Under READ, and the last control before the constellation frame.
+    // Under READ, and the title's last control.
     const read = container.querySelector('section[aria-label="Read"]')!
     expect(read.compareDocumentPosition(system[0]) & Node.DOCUMENT_POSITION_FOLLOWING, 'SYSTEM is not under READ').toBeTruthy()
-    const controls = [...title.querySelectorAll('button')].filter((b) => !b.closest('section[aria-label="Constellation frame"]'))
+    const controls = [...title.querySelectorAll('button')]
     expect(controls.at(-1), 'SYSTEM is not the last row of the menu').toBe(system[0])
-  })
-
-  it('keeps the board its own SYSTEM button', async () => {
-    localStorage.setItem('dc-intro-seen', '1')
-    loadPage()
-    click(container.querySelector('[data-play]')!)
-    await settle()
-    expect(container.querySelector('[data-board] button[aria-label="System"]'), 'the board lost its SYSTEM').not.toBeNull()
   })
 })
 
@@ -327,11 +324,11 @@ describe('the R1 fixes (Ken, iPhone, 21 October 2026)', () => {
       loadPage()
       top = 900
       click(container.querySelector('[data-read="dossier"]')!)
-      await settle()
-      expect(container.querySelector('[data-screen="dossier"]')).not.toBeNull()
+      await settleFor('[data-t3-room="dossier"]')
+      expect(container.querySelector('[data-t3-room="dossier"]')).not.toBeNull()
       expect(top, 'DOSSIER opened at the title scroll position').toBe(0)
       top = 700
-      click(byText(/^Back to title$/i)!)
+      click(container.querySelector('[data-t3-room-back]')!)
       expect(onTitle()).toBe(true)
       expect(top, 'Back to title opened at the Dossier scroll position').toBe(0)
     } finally {

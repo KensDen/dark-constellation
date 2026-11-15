@@ -1,11 +1,11 @@
-// THE 3D GAME'S RULES (v2.0 R2, Ken's rulings of 14 November 2026). What a
-// game under GameState.watch 2 adds to the engine, each held here on whole
-// games: a signature keeps the target it was sighted on, the answers are a
-// pool that credits cannot refill, the watch's post takes a point off a
-// strike on the asset the newest defense sits on and nothing else, and the
-// policy engine's holds are dealt as the rule says, cost what it says, and
-// are settled by the evidence on the card. And what it leaves alone: a
-// game without the flag plays as it always has.
+// THE WATCH'S RULES (v2.0 R2, Ken's rulings of 14 November 2026; the
+// game's only rules since v2.0 R3). Each held here on whole games: a
+// signature keeps the target it was sighted on, the answers are a pool
+// that credits cannot refill, the watch's post takes a point off a strike
+// on the asset the newest defense sits on and nothing else, the policy
+// engine's holds are dealt as the rule says, cost what it says, and are
+// settled by the evidence on the card, and (v2.0 R3) a signature named on
+// sight is identified with no pulse spent.
 //
 // The balance (the bands, the fixed lines, the two tie-break extremes) is
 // tests/sweep.spec.ts; the presentation is the bot's (scripts/game3d-bot.mjs).
@@ -19,19 +19,19 @@ import { planFor } from '../src/engine/campaign'
 import { holdNights, holdTonight, resolveHold, rightCall } from '../src/engine/holds'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { playNight, type Responder } from '../src/engine/responses'
-import { mulberry32, turnRng } from '../src/engine/rng'
-import { HARDEN, aimOf, answersLeft, answersOf, domainOf, eventById, exposedOf, postOf } from '../src/engine/rules'
+import { turnRng } from '../src/engine/rng'
+import { HARDEN, aimOf, answersLeft, answersOf, domainOf, eventById, exposedOf, postOf, scanPulses } from '../src/engine/rules'
 import { maiScore } from '../src/engine/scoring'
 import type { GameState, TurnActions } from '../src/engine/types'
 import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
 import { ordersOf, replay } from '../src/ui/debriefModel'
 import { nightOf } from '../src/ui/night/nightModel'
-import { NO_ORDERS as NO_PLAN, coachRun, contactsFor, finalScore, inputsOf, spotFor, timeline } from '../src/ui/three/gameModel'
+import { NO_ORDERS as NO_PLAN, SIGHT_CHOICES, actionsOf, canSight, coachRun, contactsFor, finalScore, inputsOf, sightChoices, spotFor, timeline, withSight } from '../src/ui/three/gameModel'
 import { FIXED, NO_ORDERS, WATCH, WATCH_REPORTED, careless, sensible } from './policies'
 
 const SEEDS = Array.from({ length: 60 }, (_, i) => i * 7919 + 1)
-const W2 = DEFAULT_SCENARIO.watch2!
-const game = (seed: number, difficulty: 'easy' | 'standard' = 'standard') => newGame(DEFAULT_SCENARIO, seed, difficulty, undefined, 2)
+const W2 = DEFAULT_SCENARIO
+const game = (seed: number, difficulty: 'easy' | 'standard' = 'standard') => newGame(DEFAULT_SCENARIO, seed, difficulty)
 const line = (name: string) => [...WATCH, ...FIXED, ...WATCH_REPORTED].find((l) => l.name === name)!
 
 // A whole game of a line, every state on the way.
@@ -117,12 +117,10 @@ describe('the answers are a pool for the operation (v2.0 R2)', () => {
         expect(answers.length, `seed ${seed}`).toBeLessThanOrEqual(W2.answers)
         expect(end.answersUsed ?? 0).toBe(answers.length)
         expect(answersLeft(end)).toBe(answersOf(end) - answers.length)
-        for (const ev of answers) {
-          expect(ev.response!.cost).toBe(0)
-          expect(ev.refund).toBeUndefined()
-        }
+        // No credits move for an answer: a night's budget is its orders,
+        // its fuel and its windfall, and nothing else.
         for (const r of end.history) {
-          expect(r.ledger.responses).toBeUndefined()
+          expect(r.ledger.afterNight, `seed ${seed} night ${r.turn}`).toBe(r.ledger.start - r.ledger.ordered - r.ledger.fuel + r.ledger.windfall)
           for (const ev of r.events) if (ev.left === 0) dry += 1
         }
         taken += answers.length
@@ -217,7 +215,7 @@ describe('the policy engine’s holds: the human tie-break (v2.0 R2)', () => {
   it('deals a seed its holds whatever is ordered: the count, the nights, and at least one of each kind', () => {
     for (let seed = 1; seed <= 400; seed += 1) {
       const nights = holdNights(DEFAULT_SCENARIO, seed)
-      expect(nights.size, `seed ${seed}`).toBe(W2.holds)
+      expect(nights.size, `seed ${seed}`).toBe(W2.holdCount)
       expect(Math.min(...nights.keys())).toBeGreaterThanOrEqual(2)
       expect(Math.max(...nights.keys())).toBeLessThanOrEqual(DEFAULT_SCENARIO.totalTurns)
       const truths = [...nights.values()]
@@ -346,7 +344,7 @@ describe('the policy engine’s holds: the human tie-break (v2.0 R2)', () => {
   })
 })
 
-describe('a game under the 3D rules replays to itself, and the classic rules are as they were (v2.0 R2)', () => {
+describe('a game replays to itself, and a save carries it (v2.0 R2)', () => {
   it('replays from its record: placements, answers, holds and all, by both readers of the record', () => {
     for (const seed of SEEDS.slice(0, 30)) {
       for (const l of [line('prepared'), line('novice'), line('randomPlace')]) {
@@ -359,53 +357,33 @@ describe('a game under the 3D rules replays to itself, and the classic rules are
     }
   })
 
-  it('has a ghost that ends its game, and a save code that carries the rules', () => {
+  it('has a ghost that ends its game, and a save code that carries where the pieces sit and the answers spent', () => {
     for (const seed of SEEDS.slice(0, 12)) {
       const end = play(game(seed), line('novice').policy, careless).at(-1)!
       const ghost = coachRun(end)
       expect(ghost.at(-1)!.status).not.toBe('playing')
-      expect(ghost.at(-1)!.watch).toBe(2)
       expect(finalScore(ghost)).toBeGreaterThan(0)
       const back = decodeSaveCode(encodeSaveCode(captureGame(end, 'aftermath', '2026-11-14T00:00:00.000Z'))).state
-      expect(back.watch).toBe(2)
       expect(back.placed).toEqual(end.placed)
       expect(back.answersUsed).toBe(end.answersUsed)
       expect(back.history).toEqual(end.history)
     }
   })
 
-  it('leaves a game without the flag alone: no hold, no pool, no post, the scenario’s own economy', () => {
-    for (const seed of SEEDS.slice(0, 20)) {
-      let s = newGame(DEFAULT_SCENARIO, seed, 'standard')
-      expect(s.credits).toBe(DEFAULT_SCENARIO.startCredits)
-      expect(s.watch).toBeUndefined()
-      expect(holdTonight(s)).toBeUndefined()
-      const r = mulberry32(seed)
-      while (s.status === 'playing') {
-        const picks = adversaryPicks(s, s.counters).map((read) => eventById(s.scenario, read.pick).responses?.[0]?.id ?? null)
-        s = resolveTurn(s, { ...NO_ORDERS, placeOn: { antiJam: 'start-sat-1' }, tiebreak: 'override', responses: r.chance(0.5) ? picks : [] }, turnRng(s.seed, s.turn))
-        const rec = s.history.at(-1)!
-        expect(rec.hold).toBeUndefined()
-        if (!rec.ledger.insolvent) expect(rec.ledger.funding).toBe(DEFAULT_SCENARIO.incomePerTurn)
-        for (const ev of rec.events) {
-          expect(ev.hardened).toBeUndefined()
-          expect(ev.left).toBeUndefined()
-          if (ev.response) expect(ev.response.cost).toBeGreaterThan(0)
-        }
-      }
-      expect(s.placed).toBeUndefined()
-      expect(s.answersUsed).toBeUndefined()
-    }
-    // And a game with it starts on the 3D game's budget.
-    expect(game(1).credits).toBe(W2.startCredits)
+  it('starts every game on the scenario\'s budget, with nothing placed and no answer spent', () => {
+    const s = game(1)
+    expect(s.credits).toBe(DEFAULT_SCENARIO.startCredits)
+    expect(s.placed).toEqual({})
+    expect(answersLeft(s)).toBe(DEFAULT_SCENARIO.answers)
+    expect(postOf(s)).toBeUndefined()
   })
 })
 
-// THE 3D GAME'S MODEL ON THE NEW RULES: a whole game played the way the
+// THE GAME'S MODEL ON THESE RULES: a whole game played the way the
 // screen plays it (src/ui/three/gameModel.ts), a choice at a time.
 import { NO_INPUTS, choicesFor, kitFor, nightNow, postNow, scanState, stakesFor, withResponse, type NightInputs, type Orders } from '../src/ui/three/gameModel'
 
-describe('a game through the 3D game’s model, on the 3D rules (v2.0 R2)', () => {
+describe('a game through the game’s model (v2.0 R2)', () => {
   it('stops for the hold before the first move, offers answers only while the pool has one, and ends as the engine ends it', () => {
     let holds = 0
     let asked = 0
@@ -447,7 +425,6 @@ describe('a game through the 3D game’s model, on the 3D rules (v2.0 R2)', () =
           const choices = choicesFor(state, orders, inputs, now.open, step)
           const pick = choices.find((c) => c.id !== null && c.fits)
           expect(pick, 'an answer fits while the pool has one').toBeDefined()
-          expect(pick!.cost).toBe(0)
           asked += 1
           inputs = withResponse(inputs, now.open, pick!.id)
         }
@@ -459,21 +436,130 @@ describe('a game through the 3D game’s model, on the 3D rules (v2.0 R2)', () =
   })
 })
 
-// THE 3D RULES' OWN SNAPSHOT (v2.0 R2). The classic board's
-// (tests/determinism.snap.json) did not move this round: nothing under it
-// changed. These pin the 3D rules the same way: 2 fixed-seed games, hashed.
-// After a deliberate change to the 3D rules or their numbers, run with
+// THE NAME ON SIGHT (v2.0 R3, Ken's ruling of 15 November 2026).
+describe('a signature named on sight is identified, and costs no pulse (v2.0 R3)', () => {
+  it('identifies exactly the ones named, beside a full scan, and changes no number of the night', () => {
+    let named = 0
+    for (const seed of SEEDS.slice(0, 30)) {
+      let s = game(seed)
+      while (s.status === 'playing') {
+        const drawn = (planFor(s, s.turn)?.slots ?? []).flatMap((slot) => (slot.fixed ? [] : (slot.drawFrom ?? [])))
+        const scans = drawn.slice(0, scanPulses(s))
+        const sighted = drawn.slice(scanPulses(s))
+        const base: TurnActions = { ...NO_ORDERS, scans, debris: 'burn' }
+        const plain = resolveTurn(s, base, turnRng(s.seed, s.turn))
+        const seen = resolveTurn(s, { ...base, sighted }, turnRng(s.seed, s.turn))
+        const a = plain.history.at(-1)!
+        const b = seen.history.at(-1)!
+        // The record says what was named and how; a night with none says nothing.
+        expect(a.sighted).toBeUndefined()
+        expect(b.sighted ?? [], `seed ${seed} night ${s.turn}`).toEqual(sighted)
+        expect(b.scanned ?? []).toEqual(scans)
+        for (const id of sighted) expect(b.named).toContain(id)
+        named += sighted.length
+        // Knowledge, not an outcome: the night is the same night.
+        expect({ ...b, named: [], sighted: undefined }).toEqual({ ...a, named: [], sighted: undefined })
+        expect(seen.credits).toBe(plain.credits)
+        expect(seen.meters).toEqual(plain.meters)
+        s = seen
+      }
+    }
+    expect(named).toBeGreaterThan(100)
+  })
+
+  it('still holds the scan to its pulses, takes a name only for a move on tonight\'s board, and counts one the scan named as the scan\'s', () => {
+    // The first night with more signatures than pulses.
+    let s = game(3)
+    const drawnOn = (g: GameState) => (planFor(g, g.turn)?.slots ?? []).flatMap((slot) => (slot.fixed ? [] : (slot.drawFrom ?? [])))
+    while (drawnOn(s).length <= scanPulses(s)) s = resolveTurn(s, { ...NO_ORDERS, debris: 'burn' }, turnRng(s.seed, s.turn))
+    const drawn = drawnOn(s)
+    expect(s.status).toBe('playing')
+    expect(() => resolveTurn(s, { ...NO_ORDERS, scans: drawn, sighted: drawn }, turnRng(s.seed, s.turn))).toThrow(/scans/)
+    const rec = resolveTurn(s, { ...NO_ORDERS, scans: drawn.slice(0, 1), sighted: [drawn[0], 'no-such-move', drawn[1]] }, turnRng(s.seed, s.turn)).history.at(-1)!
+    expect(rec.scanned).toEqual([drawn[0]])
+    expect(rec.sighted).toEqual([drawn[1]])
+  })
+
+  it('offers 3 names with the right one among them, the same 3 every time, never a move confirmed tonight', () => {
+    let offered = 0
+    const first = new Map<number, number>()
+    for (const seed of SEEDS.slice(0, 40)) {
+      let s = game(seed)
+      while (s.status === 'playing') {
+        const contacts = contactsFor(s, NO_PLAN)
+        const confirmed = contacts.filter((c) => c.fixed).map((c) => c.id)
+        for (const c of contacts) {
+          expect(canSight(NO_PLAN, c), `${c.id}: a name is offered exactly for an unidentified signature`).toBe(!c.known)
+          if (c.known) continue
+          const names = sightChoices(s, c)
+          expect(names.length).toBe(SIGHT_CHOICES)
+          expect(new Set(names).size).toBe(SIGHT_CHOICES)
+          expect(names).toContain(c.id)
+          expect(sightChoices(s, c)).toEqual(names)
+          for (const id of names) {
+            expect(confirmed).not.toContain(id)
+            const def = eventById(s.scenario, id)
+            expect(def.kind ?? 'threat').toBe('threat')
+            expect(def.effect.special).not.toBe('debrisStrike')
+          }
+          first.set(names.indexOf(c.id), (first.get(names.indexOf(c.id)) ?? 0) + 1)
+          offered += 1
+          // Right, it is identified and its card opens; wrong, it stays
+          // unidentified and has had its try.
+          const right = withSight(NO_PLAN, c, c.id)
+          expect(contactsFor(s, right).find((x) => x.id === c.id)!.known).toBe(true)
+          expect(scanState(s, right).left).toBe(scanState(s, NO_PLAN).left)
+          const wrong = withSight(NO_PLAN, c, names.find((id) => id !== c.id)!)
+          const still = contactsFor(s, wrong).find((x) => x.id === c.id)!
+          expect(still.known).toBe(false)
+          expect(canSight(wrong, still)).toBe(false)
+          expect(actionsOf(wrong).sighted).toBeUndefined()
+        }
+        s = resolveTurn(s, { ...NO_ORDERS, debris: 'burn' }, turnRng(s.seed, s.turn))
+      }
+    }
+    expect(offered).toBeGreaterThan(400)
+    // The right name is not always in one place: each of the 3 places
+    // holds it on a fair share of the offers.
+    for (let i = 0; i < SIGHT_CHOICES; i += 1) expect((first.get(i) ?? 0) / offered, `place ${i + 1}`).toBeGreaterThan(0.2)
+  })
+
+  it('replays a game with names on sight to itself, by both readers of the record', () => {
+    for (const seed of SEEDS.slice(0, 20)) {
+      for (const name of ['preparedSight', 'noviceGuess']) {
+        const l = line(name)
+        const end = play(game(seed), l.policy, l.respond).at(-1)!
+        expect(end.history.some((r) => r.sighted?.length), `seed ${seed} ${name}: nothing was named`).toBe(true)
+        expect(timeline(end, inputsOf(end)).at(-1)!.history).toEqual(end.history)
+        expect(replay(end, ordersOf(end))?.history).toEqual(end.history)
+      }
+    }
+  })
+})
+
+// THE RULES' OWN SNAPSHOT (v2.0 R2): 2 fixed-seed games, hashed. After a
+// deliberate change to the rules or their numbers, run with
 // UPDATE_SNAPSHOTS=1, read the 2 hashes it prints, and edit them in here.
+//
+// REGENERATED ONCE IN v2.0 R3, for the record's shape and not its play:
+// with the pixel board's rules out of the engine an event no longer
+// carries `room`, or a `cost` of 0 on its answer. Before the hashes were
+// replaced, the engine as R2 shipped it (v2.0/r2, 6a1a1fb) and this one
+// were played side by side on the same inputs, 800 games on both
+// difficulties and both postures, 4,776 nights with 2,237 answers, 2,380
+// holds and 3,200 placements: every night's record matched field for
+// field but those two, and every state between. The sweep's table
+// (tests/sweep.spec.ts) also reproduces R2's to the decimal.
 import { createHash } from 'node:crypto'
 
-describe('the 3D rules replay to a pinned log (v2.0 R2)', () => {
+describe('the rules replay to a pinned log (v2.0 R2)', () => {
   const hash = (s: GameState) => createHash('sha256').update(JSON.stringify({ seed: s.seed, status: s.status, lossReason: s.lossReason ?? null, placed: s.placed, answersUsed: s.answersUsed ?? 0, history: s.history })).digest('hex')
   it('plays 2 fixed-seed games to the committed hashes', () => {
     const prepared = play(game(20261114), line('prepared').policy, sensible).at(-1)!
     const idle = play(game(4041), line('nothing').policy, () => null).at(-1)!
     const actual = { prepared: hash(prepared), idle: hash(idle) }
-    if (process.env.UPDATE_SNAPSHOTS) process.stderr.write(`\nwatch2 snapshot: ${JSON.stringify(actual)}\n`)
-    expect(actual).toEqual({ prepared: '6cfed94395cc28865dd7d7c9303e3227529080c1110a24b48024004ddedbbf11', idle: '6f5af3d24df49584e55e3089ea26747ccfaee83aa2cf1fa9ca1ab101d441060f' })
+    if (process.env.UPDATE_SNAPSHOTS) process.stderr.write(`\nrules snapshot: ${JSON.stringify(actual)}\n`)
+    expect(actual).toEqual({ prepared: '4be72f475a1251ac88f0666ec6331cbfb090afdb1f556abc9dc9deb100af85ea', idle: '743839338cfd59dbd6a17dcc2ec1ff781a77ab6d1db728c3c9976bdd92b3481e' })
     expect(hash(play(game(20261114), line('prepared').policy, sensible).at(-1)!)).toBe(actual.prepared)
   })
 })

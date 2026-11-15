@@ -129,7 +129,7 @@ const uncommented = (text: string) =>
 describe('GUARD v1.6 R3 (s): FILE TO DOSSIER, and "intel" only for the intel brief', () => {
   it('names the hit card\'s button FILE TO DOSSIER', () => {
     expect(copy.FILE_TO_DOSSIER).toBe('FILE TO DOSSIER')
-    expect(copy.NEW_CARD).not.toMatch(/intel/i)
+    expect(copy.NEW_DOSSIER).not.toMatch(/intel/i)
   })
 
   it('says "intel card", COLLECT INTEL or FILE IT nowhere a player reads, and "intel" only before "brief"', () => {

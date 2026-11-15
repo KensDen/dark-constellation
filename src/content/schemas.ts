@@ -149,7 +149,6 @@ export const scenarioSchema = z
       rpoSat: z.number().int().positive(),
       drone: z.number().int().positive(),
       groundStation: z.number().int().positive(),
-      intelBrief: z.number().int().min(0),
     }),
     upkeepPerDefense: z.number().int().min(0),
     recovery: z.object({ base: z.number().int().min(0), withIrRetainer: z.number().int().min(0) }),
@@ -202,20 +201,11 @@ export const scenarioSchema = z
             ifStood: z.string().min(1),
           })
           .strict(),
-      )
-      .optional(),
-    watch2: z
-      .object({
-        startCredits: z.number().int().min(0),
-        incomePerTurn: z.number().int().min(0),
-        recovery: z.object({ base: z.number().int().min(0), withIrRetainer: z.number().int().min(0) }),
-        meterDamage: z.number().int().positive(),
-        answers: z.number().int().min(0),
-        holds: z.number().int().min(0),
-        holdStake: z.number().min(0),
-      })
-      .strict()
-      .optional(),
+      ),
+    holdCount: z.number().int().min(0),
+    holdStake: z.number().min(0),
+    meterDamage: z.number().int().positive(),
+    answers: z.number().int().min(0),
   })
   .superRefine((s, ctx) => {
     const eventIds = new Set(s.events.map((e) => e.id))

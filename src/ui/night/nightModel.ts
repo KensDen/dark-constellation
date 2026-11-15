@@ -1,7 +1,8 @@
-// THE NIGHT, AS THE PLAYER SEES IT (v1.3 brief 5.5). EXECUTE resolves the
-// whole turn in the engine at once; the night then shows it one event at a
-// time: the strike on the board, the hit card, and at the close END OF
-// TURN with every line that made the budget.
+// THE NIGHT, AS THE PLAYER SEES IT (v1.3 brief 5.5). The engine resolves
+// the whole turn at once; the night then shows it one event at a time: the
+// strike, the move's card, and the close. The 3D game plays it
+// (src/ui/three/gameModel.ts); the pixel night it was written for was
+// retired in v2.0 R3.
 //
 // Everything a card says comes from the engine's record of the turn
 // (TurnRecord and its ResolvedEvents): which move landed, its strength,
@@ -11,8 +12,8 @@
 // so this module carries them forward from the record, with the engine's
 // own exported rules:
 //   - the board between events, for the score either side of a hit (the
-//     hit card's "-d", brief 5.5 item 2) and the tiles and chips the strip
-//     shows as each event lands;
+//     card's "-d", brief 5.5 item 2) and the assets and conditions the
+//     world shows as each event lands;
 //   - the defense streak after each event, which the engine counts the
 //     same way and records only at the turn's end.
 // tests/night-model.spec.ts proves both land on the engine's after-state
@@ -26,8 +27,7 @@ import { resolveHold } from '../../engine/holds'
 import { CONDITION_PRESSURE_PER_SEVERITY, DEPLOY_TURNS, damageShare, exposedOf, meterDamageOf, mitigationOf, scaled } from '../../engine/reducer'
 import { maiScore } from '../../engine/scoring'
 import type { AssetKind, Countermeasure, GameState, PendingAsset, ResolvedEvent, ResolvedHold, ThreatEvent, TurnRecord } from '../../engine/types'
-import { callIndex, shortName, stopVerb } from '../board/boardModel'
-import type * as copy from './nightCopy'
+import { stopVerb } from '../board/boardModel'
 
 export type StepKind = 'threat' | 'debris' | 'opportunity'
 
@@ -57,13 +57,13 @@ export interface Night {
   // live conditions pressed.
   opening: GameState
   // The conditions that pressed as it opened, by name (JAMMED), for the
-  // HUD's labelled change under COLDVEIL IS MOVING (v1.3 R5).
+  // labelled change under COLDVEIL IS MOVING (v1.3 R5).
   pressed: string[]
   // The policy engine's hold (v2.0 R2), settled before COLDVEIL's first
   // move: the board either side of it. Absent on a night with none.
   hold?: { ev: ResolvedHold; before: GameState; after: GameState }
   steps: NightStep[]
-  // The engine's own next state, by identity: END OF TURN shows it.
+  // The engine's own next state, by identity: the close shows it.
   closing: GameState
 }
 
@@ -152,9 +152,7 @@ export function nightOf(before: GameState, after: GameState): Night {
       }
     } else {
       kind = 'threat'
-      // A response is paid for as the move arrives, and a halved move does
-      // its share (v1.7 R1).
-      next.credits -= (ev.response?.cost ?? 0) - (ev.refund ?? 0)
+      // A halved move does its share (v1.7 R1).
       if (ev.effectiveSeverity > 0) {
         for (const m of def.effect.meters) {
           next.meters[m] = Math.max(0, next.meters[m] - scaled(meterDamageOf(before) * ev.effectiveSeverity * damageShare(ev), difficulty))
@@ -188,40 +186,7 @@ export function nightOf(before: GameState, after: GameState): Night {
   return { turn: before.turn, before, record, opening, pressed, ...(hold ? { hold } : {}), steps, closing: after }
 }
 
-// THE RESULT PANEL (brief 5.5 item 2): one tile per point of strength,
-// the blocked ones first, and the verdict.
-export interface Result {
-  strength: number
-  blocked: number
-  through: number
-  chained: boolean
-  // The points a response halved (v1.7 R1): every point that got through.
-  halved: number
-  verdict: copy.Verdict
-}
-export function resultOf(ev: ResolvedEvent): Result {
-  const strength = ev.baseSeverity + ev.chainBonus
-  const through = ev.effectiveSeverity
-  const halved = ev.response?.effect === 'halve' ? through : 0
-  return {
-    strength,
-    blocked: strength - through,
-    through,
-    chained: ev.chainBonus > 0,
-    halved,
-    verdict: through === 0 ? 'BLOCKED' : halved ? 'HALVED' : through < strength ? 'PARTIAL' : 'HIT',
-  }
-}
-
-// Whether the night stops on a move for the player's response: it would
-// land, and it has a response to offer (the engine sets `room` then).
-export const offersResponse = (ev: ResolvedEvent) => ev.room !== undefined
-// Who stopped a blocked move: a response, or the defenses owned.
-export const blockedByResponse = (ev: ResolvedEvent) => ev.response?.effect === 'block'
 export { exposedOf }
-
-// The score a step cost, to one decimal: 0 when nothing got through.
-export const scoreDelta = (step: Pick<NightStep, 'scoreBefore' | 'scoreAfter'>) => Math.round((step.scoreAfter - step.scoreBefore) * 10) / 10
 
 // Which defense the outcome block names: the first in the threat's own
 // order that was owned tonight (the engine credits the same one), and the
@@ -235,22 +200,3 @@ export function defensesFor(def: ThreatEvent, owned: readonly string[], scenario
   const partner = held && stopVerb(held, def) !== 'stops' ? def.counters.find((c) => c !== held && owned.includes(c)) : undefined
   return { held: held ? by(held) : undefined, missing: missing ? by(missing) : undefined, partner: partner ? by(partner) : undefined }
 }
-
-// What a defense answers that the player can name: met or named threats
-// only (ruling R1), split into what it stops alone and what it only blunts
-// (the stops rule, R6 question 2), this move's group and this move first.
-export function stopsKnown(cm: Countermeasure, def: ThreatEvent, scenario: GameState['scenario'], known: ReadonlySet<string>) {
-  const all = [def, ...scenario.events.filter((e) => e.id !== def.id && e.counters.includes(cm.id) && known.has(e.id))]
-  const of = (verb: 'stops' | 'blunts') => all.filter((e) => (stopVerb(cm.id, e) === 'stops') === (verb === 'stops')).map(shortName)
-  const first = stopVerb(cm.id, def) === 'stops' ? 'stops' : 'blunts'
-  const second = first === 'stops' ? 'blunts' : 'stops'
-  return [
-    [first, of(first)],
-    [second, of(second)],
-  ] as const
-}
-
-// THE DEBRIS CALL (brief 5.5 item 5): where the call sits in the night is
-// the board's rule (callIndex), since EXECUTE asks it before this chunk
-// plays anything.
-export { callIndex }

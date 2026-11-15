@@ -7,51 +7,63 @@
 import { defenseBonus } from './learning'
 import { newGame } from './reducer'
 import { maiScore } from './scoring'
-import type { GameState } from './types'
+import type { Difficulty, GameState } from './types'
 
 export type Grade = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
 
-// The graded score a WON campaign needs for each grade; below B is C. The
-// graded score is the final mission assurance plus the defense bonus
-// (brief 6.8).
+// The graded score a WON campaign needs for each grade, at the difficulty
+// it was played on; below B is C. The graded score is the final mission
+// assurance plus the defense bonus (brief 6.8).
 //
-// CALIBRATED, not guessed (principle 18), on the six-turn game the way
-// v1.2 R5a calibrated the twelve-turn one (brief 6.8): S about the top 5
-// percent of wins and A the next 20, bonus included. Measured on STANDARD
-// over 500 seeds of each sweep policy (tests/policies.ts): 664 wins,
-// graded score at the 95th percentile 80.7 and at the 75th 76.8. S at 81
-// gives 4.5 percent of wins. A is 76.9 rather than a whole number because
-// the prepared line's wins cluster at 76.8 to 77.0: 77 would give A 16.0
-// percent, 76.9 gives 18.7. B keeps 75, as R5a kept it, since nothing
-// measured sets it; B then holds 41.4 percent and C 35.4.
+// CALIBRATED, not guessed (principle 18), by one method since v1.2 R5a: S
+// about the top 5 percent of wins and A the next 20, bonus included, over
+// 500 seeds of each gated line of the sweep (tests/policies.ts), and B
+// about the 25th percentile of those wins, so C is a win that scraped the
+// line. tests/grade.spec.ts re-runs the sweep and holds S and A to their
+// shares on both difficulties.
 //
-// RECALIBRATED IN v1.5 R1 (Ken, 24 October 2026), by the same method, when
-// the IR retainer's recovery went from 6 to 4 and Buy everything rejoined
-// the gated policies: 899 wins on STANDARD, graded score at the 95th
-// percentile 77.8 and at the 75th 76.5. S at 77.9 gives 5.0 percent of
-// wins and A at 76.5 21.9; B keeps 75 and holds 21.0. The old 81 and 76.9
-// gave S 1.4 and A 11.7 on the new numbers.
-//
-// RECALIBRATED IN v1.7 R1 (Ken, 9 November 2026), by the same method, with
-// responses in the night and meter damage at 9: a game's blocks now come
-// mostly from the night's answers, so the wins spread from just over the
-// line to 90, where v1.6's sat within 8 points of it. 819 wins on
-// STANDARD over the five policies, each answering as tests/policies.ts
-// has it; graded score at the 95th percentile 88.0 and at the 75th 85.5.
-// B moves for the first time, from 75 to 77.5, about the 25th percentile
-// of those wins, so C is a win that scraped the line. On EASY the same
-// thresholds give Novice S 26, A 40, B 243, C 117 of its 426 wins (it
-// took S on 176 of 429 at v1.6's thresholds): the usual grade is B.
-// tests/grade.spec.ts re-runs the sweep and holds S and A to their shares.
-export const GRADE_THRESHOLDS = { S: 88, A: 85.5, B: 77.5 } as const
+// RECALIBRATED IN v2.0 R3 (Ken's ruling of 15 November 2026: to Round 2's
+// economy, and a careful first game on EASY should not earn an S). The
+// bands R2 shipped were v1.7's (88, 85.5 and 77.5), set when an answer was
+// bought with credits. Under R2's rules (the answers a pool, 13 meter
+// damage a point, 5 recovery a night) the wins moved up: on those bands S
+// took 21.1 percent of the gated lines' wins on STANDARD and 33.4 on EASY,
+// Prepared took S on 54 percent of its EASY wins, and the round's first
+// reviewer took S for a first game on EASY at 87.4.
+//   STANDARD, 669 wins (Prepared 429, Novice 201, Buy everything 38,
+//   Random legal 1): graded score at the 95th percentile 90.6, at the 75th
+//   86.8, at the 25th 77.8. S at 90.6 is 5.8 percent of wins and A at 86.6
+//   the next 20.2 (86.8 gives 19.3); B keeps 77.5, with a quarter of the
+//   wins under it.
+//   EASY, 945 wins (Prepared 460, Novice 421, Buy everything 63, Random
+//   legal 1): at the 95th percentile 92.6, at the 75th 88.9, at the 25th
+//   80.9. S at 92.6 is 5.7 percent of wins and A at 88.9 the next 20.8. B
+//   is 80, a little under the 25th percentile, so that a beginner's usual
+//   win on EASY still reads B: at 80.9 the gate's Novice took C on 207 of
+//   its 421 EASY wins and B on 186; at 80, B on 218 and C on 175, and a
+//   fifth of all the wins are under it.
+// EASY HAS BANDS OF ITS OWN, by the same method on its own wins: hits do
+// three quarters of the damage there, so a game ends about 4 points higher
+// for the same play, and one set of bands either handed S to a careful
+// EASY game or put it out of reach on STANDARD. With its own, the gate's
+// Novice takes S on 0.2 percent of its EASY wins and Prepared on 11.5; on
+// STANDARD, Novice on 0.5 and Prepared on 8.9. The Expert (reported,
+// outside the calibration) takes S on about half its EASY wins.
+export const GRADE_BANDS = {
+  standard: { S: 90.6, A: 86.6, B: 77.5 },
+  easy: { S: 92.6, A: 88.9, B: 80 },
+} as const satisfies Record<Difficulty, { S: number; A: number; B: number }>
 
 // What a grade reads: how the campaign ended, its final mission assurance,
-// and the defense bonus it earned.
+// the defense bonus it earned, and the difficulty it was played on
+// (STANDARD when absent: the Daily Op's, and every record from before the
+// difficulty rode with a score).
 export interface GradeInput {
   status: GameState['status']
   lossReason?: GameState['lossReason']
   finalMai: number
   bonus?: number
+  difficulty?: Difficulty
 }
 
 // The score a won campaign is graded on, to one decimal.
@@ -60,13 +72,14 @@ export const gradedScore = (finalMai: number, bonus = 0): number => Math.round((
 // Won: S, A, B or C by the graded score. Lost after surviving every turn
 // (the score ended under the win line): D. Lost early, to a collapse or
 // insolvency: F. The bonus never turns a loss into a win.
-export function gradeFor({ status, lossReason, finalMai, bonus = 0 }: GradeInput): Grade {
+export function gradeFor({ status, lossReason, finalMai, bonus = 0, difficulty = 'standard' }: GradeInput): Grade {
   if (status === 'playing') throw new Error('a campaign in progress has no grade')
   if (status === 'lost') return lossReason === 'belowThreshold' ? 'D' : 'F'
   const graded = gradedScore(finalMai, bonus)
-  if (graded >= GRADE_THRESHOLDS.S) return 'S'
-  if (graded >= GRADE_THRESHOLDS.A) return 'A'
-  if (graded >= GRADE_THRESHOLDS.B) return 'B'
+  const bands = GRADE_BANDS[difficulty]
+  if (graded >= bands.S) return 'S'
+  if (graded >= bands.A) return 'A'
+  if (graded >= bands.B) return 'B'
   return 'C'
 }
 
@@ -77,7 +90,7 @@ export const bonusOf = (state: Pick<GameState, 'bestStreak' | 'saved'>): number 
 export function gradeOf(state: GameState): Grade {
   const last = state.history[state.history.length - 1]
   if (!last) throw new Error('a campaign with no turns played has no grade')
-  return gradeFor({ status: state.status, lossReason: state.lossReason, finalMai: last.maiScore, bonus: bonusOf(state) })
+  return gradeFor({ status: state.status, lossReason: state.lossReason, finalMai: last.maiScore, bonus: bonusOf(state), difficulty: state.difficulty })
 }
 
 // THE TURN STRIP, one square a turn: green when the score did not drop,

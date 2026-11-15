@@ -3,46 +3,34 @@
 // night at once, so a night with choices is played by resolving it again
 // as each one is made: with the responses so far, the first move the
 // player has not yet answered is the one on screen, and every move before
-// it is settled. The board's night (src/ui/Game.tsx) and the sweep's
-// policies (tests/sweep-run.ts) both play it this way, through these
+// it is settled. The game's night (src/ui/three/gameModel.ts) and the
+// sweep's lines (tests/sweep-run.ts) both play it this way, through these
 // functions. Pure: nothing here draws from a stream of its own.
 
 import { turnRng } from './rng'
 import { resolveTurn } from './reducer'
-import { RESPONSES_PER_NIGHT, damageShare, exposedOf, responseCost, responseFits } from './rules'
+import { damageShare } from './rules'
 import type { GameState, ResolvedEvent, ResponseEffect, ThreatEvent, TurnActions } from './types'
 
-// One response as the night offers it: what it costs on this move tonight,
-// and whether the budget can meet it (rules.ts, responseFits).
+// One response as the night offers it. The answers are a pool (rules.ts,
+// answersOf): one is there to take while the watch has one left.
 export interface ResponseOption {
   id: string
   effect: ResponseEffect
-  cost: number
   fits: boolean
-  // Why it cannot be taken: tonight's response is already used, or the
-  // budget cannot meet it.
-  // budget cannot meet it. Under the pool (v2.0 R2), 'used': none is left.
-  why?: 'used' | 'budget'
+  // Why it cannot be taken: the operation's answers are spent.
+  why?: 'used'
 }
 
-export function responseOptions(def: ThreatEvent, ev: ResolvedEvent, difficulty: GameState['difficulty']): ResponseOption[] {
-  const exposed = exposedOf(ev)
-  // The pool (v2.0 R2): an answer costs nothing and is there while one is left.
-  if (ev.left !== undefined) {
-    const fits = ev.left > 0
-    return (def.responses ?? []).map((r) => ({ id: r.id, effect: r.effect, cost: 0, fits, ...(fits ? {} : { why: 'used' as const }) }))
-  }
-  const used = (ev.answered ?? 0) >= RESPONSES_PER_NIGHT
-  return (def.responses ?? []).map((r) => {
-    const fits = responseFits(def, r, exposed, ev.room ?? 0, difficulty, ev.answered)
-    return { id: r.id, effect: r.effect, cost: responseCost(r.effect, exposed), fits, ...(fits ? {} : { why: used ? ('used' as const) : ('budget' as const) }) }
-  })
+export function responseOptions(def: ThreatEvent, ev: ResolvedEvent): ResponseOption[] {
+  const fits = (ev.left ?? 0) > 0
+  return (def.responses ?? []).map((r) => ({ id: r.id, effect: r.effect, fits, ...(fits ? {} : { why: 'used' as const }) }))
 }
 
 // The first of a resolved night's moves that offered a response and has no
 // answer yet in `responses`: -1 once every choice is made.
 export function openChoice(events: readonly ResolvedEvent[], responses: readonly (string | null | undefined)[]): number {
-  return events.findIndex((ev, i) => ev.room !== undefined && responses[i] === undefined)
+  return events.findIndex((ev, i) => ev.left !== undefined && responses[i] === undefined)
 }
 
 // The answers so far with one more: `choice` for move `i`, null to ride it
@@ -74,7 +62,7 @@ export function playNight(state: GameState, actions: TurnActions, respond: Respo
     const i = openChoice(events, responses)
     if (i < 0) return after
     const def = state.scenario.events.find((e) => e.id === events[i].eventId)!
-    responses = answered(responses, i, respond({ state, index: i, ev: events[i], def, options: responseOptions(def, events[i], state.difficulty) }))
+    responses = answered(responses, i, respond({ state, index: i, ev: events[i], def, options: responseOptions(def, events[i]) }))
   }
 }
 

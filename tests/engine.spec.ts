@@ -57,6 +57,18 @@
 // The snapshot file and its sha1 below are regenerated once, at the end of
 // the round, for those two games: win fed2ea6a..., loss 4d988547..., file
 // sha1 96e819db.
+//
+// AND IN v2.0 R3, FOR ONE RULE SET (Ken's ruling of 15 November 2026: the
+// pixel board is retired). Every game plays the 3D game's rules: the
+// budget opens at the scenario's 80 CR with 6 a night, a hit costs the
+// scenario's meter damage, the answers are a pool for the operation and
+// cost no credits, a night can open on a hold, and the paid brief, the
+// room and the cost of an answer are gone from the record. WIN_SCRIPT with
+// WIN_RESPONSES no longer wins its seed, so the win game is a written game
+// of its own (WIN_GAME, tests/written-games.ts: each night's orders, scans,
+// placement, hold call and answers as literals); the loss game is
+// LOSS_SCRIPT with every move ridden out, as before: win 40e73422...,
+// loss d3641576..., file sha1 566d288d.
 
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -70,43 +82,50 @@ import {
   ASSET_DAMAGE_PER_SEVERITY,
   BURN_FUEL_CREDITS,
   CHAIN_BONUS,
-  METER_DAMAGE_PER_SEVERITY,
   PRIMARY_MITIGATION,
   SECONDARY_MITIGATION,
+  candidatesTonight,
   countersAfter,
   debrisTarget,
+  meterDamageOf,
   mitigationOf,
   newGame,
   resolveTurn,
+  scanPulses,
 } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import { planFor } from '../src/engine/campaign'
+import { holdTonight } from '../src/engine/holds'
 import { worstCase } from '../src/engine/worstCase'
 import { COVERAGE_PER_KIND, coverage, maiScore } from '../src/engine/scoring'
-import { playNight } from '../src/engine/responses'
+import { playNight, type Responder } from '../src/engine/responses'
 import type { GameState, TurnActions } from '../src/engine/types'
-import { sensible } from './policies'
-import { LOSS_SCRIPT, NO_OP, WIN_RESPONSES, WIN_RESPONSES_SEED, WIN_SCRIPT, a, debrisTurnOf, playFixed } from './scripts'
+import { ride, sensible } from './policies'
+import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT, a, debrisTurnOf, scripted } from './scripts'
+import { WIN_GAME, WIN_GAME_SEED, playWritten } from './written-games'
 
 const SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), 'determinism.snap.json')
 
-// WIN_SEED is a confirmed win for the prepared line; LOSS_SEED a confirmed
+// WIN_SEED is a confirmed win for the written game; LOSS_SEED a confirmed
 // loss for the do-nothing line. Both anchor the determinism snapshot.
-// Since v1.7 R1 the prepared line's win is its orders with its answers in
-// the night (playWin, below): the seed is the one WIN_RESPONSES was written
-// down on.
-const WIN_SEED = WIN_RESPONSES_SEED
+// Since v2.0 R3 the win is a written game (playWin, below): the seed is
+// the one WIN_GAME was written down on.
+const WIN_SEED = WIN_GAME_SEED
 const LOSS_SEED = 4041
 
+// A written script as a line the engine takes: what the budget cannot meet
+// on a night is left out (tests/scripts.ts, scripted). Every move is
+// ridden out.
 function playGame(seed: number, script: Record<number, TurnActions>, difficulty: GameState['difficulty'] = 'standard'): GameState {
   let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
-  while (state.status === 'playing') state = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+  const line = scripted(script)
+  while (state.status === 'playing') state = resolveTurn(state, line(state), turnRng(state.seed, state.turn))
   return state
 }
 
-// The won game (v1.7 R1): WIN_SCRIPT's orders and WIN_RESPONSES' answers,
-// both fixed lists, through plain resolveTurn.
-const playWin = (): GameState => playFixed(WIN_SEED, WIN_SCRIPT, WIN_RESPONSES)
+// The won game (v2.0 R3): WIN_GAME's nights, each a fixed list of orders
+// and answers, through plain resolveTurn.
+const playWin = (): GameState => playWritten(newGame(DEFAULT_SCENARIO, WIN_SEED), WIN_GAME)
 
 function gameLogHash(state: GameState): string {
   const log = { seed: state.seed, status: state.status, lossReason: state.lossReason ?? null, history: state.history }
@@ -119,14 +138,16 @@ const event = (id: string) => DEFAULT_SCENARIO.events.find((e) => e.id === id)!
 describe('determinism', () => {
   it('same seed and actions produce the identical log hash', () => {
     expect(gameLogHash(playGame(WIN_SEED, WIN_SCRIPT))).toBe(gameLogHash(playGame(WIN_SEED, WIN_SCRIPT)))
-    // And with the night's answers among the actions (v1.7 R1).
+    // And with the night's answers among the actions (v1.7 R1): the same
+    // written game with every move ridden out is another game.
     expect(gameLogHash(playWin())).toBe(gameLogHash(playWin()))
-    expect(gameLogHash(playWin()), 'the responses changed nothing in the log').not.toBe(gameLogHash(playGame(WIN_SEED, WIN_SCRIPT)))
+    const ridden = playWritten(newGame(DEFAULT_SCENARIO, WIN_SEED), WIN_GAME.map((night) => ({ ...night, responses: [] })).slice(0, 1))
+    expect(JSON.stringify(ridden.history[0]), 'the responses changed nothing in the log').not.toBe(JSON.stringify(playWin().history[0]))
   })
 
   it('fixed-seed full-game replays match the committed snapshot', () => {
-    // The win is the prepared line with its fixed responses since v1.7 R1
-    // (the header says why); the loss rides every move out.
+    // The win is a written game since v2.0 R3 (the header says why); the
+    // loss rides every move out.
     const actual = { win: gameLogHash(playWin()), loss: gameLogHash(playGame(LOSS_SEED, LOSS_SCRIPT)) }
     if (process.env.UPDATE_SNAPSHOTS) writeFileSync(SNAPSHOT_PATH, JSON.stringify(actual, null, 2) + '\n')
     expect(actual).toEqual(JSON.parse(readFileSync(SNAPSHOT_PATH, 'utf8')))
@@ -135,11 +156,12 @@ describe('determinism', () => {
     // not at all. be6509e3 was the v1.3 Round 0 move; 2a5966f1 the Round
     // 6b move; ab375fc0 the v1.4.0 move; b5017102 the v1.6 R1 move;
     // 112140af the v1.6 R2 move; 96e819db the v1.7 R1 move (see the
-    // header); 10a75489 is the v2.0 R1 move: mission funding 20 to 14 with
-    // the scan in place of the paid brief (src/content/scenarios/
-    // firstLight.ts), regenerated once, at the round's end.
+    // header); 10a75489 the v2.0 R1 move: mission funding 20 to 14 with
+    // the scan in place of the paid brief; 566d288d is the v2.0 R3
+    // move, one rule set (see the header), regenerated once, at the
+    // round's end.
     expect(createHash('sha1').update(readFileSync(SNAPSHOT_PATH, 'utf8')).digest('hex'), 'the committed snapshot file changed').toBe(
-      '10a7548952777b3d80a0fa182a1644b48e59e4b5',
+      '566d288dbc04159a98b80ec1cb0c342f8f7b2664',
     )
   })
 
@@ -147,7 +169,7 @@ describe('determinism', () => {
     // Under D3 (a) the Daily keeps the reacting adversary (brief 6.10), so
     // what COLDVEIL plays depends on the posture: two campaigns on a seed
     // with the same orders draw identical events, and two with different
-    // orders may not. And the pick is always the board's LIKELY TARGET
+    // orders may not. And the pick is always the move the plan marks
     // (tests/adversary.spec.ts holds that over 200 seeds).
     const draws = (state: GameState) => state.history.map((r) => r.events.map((e) => e.eventId))
     let differ = 0
@@ -164,22 +186,26 @@ describe('determinism', () => {
 
   it('GUARD R3 (a), the engine half: damage lands only on the tile an event names, and the record says how much', () => {
     let damaging = 0
-    // The first game answers in the night (v1.7 R1), so a halved hit's
-    // integrity is held to the record too; the others ride every move out.
+    // The written game and the halving lines answer in the night (v1.7
+    // R1), so a halved hit's integrity is held to the record too; the
+    // others ride every move out.
     let halvedOnATile = 0
-    for (const [seed, script, responses] of [
-      [WIN_SEED, WIN_SCRIPT, WIN_RESPONSES],
-      [LOSS_SEED, LOSS_SCRIPT, {}],
-      [7, LOSS_SCRIPT, {}],
-      [11, WIN_SCRIPT, {}],
-    ] as [number, Record<number, TurnActions>, Record<number, (string | null)[]>][]) {
+    const halve: Responder = ({ options }) => options.find((o) => o.fits && o.effect === 'halve')?.id ?? null
+    const lined = (script: Record<number, TurnActions>, respond: Responder) => (state: GameState) => playNight(state, scripted(script)(state), respond)
+    for (const [seed, night] of [
+      [WIN_SEED, (state: GameState) => step(state, WIN_GAME[state.turn - 1])],
+      [LOSS_SEED, lined(LOSS_SCRIPT, ride)],
+      [7, lined(LOSS_SCRIPT, ride)],
+      [11, lined(WIN_SCRIPT, ride)],
+      [7, lined(LOSS_SCRIPT, halve)],
+      [11, lined(WIN_SCRIPT, halve)],
+    ] as [number, (state: GameState) => GameState][]) {
       let state = newGame(DEFAULT_SCENARIO, seed, 'standard')
       while (state.status === 'playing') {
-        const actions = { ...(script[state.turn] ?? NO_OP), responses: responses[state.turn] ?? [] }
         // Replay the night by hand: every integrity the record says an
         // event left must be the asset's integrity at that moment, and no
         // asset may lose integrity that no event names.
-        const after = step(state, actions)
+        const after = night(state)
         const record = after.history.at(-1)!
         const integrity = new Map(state.assets.map((a) => [a.id, a.integrity]))
         for (const ev of record.events) {
@@ -215,10 +241,12 @@ describe('determinism', () => {
 })
 
 describe('the v1.3 rules (brief 6.1)', () => {
-  it('opens on 100 CR, six turns, the starter fleet at coverage 58, a free first brief', () => {
+  it('opens on the scenario\'s budget, six turns, the starter fleet at coverage 58, a full pool of answers and no allied feed past night 1', () => {
     const s = newGame(DEFAULT_SCENARIO, 1)
     expect(DEFAULT_SCENARIO.totalTurns).toBe(6)
-    expect(s.credits).toBe(100)
+    expect(s.credits).toBe(DEFAULT_SCENARIO.startCredits)
+    expect(s.answersUsed ?? 0).toBe(0)
+    expect(s.placed).toEqual({})
     expect(coverage(s.assets)).toBe(2 * COVERAGE_PER_KIND.sat + COVERAGE_PER_KIND.rpoSat + 2 * COVERAGE_PER_KIND.drone + COVERAGE_PER_KIND.groundStation)
     expect(coverage(s.assets)).toBe(58)
     expect(maiScore(s)).toBe(87.4)
@@ -263,25 +291,24 @@ describe('the v1.3 rules (brief 6.1)', () => {
     expect(coverage(fleet)).toBe(DEFAULT_SCENARIO.slaBonus.coverageMin)
   })
 
-  it('charges the orders at EXECUTE, and the turn closes with repairs, upkeep, funding and the coverage bonus after arrivals', () => {
+  it('charges the orders as the night begins, and the turn closes with repairs, upkeep, funding and the coverage bonus after arrivals', () => {
     // A drone and anti-jam, with PNT authentication already owned (one new
     // defense a night, so a hand-built start holds the other turn-1
     // primary): nothing gets through, so no repairs.
     const s: GameState = { ...newGame(DEFAULT_SCENARIO, 3), counters: ['pntAuth'] }
     const after = step(s, a({ buyAssets: [{ kind: 'drone' }], buyCounters: ['antiJam'] }))
     const l = after.history[0].ledger
-    expect(l.ordered).toBe(15 + 10)
+    expect(l.ordered).toBe(DEFAULT_SCENARIO.prices.drone + DEFAULT_SCENARIO.countermeasures.find((c) => c.id === 'antiJam')!.cost)
     expect(l.repairs).toBe(0)
     expect(l.upkeep).toBe(2 * DEFAULT_SCENARIO.upkeepPerDefense)
     // The drone arrives at this close, and coverage 67 earns the bonus.
     expect(l.arrivals).toEqual(['t1-drone-1'])
     expect(l.bonusCoverage).toBe(58 + COVERAGE_PER_KIND.drone)
     expect(l.coverageBonus).toBe(DEFAULT_SCENARIO.slaBonus.credits)
-    // v2.0 R1: mission funding 20 to 14, so the turn closes at 95 where it
-    // closed at 101. Funding is read from the scenario, as upkeep and the
-    // bonus are above, so the sum follows the scenario's own number.
+    // Funding is read from the scenario, as the opening budget, upkeep and
+    // the bonus are, so the sum follows the scenario's own numbers.
     expect(l.funding).toBe(DEFAULT_SCENARIO.incomePerTurn)
-    expect(after.credits).toBe(100 - 25 - 4 + DEFAULT_SCENARIO.incomePerTurn + 10)
+    expect(after.credits).toBe(DEFAULT_SCENARIO.startCredits - l.ordered - l.upkeep + DEFAULT_SCENARIO.incomePerTurn + DEFAULT_SCENARIO.slaBonus.credits)
     expect(l.after).toBe(after.credits)
     expect(l.afterNight - l.repairs - l.upkeep + l.funding + l.coverageBonus).toBe(l.after)
   })
@@ -318,17 +345,37 @@ describe('the v1.3 rules (brief 6.1)', () => {
     expect(found, 'no seed went insolvent').toBe(true)
   })
 
-  it('makes the first brief free, names every candidate when briefed, and charges 8 CR on a later night', () => {
+  it('names every candidate while the allied feed covers the night, and after it only what the scan identified, what was named on sight and what is confirmed', () => {
     const s = newGame(DEFAULT_SCENARIO, 2)
+    // Night 1 is inside the feed the game opens with (rules.ts, briefFree).
     const t1 = step(s)
     expect(t1.history[0].briefed).toBe(true)
-    expect(t1.history[0].named).toEqual(['uplink-jamming', 'gnss-spoofing'])
-    const t2 = step(t1, a({ intelBrief: true }))
-    expect(t2.history[1].briefed).toBe(true)
-    expect(t2.history[1].ledger.ordered).toBe(DEFAULT_SCENARIO.prices.intelBrief)
-    const unbriefed = step(t1)
-    expect(unbriefed.history[1].briefed).toBe(false)
-    expect(unbriefed.history[1].named).toEqual([])
+    expect(t1.history[0].named).toEqual(candidatesTonight(s))
+    expect(t1.history[0].named.length).toBeGreaterThan(0)
+    // Night 2: no feed. With no scan sent, nothing is named.
+    const candidates = candidatesTonight(t1)
+    const confirmed = (planFor(t1, t1.turn)?.slots ?? []).flatMap((slot) => (slot.fixed ? [slot.fixed] : []))
+    const drawn = candidates.filter((id) => !confirmed.includes(id))
+    expect(drawn.length, 'night 2 of this seed draws too few moves to tell a scan from a sighting').toBeGreaterThan(scanPulses(t1))
+    const unscanned = step(t1)
+    expect(unscanned.history[1].briefed).toBe(false)
+    expect(unscanned.history[1].named).toEqual([])
+    // A scan names what it identified and the confirmed moves, in the
+    // night's own order, and costs no credits.
+    const scans = drawn.slice(0, scanPulses(t1))
+    const scanned = step(t1, a({ scans }))
+    expect(scanned.history[1].briefed).toBe(false)
+    expect(scanned.history[1].scanned).toEqual(scans)
+    expect(scanned.history[1].named).toEqual(candidates.filter((id) => scans.includes(id) || confirmed.includes(id)))
+    expect(scanned.history[1].ledger.ordered).toBe(0)
+    // A move named on sight is named with no pulse spent; one the scan
+    // also named is the scan's.
+    const sight = drawn[scanPulses(t1)]
+    const sighted = step(t1, a({ scans, sighted: [sight, scans[0]] }))
+    expect(sighted.history[1].sighted).toEqual([sight])
+    expect(sighted.history[1].named).toEqual(candidates.filter((id) => scans.includes(id) || id === sight || confirmed.includes(id)))
+    // And the watch has only so many pulses.
+    expect(() => step(t1, a({ scans: drawn.slice(0, scanPulses(t1) + 1) }))).toThrow(/more scans than pulses/)
   })
 
   it('has COLDVEIL take the move the defenses mitigate least', () => {
@@ -373,9 +420,18 @@ describe('the v1.3 rules (brief 6.1)', () => {
     // no campaign reaches it (pnt-jamming is drawn on turns 2 and 3 only,
     // so GNSS denial is live on turns 3 and 4 at most, and every chain
     // exploit is drawn on turns 5 and 6). Raised with Ken in the R0 report.
-    let s = newGame(DEFAULT_SCENARIO, 21)
-    while (s.turn < 6) s = step(s, a({ buyCounters: s.turn === 1 ? ['sensorFusion'] : [] }))
-    expect(s.status).toBe('playing')
+    // The eve of the last night with sensor fusion owned, found rather
+    // than pinned: the first seed whose idle line, answering while it has
+    // an answer, is still playing on night 6 and meets the chain there.
+    const eve = (seed: number): GameState => {
+      let g = newGame(DEFAULT_SCENARIO, seed)
+      while (g.status === 'playing' && g.turn < DEFAULT_SCENARIO.totalTurns) g = playNight(g, a({ buyCounters: g.turn === 1 ? ['sensorFusion'] : [] }), sensible)
+      return g
+    }
+    const meetsChain = (g: GameState) => g.status === 'playing' && step(g).history.at(-1)!.events.some((e) => e.eventId === 'blackout-chain')
+    let s = eve(1)
+    for (let seed = 2; seed <= 200 && !meetsChain(s); seed += 1) s = eve(seed)
+    expect(meetsChain(s), 'no seed reaches night 6 with the chain to meet').toBe(true)
     const denied = { ...s, conditions: [{ instanceId: 'pnt-jamming-t5', eventId: 'pnt-jamming', name: 'GNSS DENIED', startedTurn: 5, remainingTurns: 1, baseSeverity: 2 }] }
     const chained = step(denied).history.at(-1)!.events.find((e) => e.eventId === 'blackout-chain')!
     expect(chained.chainBonus).toBe(CHAIN_BONUS)
@@ -449,6 +505,8 @@ describe('the v1.3 rules (brief 6.1)', () => {
     // Both turn-1 moves blocked: anti-jam ordered, PNT authentication held
     // from a hand-built start (one new defense a night).
     const s: GameState = { ...newGame(DEFAULT_SCENARIO, 4), counters: ['pntAuth'] }
+    // No hold tonight, so the meters below move for the hit alone.
+    expect(holdTonight(s), 'night 1 of this seed opens on a hold').toBeUndefined()
     const held = step(s, a({ buyCounters: ['antiJam'] }))
     const ev = held.history[0].events[0]
     expect(ev.outcome).toBe('held')
@@ -464,11 +522,11 @@ describe('the v1.3 rules (brief 6.1)', () => {
     // The meters it cost, at the damage rule.
     const hit = open.history[0].events[0]
     for (const m of event(hit.eventId).effect.meters) {
-      expect(100 - open.history[0].meters[m] + DEFAULT_SCENARIO.recovery.base).toBe(METER_DAMAGE_PER_SEVERITY * hit.effectiveSeverity)
+      expect(100 - open.history[0].meters[m] + DEFAULT_SCENARIO.recovery.base).toBe(meterDamageOf(s) * hit.effectiveSeverity)
     }
   })
 
-  it('reads the board and the engine through the same pick', () => {
+  it('reads the plan and the engine through the same pick', () => {
     const s = newGame(DEFAULT_SCENARIO, 12)
     const orders = a({ buyCounters: ['antiJam'] })
     const read = adversaryPicks(s, countersAfter(s, orders))
@@ -478,19 +536,28 @@ describe('the v1.3 rules (brief 6.1)', () => {
 })
 
 describe('reachability by real play', () => {
-  it('the prepared-architect line wins', () => {
-    // With its answers in the night (v1.7 R1): the orders alone, every
-    // move ridden out, no longer win on STANDARD.
+  it('the written game wins, and every choice it writes down is one the engine took', () => {
+    // With its answers in the night (v1.7 R1): orders alone, every move
+    // ridden out, do not win on STANDARD.
     const end = playWin()
     expect(end.status).toBe('won')
     expect(end.history).toHaveLength(DEFAULT_SCENARIO.totalTurns)
-    // WIN_RESPONSES is real play, not a list that happens to win: it is
-    // what a player who takes the first response that fits chooses on this
-    // seed, night by night, so the fixed game and the played one are one.
-    let played = newGame(DEFAULT_SCENARIO, WIN_SEED)
-    while (played.status === 'playing') played = playNight(played, WIN_SCRIPT[played.turn] ?? NO_OP, sensible)
-    expect(gameLogHash(end)).toBe(gameLogHash(played))
-    expect(end.history.flatMap((r) => r.events).filter((e) => e.response).length, 'the won game took no response').toBeGreaterThan(0)
+    expect(WIN_GAME).toHaveLength(DEFAULT_SCENARIO.totalTurns)
+    // WIN_GAME is real play, not a list that happens to win: every scan it
+    // writes was a scan, every answer was taken where it is written, every
+    // defense stands where it was set down, and every hold call was the
+    // call recorded.
+    end.history.forEach((record, t) => {
+      const night = WIN_GAME[t]
+      expect(record.scanned ?? [], `night ${record.turn}: the scans`).toEqual(night.scans ?? [])
+      expect(record.events.map((e) => e.response?.id ?? null).slice(0, night.responses!.length), `night ${record.turn}: the answers`).toEqual(night.responses)
+      for (const [defense, asset] of Object.entries(night.placeOn ?? {})) expect(end.placed?.[defense as keyof typeof end.placed], `night ${record.turn}: ${defense}`).toBe(asset)
+      expect(record.hold ? (record.hold.call === 'none' ? null : record.hold.call) : null, `night ${record.turn}: the hold call`).toBe(night.tiebreak ?? null)
+    })
+    const taken = end.history.flatMap((r) => r.events).filter((e) => e.response).length
+    expect(taken, 'the won game took no response').toBeGreaterThan(0)
+    expect(taken).toBe(end.answersUsed)
+    expect(taken).toBeLessThanOrEqual(DEFAULT_SCENARIO.answers)
   })
 
   it('the do-nothing line loses', () => {

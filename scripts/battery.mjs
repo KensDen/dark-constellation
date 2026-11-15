@@ -131,7 +131,7 @@ run('dev-only sound board is excluded from the production build (brief 7)', () =
 // number this line exists to publish.
 const LEDGER_SWEEP_TEST = 'lands on the engine: the board it ends on, closed by the ledger, is the next state, on every turn of 600 games'
 
-run('vitest suites: determinism, content, persistence, readme, the night, cues, reading diet, sound, music isolation (spec 11.2, 11.3; brief 8)', () => {
+run('vitest suites: determinism, content, persistence, readme, the rules, the sweep, the night, cues, sound, music isolation (spec 11.2, 11.3; brief 8)', () => {
   const resultsPath = join(tmpdir(), `dc-battery-vitest-${process.pid}.json`)
   try {
     sh(`npx vitest run --reporter=default --reporter=json --outputFile.json=${JSON.stringify(resultsPath)}`)
@@ -239,19 +239,16 @@ run('pre-push OPSEC hook is active (local only)', () => {
   }
 })
 
-// The phone layout guards, v1.3 Round 1 and its fixes, measured in a real
-// headless Chrome over the build above (scripts/phone-layout.mjs): the
-// briefing fits 375x667 and 390x844 with CONTINUE on screen and nothing
-// scrolling (GUARD R1 (c), brief 5.2); SYSTEM stays inside the viewport
-// with no text field iOS would zoom on; every screen opens at its top;
-// the tagline is one line. jsdom lays nothing out, so the suite cannot
-// hold these. SKIP only when the machine has no Chrome at all; any other
-// failure is a FAIL.
-// Fifteen minutes since v1.6 R3: its guards (n) to (q) walk two whole games
-// at two sizes, every hit card of five nights' runs twice and three timed
-// nights, about four minutes on top of the three and a half the earlier
-// guards take, which ran the 5 minutes it had out.
-run('phone layout: briefing fit, board fit, SYSTEM in bounds, scroll reset, tagline, the night fits 375 (v1.3 R1, R2, R3)', () => {
+// The phone layout guards, measured in a real headless Chrome because
+// jsdom lays nothing out (scripts/phone-layout.mjs; rewritten in v2.0 R3
+// for the 3D game, the pixel board's guards having left with it): the
+// title at three phone sizes and the desktop (tagline on one line, text in
+// bounds as served and in wide fonts, PLAY on the first screen, SYSTEM in
+// bounds, screens opening at the top), the reading rooms at 375, and the
+// game's briefing and night 1's orders, motion on and off. Skipped, not
+// failed, on a machine with no Chrome. The game's whole six nights are the
+// bot's (scripts/game3d-bot.mjs), run by hand before a round closes.
+run("phone layout: the title, the reading rooms, the game's briefing and first orders (v1.3 R1; the 3D game's since v2.0 R3)", () => {
   const r = spawnSync(process.execPath, ['scripts/phone-layout.mjs'], { encoding: 'utf8', timeout: 900000 })
   if (r.status === 2) return 'skip'
   if (r.status !== 0) throw Object.assign(new Error('phone layout failed'), { stdout: r.stdout || String(r.error ?? ''), stderr: r.stderr })

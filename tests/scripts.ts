@@ -8,15 +8,14 @@
 // in tests/policies.ts.
 
 import { DEFAULT_SCENARIO } from '../src/content'
-import { NEW_DEFENSES_PER_NIGHT, newGame, resolveTurn } from '../src/engine/reducer'
+import { NEW_DEFENSES_PER_NIGHT, resolveTurn } from '../src/engine/reducer'
 import { campaignFor, variantFor } from '../src/engine/campaign'
 import { mulberry32, turnRng } from '../src/engine/rng'
-import type { AssetKind, Difficulty, GameState, TurnActions } from '../src/engine/types'
+import type { AssetKind, GameState, TurnActions } from '../src/engine/types'
 
 export const NO_OP: TurnActions = {
   buyAssets: [],
   buyCounters: [],
-  intelBrief: false,
 }
 
 export const a = (partial: Partial<TurnActions>): TurnActions => ({ ...NO_OP, ...partial })
@@ -44,48 +43,6 @@ export const WIN_SCRIPT: Record<number, TurnActions> = {
   6: a({ buyCounters: ['groundZeroTrust'] }),
 }
 
-// THE PREPARED LINE'S ANSWERS (v1.7 R1). Since responses, a game with every
-// move ridden out is lost on STANDARD: WIN_SCRIPT through plain resolveTurn
-// loses seed 20260712, which it won through v1.6. A won game answers in
-// the night, so the win that anchors the determinism snapshot
-// (tests/engine.spec.ts) is WIN_SCRIPT's orders with these responses, on
-// this seed and on STANDARD: by turn, for each of the night's moves in the
-// order they come, the id of the response taken, or null to ride it out.
-// They are what the `sensible` responder of tests/policies.ts chooses on
-// that game (the first response that fits), written down as literals so
-// that the snapshot's game is a fixed list of choices and cannot move when
-// a responder is retuned. The game they play: turn 1's time spoof blocked,
-// turn 2's phishing halved, turn 3 held by the defenses with nothing to
-// answer, turn 4's insider blocked and the LiDAR blinding ridden out
-// (tonight's response was spent), turn 5's debris burned and the implant
-// halved, turn 6's chain halved; won at 75.1.
-export const WIN_RESPONSES_SEED = 20260712
-export const WIN_RESPONSES: Record<number, (string | null)[]> = {
-  1: ['onboard-clock'],
-  2: ['revoke-reset'],
-  3: [null, null],
-  4: ['suspend-account', null],
-  5: [null, 'isolate-reflash'],
-  6: ['ground-squadron', null],
-}
-
-// A script played with fixed responses, through plain resolveTurn: each
-// turn's orders with that turn's list of answers, nothing chosen as the
-// night goes. A turn the list does not name is ridden out, so
-// playFixed(seed, LOSS_SCRIPT) is the do-nothing game.
-export function playFixed(
-  seed: number,
-  script: Record<number, TurnActions>,
-  responses: Record<number, (string | null)[]> = {},
-  difficulty: Difficulty = 'standard',
-): GameState {
-  let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
-  while (state.status === 'playing') {
-    state = resolveTurn(state, { ...(script[state.turn] ?? NO_OP), responses: responses[state.turn] ?? [] }, turnRng(state.seed, state.turn))
-  }
-  return state
-}
-
 export const LOSS_SCRIPT: Record<number, TurnActions> = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [i + 1, NO_OP]))
 
 // LAZY_SCRIPT is the half-hearted middle line: some cheap, late, unfocused
@@ -103,21 +60,44 @@ export const LAZY_SCRIPT: Record<number, TurnActions> = {
 export const MIXED_SCRIPT: Record<number, TurnActions> = {
   ...LOSS_SCRIPT,
   1: a({ buyCounters: ['antiJam'], buyAssets: [{ kind: 'drone' }] }),
-  2: a({ buyCounters: ['groundZeroTrust'], intelBrief: true }),
+  2: a({ buyCounters: ['groundZeroTrust'] }),
   3: a({ buyCounters: ['linkAuth'] }),
   4: a({ buyCounters: ['pntAuth'], debris: 'hold' }),
-  5: a({ buyCounters: ['sensorFusion'], intelBrief: true }),
+  5: a({ buyCounters: ['sensorFusion'] }),
   6: a({ buyCounters: ['irRetainer'] }),
 }
 
 // A line that orders the intel brief every night it is not free, so a
 // fixture can read the named moves on any turn.
 export const TOP_INTEL_SCRIPT: Record<number, TurnActions> = Object.fromEntries(
-  Array.from({ length: 6 }, (_, i) => [i + 1, { ...(MIXED_SCRIPT[i + 1] ?? NO_OP), intelBrief: true }]),
+  Array.from({ length: 6 }, (_, i) => [i + 1, { ...(MIXED_SCRIPT[i + 1] ?? NO_OP) }]),
 )
 
+// A SCRIPT AS A LINE THE ENGINE WILL TAKE (v2.0 R3). The scripts above are
+// written orders, and the game's budget (80 CR and 6 a night since v2.0
+// R2) does not always meet them: resolveTurn refuses orders it cannot.
+// This plays a script's night with whatever the budget cannot meet left
+// out, assets first and then the defense, the engine being the judge, so a
+// scripted line reaches an end on every seed.
+export function affordable(state: GameState, actions: TurnActions): TurnActions {
+  const tries: TurnActions[] = [actions, ...actions.buyAssets.map((_, i) => ({ ...actions, buyAssets: actions.buyAssets.slice(0, actions.buyAssets.length - 1 - i) })), { ...actions, buyAssets: [], buyCounters: [] }]
+  for (const t of tries) {
+    try {
+      resolveTurn(state, t, turnRng(state.seed, state.turn))
+      return t
+    } catch {
+      // Refused: the next smaller order.
+    }
+  }
+  return { ...NO_OP, ...(actions.debris ? { debris: actions.debris } : {}) }
+}
+export const scripted =
+  (script: Record<number, TurnActions>) =>
+  (state: GameState): TurnActions =>
+    affordable(state, script[state.turn] ?? NO_OP)
+
 // THE RANDOM LINE (v1.2 R5a), a seeded policy that plays legal, random
-// turns rather than a plan. Each turn it may order the intel brief, a
+// turns rather than a plan. Each turn it may order a
 // defense it does not own (the retainer among them; up to two before the
 // v1.4 cap of one new defense a night) and up to two assets of any kind,
 // and calls the debris on a coin. The engine is the judge of what is
@@ -129,7 +109,9 @@ export function randomPolicy(policySeed: number): (state: GameState) => TurnActi
   return (state) => {
     const r = mulberry32((Math.imul(policySeed ^ 0x51ed270b, 2654435761) ^ Math.imul(state.turn + 1, 40503)) >>> 0)
     const buys: TurnActions[] = []
-    if (r.chance(0.3)) buys.push(a({ intelBrief: true }))
+    // One draw the stream has always taken here (v1.3's paid brief), kept so
+    // the lines this policy plays are the ones they always were.
+    r.chance(0.3)
     const unowned = state.scenario.countermeasures.map((c) => c.id).filter((id) => !state.counters.includes(id))
     for (let n = Math.min(r.int(3), NEW_DEFENSES_PER_NIGHT); n > 0 && unowned.length > 0; n -= 1) buys.push(a({ buyCounters: [unowned.splice(r.int(unowned.length), 1)[0]] }))
     for (let n = r.int(3); n > 0; n -= 1) buys.push(a({ buyAssets: [{ kind: r.pick(KINDS) }] }))
@@ -137,7 +119,6 @@ export function randomPolicy(policySeed: number): (state: GameState) => TurnActi
     const cart = (items: TurnActions[]): TurnActions => ({
       buyAssets: items.flatMap((i) => i.buyAssets),
       buyCounters: items.flatMap((i) => i.buyCounters),
-      intelBrief: items.some((i) => i.intelBrief),
       debris,
     })
     for (let kept = buys.length; kept >= 0; kept -= 1) {

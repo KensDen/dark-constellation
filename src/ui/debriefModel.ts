@@ -1,23 +1,21 @@
 // THE DEBRIEF'S READING of a finished game (v1.3 R4, brief 5.6), as pure
-// rules over the engine's record: the six stats, why it ended, the turn a
-// loss turned on, FILED THIS GAME, what the player can now say, NEXT TIME,
-// one line of decisions a turn, and the grade ladder. The grade, the hits
-// and the strip are src/engine/grade.ts's own; nothing here restates them
-// (principle 17), and tests/debrief.spec.ts holds every number to the
-// engine's record of real games.
+// rules over the engine's record: the six stats, why it ended and NEXT
+// TIME. The grade, the hits and the strip are src/engine/grade.ts's own;
+// nothing here restates them (principle 17), and tests/debrief.spec.ts
+// holds every number to the engine's record of real games. The 3D game's
+// debrief reads it (src/ui/three/rooms3d.tsx); what only the pixel debrief
+// showed (the turn a loss turned on, FILED THIS GAME, what the player can
+// now say, the decisions and the grade ladder) left with it in v2.0 R3.
 //
 // Section 4 applies to every string: no retired word (MAI, credits, buy,
 // severity), numerals, no em or en dashes, and no minus sign: a drop is
 // written with the hyphen the dash gate allows.
 
-import { GRADE_THRESHOLDS, bonusOf, gradeOf, gradedScore, hitsTaken, type Grade } from '../engine/grade'
-import { NEW_DEFENSES_PER_NIGHT, kindLabel, newGame, resolveTurn } from '../engine/reducer'
+import { bonusOf, gradeOf, gradedScore, hitsTaken, type Grade } from '../engine/grade'
+import { kindLabel, newGame, resolveTurn } from '../engine/reducer'
 import { turnRng } from '../engine/rng'
-import { maiScore } from '../engine/scoring'
-import type { CountermeasureId, GameState, LearnedHow, TurnActions } from '../engine/types'
-import { callSigns } from './board/board'
-import { shortName, stopVerb, type StopVerb } from './board/boardModel'
-import { kindLabels } from './labels'
+import type { CountermeasureId, GameState, TurnActions } from '../engine/types'
+import { shortName } from './board/boardModel'
 
 const one = (n: number) => Math.round(n * 10) / 10
 
@@ -97,159 +95,6 @@ export function gradeBlock(state: GameState): GradeBlock {
   }
 }
 
-// Each turn's fall, to one decimal: the score before the turn less the
-// score after it. The first turn's before is the opening score, rebuilt
-// from the seed and difficulty as the turn strip rebuilds it.
-export function turnDrops(state: GameState): number[] {
-  let before = maiScore(newGame(state.scenario, state.seed, state.difficulty))
-  return state.history.map((rec) => {
-    const drop = one(before - rec.maiScore)
-    before = rec.maiScore
-    return drop
-  })
-}
-
-// A LOSS LEADS WITH the turn of the largest drop and what caused it (M14):
-// the move that cost the most that turn, on the tile it hit, or the
-// conditions that pressed when no move got through.
-export interface LossLead {
-  turn: number
-  drop: number
-  line: string
-}
-
-export function lossLead(state: GameState): LossLead | null {
-  if (state.status !== 'lost') return null
-  const drops = turnDrops(state)
-  let at = -1
-  drops.forEach((d, i) => {
-    if (d > 0 && (at < 0 || d > drops[at])) at = i
-  })
-  if (at < 0) return null
-  const rec = state.history[at]
-  const net = `-${drops[at].toFixed(1)} net this turn`
-  const landed = rec.events.filter((ev) => ev.effectiveSeverity > 0)
-  const worst = landed.reduce<(typeof landed)[number] | null>((w, ev) => (!w || ev.effectiveSeverity > w.effectiveSeverity ? ev : w), null)
-  let line: string
-  if (worst) {
-    // The tile it hit, said with what that tile is (fresh-eyes review: a
-    // call sign alone does not say a drone was hit).
-    const asset = worst.targetAssetId && worst.integrityAfter !== undefined ? [...state.assets, ...state.pipeline].find((a) => a.id === worst.targetAssetId) : undefined
-    const sign = asset ? callSigns(state).get(asset.id) : undefined
-    const kind = asset ? kindLabels[asset.kind].replace(/^([A-Z])([a-z])/, (_, a: string, b: string) => a.toLowerCase() + b) : ''
-    // Its own drop beside the turn's net (R6b's fresh eyes, item 7: the
-    // header's -7.5 sat under a move whose card said -7.7).
-    const own = worst.scoreBefore !== undefined && worst.scoreAfter !== undefined ? one(worst.scoreBefore - worst.scoreAfter) : null
-    // Said as its share of the turn's net, in one sentence that says how
-    // the two numbers relate (v1.6 R1, Ken's ruling of 26 October 2026:
-    // "-9.8 NET" over "-7.7 of it" did not).
-    const what = sign ? `${threatName(state, worst.eventId)} hit the ${kind} ${sign}` : `${threatName(state, worst.eventId)} got through`
-    // A strike can cost more than the turn's net when the close won some
-    // back, so "of it" is said only of a share.
-    line =
-      own === null || own <= 0
-        ? `${net}: ${what}.`
-        : own <= drops[at]
-          ? `${net}, -${own.toFixed(1)} of it from one strike: ${what}.`
-          : `${net}: ${what} for -${own.toFixed(1)}, and recovery at the turn close won back ${one(own - drops[at]).toFixed(1)}.`
-  } else {
-    line = rec.conditionsActive.length ? `${net}, from ongoing conditions: ${rec.conditionsActive.join(', ')}.` : `${net}: damage from earlier turns kept pulling the score down.`
-  }
-  return { turn: rec.turn, drop: drops[at], line }
-}
-
-// The cards the first screen lists before "and n more", so a first game
-// that files many still fits 375x667 beside a loss's lead
-// (scripts/phone-layout.mjs holds it there). 2 since v1.6 R1 (3 before),
-// when a loss took the win's hero as well as its lead.
-export const FILED_SHOWN = 2
-
-// FILED THIS GAME: the threats this game met whose card is in the Dossier
-// now and was not at turn 1, in the order the game met them. Null when the
-// Dossier at turn 1 is not known (a run that arrived as a code).
-export function filedThisGame(state: GameState, before: ReadonlySet<string> | null, now: ReadonlySet<string>): string[] | null {
-  if (!before) return null
-  const out: string[] = []
-  for (const rec of state.history) {
-    for (const ev of rec.events) {
-      const id = ev.eventId
-      if (isThreat(state, id) && now.has(id) && !before.has(id) && !out.includes(id)) out.push(id)
-    }
-  }
-  return out
-}
-
-// WHAT YOU CAN NOW SAY (brief 5.6 and 6.9): the engine's learned list,
-// each verb true by the game's own rule (R6 questions 2 and 7): a block
-// stopped it, or helped block it where the defense credited does not
-// block it alone (a joint block, R6b fresh eyes); a partial block partly
-// blocked it; a defense not owned would have stopped it only where it
-// blocks the move alone, and would have blunted it otherwise. The debris
-// call is answered, never stopped.
-export function sayVerb(how: LearnedHow, verb: StopVerb): string {
-  if (how === 'held') return verb === 'answers' ? 'answered' : verb === 'stops' ? 'stopped' : 'helped block'
-  // "blunted" since v1.5 R1, the word "would have blunted" uses (R6b's
-  // fresh eyes, item 7); the board's pill stays PARTLY BLOCKED (section 4).
-  if (how === 'reduced') return 'blunted'
-  return verb === 'stops' ? 'would have stopped' : verb === 'blunts' ? 'would have blunted' : 'would have answered'
-}
-const verbOf = (state: GameState, counter: CountermeasureId, threat: string): StopVerb => {
-  const ev = state.scenario.events.find((e) => e.id === threat)
-  return ev ? stopVerb(counter, ev) : 'stops'
-}
-
-// One line a defense and a verb, its threats together (v1.3 R5, Ken's
-// ruling on R4's question 6): "Sensor fusion cross-checks would have
-// stopped LiDAR blinding and BLACKOUT CHAIN", not the defense three times.
-// Since v1.5 R1 a defense not owned is one line whatever its verbs, the
-// second verb after the first ("would have stopped X and blunted Y"; v1.4's
-// fresh eyes, finding 13: the same defense twice read as two orders).
-export interface Saying {
-  defense: string
-  threats: string[]
-  how: LearnedHow
-  verb: string
-  // A missed defense's further verbs, each with its threats, said after
-  // the first without its "would have".
-  more?: { verb: string; threats: string[] }[]
-  // The turn a missed defense was ordered, too late for these (the R1
-  // re-review: an X beside a defense the player did order read as never).
-  orderedOn?: number
-}
-
-// What held first, then what blunted, then what would have stopped: the
-// engine's order within each (fresh-eyes review: a list that opened on a
-// run of misses read as a list of failures).
-const SAY_ORDER: Record<LearnedHow, number> = { held: 0, reduced: 1, missed: 2 }
-export function canSay(state: GameState): Saying[] {
-  const out: Saying[] = []
-  for (const l of state.learned) {
-    const defense = defenseOf(state, l.counter)?.name ?? l.counter
-    const threat = threatName(state, l.threat)
-    const verb = sayVerb(l.how, verbOf(state, l.counter, l.threat))
-    const line = out.find((s) => s.defense === defense && s.verb === verb)
-    const missedLine = l.how === 'missed' ? out.find((s) => s.defense === defense && s.how === 'missed') : undefined
-    if (line) {
-      if (!line.threats.includes(threat)) line.threats.push(threat)
-    } else if (missedLine) {
-      const more = (missedLine.more ??= [])
-      const part = more.find((m) => m.verb === verb.replace(/^would have /, ''))
-      if (part) {
-        if (!part.threats.includes(threat)) part.threats.push(threat)
-      } else more.push({ verb: verb.replace(/^would have /, ''), threats: [threat] })
-    } else {
-      const orderedOn = l.how === 'missed' ? state.history.find((r) => r.purchases.some((p) => p.startsWith(`${defense} (`)))?.turn : undefined
-      out.push({ defense, threats: [threat], how: l.how, verb, ...(orderedOn !== undefined ? { orderedOn } : {}) })
-    }
-  }
-  return out.sort((a, b) => SAY_ORDER[a.how] - SAY_ORDER[b.how])
-}
-
-// Said above the defenses not owned (v1.4's fresh eyes, finding 13: the
-// list read as everything there was to order).
-export const missedLead = (state: GameState) =>
-  `What got through, and what would have answered it. At ${NEW_DEFENSES_PER_NIGHT} new defense a turn, ${state.scenario.totalTurns} is the most a run can order.`
-
 // NEXT TIME (M14): one defense this game missed, ordered earlier, and what
 // that does to this game, measured rather than claimed. Since v1.4 an
 // order of purchases (one new defense a turn): it goes on a turn up to the
@@ -287,7 +132,6 @@ export type NextTime =
       // The move's event id and the response's, for their words.
       move: string
       response: string
-      cost: number
       was: number
       final: number
       won: boolean
@@ -313,16 +157,17 @@ export function ordersOf(state: GameState): TurnActions[] {
     return {
       buyAssets,
       buyCounters,
-      intelBrief: r.purchases.some((p) => p.startsWith('Intel brief (')),
       ...(debris ? { debris } : {}),
       responses,
       ...(r.scanned ? { scans: r.scanned } : {}),
+      ...(r.sighted ? { sighted: r.sighted } : {}),
       ...(timing.some((t) => t > 0) ? { timing } : {}),
       // And where each defense was set down and the call on that night's
       // hold (v2.0 R2). Every night carries the whole map: the engine reads
       // it only for a defense new that night, so a defense a replay moves
       // to another night lands on the same asset.
-      ...(state.watch === 2 ? { placeOn: { ...state.placed }, tiebreak: r.hold && r.hold.call !== 'none' ? r.hold.call : null } : {}),
+      placeOn: { ...state.placed },
+      tiebreak: r.hold && r.hold.call !== 'none' ? r.hold.call : null,
     }
   })
 }
@@ -330,9 +175,9 @@ export function ordersOf(state: GameState): TurnActions[] {
 // The same game played again from its seed with these orders, or null
 // where the engine refuses one (a budget the change no longer covers).
 export function replay(state: GameState, orders: TurnActions[]): GameState | null {
-  let s = newGame(state.scenario, state.seed, state.difficulty, state.posture, state.watch)
+  let s = newGame(state.scenario, state.seed, state.difficulty, state.posture)
   try {
-    for (let t = 0; s.status === 'playing'; t += 1) s = resolveTurn(s, orders[t] ?? { buyAssets: [], buyCounters: [], intelBrief: false }, turnRng(s.seed, s.turn))
+    for (let t = 0; s.status === 'playing'; t += 1) s = resolveTurn(s, orders[t] ?? { buyAssets: [], buyCounters: [] }, turnRng(s.seed, s.turn))
   } catch {
     return null
   }
@@ -341,26 +186,25 @@ export function replay(state: GameState, orders: TurnActions[]): GameState | nul
 
 // The best single answer the night offered and this game did not take:
 // each move that got through and had a response, played again with that
-// response and no other that night (one response a night), every order
-// the same.
+// response, every order and every other answer the same.
 function bestAnswer(state: GameState, orders: TurnActions[], was: number): Extract<NextTime, { kind: 'answer' }> | null {
   let best: Extract<NextTime, { kind: 'answer' }> | null = null
   state.history.forEach((rec, t) => {
     rec.events.forEach((ev, i) => {
-      if (ev.room === undefined || ev.effectiveSeverity === 0) return
+      if (ev.left === undefined || ev.effectiveSeverity === 0) return
       const def = state.scenario.events.find((e) => e.id === ev.eventId)
       for (const r of def?.responses ?? []) {
         if (r.id === ev.response?.id) continue
-        // Under the pool (v2.0 R2) the night's other answers stand, and one
-        // the pool no longer reaches falls away in the replay by itself.
-        const changed = orders.map((o, k) => (k === t ? { ...o, responses: rec.events.map((e, j) => (j === i ? r.id : state.watch === 2 ? (e.response?.id ?? null) : null)) } : o))
+        // The night's other answers stand, and one the pool no longer
+        // reaches falls away in the replay by itself.
+        const changed = orders.map((o, k) => (k === t ? { ...o, responses: rec.events.map((e, j) => (j === i ? r.id : (e.response?.id ?? null))) } : o))
         const played = replay(state, changed)
         const taken = played?.history[t]?.events[i]?.response
-        // A response the budget could not meet is ridden out by the engine.
+        // An answer the pool could not meet is ridden out by the engine.
         if (!played || taken?.id !== r.id) continue
         const final = played.history[played.history.length - 1].maiScore
         if (final <= was || (best && final <= best.final)) continue
-        best = { kind: 'answer', turn: rec.turn, move: ev.eventId, response: r.id, cost: taken.cost, was, final, won: played.status === 'won' }
+        best = { kind: 'answer', turn: rec.turn, move: ev.eventId, response: r.id, was, final, won: played.status === 'won' }
       }
     })
   })
@@ -429,69 +273,6 @@ function defenseEarlier(state: GameState, missed: CountermeasureId[]): NextTime 
     }
   }
   return best ?? { kind: 'none' }
-}
-
-// DECISIONS: one line a turn, what was ordered (each order's price and
-// note dropped: the engine writes "Anti-jam (-10)"), what it took from the
-// budget, and the debris call when there was one.
-export interface Decision {
-  turn: number
-  orders: string[]
-  spent: number
-  answered: string[]
-  call: 'BURN' | 'HOLD' | null
-}
-
-export const decisions = (state: GameState): Decision[] =>
-  state.history.map((rec) => {
-    const debris = rec.events.find((ev) => ev.debris)?.debris
-    return {
-      turn: rec.turn,
-      orders: rec.purchases.map((p) => p.replace(/\s*\(-[^)]*\)$/, '')),
-      spent: rec.ledger.ordered + (rec.ledger.responses ?? 0),
-      // The moves answered in the night (v1.7 R1), by event id.
-      answered: rec.events.filter((ev) => ev.response).map((ev) => ev.eventId),
-      call: debris ? (debris.choice === 'burn' ? 'BURN' : 'HOLD') : null,
-    }
-  })
-
-// THE GRADE LADDER (M33): every grade with what it takes, and how far
-// this game was from the next one up.
-export interface Rung {
-  grade: Grade
-  takes: string
-}
-
-export const ladder = (state: GameState): Rung[] => {
-  const t = state.scenario.totalTurns
-  return [
-    { grade: 'S', takes: `${GRADE_THRESHOLDS.S}+` },
-    { grade: 'A', takes: `${GRADE_THRESHOLDS.A}+` },
-    { grade: 'B', takes: `${GRADE_THRESHOLDS.B}+` },
-    { grade: 'C', takes: `a win, ${state.scenario.winThreshold}+` },
-    { grade: 'D', takes: `all ${t} turns, below ${state.scenario.winThreshold}` },
-    { grade: 'F', takes: `out early: budget below zero or score under ${state.scenario.collapseThreshold}` },
-  ]
-}
-
-export function toNextGrade(state: GameState): string {
-  const block = gradeBlock(state)
-  const graded = gradedScore(block.final, bonusOf(state))
-  const more = (target: number) => one(target - graded).toFixed(1)
-  switch (block.grade) {
-    case 'S':
-      return 'The top grade.'
-    case 'A':
-      return `${more(GRADE_THRESHOLDS.S)} more on the grade score for S.`
-    case 'B':
-      return `${more(GRADE_THRESHOLDS.A)} more on the grade score for A.`
-    case 'C':
-      return `${more(GRADE_THRESHOLDS.B)} more on the grade score for B.`
-    case 'D':
-      return `${one(block.needed - block.final).toFixed(1)} more mission assurance at the end for C.`
-    case 'F':
-      return `Reach the end of turn ${state.scenario.totalTurns} for D.`
-  }
 }
 
 // Time on the clock as m:ss.

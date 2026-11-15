@@ -7,7 +7,8 @@
 // Everything else in the music suite reaches AudioEngine.setMusicState
 // directly, which is the same class of gap as testing MusicBed.duck while
 // AudioEngine.play was the thing that had stopped calling it. What is
-// actually shipped is a HOOK, mounted once in Game.tsx, and the defect the
+// actually shipped is a HOOK, mounted once in the game's screen (the 3D
+// game's, ui/three/Game3D.tsx, since v2.0 R3), and the defect the
 // re-review confirmed lives in its lifecycle: leaving a campaign left the
 // bed playing the abandoned campaign's layers under every menu behind it.
 

@@ -1,61 +1,51 @@
 // The debrief's reading of a finished game (v1.3 R4, brief 5.6), held to
 // the engine's own record of real games.
 //
-// GUARD R4 (b): THE GRADE, THE STATS AND THE FILED LIST AGREE WITH THE
-// ENGINE. Every number is recounted here straight from the history the
-// engine wrote (each event's effective severity and outcome, each turn's
-// record), not through the helpers the debrief calls, over wins and
-// losses on both difficulties. FILED THIS GAME is the threats the game met
-// whose cards were filed since turn 1, in the order the game met them,
-// and nothing the game did not meet.
+// GUARD R4 (b): THE GRADE AND THE STATS AGREE WITH THE ENGINE. Every
+// number is recounted here straight from the history the engine wrote
+// (each event's effective severity and outcome, each turn's record), not
+// through the helpers the debrief calls, over wins and losses on both
+// difficulties. The 3D game's debrief reads this model
+// (src/ui/three/rooms3d.tsx); what only the pixel debrief showed (FILED
+// THIS GAME, the turn a loss turned on, what the player can now say, the
+// decisions and the grade ladder) was retired with it in v2.0 R3.
 
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
-import { GRADE_THRESHOLDS, gradeOf } from '../src/engine/grade'
-import { newGame, resolveTurn } from '../src/engine/reducer'
-import { turnRng } from '../src/engine/rng'
-import { maiScore } from '../src/engine/scoring'
+import { gradeOf } from '../src/engine/grade'
+import { newGame } from '../src/engine/reducer'
+import { playNight, type Responder } from '../src/engine/responses'
 import type { GameState, TurnActions } from '../src/engine/types'
-import {
-  FILED_SHOWN,
-  clock,
-  debriefStats,
-  decisions,
-  filedThisGame,
-  gradeBlock,
-  movesBlocked,
-  lossLead,
-  canSay,
-  missedLead,
-  ordersOf,
-  replay,
-  sayVerb,
-  nextTime,
-  toNextGrade,
-  turnDrops,
-} from '../src/ui/debriefModel'
-import { LOSS_SCRIPT, NO_OP, WIN_SCRIPT, randomPolicy } from './scripts'
+import { clock, debriefStats, gradeBlock, movesBlocked, nextTime, ordersOf, replay } from '../src/ui/debriefModel'
+import { WATCH, ride } from './policies'
+import { LOSS_SCRIPT, WIN_SCRIPT, randomPolicy, scripted } from './scripts'
 
-type Line = Record<number, TurnActions> | ((state: GameState) => TurnActions)
+// A line: its orders each night, and how it answers a move that would land.
+type Line = { policy: (state: GameState) => TurnActions; respond: Responder }
 function play(from: GameState, line: Line): GameState {
-  const orders = typeof line === 'function' ? line : (s: GameState) => line[s.turn] ?? NO_OP
   let state = from
-  while (state.status === 'playing') state = resolveTurn(state, orders(state), turnRng(state.seed, state.turn))
+  while (state.status === 'playing') state = playNight(state, line.policy(state), line.respond)
   return state
 }
 
-const isThreat = (id: string) => (DEFAULT_SCENARIO.events.find((e) => e.id === id)?.kind ?? 'threat') === 'threat'
-
-// Real games: three lines a seed, twelve seeds, both difficulties.
+// Real games: four lines a seed, twelve seeds, both difficulties. The two
+// written scripts as lines the engine takes and the random line ride every
+// move out; the sweep's Prepared line (tests/policies.ts) sets its
+// defenses down, calls its holds and answers in the night, as a player of
+// the 3D game does.
+const PREPARED = WATCH.find((l) => l.name === 'prepared')!
 const GAMES: GameState[] = []
 for (const difficulty of ['standard', 'easy'] as const)
   for (let seed = 1; seed <= 12; seed += 1)
-    for (const line of [WIN_SCRIPT, LOSS_SCRIPT, randomPolicy(seed)] as Line[]) GAMES.push(play(newGame(DEFAULT_SCENARIO, seed, difficulty), line))
+    for (const line of [{ policy: scripted(WIN_SCRIPT), respond: ride }, { policy: scripted(LOSS_SCRIPT), respond: ride }, { policy: randomPolicy(seed), respond: ride }, PREPARED] as Line[])
+      GAMES.push(play(newGame(DEFAULT_SCENARIO, seed, difficulty), line))
 
-describe('GUARD R4 (b): the grade, the stats and the filed list agree with the engine', () => {
-  it('walks wins and losses, early and late', () => {
+describe('GUARD R4 (b): the grade and the stats agree with the engine', () => {
+  it('walks wins and losses, early and late, with answers taken and holds called', () => {
     expect(GAMES.some((g) => g.status === 'won')).toBe(true)
+    expect(GAMES.some((g) => g.history.some((r) => r.events.some((e) => e.response))), 'no game took an answer').toBe(true)
+    expect(GAMES.some((g) => g.history.some((r) => r.hold && r.hold.call !== 'none')), 'no game called a hold').toBe(true)
     expect(GAMES.some((g) => g.status === 'lost' && g.lossReason === 'belowThreshold')).toBe(true)
     expect(GAMES.some((g) => g.status === 'lost' && g.lossReason !== 'belowThreshold'), 'no game ended early').toBe(true)
   })
@@ -98,61 +88,9 @@ describe('GUARD R4 (b): the grade, the stats and the filed list agree with the e
     expect(GAMES.some((g) => g.saved > 0)).toBe(true)
     expect(GAMES.some((g) => g.counters.length > 0)).toBe(true)
   })
-
-  it('files only threats the game met, in the order it met them, since turn 1', () => {
-    let listed = 0
-    for (const g of GAMES) {
-      const met: string[] = []
-      for (const rec of g.history) for (const ev of rec.events) if (isThreat(ev.eventId) && !met.includes(ev.eventId)) met.push(ev.eventId)
-      // A device that filed every card it met, from an empty Dossier.
-      const now = new Set([...met, 'not-a-threat-this-game'])
-      expect(filedThisGame(g, new Set(), now)).toEqual(met)
-      // Cards filed before turn 1 are not this game's.
-      const before = new Set(met.slice(0, 1))
-      expect(filedThisGame(g, before, now)).toEqual(met.slice(1))
-      // A card the game met but did not file is not listed.
-      expect(filedThisGame(g, new Set(), new Set(met.slice(1)))).toEqual(met.slice(1))
-      // A run whose turn 1 is unknown (a pasted code) lists nothing.
-      expect(filedThisGame(g, null, now)).toBeNull()
-      listed += met.length
-    }
-    expect(listed, 'no game met a threat').toBeGreaterThan(0)
-    expect(Math.max(...GAMES.map((g) => filedThisGame(g, new Set(), new Set(DEFAULT_SCENARIO.events.map((e) => e.id)))!.length)), 'no game files more than the first screen lists').toBeGreaterThan(FILED_SHOWN)
-  })
 })
 
 describe('the rest of the debrief reads the record too', () => {
-  it('leads a loss with the turn of its largest drop and the move that cost most that turn (M14)', () => {
-    let leads = 0
-    for (const g of GAMES) {
-      const lead = lossLead(g)
-      if (g.status === 'won') {
-        expect(lead).toBeNull()
-        continue
-      }
-      let before = maiScore(newGame(g.scenario, g.seed, g.difficulty))
-      const drops = g.history.map((r) => {
-        const d = Math.round((before - r.maiScore) * 10) / 10
-        before = r.maiScore
-        return d
-      })
-      expect(turnDrops(g)).toEqual(drops)
-      const max = Math.max(...drops)
-      if (max <= 0) {
-        expect(lead).toBeNull()
-        continue
-      }
-      leads += 1
-      expect(lead!.turn).toBe(g.history[drops.indexOf(max)].turn)
-      expect(lead!.drop).toBe(max)
-      const worst = [...g.history[drops.indexOf(max)].events].filter((e) => e.effectiveSeverity > 0).sort((a, b) => b.effectiveSeverity - a.effectiveSeverity)[0]
-      // The turn's net first, then the move, in one sentence (v1.6 R1).
-      expect(lead!.line.startsWith(`-${max.toFixed(1)} net this turn`), lead!.line).toBe(true)
-      if (worst) expect(lead!.line).toContain(`: ${DEFAULT_SCENARIO.events.find((e) => e.id === worst.eventId)!.name.split(' (')[0]} `)
-    }
-    expect(leads, 'no loss had a drop to lead with').toBeGreaterThan(0)
-  })
-
   it('rebuilds every turn\'s orders from the record, so the same game plays again exactly (v1.5 R1)', () => {
     // The instrument NEXT TIME measures with: a game played again from its
     // seed with the orders the record holds ends on the record's scores.
@@ -177,8 +115,8 @@ describe('the rest of the debrief reads the record too', () => {
       const next = nextTime(g)
       // v1.7 R1: NEXT TIME may name a response instead, a move answered
       // in the night with every order the same, when that ends the game
-      // higher than any defense ordered earlier (tests/debrief.dom.spec.tsx
-      // holds its sentence; tests/responses.spec.ts its rules).
+      // higher than any defense ordered earlier (tests/responses.spec.ts
+      // holds its rules).
       if (!missed) {
         expect(next === null || next.kind === 'answer').toBe(true)
         continue
@@ -217,50 +155,6 @@ describe('the rest of the debrief reads the record too', () => {
     expect(earlier, 'NEXT TIME never named a better order').toBeGreaterThan(0)
     expect(moved, 'NEXT TIME never moved a displaced defense').toBeGreaterThan(0)
     expect(none + earlier).toBeGreaterThan(0)
-  })
-
-  it('says a defense not owned once, whatever its verbs, and says a blunt "blunted" (v1.5 R1)', () => {
-    // v1.4's fresh eyes, finding 13: the same defense on two lines read as
-    // two orders; R6b's, item 7: "partly blocked" beside "would have
-    // blunted".
-    expect(sayVerb('reduced', 'blunts')).toBe('blunted')
-    let merged = 0
-    for (const g of GAMES) {
-      const missed = canSay(g).filter((s) => s.how === 'missed')
-      expect(new Set(missed.map((s) => s.defense)).size, 'a defense not owned is said twice').toBe(missed.length)
-      for (const s of missed) {
-        if (s.more?.length) merged += 1
-        for (const m of s.more ?? []) expect(m.verb, 'a further verb kept its "would have"').not.toMatch(/would have/)
-      }
-      for (const s of canSay(g)) expect(s.verb).not.toBe('partly blocked')
-    }
-    expect(merged, 'no defense not owned had two verbs, so the merge went untested').toBeGreaterThan(0)
-    expect(missedLead(GAMES[0])).toContain(`${GAMES[0].scenario.totalTurns} is the most a run can order`)
-  })
-
-  it('writes one decision a turn, with what was ordered and spent', () => {
-    for (const g of GAMES) {
-      const d = decisions(g)
-      expect(d.map((x) => x.turn)).toEqual(g.history.map((r) => r.turn))
-      d.forEach((x, i) => {
-        expect(x.spent).toBe(g.history[i].ledger.ordered)
-        expect(x.orders).toHaveLength(g.history[i].purchases.length)
-        for (const o of x.orders) expect(o, 'an order kept its price note').not.toMatch(/\(-/)
-      })
-    }
-  })
-
-  it('says how far the next grade is, from the thresholds the engine grades by', () => {
-    for (const g of GAMES) {
-      const line = toNextGrade(g)
-      const block = gradeBlock(g)
-      const graded = Math.round((block.final + (block.bonus?.bonus ?? 0)) * 10) / 10
-      const up: Record<string, [number, string] | undefined> = { A: [GRADE_THRESHOLDS.S, 'S'], B: [GRADE_THRESHOLDS.A, 'A'], C: [GRADE_THRESHOLDS.B, 'B'] }
-      const next = up[block.grade]
-      if (next) expect(line).toBe(`${(Math.round((next[0] - graded) * 10) / 10).toFixed(1)} more on the grade score for ${next[1]}.`)
-      if (block.grade === 'D') expect(line).toBe(`${(Math.round((70 - block.final) * 10) / 10).toFixed(1)} more mission assurance at the end for C.`)
-      if (block.grade === 'F') expect(line).toBe('Reach the end of turn 6 for D.')
-    }
   })
 
   it('writes the time on the clock as minutes and seconds', () => {

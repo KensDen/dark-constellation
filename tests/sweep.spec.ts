@@ -1,22 +1,19 @@
-// THE SWEEP GATE (v1.3 brief 7; Round 0 does not merge without it).
-// Principle 18, say which instrument: the instrument is the engine itself,
-// run headless over 500 seeds a policy on STANDARD and EASY, through the
-// five policies of tests/policies.ts (the brief's six rows: Prepared is
-// also a row on EASY, and all five play both difficulties). The battery
-// runs it on every pass and holds every policy to its target band, so a
-// change to a number in brief 6.1 that moves a policy out of its band
-// fails here rather than in a playtest. SWEEP=1 also prints the table the R0 report carries.
+// THE SWEEP GATE (v1.3 brief 7). Principle 18, say which instrument: the
+// instrument is the engine itself, run headless over 500 seeds a line on
+// STANDARD and EASY, through the lines of tests/policies.ts (WATCH, FIXED,
+// FIXED_SAVING and WATCH_REPORTED). The battery runs it on every pass and
+// holds each gated line to its band, so a change to a number that moves a
+// line out of its band fails here rather than in a playtest. SWEEP=1 also
+// prints the table the round's report carries.
 //
-// SINCE v2.0 R2 THE GATE PLAYS THE 3D GAME'S RULES (GameState.watch 2;
-// Ken's rulings of 14 November 2026): the answers are a pool, a defense
-// hardens the asset it sits on, and the policy engine's holds are in every
-// game. The lines are tests/policies.ts WATCH, FIXED and WATCH_REPORTED.
-// The classic board's rules keep their own suites; their sweep is no
-// longer gated.
+// THE RULES IT PLAYS ARE THE GAME'S ONLY RULES (v2.0 R3; the 3D game's
+// since R2, Ken's rulings of 14 and 15 November 2026): the answers are a
+// pool, the newest defense's asset is the watch post, and the policy
+// engine's holds are in every game.
 //
-// It carries the battery's second R0 guard as well: no seed and posture
-// ever ends a turn insolvent when WORST CASE read 0 or more before it
-// (brief 6.4), over all 500 seeds of every policy on both difficulties.
+// It carries the battery's second R0 guard as well: no seed ever ends a
+// turn insolvent when WORST CASE read 0 or more before it (brief 6.4),
+// over all 500 seeds of every line on both difficulties.
 
 import { beforeAll, describe, expect, it } from 'vitest'
 
@@ -28,9 +25,10 @@ import { GRADES, SEEDS, median, playPolicy, type PolicyRun } from './sweep-run'
 const pct = (n: number, of: number) => (100 * n) / of
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 
-// The bands (Ken, 14 November 2026: keep Round 1's, Novice around 40
-// percent, Prepared around 80, Nothing at 0), in percent of games won,
-// inclusive. MEASURED at the numbers the scenario carries (watch2: 13
+// The bands, in percent of games won, inclusive. KEN'S RULING OF 15
+// NOVEMBER 2026: keep Round 2's numbers, Prepared about 86 percent and
+// Novice about 40, and the beginner of tests/policies.ts is the right
+// picture of a beginner. MEASURED at the numbers the scenario carries (13
 // meter damage a point, 5 recovery a night, 3 answers, funding 6, a
 // starting budget of 80, 2 points for a wrong call): Prepared 85.8,
 // Novice 40.2, Nothing 0.0 on STANDARD; Prepared 92.0 and Novice 84.2 on
@@ -50,7 +48,7 @@ const TARGETS: { name: string; difficulty: Difficulty; label: string; min: numbe
   { name: 'nothing', difficulty: 'standard', label: 'Nothing', min: 0, max: 0 },
 ]
 
-describe('the sweep gate (v1.3 brief 7; the 3D game\'s rules since v2.0 R2)', () => {
+describe('the sweep gate (v1.3 brief 7)', () => {
   const runs = new Map<string, PolicyRun>()
   const run = (name: string, difficulty: Difficulty) => runs.get(`${name}:${difficulty}`)!
   const rate = (name: string, difficulty: Difficulty) => pct(run(name, difficulty).wins, SEEDS)
@@ -58,7 +56,7 @@ describe('the sweep gate (v1.3 brief 7; the 3D game\'s rules since v2.0 R2)', ()
 
   beforeAll(() => {
     for (const difficulty of ['standard', 'easy'] as const) {
-      for (const p of ALL) runs.set(`${p.name}:${difficulty}`, playPolicy(p.policy, difficulty, p.respond, SEEDS, p.timing ?? 0, 2))
+      for (const p of ALL) runs.set(`${p.name}:${difficulty}`, playPolicy(p.policy, difficulty, p.respond, SEEDS, p.timing ?? 0))
     }
     if (!process.env.SWEEP) return
     const rows: string[] = []
@@ -79,7 +77,7 @@ describe('the sweep gate (v1.3 brief 7; the 3D game\'s rules since v2.0 R2)', ()
     }
     process.stderr.write(
       [
-        `\nSweep gate, ${SEEDS} seeds a line, scenario ${DEFAULT_SCENARIO.id}, the 3D game's rules:`,
+        `\nSweep gate, ${SEEDS} seeds a line, scenario ${DEFAULT_SCENARIO.id}:`,
         '| line | difficulty | win rate | insolvent | collapse | below line | median final score | grades | attacks stopped, of those faced a run | answers spent a run | holds called right, of those dealt a run | median CR left |',
         '|---|---|---|---|---|---|---|---|---|---|---|---|',
         ...rows,
@@ -102,11 +100,17 @@ describe('the sweep gate (v1.3 brief 7; the 3D game\'s rules since v2.0 R2)', ()
     expect(Math.max(...nothing.finalScores), 'Nothing: best final score').toBeLessThan(DEFAULT_SCENARIO.winThreshold)
   })
 
-  it('grades Novice on EASY B or A most often, not S (v1.7 R1)', () => {
-    const { grades } = run('novice', 'easy')
+  it('grades a beginner\'s win on EASY B most often, and S almost never (Ken, 15 November 2026: a careful first game on EASY should not earn an S)', () => {
+    const { grades, wins } = run('novice', 'easy')
     const usual = GRADES.reduce((best, g) => (grades[g] > grades[best] ? g : best), 'S' as (typeof GRADES)[number])
-    expect(['A', 'B'], `Novice on EASY is graded ${usual} most often (${GRADES.map((g) => `${g} ${grades[g]}`).join(' ')})`).toContain(usual)
-    expect(grades.S, 'S on EASY').toBeLessThan(grades.A + grades.B)
+    expect(usual, `Novice on EASY is graded ${usual} most often (${GRADES.map((g) => `${g} ${grades[g]}`).join(' ')})`).toBe('B')
+    expect(grades.S / wins, 'Novice on EASY: S, as a share of its wins').toBeLessThanOrEqual(0.02)
+    // The careful player's too: Prepared on EASY takes S on a small share
+    // of its wins, where R2's bands gave it S on more than half.
+    const prepared = run('prepared', 'easy')
+    expect(prepared.grades.S / prepared.wins, 'Prepared on EASY: S, as a share of its wins').toBeLessThanOrEqual(0.15)
+    // And S can still be earned there: the Expert earns it on EASY.
+    expect(run('expert', 'easy').grades.S).toBeGreaterThan(prepared.grades.S)
   })
 
   it('NO FIXED LINE WINS MORE OFTEN THAN PREPARED, on either difficulty (Ken, 14 November 2026: the thrifty line is a bug)', () => {
@@ -148,7 +152,7 @@ describe('the sweep gate (v1.3 brief 7; the 3D game\'s rules since v2.0 R2)', ()
     // The deal is as the rule says: 3 holds a game, each extreme wrong at
     // least once, and the line that reads right every time.
     const dealt = run('prepared', 'standard')
-    expect(dealt.holds / SEEDS, 'holds a game').toBeCloseTo(DEFAULT_SCENARIO.watch2!.holds, 1)
+    expect(dealt.holds / SEEDS, 'holds a game').toBeCloseTo(DEFAULT_SCENARIO.holdCount, 1)
     expect(dealt.holdsRight).toBe(dealt.holds)
     for (const name of ['alwaysOverride', 'neverOverride']) {
       const r = run(name, 'standard')
@@ -161,14 +165,37 @@ describe('the sweep gate (v1.3 brief 7; the 3D game\'s rules since v2.0 R2)', ()
     expect(rate('prepared', 'standard') - rate('randomPlace', 'standard'), `Prepared ${rate('prepared', 'standard').toFixed(1)}, at random ${rate('randomPlace', 'standard').toFixed(1)}`).toBeGreaterThanOrEqual(5)
   })
 
+  it('THE NAME ON SIGHT PAYS, AND A GUESS PAYS LITTLE (Ken, 15 November 2026: the Dossier pays in play)', () => {
+    // Naming is offered once a signature a night among 3 names, so a line
+    // that knows none of them is right 1 time in 3. Knowing them is worth
+    // real points to every kind of player; guessing is worth a few.
+    const lines: string[] = []
+    for (const difficulty of ['standard', 'easy'] as const) {
+      for (const [base, sight, guess] of [
+        ['prepared', 'preparedSight', 'preparedGuess'],
+        ['novice', 'noviceSight', 'noviceGuess'],
+      ] as const) {
+        const [b, s, g] = [rate(base, difficulty), rate(sight, difficulty), rate(guess, difficulty)]
+        lines.push(`| ${base} | ${difficulty.toUpperCase()} | ${b.toFixed(1)}% | ${s.toFixed(1)}% | ${(s - b).toFixed(1)} | ${g.toFixed(1)}% | ${(g - b).toFixed(1)} |`)
+        expect(s, `${difficulty}: ${base} who names every signature wins ${s.toFixed(1)} percent, against ${b.toFixed(1)}`).toBeGreaterThan(b)
+        expect(g - b, `${difficulty}: ${base} guessing at every signature gains ${(g - b).toFixed(1)} points`).toBeLessThanOrEqual(5)
+        expect(g, `${difficulty}: a guess is worth more than knowing (${base})`).toBeLessThanOrEqual(s)
+      }
+    }
+    // The Expert who also names every signature is still the Expert.
+    expect(rate('expertSight', 'standard')).toBeGreaterThanOrEqual(rate('expert', 'standard'))
+    if (process.env.SWEEP)
+      process.stderr.write(['\nThe name on sight, win rates:', '| line | difficulty | scans only | names every signature | lift, points | guesses at each (right 1 in 3) | lift, points |', '|---|---|---|---|---|---|---|', ...lines, ''].join('\n') + '\n')
+  })
+
   it('keeps the answers worth taking and the orders worth making (v1.7 R1)', () => {
     for (const difficulty of ['standard', 'easy'] as const) {
       expect(run('respondOnly', difficulty).wins, `${difficulty}: answers alone`).toBeLessThan(run('novice', difficulty).wins)
     }
     expect(run('preparedRide', 'standard').wins).toBeLessThan(run('prepared', 'standard').wins)
     // The pool is spent: a line that answers uses every answer it has.
-    expect(mean(run('prepared', 'standard').answers)).toBeGreaterThan(DEFAULT_SCENARIO.watch2!.answers - 0.5)
-    expect(Math.max(...run('prepared', 'standard').answers)).toBeLessThanOrEqual(DEFAULT_SCENARIO.watch2!.answers)
+    expect(mean(run('prepared', 'standard').answers)).toBeGreaterThan(DEFAULT_SCENARIO.answers - 0.5)
+    expect(Math.max(...run('prepared', 'standard').answers)).toBeLessThanOrEqual(DEFAULT_SCENARIO.answers)
   })
 
   it('has a beginner stop a fair share of the moves, and a prepared player more (v1.7 R1)', () => {

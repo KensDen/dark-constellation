@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
-import { GRADE_THRESHOLDS, TURN_STRIP, gradeFor, gradeOf, hitsTaken, knockoutsByTurn, stripColour, turnStrip, type Grade } from '../src/engine/grade'
+import { GRADE_BANDS, TURN_STRIP, gradeFor, gradeOf, hitsTaken, knockoutsByTurn, stripColour, turnStrip, type Grade } from '../src/engine/grade'
 import { defenseBonus } from '../src/engine/learning'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { playNight, type Responder } from '../src/engine/responses'
@@ -16,32 +16,47 @@ import { maiScore } from '../src/engine/scoring'
 import { turnRng } from '../src/engine/rng'
 import type { Difficulty, GameState, TurnActions } from '../src/engine/types'
 import { POLICIES, ride, sensible } from './policies'
-import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, NO_OP, WIN_SCRIPT, randomPolicy } from './scripts'
+import { LAZY_SCRIPT, LOSS_SCRIPT, MIXED_SCRIPT, WIN_SCRIPT, randomPolicy, scripted } from './scripts'
 
 // The smallest step the MAI takes: it is shown to one decimal place.
 const STEP = 0.1
 
+const DIFFICULTIES = ['standard', 'easy'] as const
+
 describe('the grade', () => {
-  it('grades a won campaign by final MAI, each threshold inclusive', () => {
-    const won = (finalMai: number) => gradeFor({ status: 'won', finalMai })
-    expect(won(GRADE_THRESHOLDS.S)).toBe('S')
-    expect(won(GRADE_THRESHOLDS.S - STEP)).toBe('A')
-    expect(won(GRADE_THRESHOLDS.A)).toBe('A')
-    expect(won(GRADE_THRESHOLDS.A - STEP)).toBe('B')
-    expect(won(GRADE_THRESHOLDS.B)).toBe('B')
-    expect(won(GRADE_THRESHOLDS.B - STEP)).toBe('C')
-    expect(won(DEFAULT_SCENARIO.winThreshold)).toBe('C')
+  it('grades a won campaign by its graded score at its difficulty, each threshold inclusive', () => {
+    for (const difficulty of DIFFICULTIES) {
+      const bands = GRADE_BANDS[difficulty]
+      const won = (finalMai: number) => gradeFor({ status: 'won', finalMai, difficulty })
+      expect(won(bands.S)).toBe('S')
+      expect(won(bands.S - STEP)).toBe('A')
+      expect(won(bands.A)).toBe('A')
+      expect(won(bands.A - STEP)).toBe('B')
+      expect(won(bands.B)).toBe('B')
+      expect(won(bands.B - STEP)).toBe('C')
+      expect(won(DEFAULT_SCENARIO.winThreshold)).toBe('C')
+    }
+    // STANDARD when the difficulty is not said: the Daily Op's, and an old record's.
+    expect(gradeFor({ status: 'won', finalMai: GRADE_BANDS.standard.S })).toBe('S')
   })
 
-  it('orders its thresholds above the win line, so every grade can be earned', () => {
-    expect(GRADE_THRESHOLDS.S).toBeGreaterThan(GRADE_THRESHOLDS.A)
-    expect(GRADE_THRESHOLDS.A).toBeGreaterThan(GRADE_THRESHOLDS.B)
-    expect(GRADE_THRESHOLDS.B, 'no won campaign could be graded C').toBeGreaterThan(DEFAULT_SCENARIO.winThreshold)
+  it('orders its thresholds above the win line, so every grade can be earned, and asks more of EASY', () => {
+    for (const difficulty of DIFFICULTIES) {
+      const bands = GRADE_BANDS[difficulty]
+      expect(bands.S).toBeGreaterThan(bands.A)
+      expect(bands.A).toBeGreaterThan(bands.B)
+      expect(bands.B, 'no won campaign could be graded C').toBeGreaterThan(DEFAULT_SCENARIO.winThreshold)
+      expect(bands.S, 'S is out of reach').toBeLessThan(100)
+    }
+    // Hits do less on EASY, so the same play ends higher there.
+    for (const g of ['S', 'A', 'B'] as const) expect(GRADE_BANDS.easy[g]).toBeGreaterThan(GRADE_BANDS.standard[g])
+    // A graded score that is an S on STANDARD is an A on EASY.
+    expect(gradeFor({ status: 'won', finalMai: GRADE_BANDS.standard.S, difficulty: 'easy' })).toBe('A')
   })
 
   it('gives D to a campaign that survived every turn under the line, and F to one that ended early', () => {
     // A lost grade does not look at the MAI, so the highest one is used.
-    const finalMai = GRADE_THRESHOLDS.S
+    const finalMai = GRADE_BANDS.easy.S
     expect(gradeFor({ status: 'lost', lossReason: 'belowThreshold', finalMai })).toBe('D')
     expect(gradeFor({ status: 'lost', lossReason: 'maiCollapse', finalMai })).toBe('F')
     expect(gradeFor({ status: 'lost', lossReason: 'insolvency', finalMai })).toBe('F')
@@ -58,9 +73,9 @@ describe('the grade', () => {
     // The other lines ride every move out, as they always played.
     type Ending = 'won' | 'belowThreshold' | 'insolvency' | 'maiCollapse'
     const lines: [(seed: number) => (s: GameState) => TurnActions, Responder][] = [
-      [() => (s) => WIN_SCRIPT[s.turn] ?? NO_OP, sensible],
-      [() => (s) => MIXED_SCRIPT[s.turn] ?? NO_OP, ride],
-      [() => (s) => LOSS_SCRIPT[s.turn] ?? NO_OP, ride],
+      [() => scripted(WIN_SCRIPT), sensible],
+      [() => scripted(MIXED_SCRIPT), ride],
+      [() => scripted(LOSS_SCRIPT), ride],
       [(seed) => randomPolicy(seed), ride],
     ]
     const cases: [GameState, Ending][] = []
@@ -69,7 +84,7 @@ describe('the grade', () => {
         const end = play(seed, line(seed), respond)
         const how: Ending = end.status === 'won' ? 'won' : end.lossReason!
         const finalMai = end.history[end.history.length - 1].maiScore
-        const bonusMoves = gradeFor({ status: end.status, finalMai }) !== gradeFor({ status: end.status, finalMai, bonus: defenseBonus(end.bestStreak, end.saved) })
+        const bonusMoves = gradeFor({ status: end.status, finalMai, difficulty: end.difficulty }) !== gradeFor({ status: end.status, finalMai, bonus: defenseBonus(end.bestStreak, end.saved), difficulty: end.difficulty })
         if (how === 'won' && !bonusMoves) continue
         if (how !== 'maiCollapse' && !cases.some((c) => c[1] === how)) cases.push([end, how])
       }
@@ -81,7 +96,7 @@ describe('the grade', () => {
     // hand, so that it is a collapse on an early turn: the trust meters
     // worn down before turn 1, then a real turn played on them.
     const worn: GameState = { ...newGame(DEFAULT_SCENARIO, 1, 'standard'), meters: { linkAvailability: 20, dataIntegrity: 20, sensorIntegrity: 20 } }
-    const collapsed = resolveTurn(worn, NO_OP, turnRng(worn.seed, worn.turn))
+    const collapsed = resolveTurn(worn, { buyAssets: [], buyCounters: [] }, turnRng(worn.seed, worn.turn))
     expect(collapsed.lossReason, 'the hand-built campaign did not collapse').toBe('maiCollapse')
     cases.push([collapsed, 'maiCollapse'])
 
@@ -89,7 +104,7 @@ describe('the grade', () => {
     for (const [end] of cases) {
       const finalMai = end.history[end.history.length - 1].maiScore
       const bonus = defenseBonus(end.bestStreak, end.saved)
-      expect(gradeOf(end)).toBe(gradeFor({ status: end.status, lossReason: end.lossReason, finalMai, bonus }))
+      expect(gradeOf(end)).toBe(gradeFor({ status: end.status, lossReason: end.lossReason, finalMai, bonus, difficulty: end.difficulty }))
     }
   })
 })
@@ -124,59 +139,45 @@ describe('the turn strip', () => {
 })
 
 describe('the grade is calibrated (brief 7.2)', () => {
-  // The sweep the thresholds were set from (src/engine/grade.ts, brief
-  // 6.8): every policy of the sweep gate (tests/policies.ts), 500 seeds
-  // each on Standard, driven as tests/sweep.spec.ts drives them, and every
-  // win graded on its final score plus its defense bonus. S should be
-  // roughly the top 5 percent of wins and A roughly the next 20. Measured
-  // when the thresholds were set: 664 wins (Prepared 394, Novice 270; the
-  // other three policies win none on Standard), S 4.5 percent, A 18.7.
-  // v1.4.0 left the reported Buy everything line out (its 498 wins were one
-  // fixed order). v1.5 R1 puts it back (Ken, 24 October 2026), with the IR
-  // retainer's recovery at 4 and the thresholds recalibrated on all five:
-  // 899 wins (Buy everything 266, Prepared 398, Novice 210, Random legal
-  // 25), S 5.0 percent, A 21.9.
+  // The sweep the bands were set from (src/engine/grade.ts): every gated
+  // line of the sweep (tests/policies.ts POLICIES), 500 seeds each, driven
+  // as tests/sweep.spec.ts drives them, and every win graded on its final
+  // score plus its defense bonus, at each difficulty with its own bands.
+  // S should be roughly the top 5 percent of wins and A roughly the next
+  // 20. Measured when the bands were set (v2.0 R3): on STANDARD 669 wins,
+  // S 5.8 percent and A 20.2; on EASY 945 wins, S 5.7 and A 20.8.
   //
-  // Why the policies, and not the lines v1.2 calibrated on. Brief 6.8 asks
-  // for the thresholds to be recalibrated "the way R5a did (S about the top
-  // 5 percent of wins, A the next 20), with the bonus included", and R5a's
-  // population was every scripted line of tests/scripts.ts plus the seeded
-  // random line. Measured on v1.3 (Standard, 500 seeds a line, these
-  // thresholds), that population gives 1706 wins with S 39.9 percent and A
-  // 26.3, far outside both bands. The reason is that the scripts are
-  // hand-picked lines, fixed orders written against this deck, and in six
-  // turns the three planned ones win almost every seed: WIN_SCRIPT 500 of
-  // 500, every one an S; MIXED_SCRIPT and TOP_INTEL_SCRIPT 485 each
-  // (LAZY_SCRIPT wins 188, LOSS_SCRIPT none). So 1658 of the 1706 wins are
-  // scripts replayed 500 times, 1470 of them from those three, and the
-  // random line adds only 48: the shares describe those lines, not
-  // players. The policies are the brief's section 7 model of players (buy
-  // everything, prepared, novice, random legal, nothing), each choosing its
-  // orders from the state a player sees, so they are the population, and
-  // what is kept from R5a is the method: S the top 5 percent of wins and A
-  // the next 20, bonus included.
-  it(
-    'gives S to about the top 5 percent of wins and A to about the next 20',
-    () => {
-      const grades: Grade[] = []
-      // Each line answers in the night as the sweep has it (v1.7 R1).
-      for (const { policy, respond } of POLICIES) {
-        for (let seed = 1; seed <= 500; seed += 1) {
-          let end = newGame(DEFAULT_SCENARIO, seed, 'standard')
-          while (end.status === 'playing') end = playNight(end, policy(end), respond)
-          if (end.status === 'won') grades.push(gradeOf(end))
+  // Why the sweep's lines, and not scripts: the lines are the model of
+  // players (prepared, a beginner, buy everything, random legal, nothing),
+  // each choosing its orders from the state a player sees, where a script
+  // is one hand-picked order replayed on every seed (v1.3 measured that
+  // population at S 39.9 percent of wins). What is kept from v1.2 R5a is
+  // the method.
+  for (const difficulty of DIFFICULTIES) {
+    it(
+      `gives S to about the top 5 percent of wins and A to about the next 20, on ${difficulty.toUpperCase()}`,
+      () => {
+        const grades: Grade[] = []
+        for (const { policy, respond } of POLICIES) {
+          for (let seed = 1; seed <= 500; seed += 1) {
+            let end = newGame(DEFAULT_SCENARIO, seed, difficulty)
+            while (end.status === 'playing') end = playNight(end, policy(end), respond)
+            if (end.status === 'won') grades.push(gradeOf(end))
+          }
         }
-      }
-      expect(grades.length, 'too few wins to calibrate against').toBeGreaterThanOrEqual(100)
-      const share = (g: Grade) => grades.filter((x) => x === g).length / grades.length
-      expect(share('S'), 'S is not roughly the top 5 percent of wins').toBeGreaterThanOrEqual(0.03)
-      expect(share('S')).toBeLessThanOrEqual(0.07)
-      expect(share('A'), 'A is not roughly the next 20 percent of wins').toBeGreaterThanOrEqual(0.17)
-      expect(share('A')).toBeLessThanOrEqual(0.23)
-    },
-    // 2500 six-turn campaigns: about a second on a laptop.
-    60_000,
-  )
+        expect(grades.length, 'too few wins to calibrate against').toBeGreaterThanOrEqual(100)
+        const share = (g: Grade) => grades.filter((x) => x === g).length / grades.length
+        expect(share('S'), 'S is not roughly the top 5 percent of wins').toBeGreaterThanOrEqual(0.03)
+        expect(share('S')).toBeLessThanOrEqual(0.07)
+        expect(share('A'), 'A is not roughly the next 20 percent of wins').toBeGreaterThanOrEqual(0.17)
+        expect(share('A')).toBeLessThanOrEqual(0.23)
+        // C is a win that scraped the line: the lowest quarter or so.
+        expect(share('C'), 'C').toBeGreaterThanOrEqual(0.15)
+        expect(share('C')).toBeLessThanOrEqual(0.3)
+      },
+      60_000,
+    )
+  }
 })
 
 describe("a run's knockouts, hits and strip, derived from its history (v1.2 Round 5)", () => {
@@ -185,10 +186,10 @@ describe("a run's knockouts, hits and strip, derived from its history (v1.2 Roun
   // which the derivations below are held against.
   function* turns(): Generator<{ label: string; before: GameState; after: GameState; end: () => GameState }> {
     const lines: [string, (seed: number) => (s: GameState) => TurnActions][] = [
-      ['WIN_SCRIPT', () => (s) => WIN_SCRIPT[s.turn] ?? NO_OP],
-      ['LOSS_SCRIPT', () => (s) => LOSS_SCRIPT[s.turn] ?? NO_OP],
-      ['MIXED_SCRIPT', () => (s) => MIXED_SCRIPT[s.turn] ?? NO_OP],
-      ['LAZY_SCRIPT', () => (s) => LAZY_SCRIPT[s.turn] ?? NO_OP],
+      ['WIN_SCRIPT', () => scripted(WIN_SCRIPT)],
+      ['LOSS_SCRIPT', () => scripted(LOSS_SCRIPT)],
+      ['MIXED_SCRIPT', () => scripted(MIXED_SCRIPT)],
+      ['LAZY_SCRIPT', () => scripted(LAZY_SCRIPT)],
       ['random', (seed) => randomPolicy(seed)],
     ]
     // Expert was retired in v1.3, so the sweep plays the two difficulties
@@ -317,7 +318,7 @@ describe("a run's knockouts, hits and strip, derived from its history (v1.2 Roun
     expect(DEFAULT_SCENARIO.events.filter((e) => (e.kind ?? 'threat') === 'threat').every((e) => e.techniqueRefs.length > 0)).toBe(true)
     let held = 0
     for (let seed = 1; seed <= 40; seed += 1) {
-      const end = play(seed, (s) => MIXED_SCRIPT[s.turn] ?? NO_OP)
+      const end = play(seed, scripted(MIXED_SCRIPT))
       const fired = end.history.reduce((n, rec) => n + rec.events.filter((ev) => ev.firedTechniqueRefs.length > 0).length, 0)
       expect(hitsTaken(end), `seed ${seed}`).toBe(fired)
       held += end.history.reduce((n, rec) => n + rec.events.length, 0) - fired
@@ -325,7 +326,7 @@ describe("a run's knockouts, hits and strip, derived from its history (v1.2 Roun
     // Events that did not land exist in the sweep, so a count of every
     // event would fail here.
     expect(held, 'every event landed, so hits taken was never tested against one that did not').toBeGreaterThan(0)
-    expect(hitsTaken(play(1, (s) => MIXED_SCRIPT[s.turn] ?? NO_OP)), 'a campaign with no hits proves nothing').toBeGreaterThan(0)
+    expect(hitsTaken(play(1, scripted(MIXED_SCRIPT))), 'a campaign with no hits proves nothing').toBeGreaterThan(0)
   })
 })
 

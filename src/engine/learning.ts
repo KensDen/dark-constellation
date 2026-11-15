@@ -2,11 +2,11 @@
 // `met` set and its dossier live in src/persistence, and this module says
 // what goes into them and what they unlock.
 
-import type { Countermeasure, Scenario, TurnRecord } from './types'
+import type { Scenario, TurnRecord } from './types'
 
 // What a turn adds to the device's `met` set (brief 6.9): every threat the
-// player faced tonight, landed or held, and every threat the intel brief
-// named. Opportunities are not threats and never enter it.
+// player faced tonight, landed or held, and every threat the watch could
+// name (the scan's, the ones named on sight, an allied feed's). Opportunities are not threats and never enter it.
 export function metOnTurn(record: Pick<TurnRecord, 'events' | 'named'>, scenario: Scenario): string[] {
   const isThreat = (id: string) => (scenario.events.find((e) => e.id === id)?.kind ?? 'threat') === 'threat'
   const out: string[] = []
@@ -14,23 +14,6 @@ export function metOnTurn(record: Pick<TurnRecord, 'events' | 'named'>, scenario
     if (isThreat(id) && !out.includes(id)) out.push(id)
   }
   return out
-}
-
-// THE EARNED ANSWER KEY (ruling R1, 4 October 2026; brief 5.4). A defense
-// names a threat it stops once the player has met that threat, or once
-// tonight's intel brief has named it; every other threat it stops is only
-// counted ("+2 you have not met"). `known` keeps the defense's own order,
-// and marks the ones named tonight. tests/answer-key.spec.ts sweeps real
-// play and fails if a name ever leaks past this rule (GUARD (b), rewritten
-// to R1).
-export interface AnswerKey {
-  known: { id: string; tonight: boolean }[]
-  unmet: number
-}
-
-export function answerKey(cm: Pick<Countermeasure, 'counters'>, met: ReadonlySet<string>, named: ReadonlySet<string>): AnswerKey {
-  const known = cm.counters.filter((id) => met.has(id) || named.has(id)).map((id) => ({ id, tonight: named.has(id) }))
-  return { known, unmet: cm.counters.length - known.length }
 }
 
 // THE DEFENSE BONUS (brief 6.8): half a point a step of the best streak up

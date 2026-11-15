@@ -1,106 +1,136 @@
-// The sweep's policies do what their comments say (v1.3 R0b).
+// The sweep's lines do what their comments say (v1.3 R0b; the game's lines
+// since v2.0 R3).
 //
-// R0b found that the gated Prepared line answered each slot's flag once, so
-// the reacting adversary took the next least covered move and no drawn-slot
-// order touched the move that landed that night. The line that follows
-// the flag is the same player reading the same board. These hold each
-// line to its own description, so a later edit that changes how either one
-// reads TONIGHT fails here by name rather than moving the sweep quietly.
+// The gate's bands mean something only if each line is the player its
+// comment describes. These hold the gated lines of tests/policies.ts to
+// their own descriptions on every night they meet, so a later edit that
+// changes how one reads the signatures, places its piece or calls a hold
+// fails here by name rather than moving the sweep quietly.
 
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { adversaryPicks } from '../src/engine/adversary'
-import { newGame, resolveTurn } from '../src/engine/reducer'
-import { turnRng } from '../src/engine/rng'
-import { NEW_DEFENSES_PER_NIGHT, chainBonusOf, countersAfter, eventById, gnssDenied, mitigationOf, orderCost } from '../src/engine/rules'
 import { planFor } from '../src/engine/campaign'
-import type { CountermeasureId, GameState, TurnActions } from '../src/engine/types'
+import { holdTonight, rightCall } from '../src/engine/holds'
+import { newGame } from '../src/engine/reducer'
+import { playNight } from '../src/engine/responses'
+import { NEW_DEFENSES_PER_NIGHT, countersAfter, domainOf, eventById, newDefenses, scanPulses } from '../src/engine/rules'
+import type { GameState, TurnActions } from '../src/engine/types'
 import { worstCase } from '../src/engine/worstCase'
-import { prepared, preparedFollow, type Policy } from './policies'
+import { spotFor } from '../src/ui/three/gameModel'
+import { FIXED, WATCH, WATCH_REPORTED, type WatchLine } from './policies'
 
 const SEEDS = 100
+const line = (name: string): WatchLine => [...WATCH, ...FIXED, ...WATCH_REPORTED].find((l) => l.name === name)!
 
-// Every state each line meets, with its orders, over SEEDS seeds on both
-// difficulties.
-function* decisions(policy: Policy): Generator<{ state: GameState; actions: TurnActions; where: string }> {
+// Every state a line meets, with its orders, over SEEDS seeds on both
+// difficulties, answered in the night as the sweep answers for it.
+function* decisions(l: WatchLine): Generator<{ state: GameState; actions: TurnActions; after: GameState; where: string }> {
   for (const difficulty of ['standard', 'easy'] as const) {
     for (let seed = 1; seed <= SEEDS; seed += 1) {
       let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
       while (state.status === 'playing') {
-        const actions = policy(state)
-        yield { state, actions, where: `${difficulty} seed ${seed} turn ${state.turn}` }
-        state = resolveTurn(state, actions, turnRng(state.seed, state.turn))
+        const actions = l.policy(state)
+        const after = playNight(state, actions, l.respond)
+        yield { state, actions, after, where: `${difficulty} seed ${seed} night ${state.turn}` }
+        state = after
       }
     }
   }
 }
+const drawnTonight = (state: GameState) => (planFor(state, state.turn)?.slots ?? []).flatMap((s) => (s.fixed ? [] : (s.drawFrom ?? [])))
+const fixedTonight = (state: GameState) => (planFor(state, state.turn)?.slots ?? []).flatMap((s) => (s.fixed ? [s.fixed] : []))
 
-const blocked = (state: GameState, eventId: string, counters: readonly CountermeasureId[]) => {
-  const ev = eventById(state.scenario, eventId)
-  return ev.effect.special === 'debrisStrike' || ev.baseSeverity + chainBonusOf(ev, gnssDenied(state.conditions, state.scenario)) - mitigationOf(ev, counters) <= 0
-}
-const affordable = (state: GameState, actions: TurnActions) => state.credits - orderCost(state, actions) >= 0 && worstCase(state, actions).value >= 0
-// The defenses tonight's orders bought, as a set.
-const bought = (state: GameState, actions: TurnActions) => countersAfter(state, actions).filter((id) => !state.counters.includes(id))
-
-describe('the sweep policies do what their comments say (R0b)', () => {
-  it('the Prepared line that follows the flag leaves no flagged move it could still answer, until the cap', () => {
-    // After its orders, either tonight's one new defense is ordered (v1.4,
-    // NEW_DEFENSES_PER_NIGHT), or every move COLDVEIL is flagged to take on
-    // a slot is blocked, has no listed defense left, or would take WORST
-    // CASE below 0 with the next one: the flag has nowhere left to move
-    // that the budget and the cap allow the player to follow.
-    const open: string[] = []
-    let followed = 0
-    for (const { state, actions, where } of decisions(preparedFollow)) {
-      expect(bought(state, actions).length, `${where}: more than one new defense`).toBeLessThanOrEqual(NEW_DEFENSES_PER_NIGHT)
-      // Tonight's defense is in: the flag it moved is the one the cap
-      // leaves for tomorrow.
-      if (bought(state, actions).length === NEW_DEFENSES_PER_NIGHT) {
-        followed += 1
-        continue
+describe('the sweep lines do what their comments say', () => {
+  it('Prepared: scans within its pulses, orders 1 defense at most and only against a move it has identified, never below WORST CASE 0, on the recommended spot, and reads every hold right', () => {
+    let ordered = 0
+    let held = 0
+    for (const { state, actions, after, where } of decisions(line('prepared'))) {
+      const scans = actions.scans ?? []
+      expect(scans.length, `${where}: scans`).toBeLessThanOrEqual(scanPulses(state))
+      for (const id of scans) expect(drawnTonight(state), `${where}: scanned a move not on a drawn track`).toContain(id)
+      expect(actions.sighted, `${where}: Prepared names nothing on sight`).toBeUndefined()
+      expect(worstCase(state, actions).value, `${where}: WORST CASE`).toBeGreaterThanOrEqual(0)
+      const bought = newDefenses(state, actions)
+      expect(bought.length, where).toBeLessThanOrEqual(NEW_DEFENSES_PER_NIGHT)
+      if (bought.length) {
+        ordered += 1
+        // The piece answers a move COLDVEIL favored on some track before it
+        // was ordered, and that move is one the line could name.
+        const known = [...scans, ...fixedTonight(state)]
+        const favored = adversaryPicks(state, countersAfter(state, { buyCounters: [] })).flatMap((read) => read.least)
+        const answers = favored.filter((id) => known.includes(id) && eventById(state.scenario, id).counters.includes(bought[0]))
+        expect(answers.length, `${where}: ${bought[0]} answers no favored move the line had identified`).toBeGreaterThan(0)
+        // Set down where its card recommends.
+        const spot = spotFor(state, { defense: null, assets: actions.buyAssets.map((b) => b.kind), scans }, bought[0])
+        expect(actions.placeOn?.[bought[0]], `${where}: not on the recommended spot`).toBe(spot)
+        const asset = state.assets.find((a) => a.id === spot)
+        expect(asset && domainOf(state.scenario, bought[0]).includes(asset.kind), `${where}: a spot the piece cannot sit on`).toBe(true)
       }
-      const counters = countersAfter(state, actions)
-      for (const [i, read] of adversaryPicks(state, counters).entries()) {
-        for (const id of read.least) {
-          if (blocked(state, id, counters)) continue
-          const next = eventById(state.scenario, id).counters.find((c) => !counters.includes(c))
-          if (!next) continue
-          if (affordable(state, { ...actions, buyCounters: [...actions.buyCounters, next] })) open.push(`${where} slot ${i + 1}: ${id} still open, ${next} affordable`)
-        }
-      }
+      const hold = holdTonight(state)
+      if (hold) {
+        held += 1
+        expect(actions.tiebreak, `${where}: the call`).toBe(rightCall(hold))
+        expect(after.history.at(-1)!.hold?.right).toBe(true)
+      } else expect(actions.tiebreak ?? null).toBeNull()
     }
-    expect(open.slice(0, 10).join('\n'), `${open.length} flags left unanswered`).toBe('')
-    // Not vacuous: on most of its nights the line orders tonight's defense.
-    // Before the cap it answered a slot more than once on over SEEDS of
-    // them, following the flag as it moved; the cap ends that at one.
-    expect(followed, 'the line never ordered a defense, so it never followed the flag').toBeGreaterThan(SEEDS)
+    // Not vacuous: it orders on most nights, and meets its holds.
+    expect(ordered).toBeGreaterThan(SEEDS * 2)
+    expect(held).toBeGreaterThan(SEEDS * 2)
   })
 
-  it('the gated Prepared line answers each slot once, so the flag it leaves moves to an open door', () => {
-    // The R0 line, kept as the gate's Prepared until Ken rules: at most one
-    // defense a slot, and on most turns a flagged move it could still
-    // answer is left open, which is the R0b finding.
-    let leftOpen = 0
-    let turns = 0
-    for (const { state, actions, where } of decisions(prepared)) {
-      turns += 1
-      // The slots a defense can answer: the debris call is a choice, not a
-      // threat, so turn 4's fixed conjunction does not count (the R0b
-      // review: counting it let a second order on turn 4's drawn slot
-      // through).
-      const answerable = (planFor(state, state.turn)?.slots ?? []).filter(
-        (slot) => !(slot.fixed && eventById(state.scenario, slot.fixed).effect.special === 'debrisStrike'),
-      ).length
-      expect(bought(state, actions).length, `${where}: more than one defense a slot`).toBeLessThanOrEqual(answerable)
-      expect(bought(state, actions).length, `${where}: more than one new defense`).toBeLessThanOrEqual(NEW_DEFENSES_PER_NIGHT)
-      const counters = countersAfter(state, actions)
-      const open = adversaryPicks(state, counters).some((read) =>
-        read.least.some((id) => !blocked(state, id, counters) && eventById(state.scenario, id).counters.some((c) => !counters.includes(c))),
-      )
-      if (open) leftOpen += 1
+  it('the beginner: scans the first signatures it sees, places a piece only inside WORST CASE, and calls a hold right about 2 times in 3', () => {
+    let holds = 0
+    let right = 0
+    let lit = 0
+    for (const { state, actions, after, where } of decisions(line('novice'))) {
+      expect(actions.scans, where).toEqual(drawnTonight(state).slice(0, scanPulses(state)))
+      expect(worstCase(state, actions).value, `${where}: WORST CASE`).toBeGreaterThanOrEqual(0)
+      const bought = newDefenses(state, actions)
+      expect(bought.length, where).toBeLessThanOrEqual(NEW_DEFENSES_PER_NIGHT)
+      // A piece the tray lit: it answers a move the scan named.
+      if (bought.length && (actions.scans ?? []).some((id) => eventById(state.scenario, id).counters.includes(bought[0]))) lit += 1
+      const rec = after.history.at(-1)!
+      if (rec.hold) {
+        holds += 1
+        if (rec.hold.right) right += 1
+      }
     }
-    expect(leftOpen / turns, 'the one-order line no longer leaves a flagged move open on most turns').toBeGreaterThan(0.5)
+    expect(holds).toBeGreaterThan(SEEDS * 2)
+    expect(right / holds, 'holds called right').toBeGreaterThan(0.58)
+    expect(right / holds).toBeLessThan(0.75)
+    expect(lit, 'it never placed a piece the tray lit').toBeGreaterThan(SEEDS)
+  })
+
+  it('the lines that name on sight name only what the scan did not, and the guesser about 1 in 3 of those', () => {
+    let offered = 0
+    let guessed = 0
+    for (const { state, actions, after, where } of decisions(line('preparedSight'))) {
+      const scans = actions.scans ?? []
+      const rest = drawnTonight(state).filter((id) => !scans.includes(id))
+      expect(actions.sighted ?? [], where).toEqual(rest)
+      expect(after.history.at(-1)!.sighted ?? []).toEqual(rest)
+    }
+    for (const { state, actions } of decisions(line('preparedGuess'))) {
+      const scans = actions.scans ?? []
+      const rest = drawnTonight(state).filter((id) => !scans.includes(id))
+      for (const id of actions.sighted ?? []) expect(rest).toContain(id)
+      offered += rest.length
+      guessed += (actions.sighted ?? []).length
+    }
+    expect(offered).toBeGreaterThan(SEEDS * 4)
+    expect(guessed / offered, 'the guesser is right about 1 time in 3').toBeGreaterThan(0.28)
+    expect(guessed / offered).toBeLessThan(0.39)
+  })
+
+  it('Nothing orders nothing, makes no call and takes no answer', () => {
+    for (const { actions, after, where } of decisions(line('nothing'))) {
+      expect(actions.buyAssets.length + actions.buyCounters.length, where).toBe(0)
+      expect(actions.tiebreak ?? null).toBeNull()
+      const rec = after.history.at(-1)!
+      expect(rec.events.some((e) => e.response)).toBe(false)
+      if (rec.hold) expect(rec.hold.call).toBe('none')
+    }
   })
 })

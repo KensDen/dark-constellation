@@ -1,6 +1,7 @@
-// The sweep's driver, shared by the gate (tests/sweep.spec.ts) and the
-// one-step robustness sweep (tests/sweep-steps.spec.ts, v1.3 R0b): plays a
-// policy over seeds 1 to 500 exactly as the gate always has and keeps what
+// The sweep's driver, shared by the gate (tests/sweep.spec.ts), the grade
+// calibration (tests/grade.spec.ts) and the one-step robustness sweep
+// (tests/sweep-steps.spec.ts): plays a
+// line over seeds 1 to 500 exactly as the gate always has and keeps what
 // the table reports. A plain module, not a spec, so either file can import
 // it without registering the other's tests.
 
@@ -35,12 +36,11 @@ export interface PolicyRun {
   met1to3: [number, number, number]
   blocked1to3: [number, number, number]
   // v1.7 R1: per run, the attacks faced, those stopped outright (by a
-  // defense or a response), those a response halved, the responses paid
-  // for, and the budget the run ended on.
+  // defense, the post or an answer), those an answer halved, and the
+  // budget the run ended on.
   faced: number[]
   stopped: number[]
   halved: number[]
-  spentOnResponses: number[]
   creditsLeft: number[]
   // The graded score (final score plus the defense bonus) of each win.
   gradedWins: number[]
@@ -53,9 +53,7 @@ export interface PolicyRun {
   answers: number[]
 }
 
-// `watch` plays the 3D game's rules (GameState.watch 2, v2.0 R2): the gate's
-// own since R2. Without it, the classic board's, for the suites that hold those.
-export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Responder = () => null, seeds = SEEDS, timing: 0 | 1 | 2 = 0, watch?: 2): PolicyRun {
+export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Responder = () => null, seeds = SEEDS, timing: 0 | 1 | 2 = 0): PolicyRun {
   const run: PolicyRun = {
     wins: 0,
     insolvencies: 0,
@@ -72,7 +70,6 @@ export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Resp
     faced: [],
     stopped: [],
     halved: [],
-    spentOnResponses: [],
     creditsLeft: [],
     gradedWins: [],
     streakMismatches: [],
@@ -81,11 +78,11 @@ export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Resp
     answers: [],
   }
   for (let seed = 1; seed <= seeds; seed += 1) {
-    let state: GameState = newGame(DEFAULT_SCENARIO, seed, difficulty, undefined, watch)
+    let state: GameState = newGame(DEFAULT_SCENARIO, seed, difficulty)
     const met = new Set<string>()
     let streak = 0
     let best = 0
-    const tally = { faced: 0, stopped: 0, halved: 0, spent: 0 }
+    const tally = { faced: 0, stopped: 0, halved: 0 }
     while (state.status === 'playing') {
       // A tap of the same grade on every move, for the lines that report
       // the timed block's lift (v2.0 R1); the gated lines take none.
@@ -108,7 +105,6 @@ export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Resp
         const strength = def.baseSeverity - 1
         run.met1to3[strength] += 1
         tally.faced += 1
-        tally.spent += ev.response?.cost ?? 0
         if (ev.response?.effect === 'halve') tally.halved += 1
         if (ev.effectiveSeverity === 0) {
           tally.stopped += 1
@@ -135,7 +131,6 @@ export function playPolicy(policy: Policy, difficulty: Difficulty, respond: Resp
     run.faced.push(tally.faced)
     run.stopped.push(tally.stopped)
     run.halved.push(tally.halved)
-    run.spentOnResponses.push(tally.spent)
     run.creditsLeft.push(state.credits)
     run.answers.push(state.answersUsed ?? 0)
     run.grades[gradeOf(state)] += 1

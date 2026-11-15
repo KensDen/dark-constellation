@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 //
 // The motion rules for every screen (v1.3 brief 8.3, Round 5): all of it
-// off under reduced motion, and paused while the tab is hidden. The board
-// has paused itself since v1.2 R2 (tests/sprites.dom.spec.tsx); since R5
-// the whole page does, through one class on the root that App sets from
-// visibilitychange, which src/index.css turns into a pause for every
+// off under reduced motion, and paused while the tab is hidden. The pixel
+// board paused itself from v1.2 R2 until it was retired (v2.0 R3); since
+// R5 the whole page does, through one class on the root that App sets
+// from visibilitychange, which src/index.css turns into a pause for every
 // animation on every screen. scripts/phone-layout.mjs reads the reduced
 // half in a real browser, on every screen.
 
@@ -15,7 +15,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
+vi.mock('../src/ui/TitleWorld', () => ({ default: () => null }))
 
 import App from '../src/App'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
@@ -68,7 +68,7 @@ const hide = (hidden: boolean) =>
   })
 
 describe('every screen pauses while the tab is hidden (brief 8.3)', () => {
-  it('sets one class on the root from visibilitychange, on the title as on the board, and takes it off again', () => {
+  it('sets one class on the root from visibilitychange, on the title as on any screen, and takes it off again', () => {
     act(() => {
       root.render(<App />)
     })

@@ -2,8 +2,8 @@
 // from brief 11 and the R3 report, each held over real play.
 //   - G-028: the docking dazzle strikes the RPO sat when one is held.
 //   - G-103: a condition's turns left mean one thing, the nights it will
-//     still press after the one being played, so a night's chips and its
-//     END OF TURN agree (brief 6.5).
+//     still press after the one being played, so a night's cards and its
+//     close agree (brief 6.5).
 //   - The per-event score: the engine records the score each event found
 //     and left, and the night's figures are the engine's.
 
@@ -13,9 +13,15 @@ import { newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import { maiScore } from '../src/engine/scoring'
 import type { GameState, TurnActions } from '../src/engine/types'
-import { turnsLeft } from '../src/ui/board/boardModel'
 import { nightOf } from '../src/ui/night/nightModel'
 import { POLICIES } from './policies'
+
+// A condition's turns left, one meaning everywhere (G-103, brief 6.5): the
+// nights it will still press after the one being played. The engine counts
+// it down at each turn close, so a state between turns reads it as stored,
+// and a night in play (before its close) reads it as its close will leave
+// it, which is how the 3D game's cards print it (src/ui/three/cards3d.tsx).
+const turnsLeft = (c: { remainingTurns: number }, preClose: boolean) => (preClose ? Math.max(0, c.remainingTurns - 1) : c.remainingTurns)
 
 // Every turn of every policy over a few dozen seeds, both difficulties.
 function turns(seeds: number): { before: GameState; after: GameState }[] {
@@ -74,19 +80,19 @@ describe('the engine round of v1.3 R6', () => {
     }
   })
 
-  it("G-103: a condition's turns left during a night are what END OF TURN shows for it, landed tonight or earlier", () => {
+  it("G-103: a condition's turns left during a night are what the close shows for it, landed tonight or earlier", () => {
     let seen = 0
     let renewed = 0
     for (const { before, after } of all) {
       const night = nightOf(before, after)
-      const last = night.steps.length ? night.steps[night.steps.length - 1].after : night.opening
+      const last = night.steps.length ? night.steps[night.steps.length - 1].after : (night.hold?.after ?? night.opening)
       for (const step of night.steps) {
         for (const c of step.after.conditions) {
           const closed = after.conditions.find((x) => x.instanceId === c.instanceId)
           const atEnd = closed ? turnsLeft(closed, false) : 0
           // A later move the same night can renew it (a second ransomware
-          // hit); then the chip rises with it, and the night's last view is
-          // the one END OF TURN must match.
+          // hit); then the count rises with it, and the night's last view is
+          // the one the close must match.
           const final = last.conditions.find((x) => x.instanceId === c.instanceId)!
           if (final.remainingTurns !== c.remainingTurns) {
             renewed += 1

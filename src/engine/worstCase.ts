@@ -1,7 +1,8 @@
 // WORST CASE (v1.3 brief 6.4, critique row M9): what the budget reads at
-// turn close if tonight goes as badly as it can, before funding arrives.
+// turn close if tonight goes as badly as it can, before funding arrives,
+// with what the nights ahead could need held back.
 //
-//   worstCase = remaining - worstRepairs - upkeepNext
+//   worstCase = remaining - worstRepairs - upkeepNext - heldForLater
 //
 // remaining is the budget less tonight's orders. worstRepairs sums, over
 // tonight's slots, the largest repair bill any candidate could produce at
@@ -13,8 +14,9 @@
 // that reads 0 or more here cannot close insolvent: tests/sweep.spec.ts
 // holds that over 500 seeds of every policy on both difficulties.
 //
-// One function; the dock, the FIRST ORDERS check and the battery all call
-// it (brief 6.4).
+// One function; the plan card, the sweep's lines and the battery all call
+// it (brief 6.4). It ignores the answers and the post, so it can only be
+// too careful.
 
 import { burnFuel, chainBonusOf, countersAfter, eventById, fundingOf, gnssDenied, lossReviewBill, mitigationOf, orderCost, repairBill, worstBillOf } from './rules'
 import { planFor } from './campaign'
@@ -58,21 +60,18 @@ export function worstCase(state: GameState, actions: TurnActions): WorstCase {
   return { remaining, repairs, upkeep, later, value: remaining - repairs - upkeep - later }
 }
 
-// HELD FOR THE NIGHTS AHEAD (v1.7 R1). A response is paid in the night,
-// where the player cannot see the turns to come, so it may not spend what
-// those turns' bills could need: for each turn after this one, the largest
-// repair bill each of its slots could leave at the defenses owned now,
-// plus their upkeep, less the mission funding that arrives before it. The
-// running total's highest point is what stays held (0 on the last turn,
-// and whenever funding covers every night ahead). With it, a player who
-// answers every move tonight and then never orders again can ride every
-// later night out and stay solvent; without it, a response on turn 4
-// could end the run at turn 6's close, with nothing on screen to say so.
-// WORST CASE on the board holds orders to the same figure (worstCase,
-// above), so one number guards both: with money tight since responses, a
-// turn's orders could read 0 or more and still leave the next night's
-// bills unpayable before the player could do anything about it.
-export function heldForLater(state: Pick<GameState, 'scenario' | 'seed' | 'turn' | 'difficulty' | 'watch'>, counters: readonly CountermeasureId[]): number {
+// HELD FOR THE NIGHTS AHEAD (v1.7 R1). The player cannot see the turns to
+// come, so tonight's orders may not spend what those turns' bills could
+// need: for each turn after this one, the largest repair bill each of its
+// slots could leave at the defenses owned now, plus their upkeep, less the
+// mission funding that arrives before it. The running total's highest
+// point is what stays held (0 on the last turn, and whenever funding
+// covers every night ahead). Without it a turn's orders could read 0 or
+// more and still leave the next night's bills unpayable before the player
+// could do anything about it. It is why mission funding has a floor: at 4
+// a night this figure stops every line from buying
+// (src/content/scenarios/firstLight.ts).
+export function heldForLater(state: Pick<GameState, 'scenario' | 'seed' | 'turn' | 'difficulty'>, counters: readonly CountermeasureId[]): number {
   const { scenario, difficulty } = state
   const upkeep = counters.length * scenario.upkeepPerDefense
   let running = 0

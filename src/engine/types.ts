@@ -9,14 +9,15 @@
 // 5.1), and the sweep gate tunes those two (brief 7).
 export type Difficulty = 'easy' | 'standard'
 export type Posture = 'dark'
-// THE WATCH'S RULES (v2.0 R2). Absent, a game plays by the rules the
-// pixel board (?view=classic) has pinned since v1.7. 2 is the 3D game's:
-// every signature keeps the target it was sighted on (rules.ts, aimOf),
-// the answers are a pool for the operation (rules.ts, answersOf), where a
-// defense sits matters (rules.ts, postOf), and the policy
-// engine holds one of the fleet's own actions for the player's call
-// (src/engine/holds.ts).
-export type Watch = 2
+// ONE RULE SET SINCE v2.0 R3 (Ken's ruling of 15 November 2026: the pixel
+// board is retired). Every game plays the watch's rules: every signature
+// keeps the target it was sighted on (rules.ts, aimOf), the answers are a
+// pool for the operation (rules.ts, answersOf), where a defense sits
+// matters (rules.ts, postOf), and the policy engine holds one of the
+// fleet's own actions for the player's call (src/engine/holds.ts). The
+// rules the pixel board was released with (a paid intel brief, answers
+// bought with credits, a target drawn as a move resolved) left the engine
+// with it; they are in the history of main, v1.7/r1 and exp/3d-slice.
 
 export type Layer = 'ORBIT' | 'AIR' | 'GROUND'
 // The three layers, as a value. Promoted out of ui/cues/Scene.tsx in Round
@@ -129,9 +130,9 @@ export interface ThreatCondition {
 }
 
 // THE RESPONSE (v1.7 R1): what the player can do in the night when a move
-// would land. A response blocks the move or halves its damage, for a cost
-// the rules set (src/engine/rules.ts); riding it out is always free and is
-// not listed. The words the player reads are content
+// would land. A response blocks the move or halves its damage, and spends
+// one of the operation's answers (src/engine/rules.ts); riding it out
+// spends nothing and is not listed. The words the player reads are content
 // (src/content/responseText.ts), joined to these by id.
 export type ResponseEffect = 'block' | 'halve'
 // THE TIMED BLOCK (v2.0 R1): a tap as a strike lands, graded by how close
@@ -274,7 +275,6 @@ export interface Scenario {
     rpoSat: number
     drone: number
     groundStation: number
-    intelBrief: number
   }
   // Paid at every turn close for each defense owned (brief 6.1, M10).
   upkeepPerDefense: number
@@ -290,26 +290,16 @@ export interface Scenario {
   // only through the scenario, never from module-level imports.
   events: ThreatEvent[]
   countermeasures: Countermeasure[]
-  // The policy engine's holds (v2.0 R2). A game deals them only under the
-  // 3D game's rules (GameState.watch).
-  holds?: HoldTemplate[]
-  // THE 3D GAME'S NUMBERS (v2.0 R2): what a game under GameState.watch 2
-  // reads in place of the figures above (rules.ts, fundingOf and the rest),
-  // so the classic board keeps the economy its tests pin.
-  watch2?: Watch2
-}
-
-export interface Watch2 {
-  startCredits: number
-  incomePerTurn: number
-  recovery: { base: number; withIrRetainer: number }
-  // Meter damage a point of strength that gets through.
-  meterDamage: number
-  // Answers the watch has for the whole operation.
-  answers: number
-  // Holds a game deals, and the score a wrong call costs, in points.
-  holds: number
+  // The policy engine's holds (v2.0 R2): the templates a game deals from,
+  // how many it deals, and the score a wrong call costs, in points.
+  holds: HoldTemplate[]
+  holdCount: number
   holdStake: number
+  // Meter damage a point of strength that gets through, before the
+  // difficulty.
+  meterDamage: number
+  // Answers the watch has for the whole operation (rules.ts, answersOf).
+  answers: number
 }
 
 export interface Asset {
@@ -380,28 +370,20 @@ export interface ResolvedEvent {
   // The condition this event left, when it landed with one.
   condition?: ThreatCondition
   debris?: DebrisCall
-  // THE RESPONSE (v1.7 R1). `room` is set when the move would have landed
-  // and had a response to offer: the budget a response and this move's own
-  // repair bill could draw on at that moment, with tonight's other bills
-  // and the upkeep held back (rules.ts, responseRoom). `response` is the
-  // one the player took; absent, the move was ridden out.
-  room?: number
-  // How many responses the player had already taken tonight when this
-  // move arrived (rules.ts, RESPONSES_PER_NIGHT). Absent for none.
-  answered?: number
-  response?: { id: string; effect: ResponseEffect; cost: number }
+  // THE RESPONSE (v1.7 R1; a pool since v2.0 R2). `left` is set when the
+  // move would have landed and had a response to offer: the answers the
+  // watch had left for the operation as it arrived (rules.ts, answersOf).
+  // `response` is the one the player took; absent, the move was ridden out.
+  left?: number
+  response?: { id: string; effect: ResponseEffect }
   // THE POST (v2.0 R2): the points the watch's post took off this strike,
   // when its target was the asset the newest defense sits on (rules.ts,
   // HARDEN). Absent at 0.
   hardened?: number
-  // The answers the watch had left for the operation as this move arrived
-  // (v2.0 R2, rules.ts answersOf). Absent under the classic rules.
-  left?: number
   // THE TIMED BLOCK (v2.0 R1): the grade of the player's tap as this move
-  // landed, 1 for good and 2 for perfect (rules.ts, TIMING_BONUS), and the
-  // credits a well-timed block of a response paid back. Absent with no tap.
+  // landed, 1 for good and 2 for perfect (rules.ts, TIMING_BONUS). Absent
+  // with no tap.
   timing?: TimingGrade
-  refund?: number
   // The score as this event found it and as it left it (v1.3 R6, the
   // per-event score): the hit card's figure reads these, not a replay.
   scoreBefore: number
@@ -428,12 +410,7 @@ export interface TurnLedger {
   fuel: number
   // Credits an opportunity brought in during the night.
   windfall: number
-  // Spent on responses during the night (v1.7 R1). Absent on a record from
-  // before responses.
-  responses?: number
-  // Paid back by well-timed blocks during the night (v2.0 R1). Absent at 0.
-  refunds?: number
-  // "Left after tonight's orders": start - ordered - fuel - responses + refunds + windfall.
+  // "Left after tonight's orders": start - ordered - fuel + windfall.
   afterNight: number
   repairs: number
   // What each repair bill was for: the tile, or the event when it hit no tile.
@@ -456,12 +433,17 @@ export interface TurnLedger {
 export interface TurnRecord {
   turn: number
   purchases: string[]
-  // Whether the intel brief was active tonight, and the threats it named.
+  // Whether an allied feed covered tonight (it names every move), and the
+  // moves the watch could name: the feed's, the scan's, the ones named on
+  // sight, and a CONFIRMED one.
   briefed: boolean
   named: string[]
   // The signatures the player's scan identified tonight (v2.0 R1), in the
   // order the night lists them. Absent on a night with no scan.
   scanned?: string[]
+  // The signatures the player named on sight tonight (v2.0 R3), with no
+  // pulse spent. Absent on a night with none.
+  sighted?: string[]
   events: ResolvedEvent[]
   // The policy engine's hold tonight, when there was one (v2.0 R2).
   hold?: ResolvedHold
@@ -493,20 +475,14 @@ export interface GameState {
   meters: { linkAvailability: number; dataIntegrity: number; sensorIntegrity: number }
   conditions: ActiveCondition[]
   pipeline: PendingAsset[]
-  // The intel brief is free through this turn: turn 1 (D2 a), and the
-  // turns an allied data share covers.
+  // An allied feed names every move through this turn: the turns an allied
+  // data share covers (rules.ts, briefFree). 1 at the start, which the
+  // first night's scan never reads. The name is the save format's.
   briefFreeThrough: number
-  // The turn a paid brief named the moves on (v1.5 R2): on that turn it is
-  // ordered and cannot be cancelled (rules.ts, briefLocked). Absent until a
-  // brief is revealed, and cleared by resolveTurn.
-  briefRevealed?: number
   // COLDVEIL'S POSTURE (v2.0 R1): absent is the campaign as tuned; 'dark'
   // is the harder one a finished game unlocks, where COLDVEIL emits less
   // and the watch has one scan pulse a night (rules.ts, scanPulses).
   posture?: Posture
-  // THE WATCH'S RULES (v2.0 R2): 2 in the 3D game, absent on the classic
-  // board. Set when the game starts and never changed.
-  watch?: Watch
   // Where each defense sits (v2.0 R2): the asset its piece was set down
   // on. A defense with no entry was never placed, or its asset is gone.
   placed?: Partial<Record<CountermeasureId, string>>
@@ -529,8 +505,6 @@ export interface TurnActions {
   buyAssets: AssetBuy[]
   // Defenses, the IR retainer among them.
   buyCounters: CountermeasureId[]
-  // Order the intel brief for tonight. Ignored on a turn it is free.
-  intelBrief: boolean
   // The call on a conjunction night (brief 5.5 item 5). HOLD when absent,
   // which is what doing nothing is.
   debris?: DebrisChoice
@@ -542,13 +516,18 @@ export interface TurnActions {
   // sweep identified, at most scanPulses(state) of them (rules.ts). What a
   // scan names is knowledge, not an outcome: no number in the night reads it.
   scans?: string[]
+  // THE NAME ON SIGHT (v2.0 R3, Ken's ruling of 15 November 2026): the ids
+  // of tonight's candidate moves the player named from their look alone.
+  // Each is identified as a scan would identify it, and no pulse is spent
+  // (rules.ts, SIGHT). Knowledge, like the scan: no number reads it.
+  sighted?: string[]
   // THE TIMED BLOCKS (v2.0 R1): for each of tonight's moves, in the order
   // they come, the grade of the tap as it landed, or nothing. An input, so
   // a seed and the player's inputs replay exactly.
   timing?: (TimingGrade | 0 | null | undefined)[]
   // WHERE TONIGHT'S DEFENSE GOES (v2.0 R2): the asset each new defense is
-  // set down on. Read only under the 3D game's rules; a defense with no
-  // asset named, or one it cannot sit on, is owned and stands nowhere.
+  // set down on. A defense with no asset named, or one it cannot sit on,
+  // is owned and stands nowhere.
   placeOn?: Partial<Record<CountermeasureId, string>>
   // THE TIE-BREAK (v2.0 R2): the player's call on tonight's hold. Absent,
   // no call was made and the machine's block stands.

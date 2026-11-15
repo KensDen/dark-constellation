@@ -5,13 +5,19 @@
 // between the Daily Op and practice, and the title's Daily read-back.
 //
 // GUARD R4 (c): THE DOSSIER'S COUNT IS ITS FILED CARDS, AND SURVIVES A
-// RELOAD. Cards are filed the way a player files them, FILE TO DOSSIER on
-// a move's result (v1.7 R1), then the page is loaded again and the Dossier read
-// from the title: its count, its filed cards and GOAL 2 agree with each
-// other and with what was filed.
+// RELOAD. Cards are filed through the store the game files them with
+// (fileCard, which FILE TO DOSSIER calls), for the threats two nights of a
+// real game met; then the page is loaded again and the Dossier read from
+// the title: its count, its filed cards and GOAL 2 agree with each other
+// and with what was filed.
 // GUARD R4 (e), the reading rooms' half: no retired word (section 4) on the
 // Dossier (empty, part-filled, a card open), LIBRARY's two tabs, the
 // scoreboard, or the title with a Daily Op done, text nodes read apart.
+//
+// v2.0 R3: the Dossier is the 3D game's room (src/ui/three/rooms3d.tsx),
+// which needs no WebGL, and the pixel Dossier and the pixel night that
+// filed its cards are retired. The night itself cannot play in a test DOM,
+// so the tap on FILE TO DOSSIER is not driven here.
 //
 // Doubles, as daily-op.dom.spec.tsx names them: the three.js frame is
 // stubbed, storage is an in-memory map, and the clock is vitest's fake one.
@@ -20,16 +26,21 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
+vi.mock('../src/ui/TitleWorld', () => ({ default: () => null }))
 
 import App from '../src/App'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { FIELD_LIBRARY } from '../src/content/fieldLibrary'
 import { pairedEvents } from '../src/content/librarySchema'
 import { gradeFor } from '../src/engine/grade'
+import { newGame, resolveTurn } from '../src/engine/reducer'
+import { turnRng } from '../src/engine/rng'
+import { fileCard } from '../src/persistence'
+import { stoppedByLine } from '../src/ui/board/boardModel'
 import { glossaryEntries } from '../src/ui/reference'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
-import { FILED_BEAT_MS } from '../src/ui/night/cards'
+import * as copy from '../src/ui/night/nightCopy'
+import * as c3 from '../src/ui/three/copy3d'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
 
@@ -44,15 +55,14 @@ let unlisten: () => void
 let mounts = 0
 
 beforeAll(async () => {
-  await import('../src/ui/night/Night')
-  await import('../src/ui/night/cards')
-  await import('../src/ui/night/closeCards')
-  // The reading rooms' chunks too, so a lazy screen resolves on a
-  // microtask under a loaded full run (v1.6 R3: the Library's entries once
-  // came back empty there and whole alone).
+  // The reading rooms' chunks, so a lazy screen resolves on a microtask
+  // under a loaded full run (v1.6 R3: the Library's entries once came back
+  // empty there and whole alone), and under this file's fake clock. The
+  // Dossier rides in the 3D game's chunk.
   await import('../src/ui/Library')
   await import('../src/ui/FieldLibrary')
-  await import('../src/ui/Dossier')
+  await import('../src/ui/three/Game3D')
+  await import('../src/ui/three/rooms3d')
 })
 
 function memoryStorage(): Storage {
@@ -135,110 +145,98 @@ function words(el: Element): string {
 const filed = () => JSON.parse(localStorage.getItem('dc-dossier') ?? '[]') as string[]
 const THREATS = DEFAULT_SCENARIO.events.filter((e) => (e.kind ?? 'threat') === 'threat')
 
-// One night through its cards as a player taps them (v1.7 R1): every move
-// that would land is ridden out on THE RESPONSE, a block moment is ended by
-// its tap, and FILE TO DOSSIER files the card at once, its FILED stamp
-// standing for a beat of the fake clock before the night goes on by itself
-// (the full-screen Dossier card and its FILE IT are gone).
-async function playNight() {
-  await tap(q('button[data-execute]')!)
-  for (let i = 0; i < 40; i += 1) {
-    const way =
-      q('[data-responses] button[data-response="ride"]') ??
-      q('button[data-strike-tap]') ??
-      q('[data-call="hold"]') ??
-      q('[data-collect]') ??
-      q('[data-continue]') ??
-      q('[data-night-card="end"] button[data-begin]')
-    expect(way, 'a card of the night has no way on').not.toBeNull()
-    const last = way!.hasAttribute('data-begin')
-    const files = way!.hasAttribute('data-collect')
-    const count = filed().length
-    await tap(way!)
-    if (files) {
-      // Filed on the tap, not after the beat, and the stamp says the count.
-      expect(filed(), 'FILE TO DOSSIER did not file the card at once').toHaveLength(count + 1)
-      expect(q('[data-filed-stamp]')?.textContent, 'the FILED stamp does not say the Dossier\'s count').toContain(`${count + 1} / 18`)
-      await act(async () => {
-        vi.advanceTimersByTime(FILED_BEAT_MS + 80)
-      })
-      expect(q('[data-filed-stamp]'), 'the FILED stamp never let the night go on').toBeNull()
-    }
-    if (last) break
-  }
+// The threats two nights of a real game meet, in the order met: what a
+// player who filed every card would have filed.
+function metInTwoNights(seed: number): string[] {
+  let state = newGame(DEFAULT_SCENARIO, seed, 'easy')
+  for (let n = 0; n < 2 && state.status === 'playing'; n += 1) state = resolveTurn(state, { buyAssets: [], buyCounters: [] }, turnRng(state.seed, state.turn))
+  const met = state.history.flatMap((r) => r.events.map((e) => e.eventId)).filter((id) => THREATS.some((t) => t.id === id))
+  return [...new Set(met)]
 }
 
+const room = () => q('[data-t3-room="dossier"]')
 async function openDossierFromTitle() {
   click(q('[data-read="dossier"]')!)
-  await settle()
-  expect(q('[data-dossier]'), 'DOSSIER did not open the Dossier').not.toBeNull()
+  for (let i = 0; i < 40 && !room(); i += 1) await settle()
+  expect(room(), 'DOSSIER did not open the Dossier').not.toBeNull()
 }
+const cards = () => qa('[data-t3-dcard]')
+const cardIds = (sel: string) => qa(sel).map((c) => c.getAttribute('data-t3-dcard'))
 
 describe('GUARD R4 (c): the Dossier counts its filed cards, and keeps them across a reload', () => {
-  it('files through play, reloads, and reads the same count from the title, GOAL 2 and the grid', async () => {
+  it('files what two nights met, reloads, and reads the same count from the title, GOAL 2 and the grid', async () => {
     loadPage()
-    click(q('[data-play]')!)
-    await playNight()
-    await playNight()
+    const met = metInTwoNights(20261022)
+    for (const id of met) fileCard(id)
     const before = filed()
     expect(before.length, 'two nights filed nothing, so this counts nothing').toBeGreaterThan(0)
+    expect([...before].sort()).toEqual([...met].sort())
 
-    // A reload: a new App on the same storage. It lands on the game in
-    // progress; SYSTEM leads back to the title.
+    // A reload: a new App on the same storage.
     loadPage()
-    click(q('button[aria-label="System"]')!)
-    click(byText(/^Back to title$/i)!)
-    click(byText(/^LEAVE$/)!)
-    expect(q('[data-goal="2"]')!.textContent).toContain(`${before.length} / 18 filed`)
+    expect(q('[data-goal="2"]')!.textContent).toContain(`${before.length} / ${THREATS.length} filed`)
     await openDossierFromTitle()
-    expect(q('[data-dossier-count]')!.textContent).toBe(`${before.length} / 18`)
-    expect(qa('[data-dossier-card][data-filed]').map((c) => c.getAttribute('data-dossier-card')).sort()).toEqual([...before].sort())
-    expect(qa('[data-dossier-card][data-unfiled]')).toHaveLength(THREATS.length - before.length)
-    expect(qa('[data-dossier-card]').map((c) => c.getAttribute('data-dossier-card')), 'the grid is not the deck in order').toEqual(THREATS.map((t) => t.id))
+    expect(q('[data-t3-dossier-count]')!.textContent).toBe(c3.filedOf(before.length, THREATS.length))
+    expect(cardIds('[data-t3-dcard][data-filed]').sort()).toEqual([...before].sort())
+    expect(qa('[data-t3-dcard]:not([data-filed])')).toHaveLength(THREATS.length - before.length)
+    expect(cardIds('[data-t3-dcard]'), 'the grid is not the deck in order').toEqual(THREATS.map((t) => t.id))
   })
 
-  it('reads an empty Dossier as 0 / 18, every card unfiled, and a filed one as its own', async () => {
+  it('reads an empty Dossier as none filed, every card unfiled, and a filed one as its own', async () => {
     loadPage()
     await openDossierFromTitle()
-    expect(q('[data-dossier-count]')!.textContent).toBe('0 / 18')
-    expect(qa('[data-dossier-card][data-filed]')).toHaveLength(0)
-    // Each card keeps its place in the deck, 01 to 18.
-    qa('[data-dossier-card]').forEach((card, i) => expect(card.textContent).toBe(`UnfiledFace this move in play to file it.${String(i + 1).padStart(2, '0')}`))
+    expect(q('[data-t3-dossier-count]')!.textContent).toBe(c3.filedOf(0, THREATS.length))
+    expect(qa('[data-t3-dcard][data-filed]')).toHaveLength(0)
+    // Each card keeps its place in the deck, 01 to the last, says it is
+    // unfiled and how to file it, and cannot be opened.
+    cards().forEach((card, i) => {
+      const text = card.textContent ?? ''
+      expect(text.startsWith(`${String(i + 1).padStart(2, '0')} · ${c3.UNFILED}`), `card ${i + 1} reads "${text}"`).toBe(true)
+      expect(text).toContain(c3.UNFILED_LINE)
+      expect(text, `card ${i + 1} names its move while unfiled`).not.toContain(THREATS[i].name.split(' (')[0])
+      expect(card.querySelector('button')!.disabled, `unfiled card ${i + 1} opens`).toBe(true)
+    })
 
+    // An id the deck does not hold is not a card.
     localStorage.setItem('dc-dossier', JSON.stringify(['ground-ransomware', 'uplink-jamming', 'not-in-the-deck']))
     loadPage()
+    // And GOAL 2 does not count it.
+    expect(q('[data-goal="2"]')!.textContent).toContain(`2 / ${THREATS.length} filed`)
     await openDossierFromTitle()
-    // An id the deck does not hold is not a card and is not counted.
-    expect(q('[data-dossier-count]')!.textContent).toBe('2 / 18')
-    expect(qa('[data-dossier-card][data-filed]').map((c) => c.getAttribute('data-dossier-card'))).toEqual(['uplink-jamming', 'ground-ransomware'].sort((a, b) => THREATS.findIndex((t) => t.id === a) - THREATS.findIndex((t) => t.id === b)))
+    expect(cards()).toHaveLength(THREATS.length)
+    expect(q('[data-t3-dossier-count]')!.textContent).toBe(c3.filedOf(2, THREATS.length))
+    expect(cardIds('[data-t3-dcard][data-filed]')).toEqual(['uplink-jamming', 'ground-ransomware'].sort((a, b) => THREATS.findIndex((t) => t.id === a) - THREATS.findIndex((t) => t.id === b)))
   })
 
-  it('opens a filed card to its blurb, STOPPED BY, TECHNIQUE, SOURCE and LEARN MORE, which opens the Field Library at it', async () => {
+  it('opens a filed card to its blurb, BLUNTED BY, TECHNIQUE, SOURCES and LEARN MORE, which opens the Field Library at it', async () => {
     localStorage.setItem('dc-dossier', JSON.stringify(['ground-ransomware']))
     loadPage()
     await openDossierFromTitle()
-    const card = q<HTMLDetailsElement>('[data-dossier-card="ground-ransomware"]')!
+    const card = q('[data-t3-dcard="ground-ransomware"]')!
     const def = THREATS.find((t) => t.id === 'ground-ransomware')!
-    // The whole card opens; an arrow says so, not "details ›" (v1.6 R3).
-    expect(card.querySelector('summary')!.textContent).not.toContain('›')
-    expect(card.querySelector('summary .dc-open-turn'), 'the card has no open arrow').not.toBeNull()
-    click(card.querySelector('summary')!)
-    card.open = true
+    // The whole head opens the card.
+    const head = card.querySelector('button')!
+    expect(head.getAttribute('aria-expanded')).toBe('false')
+    expect(card.textContent).not.toContain(def.blurb)
+    click(head)
+    expect(head.getAttribute('aria-expanded')).toBe('true')
     const body = card.textContent ?? ''
     expect(body).toContain(def.blurb)
     // Ransomware is strength 3 against one defense that takes 2 off: it is
     // blunted, never stopped alone (R6 question 2).
-    for (const label of ['BLUNTED BY', 'TECHNIQUE', 'SOURCE']) expect(body).toContain(label)
+    expect(stoppedByLine(def, DEFAULT_SCENARIO).label).toBe('BLUNTED BY')
+    for (const label of ['BLUNTED BY', copy.TECHNIQUE, c3.SOURCES]) expect(body).toContain(label)
     expect(body).not.toContain('STOPPED BY')
     for (const id of def.counters) expect(body).toContain(DEFAULT_SCENARIO.countermeasures.find((c) => c.id === id)!.name)
     await tap(card.querySelector('[data-learn-more]')!)
     await settle()
-    const overlay = q('[data-library-overlay]')
+    // The reading list opens over the page, outside the game's own root.
+    const overlay = document.querySelector('[data-t3-reading]')
     expect(overlay, 'LEARN MORE opened nothing').not.toBeNull()
     expect(overlay!.querySelector('[data-library-filter]')!.getAttribute('data-library-filter')).toBe('ground-ransomware')
-    await tap(byText(/^BACK TO DOSSIER$/)!)
-    expect(q('[data-library-overlay]')).toBeNull()
-    expect(q('[data-dossier]')).not.toBeNull()
+    await tap([...overlay!.querySelectorAll('button')].find((b) => /^BACK TO DOSSIER$/.test((b.textContent ?? '').trim()))!)
+    expect(document.querySelector('[data-t3-reading]')).toBeNull()
+    expect(room()).not.toBeNull()
   })
 })
 
@@ -377,9 +375,15 @@ describe('GUARD R4 (e): no retired word in the reading rooms or the records', ()
     check('the title with a Daily Op done')
     await openDossierFromTitle()
     check('the part-filled Dossier')
-    for (const card of qa('[data-dossier-card][data-filed]')) (card as HTMLDetailsElement).open = true
-    check('the Dossier with its cards open')
-    click(byText(/^BACK TO TITLE$/)!)
+    // One card is open at a time, so each filed card is read as it opens.
+    const open = qa('[data-t3-dcard][data-filed]')
+    expect(open).toHaveLength(7)
+    for (const card of open) {
+      click(card.querySelector('button')!)
+      expect(card.textContent, 'a filed card did not open').toContain(THREATS.find((t) => t.id === card.getAttribute('data-t3-dcard'))!.blurb)
+      check(`the Dossier with ${card.getAttribute('data-t3-dcard')} open`)
+    }
+    click(q('[data-t3-room-back]')!)
     click(q('[data-read="library"]')!)
     await settle()
     check("LIBRARY's Field Library")

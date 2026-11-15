@@ -1,13 +1,13 @@
-// END OF TURN's ledger and the debris call's terms (v1.3 brief 5.5 items
-// 5 and 6), read off the engine's record and rules, for ./closeCards.
+// The close's score lines, the debris call's terms and what an opportunity
+// did (v1.3 brief 5.5 items 4 to 6), read off the engine's record and
+// rules, for the 3D game's cards (src/ui/three/cards3d.tsx). The pixel
+// board's END OF TURN ledger left with it in v2.0 R3.
 
 import { DEBRIS_LOSS_CHANCE, RIDESHARE_RESELL_CREDITS } from '../../engine/reducer'
 import { burnFuel, lossReviewBill } from '../../engine/rules'
-import { COVERAGE_PER_KIND, coverage, maiScore } from '../../engine/scoring'
-import type { GameState, ResolvedEvent, TurnRecord } from '../../engine/types'
+import { coverage, maiScore } from '../../engine/scoring'
+import type { GameState, ResolvedEvent } from '../../engine/types'
 import { callSigns } from '../board/board'
-import { PROCURE_KINDS, shortName } from '../board/boardModel'
-import { coverageFigure, kindLabels } from '../labels'
 import * as copy from './nightCopy'
 import type { Night, NightStep } from './nightModel'
 
@@ -32,84 +32,7 @@ export function callTerms(state: GameState, ev: ResolvedEvent) {
   }
 }
 
-// END OF TURN's ledger (brief 5.5 item 6, section 4 rule 5): every line
-// that made the budget, in the order the close takes them. The rows above
-// the total add up to it; tests/night-r3.dom.spec.tsx holds the card to
-// that and to the engine's next budget.
-export interface LedgerRow {
-  key: 'left' | 'fuel' | 'responses' | 'windfall' | 'repairs' | 'keeping' | 'funding' | 'bonus' | 'total'
-  label: string
-  detail?: string
-  // Signed CR, or null where the row says a word instead (frozen, missed).
-  value: number
-  word?: string
-}
-
-export function ledgerRows(record: TurnRecord, state: GameState): LedgerRow[] {
-  const l = record.ledger
-  const signs = callSigns(state)
-  const named = (id: string) => signs.get(id) ?? state.scenario.events.find((e) => e.id === id)?.name ?? id
-  // What each bill was for: the tile a hit damaged, or the cleanup after a
-  // hit to the data (fresh-eyes review: a tile the card called not
-  // damaged was listed under Repairs).
-  const bills = record.events
-    .filter((e) => e.repairCost > 0)
-    .map((e) => (e.integrityAfter !== undefined && e.targetAssetId ? named(e.targetAssetId) : copy.cleanupOf(shortOf(state, e.eventId))))
-  // What tonight's orders left, then the night's own lines (R6 question
-  // 12): the burn's fuel and an opportunity's windfall each a row, so the
-  // first row is the orders alone and every line that made the budget shows.
-  const rows: LedgerRow[] = [{ key: 'left', label: copy.LEFT_AFTER, value: l.start - l.ordered }]
-  if (l.fuel > 0) rows.push({ key: 'fuel', label: copy.BURN_FUEL, value: -l.fuel })
-  if (l.responses) rows.push({ key: 'responses', label: copy.RESPONSES, value: -l.responses })
-  if (l.windfall !== 0) rows.push({ key: 'windfall', label: windfallOf(record, state), value: l.windfall })
-  rows.push(
-    { key: 'repairs', label: copy.REPAIRS, detail: bills.length ? bills.join('; ') : undefined, value: -l.repairs },
-    { key: 'keeping', label: copy.KEEPING, detail: copy.keepingDetail(l.defensesKept, state.scenario.upkeepPerDefense), value: -l.upkeep },
-  )
-  if (l.insolvent) {
-    rows.push({ key: 'funding', label: copy.FUNDING, value: 0, word: copy.FROZEN })
-  } else {
-    const { coverageMin } = state.scenario.slaBonus
-    rows.push({ key: 'funding', label: copy.FUNDING, value: l.funding })
-    rows.push({
-      key: 'bonus',
-      label: copy.COVERAGE_BONUS,
-      // What would reach the line, unless there is no next turn to reach it.
-      detail: copy.coverageDetail(
-        l.arrivals.map(named),
-        coverageFigure(l.bonusCoverage),
-        coverageMin,
-        l.coverageBonus > 0 || state.status !== 'playing' ? null : reach(state, coverageMin - l.bonusCoverage),
-      ),
-      value: l.coverageBonus,
-      word: l.coverageBonus > 0 ? undefined : copy.MISSED,
-    })
-  }
-  rows.push({ key: 'total', label: copy.budgetFor(record.turn, state.status !== 'playing'), value: l.after })
-  return rows
-}
-
-// Whose windfall it was: the opportunity that paid it, by name, or the
-// rideshare seat resold when nothing in transit could ride it.
-function windfallOf(record: TurnRecord, state: GameState): string {
-  const ev = record.events.map((e) => state.scenario.events.find((d) => d.id === e.eventId)).find((d) => d?.kind === 'opportunity')
-  if (!ev) return copy.RESOLD
-  return ev.benefit?.credits ? shortName(ev) : copy.RESOLD
-}
-
-// The cheapest asset PROCURE offers whose coverage alone closes the gap to
-// the bonus line, said as "A drone".
-function reach(state: GameState, gap: number): string {
-  const fits = PROCURE_KINDS.filter((k) => COVERAGE_PER_KIND[k] >= gap).sort((x, y) => state.scenario.prices[x] - state.scenario.prices[y])
-  return copy.reachWith(fits.length ? `A${/^[AEIOU]/i.test(kindLabels[fits[0]]) ? 'n' : ''} ${kindLabels[fits[0]].toLowerCase()}` : null)
-}
-
-const shortOf = (state: GameState, id: string) => {
-  const ev = state.scenario.events.find((e) => e.id === id)
-  return ev ? shortName(ev) : id
-}
-
-// THE SCORE'S LINES on END OF TURN (fresh-eyes review; section 4 rule 5):
+// THE SCORE'S LINES at the close (fresh-eyes review; section 4 rule 5):
 // from the score the turn opened on, what the live conditions took as the
 // night opened, what tonight's moves took (and what the defenses saved),
 // and the overnight recovery, to the score the turn closed on. Read off
@@ -140,11 +63,6 @@ export function scoreRows(night: Night): ScoreRow[] {
   rows.push({ key: 'to', label: copy.SCORE_TO, value: to })
   return rows
 }
-
-// Whether anything is still damaged after the close: the recovery note
-// shows only then.
-export const damaged = (state: GameState) =>
-  state.assets.some((a) => a.integrity > 0 && a.integrity < 100) || Object.values(state.meters).some((m) => m < 100)
 
 // What an opportunity did, in the game's words, from the engine's record
 // (the deck's benefit and the night's windfall) rather than its log line,

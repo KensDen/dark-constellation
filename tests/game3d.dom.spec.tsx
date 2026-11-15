@@ -1,17 +1,18 @@
 // @vitest-environment jsdom
 // @vitest-environment-options {"url": "http://localhost:3000/"}
-// THE WAY INTO THE 3D GAME (v2.0 R1). On this branch the title's PLAY,
-// CONTINUE and DAILY OP open the 3D game, in a chunk of its own; the pixel
-// board answers only at ?view=classic (every other DOM suite runs there,
-// vitest.config.ts). A test DOM has no WebGL, so what shows here is the 3D
-// game's own fallback, which is itself held: a device that cannot start
-// the world is told so and handed the pixel board, never a blank page.
+// THE WAY INTO THE GAME (v2.0 R1; the only game since v2.0 R3). The
+// title's PLAY, CONTINUE and DAILY OP open the 3D game, in a chunk of its
+// own, and its rooms (the Dossier among them) in a chunk beside it. A test
+// DOM has no WebGL, so what shows here is the game's own fallback, which
+// is itself held: a device that cannot start the world is told so and
+// shown the way back, never a blank page, and never a link to a pixel
+// board that is no longer on this branch.
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
+vi.mock('../src/ui/TitleWorld', () => ({ default: () => null }))
 
 import App from '../src/App'
 import { DEFAULT_SCENARIO } from '../src/content'
@@ -52,9 +53,10 @@ const unmount = async () => {
   await act(async () => root.unmount())
   container.remove()
 }
-// The 3D game is a lazy chunk: a few turns of the loop bring it in.
-const settle = async () => {
-  for (let i = 0; i < 300 && !container.querySelector('[data-game3d]'); i += 1) await act(async () => new Promise((r) => setTimeout(r, 10)))
+// The 3D game is a lazy chunk, and its rooms another: a few turns of the
+// loop bring each in.
+const settle = async (selector = '[data-game3d]') => {
+  for (let i = 0; i < 300 && !container.querySelector(selector); i += 1) await act(async () => new Promise((r) => setTimeout(r, 10)))
 }
 const click = async (el: Element | null | undefined) => {
   expect(el, 'nothing to click').toBeTruthy()
@@ -76,18 +78,18 @@ afterEach(async () => {
 })
 
 describe('the title opens the 3D game (v2.0 R1)', () => {
-  it('PLAY goes to the 3D game, not the board and not the pixel briefing, and a device without WebGL is offered the pixel board', async () => {
+  it('PLAY goes to the 3D game, and a device without WebGL is told so and shown the way back, with no link to a pixel board', async () => {
     await mount()
     expect(location.search, 'this suite must run at the plain address').toBe('')
     expect(container.querySelector('[data-try3d]'), 'the experiment has left the title').toBeNull()
     await click(container.querySelector('[data-play]'))
     await settle()
-    expect(container.querySelector('[data-board]'), 'PLAY opened the pixel board').toBeNull()
-    expect(container.querySelector('[data-briefing]'), 'PLAY opened the pixel briefing').toBeNull()
     const game = container.querySelector('[data-game3d]')
     expect(game, 'PLAY did not open the 3D game').toBeTruthy()
     expect(game!.textContent).toContain('could not start the 3D view')
-    expect(game!.querySelector('a[href="?view=classic"]'), 'no way to the pixel board').toBeTruthy()
+    // The pixel board is retired on this branch: nothing points at it.
+    expect(container.querySelector('a[href*="classic"]'), 'a link to a pixel mode that no longer exists').toBeNull()
+    expect(container.innerHTML).not.toMatch(/view=classic|pixel board/i)
     // And back to the title.
     await click([...game!.querySelectorAll('button')].find((b) => /TITLE/.test(b.textContent ?? '')))
     expect(container.querySelector('[data-play]')).toBeTruthy()
@@ -98,13 +100,12 @@ describe('the title opens the 3D game (v2.0 R1)', () => {
     await mount()
     await settle()
     expect(container.querySelector('[data-game3d]'), 'the autosave did not resume in the 3D game').toBeTruthy()
-    expect(container.querySelector('[data-board]')).toBeNull()
   })
 
   it('the title’s DOSSIER opens the 3D Dossier: every threat’s card, unfiled ones by their signature alone', async () => {
     await mount()
     await click(container.querySelector('[data-read="dossier"]'))
-    await settle()
+    await settle('[data-t3-room="dossier"]')
     const room = container.querySelector('[data-t3-room="dossier"]')
     expect(room, 'DOSSIER did not open the 3D Dossier').toBeTruthy()
     const threats = DEFAULT_SCENARIO.events.filter((e) => (e.kind ?? 'threat') === 'threat')

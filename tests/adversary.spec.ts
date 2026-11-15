@@ -1,11 +1,11 @@
-// GUARD R0 (a): THE BOARD'S LIKELY TARGET IS THE ENGINE'S PICK (v1.3 brief
-// 6.3). The TONIGHT card reads adversaryPicks with the queued orders
-// included; resolveTurn plays it with the defenses owned at EXECUTE. Over
-// every slot of 200 seeds of every policy, what the board would flag must
-// be what the engine then played: the one LIKELY TARGET when there is one,
-// one of the EITHER moves when several tie, and in either case exactly the
-// pick the board's own read makes. The engine's pick is read from the
-// record, never by calling the function again, so a resolver that read the
+// GUARD R0 (a): THE PLAN'S READ IS THE ENGINE'S PICK (v1.3 brief 6.3). The
+// game's plan reads adversaryPicks with the queued orders included;
+// resolveTurn plays it with the defenses owned as the night begins. Over
+// every slot of 200 seeds of every policy, what the plan would mark must
+// be what the engine then played: the one least-covered move when there is
+// one, one of them when several tie, and in either case exactly the pick
+// the plan's own read makes. The engine's pick is read from the record,
+// never by calling the function again, so a resolver that read the
 // defenses at another moment, or broke a tie another way, fails here.
 
 import { describe, expect, it } from 'vitest'
@@ -15,12 +15,11 @@ import { adversaryPicks } from '../src/engine/adversary'
 import { countersAfter, newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
-import { POLICIES } from './policies'
-import { tonightSlots } from '../src/ui/board/boardModel'
+import { POLICIES, scanFor } from './policies'
 
 const SEEDS = 200
 
-describe("GUARD R0 (a): the board's LIKELY TARGET equals the engine's pick", () => {
+describe("GUARD R0 (a): the plan's read of the adversary equals the engine's pick", () => {
   it(
     `over every slot of ${SEEDS} seeds of every policy, on both difficulties`,
     () => {
@@ -34,12 +33,9 @@ describe("GUARD R0 (a): the board's LIKELY TARGET equals the engine's pick", () 
             let state: GameState = newGame(DEFAULT_SCENARIO, seed, difficulty)
             while (state.status === 'playing') {
               const actions = p.policy(state)
-              // The board's read: the queued orders included, on a fresh
-              // deck stream, as the TONIGHT card computes it.
+              // The plan's read: the queued orders included, on a fresh
+              // deck stream.
               const board = adversaryPicks(state, countersAfter(state, actions))
-              // And the flags the TONIGHT card prints (v1.3 R2), which must
-              // name exactly the engine's least-covered moves.
-              const card = tonightSlots(state, actions)
               const after = resolveTurn(state, actions, turnRng(state.seed, state.turn))
               const played = after.history.at(-1)!.events.slice(0, board.length).map((e) => e.eventId)
               board.forEach((read, i) => {
@@ -47,12 +43,8 @@ describe("GUARD R0 (a): the board's LIKELY TARGET equals the engine's pick", () 
                 if (read.fixed) fixed += 1
                 else if (read.least.length === 1) likely += 1
                 else either += 1
-                const flagged = card[i].moves.filter((m) => m.flag).map((m) => m.ev.id)
-                const word = read.fixed ? 'CONFIRMED' : read.least.length === 1 ? 'LIKELY TARGET' : 'EITHER'
-                if (flagged.join() !== read.least.join() || card[i].moves.some((m) => m.flag && m.flag !== word))
-                  wrong.push(`${where}: the card flagged ${flagged.join(' or ')} where the engine reads ${read.least.join(' or ')}`)
-                if (!read.least.includes(played[i])) wrong.push(`${where}: board flagged ${read.least.join(' or ')}, engine played ${played[i]}`)
-                else if (read.pick !== played[i]) wrong.push(`${where}: board's tie-break said ${read.pick}, engine played ${played[i]}`)
+                if (!read.least.includes(played[i])) wrong.push(`${where}: the plan marked ${read.least.join(' or ')}, engine played ${played[i]}`)
+                else if (read.pick !== played[i]) wrong.push(`${where}: the plan's tie-break said ${read.pick}, engine played ${played[i]}`)
               })
               state = after
             }
@@ -60,10 +52,10 @@ describe("GUARD R0 (a): the board's LIKELY TARGET equals the engine's pick", () 
         }
       }
       // Every kind of slot was seen, so the guard is not vacuous: a single
-      // LIKELY TARGET, a tie the deck stream broke, and a CONFIRMED move.
-      expect(likely, 'no slot had a single LIKELY TARGET').toBeGreaterThan(100)
-      expect(either, 'no slot had an EITHER tie').toBeGreaterThan(100)
-      expect(fixed, 'no CONFIRMED slot was played').toBeGreaterThan(100)
+      // least-covered move, a tie the deck stream broke, and a fixed slot.
+      expect(likely, 'no slot had a single least-covered move').toBeGreaterThan(100)
+      expect(either, 'no slot had a tie').toBeGreaterThan(100)
+      expect(fixed, 'no fixed slot was played').toBeGreaterThan(100)
       expect(wrong.slice(0, 20).join('\n'), `${wrong.length} slots disagreed`).toBe('')
     },
     120_000,
@@ -71,13 +63,17 @@ describe("GUARD R0 (a): the board's LIKELY TARGET equals the engine's pick", () 
 
   it('breaks a tie on the deck stream alone, the same for every player on the seed', () => {
     // Two players on one seed with the same defenses face the same pick,
-    // whatever else they ordered (D3 a): assets and the brief do not move
+    // whatever else they ordered (D3 a): assets and the scan do not move
     // the deck stream.
+    let scanned = 0
     for (let seed = 1; seed <= 50; seed += 1) {
       const s = newGame(DEFAULT_SCENARIO, seed)
-      const bare = resolveTurn(s, { buyAssets: [], buyCounters: [], intelBrief: false }, turnRng(seed, 1))
-      const busy = resolveTurn(s, { buyAssets: [{ kind: 'drone' }, { kind: 'sat' }], buyCounters: [], intelBrief: true }, turnRng(seed, 1))
+      const bare = resolveTurn(s, { buyAssets: [], buyCounters: [] }, turnRng(seed, 1))
+      const scans = scanFor(s)
+      scanned += scans.length
+      const busy = resolveTurn(s, { buyAssets: [{ kind: 'drone' }, { kind: 'sat' }], buyCounters: [], scans }, turnRng(seed, 1))
       expect(busy.history[0].events[0].eventId, `seed ${seed}`).toBe(bare.history[0].events[0].eventId)
     }
+    expect(scanned, 'no night 1 had a signature to scan, so the scan went unchecked').toBeGreaterThan(0)
   })
 })

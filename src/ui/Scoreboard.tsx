@@ -36,6 +36,8 @@ const entryGrade = (e: ScoreEntry): Grade =>
     lossReason: e.lossReason ?? (e.turnsSurvived >= e.totalTurns ? 'belowThreshold' : 'insolvency'),
     finalMai: e.mai,
     bonus: e.bonus,
+    // The bands are the difficulty's own (src/engine/grade.ts, v2.0 R3).
+    difficulty: e.difficulty === 'easy' ? 'easy' : 'standard',
   })
 
 // One layout for both halves, so their columns line up (fresh-eyes

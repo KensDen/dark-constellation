@@ -1,16 +1,9 @@
 // Player-facing names for engine enum values. Kept in a module that
 // imports nothing, so the night's cards and the node battery can name
-// things the way the HUD does without pulling the asset layer into the
-// module graph the battery loads.
+// things one way without pulling the asset layer into the module graph
+// the battery loads.
 
 import type { AssetKind, TechniqueRef, Vector } from '../engine/types'
-
-// Coverage as every surface prints it: one decimal, rounded DOWN (v1.3
-// Round 0). Integrity-weighted coverage is fractional once a tile is hit,
-// and the bonus is paid at 60 or more, so a figure rounded up could read
-// 60 on a fleet the close refuses. The HUD, the posture panel and the turn
-// card all print this, so no two of them disagree.
-export const coverageFigure = (cov: number): number => Math.floor(Math.round(cov * 100) / 10) / 10
 
 // The words the fleet list uses, so a delta line and the HUD cannot
 // disagree about what a thing is called.
@@ -59,11 +52,10 @@ export const frameworkLabels: Record<TechniqueRef['framework'], string> = {
 // guard: five structures computing the same key, each free to drift, and
 // nothing joining them.
 //
-// It became load-bearing in Round 6e. The intel brief's technique tag now
-// opens that technique's GLOSSARY entry, and it finds the entry BY THIS
-// KEY. Two independent copies of the expression would make that a string
-// coincidence that happens to hold today; one function makes it true by
-// construction.
+// It became load-bearing in Round 6e, when a technique tag began to open
+// that technique's GLOSSARY entry, found BY THIS KEY. Two independent
+// copies of the expression would make that a string coincidence that
+// happens to hold today; one function makes it true by construction.
 export function techniqueLabel(ref: Pick<TechniqueRef, 'framework' | 'id'>): string {
   return `${frameworkLabels[ref.framework]} ${ref.id}`
 }

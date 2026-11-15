@@ -1,45 +1,58 @@
 // @vitest-environment jsdom
 //
 // THE DAILY OP (v1.2 R5, brief 7.1), driven through the real App the way a
-// player reaches it: the title, the board, six turns, the debrief.
-// What is asserted is what the device records (the ledger of official
-// runs, 'dc-daily') and what the player sees and shares (the OFFICIAL or
-// PRACTICE mark and the share text's first line).
+// player reaches it: the title, the game, six nights. What is asserted is
+// what the device records: the ledger of official runs ('dc-daily'), the
+// practice scores ('dc-scores') and the autosave's own mark.
 //
 // GUARD R5 (a), THE CENTRAL ONE: a Daily Op loaded from a pasted save code
-// is never recorded as official, and its share text says practice. Also
-// through a refresh, which is the laundering path: a pasted code is
-// autosaved every turn and resumed from the autosave, and the autosave
-// must carry the mark. Its positive control is the same campaign resumed
-// from this device's own autosave, which IS official.
+// is never recorded as official. Also through a refresh, which is the
+// laundering path: a pasted code is autosaved every night and resumed from
+// the autosave, and the autosave must carry the mark. Its positive control
+// is the same campaign resumed from this device's own autosave, which IS
+// official.
 // GUARD R5 (b): a second completion on the same date is PRACTICE.
 // GUARD R5 (c): a run started at 23:50 and finished after midnight
 // belongs to its start date.
 // Also: with an operation in progress, DAILY OP asks before it replaces
 // it, and a menu left open over midnight offers the new day's number.
 //
-// Doubles, as game.dom.spec.tsx names them: the three.js frame is stubbed
-// (it renders only on the start screen), storage is an in-memory map, and
-// the clock is vitest's fake one, which is what lets (c) cross midnight.
+// v2.0 R3: the game is the 3D game, and a test DOM has no WebGL, so its
+// world never draws here and no control of a night can be tapped. A night
+// is played the one way the 3D game plays one without its world: a night
+// left in the middle is closed when the page loads again, with the answers
+// given so far and the rest ridden out (src/ui/three/Game3D.tsx, on the
+// mark src/ui/three/store3d.ts keeps). So each night here is that mark and
+// a reload, and the game's own commit and finish do the recording. What
+// only the debrief showed (the OFFICIAL or PRACTICE eyebrow, the share
+// control, the outcome's save code) cannot be read here; the share text's
+// first line is held by tests/share-text.spec.ts.
+//
+// Doubles: the three.js frame is stubbed (it renders only on the title),
+// storage is an in-memory map, and the clock is vitest's fake one, which
+// is what lets (c) cross midnight.
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../src/ui/Constellation', () => ({ default: () => null }))
+vi.mock('../src/ui/TitleWorld', () => ({ default: () => null }))
 
 import App from '../src/App'
 import { dailySeed } from '../src/engine/daily'
 import { resolveTurn } from '../src/engine/reducer'
+import { playNight } from '../src/engine/responses'
 import { turnRng } from '../src/engine/rng'
 import type { GameState } from '../src/engine/types'
-import { captureGame, decodeSaveCode, encodeSaveCode, type DailyOp } from '../src/persistence'
+import { LocalStorageStore, captureGame, encodeSaveCode, runKey, type DailyOp } from '../src/persistence'
 import { startDailyOp } from '../src/ui/dailyOp'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
+import { NO_INPUTS, NO_ORDERS, type NightInputs } from '../src/ui/three/gameModel'
+import * as c3 from '../src/ui/three/copy3d'
+import { markNight, progress } from '../src/ui/three/store3d'
+import { DAILY_OPEN_LINE } from '../src/ui/titleStatus'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
 import { installFakeAudioContext, removeFakeAudioContext } from './fakeAudio'
-import { FILED_BEAT_MS } from '../src/ui/night/cards'
-import { playNight } from '../src/engine/responses'
 import { sensible } from './policies'
 import { NO_OP } from './scripts'
 
@@ -53,11 +66,10 @@ let root: Root
 let unlisten: () => void
 let mounts = 0
 
-// The night's chunks, loaded once, so React.lazy resolves on a microtask.
+// The game's chunk, loaded once, so React.lazy resolves on a microtask
+// under the fake clock.
 beforeAll(async () => {
-  await import('../src/ui/night/Night')
-  await import('../src/ui/night/cards')
-  await import('../src/ui/night/closeCards')
+  await import('../src/ui/three/Game3D')
 })
 
 function memoryStorage(): Storage {
@@ -93,12 +105,10 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(MORNING)
   vi.stubGlobal('localStorage', memoryStorage())
+  // Past the briefing, so an operation opens on night 1's orders, which
+  // is where the game writes its autosave.
   localStorage.setItem(INTRO_SEEN_KEY, '1')
-  // Reduced motion keeps the debrief still, so what it shows is
-  // there at once; the reveal has its own suite. It also skips the
-  // night's overlay, so its first stage arrives at once.
   setReducedMotion(true)
-  answer = 'ride'
   resetAudioEngineForTests()
   installFakeAudioContext()
   container = document.createElement('div')
@@ -140,95 +150,58 @@ const settle = () =>
 const dailyEntry = () => container.querySelector('[data-daily]') as HTMLButtonElement | null
 const dailyLabel = () => dailyEntry()?.querySelector('span')?.textContent ?? ''
 const titleSystem = () => click(buttons().find((b) => b.getAttribute('aria-haspopup') === 'dialog' && (b.textContent ?? '').trim() === 'SYSTEM')!)
-const ledger = () => JSON.parse(localStorage.getItem('dc-daily') ?? '{}') as Record<string, { n: number; turns: number }>
-// The run's standing as the debrief's eyebrow says it (v1.3 R4, brief
-// 5.6): "DAILY OP #1" for the official run, "DAILY OP #1 · PRACTICE" otherwise.
-const standing = () => {
-  const eyebrow = container.querySelector('[data-debrief-eyebrow]')?.textContent
-  if (!eyebrow) return null
-  return / · PRACTICE$/.test(eyebrow) ? 'PRACTICE' : /DAILY OP #\d+$/.test(eyebrow) ? 'OFFICIAL' : eyebrow
+const ledger = () => JSON.parse(localStorage.getItem('dc-daily') ?? '{}') as Record<string, { n: number; seed: number; outcome: string; mai: number; turns: number; recordedAt: string }>
+const onTitle = () => container.querySelector('[data-title]') !== null
+// The 3D game, which here is its fallback: the world cannot start.
+const inGame = () => container.querySelector('[data-game3d]') !== null
+const settleGame = async () => {
+  for (let i = 0; i < 20 && !inGame(); i += 1) await settle()
 }
-// The deciding board, which the debrief is not.
-const onBoard = () => container.querySelector('main[data-board]') !== null
-const openSystem = () => click(container.querySelector('button[aria-label="System"]')!)
+const leaveGame = () => click([...container.querySelectorAll('[data-game3d] button')].find((b) => (b.textContent ?? '').trim() === c3.TITLE)!)
+// The operation in progress, as the device holds it.
+const store = new LocalStorageStore()
+const saved = () => store.loadAutosave()
+const savedRaw = () => JSON.parse(localStorage.getItem('dc-autosave') ?? 'null')
 
-// One turn through the controls: tap EXECUTE, tap the night through to
-// END OF TURN, and move on with BEGIN TURN n+1, or DEBRIEF on the last.
-// Since v1.3 Round 0 EXECUTE is a plain button (a synthetic keydown does
-// not click one in jsdom, so it is clicked). Since v1.7 R1 the night is a
-// decision: a move that would land stops on THE RESPONSE until a button is
-// clicked (`answer` says which: ride every move out, or take the first
-// response the budget can meet, which is tests/policies.ts's `sensible`),
-// a move a defense stops is the block moment, ended here by its tap, and
-// FILE TO DOSSIER files at once and goes on by itself after its FILED
-// stamp's beat, which the fake clock is advanced past. HOLD on the debris
-// call, CONTINUE and BEGIN are as before. Each tap is settled, since the
-// night and its cards are chunks of their own. The control is there only
-// while the turn is undecided, so its absence is the end of the campaign.
-const executeControl = () => container.querySelector('button[data-execute]')
-let answer: 'ride' | 'take' = 'ride'
-async function tap(el: Element) {
-  await act(async () => {
-    el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
-  })
-  await act(async () => {})
-  // The FILED stamp stands for its beat, then the night goes on by itself.
-  if (container.querySelector('[data-filed-stamp]')) {
-    await act(async () => {
-      vi.advanceTimersByTime(FILED_BEAT_MS + 80)
-    })
-    expect(container.querySelector('[data-filed-stamp]'), 'the FILED stamp never let the night go on').toBeNull()
-  }
-}
-const responseCard = () => container.querySelector('[data-night-card="respond"] [data-responses]')
-const responseButton = () => {
-  const group = responseCard()
-  if (!group) return null
-  const fitting = answer === 'take' ? group.querySelector('button[data-response]:not([disabled]):not([data-response="ride"])') : null
-  return fitting ?? group.querySelector('button[data-response="ride"]')
-}
-const wayOn = () =>
-  responseButton() ??
-  container.querySelector('button[data-strike-tap]') ??
-  container.querySelector('[data-call="hold"]') ??
-  container.querySelector('[data-collect]') ??
-  container.querySelector('[data-continue]') ??
-  container.querySelector('[data-night-card="end"] button[data-begin]')
-// `each` is called on every stage of the night before its tap.
-async function playTurn(each?: () => void): Promise<boolean> {
-  const execute = executeControl()
-  if (!execute) return false
-  await tap(execute)
-  for (let cards = 0; cards < 40; cards += 1) {
-    const way = wayOn()
-    expect(way, 'a card of the night has no way on').not.toBeNull()
-    each?.()
-    const last = way!.hasAttribute('data-begin')
-    await tap(way!)
-    if (last) break
-  }
+// ONE NIGHT, AS A RELOAD CLOSES IT. The night of the operation in progress
+// is marked as begun with no orders and these answers (none: every move
+// ridden out, HOLD on the debris call, the policy engine's block left to
+// stand), and the page is loaded again: the game resumes from the
+// autosave, closes the night and either saves the next one or records the
+// finished run. False when no operation is in progress.
+async function closeNight(inputs: NightInputs = NO_INPUTS): Promise<boolean> {
+  const op = saved()
+  if (!op || op.state.status !== 'playing') return false
+  const turn = op.state.turn
+  markNight({ run: runKey(op.state.seed, op.state.difficulty, op.daily?.dateKey), turn, orders: NO_ORDERS, inputs })
+  loadPage()
+  await settleGame()
+  expect(inGame(), 'the reload did not resume the operation').toBe(true)
+  const next = saved()
+  expect(next === null || next.state.turn === turn + 1, `night ${turn} was not closed by the reload`).toBe(true)
   return true
 }
-async function playToEnd() {
-  for (let i = 0; i < 20 && (await playTurn()); i += 1);
-  await settle()
-  expect(container.querySelector('[data-debrief]'), 'the campaign never reached the debrief').not.toBeNull()
+// To the end of the operation: nothing is left in progress, and the game
+// counted a finish.
+async function playToEnd(answers?: (string | null)[][]) {
+  const finishedBefore = progress().finished
+  for (let i = 0; i < 20; i += 1) {
+    const op = saved()
+    if (!op) break
+    const responses = answers?.[op.state.turn - 1]
+    await closeNight(responses ? { ...NO_INPUTS, responses } : NO_INPUTS)
+  }
+  expect(saved(), 'the operation never ended').toBeNull()
+  expect(progress().finished, 'the game did not record a finish').toBe(finishedBefore + 1)
 }
-// What the share control hands the clipboard (jsdom has no share sheet).
-async function sharedText(): Promise<string> {
-  let copied = ''
-  vi.stubGlobal('navigator', { clipboard: { writeText: async (t: string) => void (copied = t) } })
-  const share = byText(/copy result/i)
-  expect(share, 'the debrief has no share control').toBeDefined()
-  await act(async () => {
-    share!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
-  })
-  expect(copied, 'the share control copied nothing').not.toBe('')
-  return copied
+// Back on the title, as a page load after a finished run lands.
+function toTitle() {
+  loadPage()
+  expect(onTitle(), 'a finished run did not leave the title free').toBe(true)
 }
 // Paste a code through the title's SYSTEM (v1.3 R1: the start screen and
 // its paste box are retired).
-function paste(code: string) {
+async function paste(code: string) {
   titleSystem()
   const box = container.querySelector('textarea[aria-label="save code"]') as HTMLTextAreaElement | null
   expect(box, 'no paste box in SYSTEM').not.toBeNull()
@@ -238,9 +211,10 @@ function paste(code: string) {
     box!.dispatchEvent(new Event('input', { bubbles: true }))
   })
   click(byText(/^load save code$/i)!)
-  expect(onBoard(), 'the code did not load').toBe(true)
+  await settleGame()
+  expect(inGame(), 'the code did not load').toBe(true)
 }
-// Today's Daily Op, some turns in, as the engine plays it.
+// Today's Daily Op, some nights in, as the engine plays it.
 function dailyInProgress(turns: number): { state: GameState; daily: DailyOp } {
   const op = startDailyOp(new Date())
   let state = op.state
@@ -250,42 +224,43 @@ function dailyInProgress(turns: number): { state: GameState; daily: DailyOp } {
 }
 
 describe('the title starts the Daily Op (v1.3 R1)', () => {
-  it('offers DAILY OP #n from the epoch date on, as FIRST LIGHT on Standard from that date\'s seed', () => {
+  it('offers DAILY OP #n from the epoch date on, as FIRST LIGHT on Standard from that date\'s seed', async () => {
     vi.setSystemTime(new Date(2026, 8, 26, 12, 0))
     loadPage()
-    expect(container.querySelector('[data-title]'), 'not on the title').not.toBeNull()
+    expect(onTitle(), 'not on the title').toBe(true)
     expect(dailyEntry(), 'a Daily Op offered before the first one').toBeNull()
 
     vi.setSystemTime(new Date(2026, 8, 28, 12, 0))
     loadPage()
     const entry = dailyEntry()
-    expect(dailyLabel()).toMatch(/DAILY OP\s*2$/)
-    expect(entry!.querySelector('svg[aria-label="#"]'), 'the number sign is not drawn').not.toBeNull()
+    expect(dailyLabel()).toBe('DAILY OP #2')
     click(entry!)
-    expect(onBoard(), 'DAILY OP did not start a campaign').toBe(true)
-    const saved = JSON.parse(localStorage.getItem('dc-autosave')!)
-    expect(saved.scenarioId).toBe('first-light')
-    expect(saved.state.difficulty).toBe('standard')
-    expect(saved.state.seed).toBe(dailySeed(new Date(2026, 8, 28, 12, 0)))
-    expect(saved.daily).toEqual({ dateKey: '20260928', n: 2 })
+    await settleGame()
+    expect(inGame(), 'DAILY OP did not start a campaign').toBe(true)
+    const op = savedRaw()
+    expect(op.scenarioId).toBe('first-light')
+    expect(op.state.difficulty).toBe('standard')
+    expect(op.state.seed).toBe(dailySeed(new Date(2026, 8, 28, 12, 0)))
+    expect(op.daily).toEqual({ dateKey: '20260928', n: 2 })
   })
 
   it('asks before a Daily Op replaces an operation in progress', async () => {
-    // A free campaign in progress, behind CONTINUE.
+    // A free campaign in progress, a night in, behind CONTINUE.
     loadPage()
     click(container.querySelector('[data-play]')!)
-    await playTurn()
+    await settleGame()
+    await closeNight()
     const inProgress = localStorage.getItem('dc-autosave')
     expect(inProgress, 'nothing in progress, so nothing to protect').not.toBeNull()
-    openSystem()
-    click(byText(/^Back to title$/)!)
-    click(byText(/^LEAVE$/)!)
+    expect(JSON.parse(inProgress!).state.turn).toBe(2)
+    leaveGame()
     expect(container.querySelector('[data-continue]'), 'not on the title with an operation in progress').not.toBeNull()
 
     const confirm = () => container.querySelector('[data-confirm-daily]')
     click(dailyEntry()!)
     expect(confirm(), 'DAILY OP started over the operation in progress without asking').not.toBeNull()
-    expect(onBoard()).toBe(false)
+    await settle()
+    expect(inGame()).toBe(false)
     expect(localStorage.getItem('dc-autosave')).toBe(inProgress)
     click(byText(/^KEEP IT$/)!)
     expect(confirm()).toBeNull()
@@ -297,27 +272,31 @@ describe('the title starts the Daily Op (v1.3 R1)', () => {
     expect(confirm(), 'DAILY OP started without asking the second time').not.toBeNull()
     expect(localStorage.getItem('dc-autosave')).toBe(inProgress)
     click(byText(/^START DAILY OP$/)!)
-    expect(onBoard(), 'START DAILY OP did not start it').toBe(true)
-    expect(JSON.parse(localStorage.getItem('dc-autosave')!).daily).toEqual({ dateKey: '20260927', n: 1 })
+    await settleGame()
+    expect(inGame(), 'START DAILY OP did not start it').toBe(true)
+    expect(savedRaw().daily).toEqual({ dateKey: '20260927', n: 1 })
   })
 
-  it('starts at once when nothing is in progress', () => {
+  it('starts at once when nothing is in progress', async () => {
     loadPage()
     expect(container.querySelector('[data-continue]')).toBeNull()
     click(dailyEntry()!)
-    expect(onBoard()).toBe(true)
+    await settleGame()
+    expect(inGame()).toBe(true)
+    expect(savedRaw().daily).toEqual({ dateKey: '20260927', n: 1 })
   })
 
-  it("offers the new day's number when the menu is left open over midnight", () => {
+  it("offers the new day's number when the menu is left open over midnight", async () => {
     vi.setSystemTime(new Date(2026, 8, 27, 23, 59, 58))
     loadPage()
-    expect(dailyLabel()).toMatch(/DAILY OP\s*1$/)
+    expect(dailyLabel()).toBe('DAILY OP #1')
     act(() => {
       vi.advanceTimersByTime(3000)
     })
-    expect(dailyLabel(), 'the title still offers yesterday').toMatch(/DAILY OP\s*2$/)
+    expect(dailyLabel(), 'the title still offers yesterday').toBe('DAILY OP #2')
     click(dailyEntry()!)
-    expect(JSON.parse(localStorage.getItem('dc-autosave')!).daily).toEqual({ dateKey: '20260928', n: 2 })
+    await settleGame()
+    expect(savedRaw().daily).toEqual({ dateKey: '20260928', n: 2 })
   })
 
   it('never makes a Daily Op of a free campaign on the same seed', async () => {
@@ -331,18 +310,20 @@ describe('the title starts the Daily Op (v1.3 R1)', () => {
       seed.dispatchEvent(new Event('input', { bubbles: true }))
     })
     click(byText(/^PLAY THIS SEED$/)!)
-    expect(JSON.parse(localStorage.getItem('dc-autosave')!).daily, 'a typed seed became a Daily Op').toBeUndefined()
+    await settleGame()
+    expect(savedRaw().state.seed).toBe(dailySeed(new Date()))
+    expect(savedRaw().daily, 'a typed seed became a Daily Op').toBeUndefined()
     await playToEnd()
     expect(ledger()).toEqual({})
-    // Free play's eyebrow names no Daily Op, and its share text is practice
-    // on the device's difficulty (EASY, a first device's, R2).
-    expect(container.querySelector('[data-debrief-eyebrow]')?.textContent).toBe('DEBRIEF · OP FIRST LIGHT · PRACTICE')
-    expect((await sharedText()).split('\n')[0]).toBe('DARK CONSTELLATION · Practice · Easy')
+    // It is a practice run, on the device's difficulty (EASY, a first
+    // device's, R2), and the scoreboard's practice half has it.
+    const scores = JSON.parse(localStorage.getItem('dc-scores') ?? '[]') as { seed: number; difficulty: string }[]
+    expect(scores.map((e) => [e.seed, e.difficulty])).toEqual([[dailySeed(new Date()), 'easy']])
   })
 })
 
 describe('GUARD R5 (a): a Daily Op from a pasted save code is never official', () => {
-  it('records nothing for a pasted Daily Op played to its end, and shares it as practice', async () => {
+  it('records nothing for a pasted Daily Op played to its end, through every refresh on the way', async () => {
     const { state, daily } = dailyInProgress(3)
     // Exported the ordinary way, on a device that played it: nothing in
     // the code says practice.
@@ -350,70 +331,58 @@ describe('GUARD R5 (a): a Daily Op from a pasted save code is never official', (
     expect(JSON.parse(atob(code.slice('DC1-'.length))).daily).toEqual(daily)
 
     loadPage()
-    paste(code)
+    await paste(code)
+    // The autosave carries the mark, so a refresh cannot launder it: each
+    // night from here is a refresh that resumes from that autosave.
+    expect(savedRaw().daily).toEqual({ ...daily, pasted: true })
+    expect(await closeNight()).toBe(true)
+    expect(savedRaw().daily, 'a refresh dropped the pasted mark').toEqual({ ...daily, pasted: true })
     await playToEnd()
 
     expect(ledger()[daily.dateKey], 'a pasted save code was recorded as the official run').toBeUndefined()
-    expect(standing()).toBe('PRACTICE')
-    expect((await sharedText()).split('\n')[0]).toBe('DARK CONSTELLATION · Daily Op #1 (practice)')
-    // And the code it hands on is marked too.
-    const box = container.querySelector('[data-outcome-save-code]') as HTMLTextAreaElement
-    expect(JSON.parse(atob(box.value.slice('DC1-'.length))).daily).toEqual({ ...daily, pasted: true })
-  })
-
-  it('records nothing for a pasted Daily Op resumed after a refresh', async () => {
-    const { state, daily } = dailyInProgress(3)
-    const code = encodeSaveCode(captureGame(state, 'brief', new Date().toISOString(), daily))
-    loadPage()
-    paste(code)
-    await playTurn()
-    // A refresh: the page loads again and resumes from the autosave.
-    act(() => root.unmount())
-    root = createRoot(container)
-    loadPage()
-    expect(onBoard(), 'the refresh did not resume the campaign').toBe(true)
-    await playToEnd()
-
-    expect(ledger()[daily.dateKey], 'a refresh laundered a pasted code into the official run').toBeUndefined()
-    expect(standing()).toBe('PRACTICE')
-    expect((await sharedText()).split('\n')[0]).toBe('DARK CONSTELLATION · Daily Op #1 (practice)')
+    expect(ledger()).toEqual({})
+    // And not as a practice score either: a Daily Op's result is the
+    // ledger's or nobody's.
+    expect(localStorage.getItem('dc-scores')).toBeNull()
   })
 
   // The slot path left with the named slots in v1.3 R1 (brief 5.8, M21: a
   // game is the autosave plus one code), so a pasted Daily Op has only the
-  // two ways back that the guards above hold: the refresh and the code.
+  // two ways back that the guard above holds: the refresh and the code.
 
   it('(positive control) records the same campaign as official when it resumes from this device', async () => {
     const { state, daily } = dailyInProgress(3)
     localStorage.setItem('dc-autosave', JSON.stringify(captureGame(state, 'brief', new Date().toISOString(), daily)))
     loadPage()
-    expect(onBoard(), 'the autosave did not resume').toBe(true)
+    await settleGame()
+    expect(inGame(), 'the autosave did not resume').toBe(true)
     await playToEnd()
 
-    expect(ledger()[daily.dateKey]?.n, 'the ledger records nothing, so the guards above prove nothing').toBe(1)
-    expect(standing()).toBe('OFFICIAL')
-    expect((await sharedText()).split('\n')[0]).toBe('DARK CONSTELLATION · Daily Op #1')
+    expect(ledger()[daily.dateKey]?.n, 'the ledger records nothing, so the guard above proves nothing').toBe(1)
   })
 })
 
 describe('GUARD R5 (b): the first finish of a date is official, and a second is practice', () => {
-  it('records the first, keeps it, and marks the replay PRACTICE', async () => {
+  it('records the first, keeps it, and does not record the replay', async () => {
     loadPage()
     click(dailyEntry()!)
+    await settleGame()
     await playToEnd()
-    expect(standing()).toBe('OFFICIAL')
     const first = ledger()['20260927']
     expect(first?.n).toBe(1)
-    expect((await sharedText()).split('\n')[0]).toBe('DARK CONSTELLATION · Daily Op #1')
 
-    // Back to the title, and the same date's Daily Op again.
-    click(byText(/^BACK TO TITLE$/)!)
+    // Back to the title, an hour on, and the same date's Daily Op again:
+    // the title says today's is done and offers it as practice.
+    vi.setSystemTime(new Date(MORNING.getTime() + 3_600_000))
+    toTitle()
+    expect(container.querySelector('[data-daily-line]')!.textContent).toMatch(/^DONE · /)
+    expect(dailyEntry()!.textContent).toContain('REPLAY AS PRACTICE')
     click(dailyEntry()!)
-    expect(onBoard()).toBe(true)
+    await settleGame()
+    expect(inGame()).toBe(true)
     await playToEnd()
-    expect(standing(), 'a second finish on the same date was marked official').toBe('PRACTICE')
     expect(ledger()['20260927'], 'the replay replaced the official result').toEqual(first)
-    expect((await sharedText()).split('\n')[0]).toBe('DARK CONSTELLATION · Daily Op #1 (practice)')
+    expect(Object.keys(ledger())).toEqual(['20260927'])
   })
 })
 
@@ -421,120 +390,81 @@ describe('GUARD R5 (c): a run belongs to the date it started', () => {
   it('files a run started at 23:50 under that date when it finishes after midnight', async () => {
     vi.setSystemTime(new Date(2026, 8, 27, 23, 50))
     loadPage()
-    expect(dailyLabel()).toMatch(/DAILY OP\s*1$/)
+    expect(dailyLabel()).toBe('DAILY OP #1')
     click(dailyEntry()!)
-    // Two turns before midnight, then the clock runs past it.
-    await playTurn()
-    await playTurn()
+    await settleGame()
+    // Two nights before midnight, then the clock runs past it.
+    await closeNight()
+    await closeNight()
     vi.setSystemTime(new Date(2026, 8, 28, 0, 30))
     // Still in play past midnight, with nothing filed yet: the claim below
     // is made after it.
-    expect(executeControl(), 'the run ended before midnight').not.toBeNull()
+    expect(saved()?.state.status, 'the run ended before midnight').toBe('playing')
     expect(ledger()).toEqual({})
     await playToEnd()
 
     expect(Object.keys(ledger()), 'the run was filed under the date it finished on').toEqual(['20260927'])
     expect(ledger()['20260927'].n).toBe(1)
-    expect(standing()).toBe('OFFICIAL')
-    expect((await sharedText()).split('\n')[0]).toBe('DARK CONSTELLATION · Daily Op #1')
     // It was the 27th's mission, and the 28th's is open now.
-    const code = (container.querySelector('[data-outcome-save-code]') as HTMLTextAreaElement).value
-    expect(decodeSaveCode(code).state.seed).toBe(dailySeed(new Date(2026, 8, 27, 12)))
-    expect(container.querySelector('[data-countdown]')?.textContent).toBe('DAILY OP #2 IS OPEN NOW')
+    expect(ledger()['20260927'].seed).toBe(dailySeed(new Date(2026, 8, 27, 12)))
+    toTitle()
+    expect(dailyLabel()).toBe('DAILY OP #2')
+    expect(container.querySelector('[data-daily-line]')!.textContent).toBe(DAILY_OPEN_LINE)
   })
 })
 
-// THE RESPONSE AND THE OFFICIAL RESULT (v1.7 R1). EXECUTE commits the last
-// turn with every move ridden out, which on this date is a lost operation;
-// the player's answers on that night make it a won one. The Daily's result
-// is the one the player finished with, claimed once every choice is made,
-// never the ridden-out one claimed while a response is still on screen.
-describe('the Daily Op and the night\'s responses (v1.7 R1)', () => {
+// THE ANSWERS AND THE OFFICIAL RESULT (v1.7 R1). A night's answers are
+// part of the game: on this date the operation ridden out and the one
+// answered end on different scores. The Daily's result is the one the
+// player finished with, claimed once, when the last night is over.
+describe("the Daily Op and the night's answers (v1.7 R1)", () => {
   // The same Daily as the engine plays it: no orders, and each night's
-  // moves answered by `sensible` or ridden out.
+  // moves answered by `respond` or ridden out.
   const enginePlay = (respond: Parameters<typeof playNight>[2]): GameState => {
     let state = startDailyOp(new Date()).state
     while (state.status === 'playing') state = playNight(state, NO_OP, respond)
     return state
   }
+  // Each night's answers as that game gave them, a move at a time.
+  const answersOf = (played: GameState) => played.history.map((rec) => rec.events.map((e) => e.response?.id ?? null))
   const claims = () => vi.mocked(localStorage.setItem).mock.calls.filter(([key]) => key === 'dc-daily').length
-  const outcomeState = () => decodeSaveCode((container.querySelector('[data-outcome-save-code]') as HTMLTextAreaElement).value).state
 
-  it('claims nothing while a response is open on the last night, and claims the answered result once after it', async () => {
-    const answeredRun = enginePlay(sensible)
+  it('claims the answered result, once, at the end of the last night, and a replay with the same answers neither moves nor replaces it', async () => {
+    const answered = enginePlay(sensible)
     const ridden = enginePlay(() => null)
-    const lastTurn = answeredRun.history.length
-    const lastNight = answeredRun.history[lastTurn - 1]
-    // What makes this date a test of it: the last night's answer changes the
-    // result, so a claim made at EXECUTE would be seen to be the wrong one.
-    expect(lastNight.events.some((e) => e.response), 'no response is taken on the last night of this date').toBe(true)
-    expect(ridden.history[ridden.history.length - 1].maiScore).not.toBe(lastNight.maiScore)
+    const last = answered.history[answered.history.length - 1]
+    // What makes this date a test of it: the answers change the result, so
+    // a result recorded without them would be seen to be the wrong one.
+    expect(answersOf(answered).flat().some((id) => id !== null), 'no answer is taken on this date').toBe(true)
+    expect(ridden.history[ridden.history.length - 1].maiScore).not.toBe(last.maiScore)
 
     vi.spyOn(localStorage, 'setItem')
-    answer = 'take'
     loadPage()
     click(dailyEntry()!)
-    let turn = 0
-    let askedOnLastNight = 0
-    let resultsOnLastNight = 0
-    for (; turn < 20; turn += 1) {
-      const played = await playTurn(() => {
-        if (turn + 1 !== lastTurn) return
-        if (responseCard()) {
-          askedOnLastNight += 1
-          expect(ledger(), 'the Daily was claimed while a response was still open on the last night').toEqual({})
-          expect(claims()).toBe(0)
-        } else if (askedOnLastNight === lastNight.events.filter((e) => e.room !== undefined).length) {
-          // Every choice of the last night is made: the result is in, before
-          // END OF TURN and before DEBRIEF is tapped.
-          resultsOnLastNight += 1
-          expect(ledger()['20260927'], 'the Daily was not claimed once the last response was answered').toBeDefined()
-        }
-      })
-      if (!played) break
+    await settleGame()
+    // Every night but the last: nothing is claimed while the operation is
+    // still in play.
+    for (let n = 0; n < answered.history.length - 1; n += 1) {
+      expect(await closeNight({ ...NO_INPUTS, responses: answersOf(answered)[n] })).toBe(true)
+      expect(claims(), `the Daily was claimed after night ${n + 1} of ${answered.history.length}`).toBe(0)
+      expect(ledger()).toEqual({})
     }
-    await settle()
-    expect(turn, 'the board played another number of turns than the engine').toBe(lastTurn)
-    expect(askedOnLastNight, 'the last night never asked for a response').toBe(lastNight.events.filter((e) => e.room !== undefined).length)
-    expect(resultsOnLastNight, 'nothing was looked at after the last answer').toBeGreaterThan(0)
-
-    expect(container.querySelector('[data-debrief]'), 'the campaign never reached the debrief').not.toBeNull()
+    await playToEnd(answersOf(answered))
     expect(claims(), 'the Daily result was not claimed exactly once').toBe(1)
-    const entry = ledger()['20260927'] as unknown as { outcome: string; mai: number; turns: number }
-    expect(entry.outcome).toBe(answeredRun.status)
-    expect(entry.mai).toBe(lastNight.maiScore)
-    expect(entry.turns).toBe(lastTurn)
-    expect(standing()).toBe('OFFICIAL')
-  })
-
-  it('ends the same Daily the same way twice: same orders and same responses, the engine\'s own result', async () => {
-    const expected = enginePlay(sensible)
-    answer = 'take'
-    loadPage()
-    click(dailyEntry()!)
-    await playToEnd()
-    const first = outcomeState()
     const official = ledger()['20260927']
-    expect(first.status).toBe(expected.status)
-    expect(first.history).toEqual(JSON.parse(JSON.stringify(expected.history)))
+    expect(official.outcome).toBe(answered.status)
+    expect(official.mai).toBe(last.maiScore)
+    expect(official.turns).toBe(answered.history.length)
 
-    // Again on the same date: the Dossier now holds every card, so the
-    // night shows other cards (CONTINUE, no FILE TO DOSSIER), and the
-    // engine's result may not move for it.
-    click(byText(/^BACK TO TITLE$/)!)
+    // Again on the same date, an hour on, with the same answers: the
+    // Dossier and the device's records have moved, and the result may not
+    // move for it. It is practice, so the ledger keeps the first.
+    vi.setSystemTime(new Date(MORNING.getTime() + 3_600_000))
+    toTitle()
     click(dailyEntry()!)
-    await playToEnd()
-    expect(outcomeState().history, 'the same Daily with the same answers ended another way').toEqual(first.history)
-    expect(standing()).toBe('PRACTICE')
+    await settleGame()
+    await playToEnd(answersOf(answered))
+    expect(claims(), 'the replay claimed the date again').toBe(1)
     expect(ledger()['20260927'], 'the replay replaced the official result').toEqual(official)
-
-    // And the answers are part of it: ridden out, this date ends otherwise.
-    answer = 'ride'
-    click(byText(/^BACK TO TITLE$/)!)
-    click(dailyEntry()!)
-    await playToEnd()
-    const ridden = enginePlay(() => null)
-    expect(outcomeState().history.at(-1)!.maiScore).toBe(ridden.history.at(-1)!.maiScore)
-    expect(outcomeState().history.at(-1)!.maiScore).not.toBe(first.history.at(-1)!.maiScore)
   })
 })

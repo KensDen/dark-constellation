@@ -3,7 +3,8 @@
 // identically to the original, per the deterministic engine. Also covers
 // codec round-trips, version rejection, and bad-code handling. Since v1.3
 // Round 0 (brief 6.10) a save from an earlier version is refused as stale,
-// never migrated.
+// never migrated; since v2.0 R3 that is every save of the retired pixel
+// board, and only a save of the 3D game resumes.
 
 import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -28,22 +29,26 @@ import {
   type DailyResult,
   type SavePhase,
 } from '../src/persistence'
-import { NO_OP, WIN_SCRIPT } from './scripts'
+import { NO_OP, WIN_SCRIPT, scripted } from './scripts'
 
 const SEED = 20260712
 
+// A written script is played as a line the engine takes: what the budget
+// cannot meet on a night is left out (tests/scripts.ts, scripted).
 function playTo(seed: number, upToTurn: number, script: Record<number, TurnActions>): GameState {
   let state = newGame(DEFAULT_SCENARIO, seed)
+  const line = scripted(script)
   while (state.status === 'playing' && state.turn <= upToTurn) {
-    state = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+    state = resolveTurn(state, line(state), turnRng(state.seed, state.turn))
   }
   return state
 }
 
 function playOut(from: GameState, script: Record<number, TurnActions>): GameState {
   let state = from
+  const line = scripted(script)
   while (state.status === 'playing') {
-    state = resolveTurn(state, script[state.turn] ?? NO_OP, turnRng(state.seed, state.turn))
+    state = resolveTurn(state, line(state), turnRng(state.seed, state.turn))
   }
   return state
 }
@@ -89,7 +94,7 @@ describe('save code determinism', () => {
   it('the codec round-trips the exact dynamic state', () => {
     const mid = playTo(SEED, 4, WIN_SCRIPT)
     expect(mid.status).toBe('playing')
-    // Every phase a save can be taken in (HARDEN merged into PROCURE in v1.3).
+    // Every phase a save can be taken in.
     for (const phase of ['brief', 'procure', 'aftermath'] as SavePhase[]) {
       const back = decodeSaveCode(encodeSaveCode(captureGame(mid, phase, '2026-07-22T00:00:00.000Z')))
       expect(back.phase).toBe(phase)
@@ -127,27 +132,42 @@ describe('save robustness', () => {
     expect(() => resolveTurn(restored, NO_OP, turnRng(restored.seed, restored.turn))).not.toThrow()
   })
 
-  it('resumes a v4 save under the seed\'s order, and still refuses v1 to v3 (v1.6 R1)', () => {
-    // v5's shape is v4's: only the campaign's order is new, drawn from the
-    // seed, so a v4 save loads and plays on (src/persistence/codec.ts).
-    // v6 (v1.7 R1) is a superset again: responses on the record, optional.
-    // v7 (v2.0 R1) is a superset again: scans, timed taps and the posture, all optional.
-    // v8 (v2.0 R2) is a superset again: the watch flag, placements, answers spent and a hold, all optional.
-    expect(SAVE_VERSION).toBe(8)
-    expect(OLDEST_RESUMABLE).toBe(4)
+  it('resumes a v8 save of the 3D game, and refuses every save of the pixel board (v2.0 R3)', () => {
+    // v9 (v2.0 R3, src/persistence/codec.ts): one rule set, so the state no
+    // longer says which. A v8 save whose state carries the 3D game's mark
+    // was played by these rules: it loads, the mark is dropped, and it
+    // plays on to the end the original reaches. A v8 save without the mark
+    // was a pixel board game, as every v4 to v7 save was, and is refused as
+    // stale: the rules it was started under are no longer in the engine.
+    expect(SAVE_VERSION).toBe(9)
+    expect(OLDEST_RESUMABLE).toBe(8)
     const mid = playTo(SEED, 3, WIN_SCRIPT)
-    const p = captureGame(mid, 'procure', '2026-10-26T00:00:00.000Z')
-    const v4 = restoreGame({ ...p, version: 4 }).state
-    expect(v4.history).toEqual(mid.history)
-    expect(restoreGame({ ...p, version: 5 }).state.history, 'a v5 save no longer loads').toEqual(mid.history)
-    expect(() => resolveTurn(v4, NO_OP, turnRng(v4.seed, v4.turn))).not.toThrow()
+    expect(mid.status).toBe('playing')
+    const p = captureGame(mid, 'procure', '2026-11-15T00:00:00.000Z')
+    // The pixel board's lock on a revealed brief is dropped with the mark.
+    const v8 = restoreGame({ ...p, version: 8, state: { ...p.state, watch: 2, briefRevealed: mid.turn } }).state
+    expect('watch' in v8, 'the mark was kept on the state').toBe(false)
+    expect('briefRevealed' in v8, 'the brief lock was kept on the state').toBe(false)
+    const { scenario: _a, ...midRest } = mid
+    const { scenario: _b, ...v8Rest } = v8
+    expect(v8Rest).toEqual(midRest)
+    expect(logHash(playOut(v8, WIN_SCRIPT))).toBe(logHash(playOut(mid, WIN_SCRIPT)))
+    // Without the mark, at the same version, it is a pixel board game.
+    expect(() => restoreGame({ ...p, version: 8 }), 'an unmarked v8 save').toThrow(StaleSaveError)
+    expect(() => restoreGame({ ...p, version: 8 }), 'an unmarked v8 save').toThrow(STALE_SAVE_MESSAGE)
+    expect(() => decodeSaveCode(encodeSaveCode({ ...p, version: 8 } as typeof p)), 'an unmarked v8 code').toThrow(StaleSaveError)
+    // And the mark does not carry an older save through.
+    for (let version = 4; version < OLDEST_RESUMABLE; version += 1) {
+      expect(() => restoreGame({ ...p, version, state: { ...p.state, watch: 2 } }), `version ${version} with the mark`).toThrow(StaleSaveError)
+    }
   })
 
-  it('refuses v2 and v3 saves as stale too, though their shape once loaded as it was (v1.3 brief 6.10)', () => {
+  it('refuses every older save as stale, though its shape once loaded as it was (v1.3 brief 6.10)', () => {
     // v1.2 loaded a v2 save unchanged and resumed it under the deck stream.
-    // Every version before v4 is refused, whatever its shape, and the store
-    // says so for its autosave, so the shell can offer PLAY.
-    expect(SAVE_VERSION).toBeGreaterThanOrEqual(4)
+    // Every version before the oldest resumable one is refused, whatever
+    // its shape, and the store says so for its autosave, so the shell can
+    // offer PLAY.
+    expect(SAVE_VERSION).toBeGreaterThanOrEqual(OLDEST_RESUMABLE)
     const mid = playTo(SEED, 3, WIN_SCRIPT)
     const p = captureGame(mid, 'procure', '2026-09-27T00:00:00.000Z')
     for (let version = 1; version < OLDEST_RESUMABLE; version += 1) {

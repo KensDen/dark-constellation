@@ -1,9 +1,8 @@
-// The cold open's seen-flag, kept apart from the screen that sets it.
-//
-// App reads this synchronously on startup to decide where to land, so it
-// cannot come from IntroSequence itself: a static import of that module
-// would pull the whole cold open into the initial chunk and undo the
-// split. A returning player pays for this file and nothing more.
+// The briefing's seen-flag: whether this device has been through the
+// game's opening. The 3D game reads it to start a first operation on its
+// briefing and sets it when the briefing ends (src/ui/three/Game3D.tsx).
+// The key is the pixel cold open's, kept so a device that saw that one is
+// not briefed again.
 
 export const INTRO_SEEN_KEY = 'dc-intro-seen'
 

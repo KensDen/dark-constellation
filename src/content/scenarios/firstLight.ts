@@ -1,9 +1,10 @@
-// Scenario: FIRST LIGHT. Six turns since v1.3 (brief D1 a and 6.2): all 18
+// Scenario: FIRST LIGHT. Six nights since v1.3 (brief D1 a and 6.2): all 18
 // threats appear as candidates and a run meets 10 events, so the Dossier
 // fills over two or three runs. Each drawn slot is the reacting
 // adversary's pick among its candidates (src/engine/adversary.ts); a fixed
-// slot is CONFIRMED. The economy is brief 6.1's, a starting tuning from
-// the loop prototype that the sweep gate (brief 7) holds to its targets.
+// slot is CONFIRMED. The economy is the 3D game's, set by the sweep gate
+// (tests/sweep.spec.ts) in v2.0 R2 and ruled on by Ken on 15 November 2026:
+// the numbers stay as R2 measured them.
 
 import type { Scenario } from '../../engine/types'
 import { ADVERSARY, CONSTELLATION, PLAYER_ORG, SQUADRON } from '../../config'
@@ -21,20 +22,16 @@ export const FIRST_LIGHT: Scenario = {
   id: 'first-light',
   name: 'FIRST LIGHT',
   totalTurns: 6,
-  startCredits: 100,
-  // MISSION FUNDING IS 14 SINCE v2.0 R1 (Ken's choice of 10 November 2026:
-  // scanning replaces the paid intel brief). Through v1.7 it was 20, and a
-  // player who read TONIGHT paid 8 CR a night for the brief that named it.
-  // With the scan free of charge and every other number as v1.7 had it,
-  // the sweep's Prepared (tests/policies.ts, which now scans) won all 500
-  // seeds on STANDARD: the 40 CR the brief used to take over a game met
-  // every response. Measured over 500 seeds a policy at each step, with a
-  // starting budget of 100: at 15, Prepared 95 and Novice 44; at 14,
-  // Prepared 82 (EASY 100), Novice 43 (EASY 83, graded B most often) and
-  // the expert who knows every signature on sight 82; at 13, Prepared 79
-  // and Novice 40, on the edge of its band. Starting budgets of 90 and
-  // 110 trade one for one with a CR of funding and land on the same steps.
-  incomePerTurn: 14,
+  // THE BUDGET (v2.0 R2). The answers are a pool that costs no credits
+  // (src/engine/rules.ts, answersOf), so credits buy defenses and assets
+  // and pay the bills: 80 to start and 6 a night. Funding below 6 is a
+  // cliff, not a dial: at 4 the WORST CASE guard stops every line from
+  // buying and Prepared falls to 45 percent (src/engine/worstCase.ts,
+  // heldForLater). Through v1.7, with a paid intel brief and answers
+  // bought a point at a time, it was 100 and 20; the pixel board's numbers
+  // are in the history of main.
+  startCredits: 80,
+  incomePerTurn: 6,
   slaBonus: { coverageMin: 60, credits: 10 },
   winThreshold: 70,
   collapseThreshold: 35,
@@ -44,22 +41,27 @@ export const FIRST_LIGHT: Scenario = {
     rpoSat: 35,
     drone: 15,
     groundStation: 25,
-    intelBrief: 8,
   },
   upkeepPerDefense: 2,
-  // THE RETAINER'S RECOVERY IS 4, TUNED IN v1.5 R1 (Ken, 24 October 2026)
-  // from the prototype's 6, the one number the round moved. With one new
-  // defense a night, ordering the priciest defense each night was one fixed
-  // order (sensor fusion, firmware attestation, ground zero trust, the
-  // retainer on night 4, anti-jam, PNT authentication) that won 99.6
-  // percent on STANDARD against Prepared's 79.6: it trailed Prepared on
-  // turns 1 to 5 and passed it at the close, on the retainer's 6 a turn on
-  // every meter. Measured over 500 seeds a policy (tests/sweep.spec.ts) at
-  // 4: Buy everything 53.2 (EASY 100), Prepared 79.6 (100), Novice 42.0
-  // (85.2), Random legal 5.0 (10.2), Nothing 0.0 (3.0), the flag-follower
-  // 79.6 with no S. At 5 Buy everything still won 81.8; at 3, 25.2, with
-  // Novice down to 37.0.
-  recovery: { base: 2, withIrRetainer: 4 },
+  // METER DAMAGE AND RECOVERY, SET TOGETHER BY THE SWEEP (v2.0 R2, 500
+  // seeds a line; Ken's ruling of 15 November 2026 keeps them): 13 meter
+  // damage a point of strength, and 5 recovery a night on every meter (7
+  // with the IR retainer). Damage is up from v1.7's 9 because nothing is
+  // bought off any more: an unanswered strength 3 move that hits 2 meters
+  // can take 15 points of score or more, which is what makes 3 answers a
+  // real budget. Measured on STANDARD, Prepared and Novice: at 12 and 4,
+  // 89.8 and 41.4 percent; at 13 and 5, 85.8 and 40.2; at 12 and 3, 78.6
+  // and 32.8; at 13 and 4, 75.8 and 32.0; at 14 and 4, 72.8 and 26.2. A
+  // Prepared line that plays its orders well and a beginner are about 46
+  // points of win rate apart at every setting; this is the one nearest both
+  // bands.
+  recovery: { base: 5, withIrRetainer: 7 },
+  meterDamage: 13,
+  // THE WATCH (v2.0 R2): 3 answers for the whole operation; 3 holds a
+  // game, and 2 points of score for a wrong call on one.
+  answers: 3,
+  holdCount: 3,
+  holdStake: 2,
   starterAssets: [{ kind: 'sat' }, { kind: 'sat' }, { kind: 'rpoSat' }, { kind: 'drone' }, { kind: 'drone' }, { kind: 'groundStation' }],
   // Brief 6.2. Turn 1's two moves are both strength 2, on different layers
   // with different defenses, so a hit lands on turn 1 unless the player
@@ -143,23 +145,8 @@ export const FIRST_LIGHT: Scenario = {
       },
     ],
   },
-  briefIntro: `You are the mission assurance architect at ${PLAYER_ORG}, standing up ${CONSTELLATION} (nine planned smallsats, one with a docking LiDAR package) and ${SQUADRON} (an ISR drone squadron on LiDAR and GNSS navigation) for a disaster-response tasking. ${ADVERSARY}, a threat group with a taste for layered attacks, has taken an interest. Six turns. Keep the Mission Assurance Index at 70 or above and stay solvent.`,
+  briefIntro: `You are the mission assurance architect at ${PLAYER_ORG}, standing up ${CONSTELLATION} (nine planned smallsats, one with a docking LiDAR package) and ${SQUADRON} (an ISR drone squadron on LiDAR and GNSS navigation) for a disaster-response tasking. ${ADVERSARY}, a threat group with a taste for layered attacks, has taken an interest. Six nights. Keep the mission assurance score at 70 or above and stay solvent.`,
   events: [...THREATS, ...OPPORTUNITIES],
   countermeasures: COUNTERMEASURES,
   holds: HOLDS,
-  // THE 3D GAME'S NUMBERS (v2.0 R2), read under GameState.watch 2
-  // (src/engine/rules.ts). With the answers a pool that costs no credits
-  // (rules.ts, answersOf), credits buy defenses and assets and pay the
-  // bills, so the budget is smaller than the classic board's: 80 to start
-  // and 6 a night. tests/sweep.spec.ts has what each was measured at, and
-  // the settings either side.
-  watch2: {
-    startCredits: 80,
-    incomePerTurn: 6,
-    recovery: { base: 5, withIrRetainer: 7 },
-    meterDamage: 13,
-    answers: 3,
-    holds: 3,
-    holdStake: 2,
-  },
 }

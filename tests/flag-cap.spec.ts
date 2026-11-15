@@ -1,9 +1,9 @@
 // ONE NEW DEFENSE A NIGHT (v1.4, Ken's ruling of 24 October 2026 on the
 // R6b measurement, option A). The cap lives in the engine, not only in
-// PROCURE: resolveTurn refuses orders that add a second defense the player
-// does not already own, on both difficulties, and every line the sweep
-// plays plans its one order itself (tests/policies.ts), so no night of any
-// line records two.
+// the game's plan: resolveTurn refuses orders that add a second defense
+// the player does not already own, on both difficulties, and every line
+// the sweep plays plans its one order itself (tests/policies.ts), so no
+// night of any line records two.
 
 import { describe, expect, it } from 'vitest'
 
@@ -11,7 +11,7 @@ import { DEFAULT_SCENARIO } from '../src/content'
 import { NEW_DEFENSES_PER_NIGHT, defenseOpen, newDefenses, newGame, resolveTurn } from '../src/engine/reducer'
 import { turnRng } from '../src/engine/rng'
 import type { CountermeasureId, GameState } from '../src/engine/types'
-import { POLICIES, REPORTED } from './policies'
+import { POLICIES, WATCH_REPORTED } from './policies'
 import { a } from './scripts'
 
 const IDS = DEFAULT_SCENARIO.countermeasures.map((c) => c.id)
@@ -50,12 +50,12 @@ describe('one new defense a night (v1.4)', () => {
     expect(newDefenses(owned, a({ buyCounters: ['pntAuth', 'antiJam', 'antiJam'] }))).toEqual(['antiJam'])
     const after = play(owned, ['pntAuth', 'antiJam', 'antiJam'])
     expect(after.counters).toEqual(['pntAuth', 'antiJam'])
-    expect(after.history[0].ledger.ordered).toBe(10)
+    expect(after.history[0].ledger.ordered).toBe(DEFAULT_SCENARIO.countermeasures.find((c) => c.id === 'antiJam')!.cost)
     // Nothing new is not a refusal either.
     expect(() => play(owned, ['pntAuth'])).not.toThrow()
   })
 
-  it('says whether tonight has room for one, as PROCURE reads it', () => {
+  it('says whether tonight has room for one, as the plan reads it', () => {
     const s = newGame(DEFAULT_SCENARIO, 5)
     expect(defenseOpen(s, a({}))).toBe(true)
     expect(defenseOpen(s, a({ buyCounters: ['antiJam'] }))).toBe(false)
@@ -73,7 +73,7 @@ describe('one new defense a night (v1.4)', () => {
     const defenseNames = new Set(DEFAULT_SCENARIO.countermeasures.map((c) => c.name))
     let nights = 0
     let ordered = 0
-    for (const { name, policy } of [...POLICIES, ...REPORTED]) {
+    for (const { name, policy } of [...POLICIES, ...WATCH_REPORTED]) {
       for (const difficulty of ['standard', 'easy'] as const) {
         for (let seed = 1; seed <= 100; seed += 1) {
           let s = newGame(DEFAULT_SCENARIO, seed, difficulty)

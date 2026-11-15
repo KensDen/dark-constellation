@@ -64,11 +64,19 @@ import type { GameState } from '../engine/types'
 // spent, and a record tonight's hold; all optional, so a v7 reader's shape
 // is a superset and a v4 to v7 save still LOADS and resumes by the rules
 // it was started under.
-export const SAVE_VERSION = 8
-// The oldest version a load resumes.
-export const OLDEST_RESUMABLE = 4
+// v9 (v2.0 R3, Ken's ruling of 15 November 2026: the pixel board is
+// retired). One rule set: the state no longer carries `watch`, an event no
+// longer carries the room, cost and refund of a bought answer, and a record
+// may carry the signatures named on sight. A v8 save of a 3D game (its
+// state says watch 2) LOADS and resumes: it was played by these rules, and
+// the fields it carries that are gone are left unread. Every other save
+// was a pixel board game (v4 to v7, and a v8 without the mark) and is
+// REFUSED as stale, as v1 to v3 were in v4: the rules it was started under
+// are no longer in the engine.
+export const SAVE_VERSION = 9
+// The oldest version a save can resume from; anything older is stale.
+export const OLDEST_RESUMABLE = 8
 
-// HARDEN merged into PROCURE in v1.3 Round 0, so 'harden' is not a phase.
 export type SavePhase = 'brief' | 'procure' | 'aftermath'
 
 // WHICH DAILY OP A CAMPAIGN IS (v1.2 R5, brief 7.1): the local date it
@@ -158,9 +166,7 @@ function isPlainState(s: unknown): s is Omit<GameState, 'scenario'> {
     num(st.turn) &&
     num(st.credits) &&
     num(st.briefFreeThrough) &&
-    (st.briefRevealed === undefined || num(st.briefRevealed)) &&
     (st.posture === undefined || st.posture === 'dark') &&
-    (st.watch === undefined || st.watch === 2) &&
     (st.answersUsed === undefined || num(st.answersUsed)) &&
     (st.placed === undefined || isObj(st.placed)) &&
     num(st.streak) &&
@@ -196,8 +202,13 @@ export function restoreGame(p: unknown): RestoredRecord {
   if (!scenario) throw new SaveError('This save is for an operation this version does not have.')
   const raw = rec.state as Record<string, unknown> | undefined
   if (!isPlainState(raw)) throw new SaveError('This save is corrupt or incomplete.')
+  // A v8 save without the 3D game's mark was a pixel board game.
+  if (rec.version === 8 && (raw as Record<string, unknown>).watch !== 2) throw new StaleSaveError()
   const phase: SavePhase = rec.phase === 'procure' || rec.phase === 'aftermath' ? rec.phase : 'brief'
-  const state = { ...(raw as Omit<GameState, 'scenario'>), scenario } as GameState
+  const { watch: _watch, briefRevealed: _revealed, ...kept } = raw as Record<string, unknown>
+  void _watch
+  void _revealed
+  const state = { ...(kept as Omit<GameState, 'scenario'>), scenario } as GameState
   const daily = readDaily(rec.daily)
   return daily ? { state, phase, daily } : { state, phase }
 }

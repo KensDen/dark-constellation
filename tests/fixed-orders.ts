@@ -22,7 +22,7 @@ import type { CountermeasureId, GameState, Scenario, TurnActions } from '../src/
 export const ORDER_DEFENSES: readonly CountermeasureId[] = ['antiJam', 'encryptedBackhaul', 'linkAuth', 'pntAuth', 'sensorFusion', 'groundZeroTrust', 'irRetainer', 'tierAAttestation']
 
 function night(s: GameState, defense: CountermeasureId): GameState {
-  const actions: TurnActions = { buyAssets: s.turn === 1 ? [{ kind: 'drone' }] : [], buyCounters: [defense], intelBrief: false, debris: 'burn' }
+  const actions: TurnActions = { buyAssets: s.turn === 1 ? [{ kind: 'drone' }] : [], buyCounters: [defense], debris: 'burn' }
   try {
     return resolveTurn(s, actions, turnRng(s.seed, s.turn))
   } catch {

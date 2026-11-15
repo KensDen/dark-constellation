@@ -6,12 +6,15 @@
 //
 // Turn order (brief 5.5 and 6.1):
 //   1. EXECUTE: tonight's orders are paid for and land at once. Defenses
-//      are owned from this moment, assets enter the pipeline, and the
-//      intel brief names tonight's candidates.
-//   2. Live conditions press their meters.
+//      are owned from this moment and set down where the orders say,
+//      assets enter the pipeline, and the scan and the names given on
+//      sight are recorded.
+//   2. Live conditions press their meters, and the policy engine's hold
+//      is settled with the player's call (src/engine/holds.ts).
 //   3. The reacting adversary plays each slot (src/engine/adversary.ts),
-//      and each event resolves on the main stream: the BURN or HOLD call
-//      on the debris night, an attack otherwise. Repair bills queue.
+//      and each event resolves: the BURN or HOLD call on the debris night
+//      (the main stream's one draw), an attack otherwise. Repair bills
+//      queue.
 //   4. The rare opportunity, from the deck stream.
 //   5. Turn close: repairs and upkeep are paid, and a budget below 0 ends
 //      the run; then arrivals, mission funding and the coverage bonus
@@ -22,7 +25,6 @@ import { adversaryPicks } from './adversary'
 import { candidatesTonight, planFor } from './campaign'
 import { holdTonight, resolveHold } from './holds'
 import { turnRng, type Rng } from './rng'
-import { heldForLater } from './worstCase'
 import {
   ASSET_DAMAGE_PER_SEVERITY,
   ASSET_HEAL_PER_TURN,
@@ -35,10 +37,7 @@ import {
   aimOf,
   answersLeft,
   billAfter,
-  briefActive,
   briefFree,
-  briefLocked,
-  briefOrdered,
   burnFuel,
   chainBonusOf,
   debrisTarget,
@@ -52,14 +51,9 @@ import {
   mitigationOf,
   newDefenses,
   recoveryOf,
-  responseCost,
-  responseFits,
   scaled,
   scanPulses,
-  startCreditsOf,
-  timingRefund,
   timingShare,
-  worstBillOf,
 } from './rules'
 import { METER_CAP, coverage, maiRaw, maiScore } from './scoring'
 import type {
@@ -77,7 +71,6 @@ import type {
   TurnActions,
   TurnLedger,
   TurnRecord,
-  Watch,
 } from './types'
 
 // The rules and numbers live in ./rules, and tonight's candidates in
@@ -94,10 +87,8 @@ export {
   DEPLOY_TURNS,
   DIFFICULTIES,
   LOSS_REVIEW_FACTOR,
-  METER_DAMAGE_PER_SEVERITY,
   NEW_DEFENSES_PER_NIGHT,
   PRIMARY_MITIGATION,
-  RESPONSE_COST_PER_POINT,
   RESPONSE_DAMAGE_SHARE,
   RIDESHARE_RESELL_CREDITS,
   SCANS_PER_NIGHT,
@@ -107,10 +98,7 @@ export {
   aimOf,
   answersLeft,
   answersOf,
-  briefActive,
   briefFree,
-  briefLocked,
-  briefOrdered,
   countersAfter,
   damageShare,
   debrisTarget,
@@ -125,11 +113,8 @@ export {
   newDefenses,
   orderCost,
   postOf,
-  responseCost,
-  responseFits,
   scaled,
   scanPulses,
-  timingRefund,
   timingShare,
   type DifficultyProfile,
 } from './rules'
@@ -157,7 +142,7 @@ const liveAssets = (assets: Asset[]) => assets.filter((a) => a.integrity > 0)
 const round1 = (n: number) => Math.round(n * 10) / 10
 const METER_KEYS = ['linkAvailability', 'dataIntegrity', 'sensorIntegrity'] as const
 
-export function newGame(scenario: Scenario, seed: number, difficulty: Difficulty = 'standard', posture?: Posture, watch?: Watch): GameState {
+export function newGame(scenario: Scenario, seed: number, difficulty: Difficulty = 'standard', posture?: Posture): GameState {
   return {
     scenario,
     seed,
@@ -165,14 +150,14 @@ export function newGame(scenario: Scenario, seed: number, difficulty: Difficulty
     status: 'playing',
     difficulty,
     ...(posture ? { posture } : {}),
-    ...(watch ? { watch, placed: {} } : {}),
-    credits: startCreditsOf(scenario, watch),
+    placed: {},
+    credits: scenario.startCredits,
     assets: scenario.starterAssets.map((s, i) => ({ id: `start-${s.kind}-${i + 1}`, kind: s.kind, layer: layerFor(s.kind), integrity: 100 })),
     counters: [],
     meters: { linkAvailability: 100, dataIntegrity: 100, sensorIntegrity: 100 },
     conditions: [],
     pipeline: [],
-    // The first intel brief is on the house (D2 a).
+    // No allied feed yet (rules.ts, briefFree); night 1's scan never reads it.
     briefFreeThrough: 1,
     streak: 0,
     bestStreak: 0,
@@ -190,20 +175,13 @@ function learn(state: GameState, counter: CountermeasureId, threat: string, how:
 }
 
 // EXECUTE: pay for tonight's orders and land them. A defense is owned at
-// once (the adversary reads it tonight), an asset joins the pipeline, and
-// the brief costs its price unless it is free tonight; a revealed brief
-// is paid for whatever the orders say (revealBrief). Throws when the
-// orders exceed the budget, which the UI never sends (EXECUTE is disabled
-// while REMAINING is below zero), and when they add more than one new
-// defense (NEW_DEFENSES_PER_NIGHT), which PROCURE never queues.
+// once (the adversary reads it tonight) and an asset joins the pipeline.
+// Throws when the orders exceed the budget, and when they add more than
+// one new defense (NEW_DEFENSES_PER_NIGHT); the game never sends either.
 function applyOrders(state: GameState, actions: TurnActions, purchases: string[]): number {
   const { scenario } = state
   if (newDefenses(state, actions).length > NEW_DEFENSES_PER_NIGHT) throw new Error('invalid actions: one new defense a night')
   let spent = 0
-  if (briefOrdered(state, actions) && !briefFree(state)) {
-    spent += scenario.prices.intelBrief
-    purchases.push(`Intel brief (-${scenario.prices.intelBrief})`)
-  }
   for (const id of actions.buyCounters) {
     if (state.counters.includes(id)) continue
     const cm = counterById(scenario, id)
@@ -211,7 +189,7 @@ function applyOrders(state: GameState, actions: TurnActions, purchases: string[]
     state.counters.push(id)
     purchases.push(`${cm.name} (-${cm.cost})`)
     // Where it is set down (v2.0 R2): a live asset of a kind it can sit on.
-    const where = state.watch === 2 ? state.assets.find((a) => a.id === actions.placeOn?.[id] && a.integrity > 0) : undefined
+    const where = state.assets.find((a) => a.id === actions.placeOn?.[id] && a.integrity > 0)
     if (where && domainOf(scenario, id).includes(where.kind)) state.placed = { ...state.placed, [id]: where.id }
   }
   actions.buyAssets.forEach((buy, i) => {
@@ -223,20 +201,6 @@ function applyOrders(state: GameState, actions: TurnActions, purchases: string[]
   state.credits -= spent
   if (state.credits < 0) throw new Error('invalid actions: orders exceed the budget')
   return spent
-}
-
-// THE INTEL BRIEF, REVEALED (v1.5 R2): ordering a paid brief names
-// tonight's moves at once, so the order locks for the turn (rules.ts,
-// briefLocked): from here the brief is ordered and charged at EXECUTE
-// whatever the orders say. Nothing to lock on a turn it is free. Throws
-// when the game is over, and when the brief's price is more than the
-// balance, since a locked order the budget can never meet would leave the
-// turn with no way to EXECUTE.
-export function revealBrief(state: GameState): GameState {
-  if (state.status !== 'playing') throw new Error('game is over; cannot order a brief')
-  if (briefFree(state) || briefLocked(state)) return state
-  if (state.scenario.prices.intelBrief > state.credits) throw new Error('invalid actions: orders exceed the budget')
-  return { ...state, briefRevealed: state.turn }
 }
 
 // The mission assurance an event would leave at the given strength on the
@@ -257,53 +221,40 @@ function maiAfterHit(state: GameState, ev: ThreatEvent, target: Asset | undefine
 // stamps the score it found and left (the per-event score).
 type Unscored = Omit<ResolvedEvent, 'scoreBefore' | 'scoreAfter'>
 
-// `choice` is the response the orders name for this move, and `room` what
-// a response may draw on as it arrives (rules.ts, responseFits). A choice
-// the move does not offer, or one the room cannot meet, is ridden out: the
+// `choice` is the response the orders name for this move. A choice the
+// move does not offer, or one made with no answer left, is ridden out: the
 // night never offers either, and a turn resolved both ways for the debris
 // call must not stop on one.
 //
 // `tap` is the grade of the timed tap as the move landed (v2.0 R1,
 // rules.ts TIMING_BONUS): it takes a share off the damage of a move that
-// gets through and pays back a share of a response that blocked it, and
-// changes nothing else.
-function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng, choice: string | null | undefined, room: number, earlier: number, tap: TimingGrade | 0 = 0, slot = 0): Unscored {
+// gets through, and changes nothing else.
+function resolveThreat(state: GameState, ev: ThreatEvent, choice: string | null | undefined, tap: TimingGrade | 0 = 0, slot = 0): Unscored {
   const { scenario, difficulty } = state
   const notes: string[] = []
   const chainBonus = chainBonusOf(ev, gnssDenied(state.conditions, scenario))
   const strength = ev.baseSeverity + chainBonus
-  // The tile it is aimed at: a live asset on its layers, held or not, and
-  // of a kind the move prefers when the player holds one (G-028: the
-  // docking dazzle strikes the RPO sat, not an imaging sat). Under the 3D
-  // game's rules it is the one the signature was sighted on (aimOf).
-  const v2 = state.watch === 2
-  let target: Asset | undefined
-  if (v2) target = aimOf(state, slot, ev)
-  else {
-    const onLayers = liveAssets(state.assets).filter((a) => ev.layers.includes(a.layer))
-    const preferred = ev.prefersKinds ? onLayers.filter((a) => ev.prefersKinds!.includes(a.kind)) : []
-    const pool = preferred.length > 0 ? preferred : onLayers
-    target = pool.length > 0 ? rng.pick(pool) : undefined
-  }
+  // The asset it is aimed at: the one its signature was sighted on, a live
+  // asset on its layers of a kind the move prefers when the player holds
+  // one (G-028: the docking dazzle strikes the RPO sat, not an imaging
+  // sat). Fixed by the seed, the night, the track and the move (aimOf).
+  const target = aimOf(state, slot, ev)
   // THE POST (v2.0 R2): the newest defense's asset takes a point off a strike.
   const mitigation = mitigationOf(ev, state.counters)
   const hardened = Math.min(hardeningOn(state, target), Math.max(0, strength - mitigation))
   const exposed = Math.max(0, strength - mitigation - hardened)
   const offered = exposed > 0 && !!ev.responses?.length
-  // THE ANSWERS (v2.0 R2): under the 3D game's rules the watch has a fixed
-  // number for the whole operation, and they cost nothing.
+  // THE ANSWERS (v2.0 R2): the watch has a fixed number for the whole
+  // operation, and they cost nothing.
   const left = answersLeft(state)
-  const taken = offered && choice ? ev.responses!.find((r) => r.id === choice && (v2 ? left > 0 : responseFits(ev, r, exposed, room, difficulty, earlier))) : undefined
+  const taken = offered && choice && left > 0 ? ev.responses!.find((r) => r.id === choice) : undefined
   const share = taken ? RESPONSE_DAMAGE_SHARE[taken.effect] : 1
   // A blocked move lets nothing through, whether a defense or a response
   // blocked it; a halved one lands at its strength and does half.
   const effectiveSeverity = share === 0 ? 0 : exposed
   const outcome = effectiveSeverity === 0 ? 'held' : mitigation + hardened > 0 || taken ? 'reduced' : 'open'
-  const response = taken ? { id: taken.id, effect: taken.effect, cost: v2 ? 0 : responseCost(taken.effect, exposed) } : undefined
-  if (response) state.credits -= response.cost
-  if (response && v2) state.answersUsed = (state.answersUsed ?? 0) + 1
-  const refund = response && share === 0 ? timingRefund(response.cost, tap) : 0
-  state.credits += refund
+  const response = taken ? { id: taken.id, effect: taken.effect } : undefined
+  if (response) state.answersUsed = (state.answersUsed ?? 0) + 1
   // What the move does of its damage: the response's share, less the tap's.
   const dealt = share * timingShare(tap)
 
@@ -372,12 +323,10 @@ function resolveThreat(state: GameState, ev: ThreatEvent, rng: Rng, choice: stri
     integrityBefore,
     integrityAfter,
     condition: effectiveSeverity > 0 ? ev.condition : undefined,
-    ...(offered ? { room, ...(earlier > 0 ? { answered: earlier } : {}) } : {}),
     ...(hardened > 0 ? { hardened } : {}),
-    ...(v2 && offered ? { left } : {}),
+    ...(offered ? { left } : {}),
     ...(response ? { response } : {}),
     ...(tap ? { timing: tap } : {}),
-    ...(refund > 0 ? { refund } : {}),
   }
 }
 
@@ -474,7 +423,8 @@ function resolveOpportunity(state: GameState, ev: ThreatEvent): Unscored {
   }
 }
 
-// `rng` is the turn's main stream, from the caller as it always was.
+// `rng` is the turn's main stream, from the caller as it always was; the
+// debris call's roll is its one draw.
 // `deck` is the adversary's stream (v1.2 Round 5a), derived here from the
 // same (seed, turn) unless a caller supplies one; see src/engine/rng.ts.
 export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, deck: Rng = turnRng(state.seed, state.turn, 'deck')): GameState {
@@ -490,17 +440,18 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
   const start = next.credits
 
   // 1. EXECUTE.
-  const briefed = briefActive(next, actions)
+  const briefed = briefFree(next)
   const ordered = applyOrders(next, actions, purchases)
   // THE SCAN (v2.0 R1): the candidates the player's sweep identified, in
   // the night's own order, and no more of them than the watch has pulses.
   const candidates = candidatesTonight(next)
   const scanned = candidates.filter((id) => actions.scans?.includes(id))
   if (scanned.length > scanPulses(next)) throw new Error('invalid actions: more scans than pulses')
+  // THE NAME ON SIGHT (v2.0 R3): candidates named from their look alone,
+  // with no pulse spent (rules.ts). One the scan also named is the scan's.
+  const sighted = candidates.filter((id) => actions.sighted?.includes(id) && !scanned.includes(id))
   const confirmed = (planFor(next, next.turn)?.slots ?? []).flatMap((slot) => (slot.fixed ? [slot.fixed] : []))
-  const named = briefed ? candidates : candidates.filter((id) => scanned.includes(id) || (actions.scans !== undefined && confirmed.includes(id)))
-  // The lock is the turn's own (briefLocked): paid for above, it goes.
-  delete next.briefRevealed
+  const named = briefed ? candidates : candidates.filter((id) => scanned.includes(id) || sighted.includes(id) || (actions.scans !== undefined && confirmed.includes(id)))
 
   // 2. Live conditions press. Mitigation is recomputed, so a defense bought
   // tonight blunts the rest of a condition's life.
@@ -522,26 +473,16 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
   // 3. The adversary plays each slot, reading the defenses owned now.
   const offStation = new Set<string>()
   const resolved: ResolvedEvent[] = []
-  // What a response may draw on as each move arrives (rules.ts,
-  // responseFits): the budget, less the bills already queued, the worst
-  // each move still to come could leave, the upkeep at the close, and what
-  // the nights ahead could need (worstCase.ts, heldForLater).
   const picks = adversaryPicks(next, next.counters, deck).map((read) => eventById(scenario, read.pick))
-  const upkeepDue = next.counters.length * scenario.upkeepPerDefense + heldForLater(next, next.counters)
   picks.forEach((ev, i) => {
     const scoreBefore = maiScore(next)
-    const queued = resolved.reduce((n, r) => n + r.repairCost, 0)
-    const toCome = picks.slice(i + 1).reduce((n, later) => n + worstBillOf(later, next.counters, difficulty), 0)
-    const room = next.credits - queued - toCome - upkeepDue
     const r =
       ev.effect.special === 'debrisStrike'
         ? resolveDebris(next, ev, actions.debris ?? 'hold', rng, offStation)
-        : resolveThreat(next, ev, rng, actions.responses?.[i], room, resolved.filter((r) => r.response).length, actions.timing?.[i] === 1 || actions.timing?.[i] === 2 ? actions.timing[i] as TimingGrade : 0, i)
+        : resolveThreat(next, ev, actions.responses?.[i], actions.timing?.[i] === 1 || actions.timing?.[i] === 2 ? actions.timing[i] as TimingGrade : 0, i)
     resolved.push({ ...r, scoreBefore, scoreAfter: maiScore(next) })
   })
   const fuel = resolved.reduce((n, r) => n + (r.debris?.fuel ?? 0), 0)
-  const responses = resolved.reduce((n, r) => n + (r.response?.cost ?? 0), 0)
-  const refunds = resolved.reduce((n, r) => n + (r.refund ?? 0), 0)
 
   // 4. The rare opportunity, from the deck stream.
   const plan = planFor(next, next.turn)
@@ -593,8 +534,6 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
     ordered,
     fuel,
     windfall,
-    ...(responses > 0 ? { responses } : {}),
-    ...(refunds > 0 ? { refunds } : {}),
     afterNight,
     repairs,
     repaired,
@@ -614,6 +553,7 @@ export function resolveTurn(state: GameState, actions: TurnActions, rng: Rng, de
     briefed,
     named,
     ...(scanned.length > 0 ? { scanned } : {}),
+    ...(sighted.length > 0 ? { sighted } : {}),
     events: resolved,
     ...(hold ? { hold } : {}),
     conditionsActive: pressing,

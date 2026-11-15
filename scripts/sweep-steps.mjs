@@ -1,19 +1,20 @@
 #!/usr/bin/env node
-// The one-step robustness sweep (v1.3 R0b, brief 11). Runs
-// tests/sweep-steps.spec.ts once per step, each in its own process, and
-// prints one table: Prepared (the gated line), the line that follows the
-// flag (reported) and Novice, on STANDARD and EASY, over the sweep's seeds
-// (tests/sweep-run.ts SEEDS, 500).
+// The one-step robustness sweep (v1.3 R0b, brief 11; the game's numbers
+// since v2.0 R3). Runs tests/sweep-steps.spec.ts once per step, each in
+// its own process, and prints one table: Prepared and Novice (the gated
+// lines) and the Expert (reported), on STANDARD and EASY, over the sweep's
+// seeds (tests/sweep-run.ts SEEDS, 500).
 //
-//   npm run sweep:steps                         the R0 numbers and Ken's ten steps
-//   npm run sweep:steps -- '{"funding":25}'     the same ten steps around another point
+//   npm run sweep:steps                         the scenario's numbers and a step either side of each
+//   npm run sweep:steps -- '{"funding":8}'      the same steps around another point
 //
-// A step names only what it moves: meter (damage a point), asset (damage a
-// point), bills (a factor on every repair bill and the loss review),
-// upkeep (CR a turn a defense), funding (CR a turn), and, for a center only,
-// intelBrief (the brief's price in CR). Everything else is the repo's own
-// number. Any other key, or a value that is not a number, is refused: the
-// R0b review found a center like {"intelBrief":4} silently played at 8.
+// A step names only what it moves: meter (meter damage a point), asset
+// (asset damage a point), bills (a factor on every repair bill and the
+// loss review), upkeep (CR a night a defense), funding (CR a night) and
+// recovery (points a night on every meter; the IR retainer keeps its 2 on
+// top). Everything else is the repo's own number. Any other key, or a
+// value that is not a number, is refused: the R0b review found a center
+// with a mistyped key silently played at the default.
 
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync } from 'node:fs'
@@ -22,8 +23,10 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const R0 = { meter: 5, asset: 12, bills: 1, upkeep: 2, funding: 20 }
-const KNOWN = new Set([...Object.keys(R0), 'intelBrief'])
+// The numbers FIRST LIGHT carries (src/content/scenarios/firstLight.ts and
+// src/engine/rules.ts); the spec proves each step is live on the engine.
+const R0 = { meter: 13, asset: 12, bills: 1, upkeep: 2, funding: 6, recovery: 5 }
+const KNOWN = new Set(Object.keys(R0))
 const given = JSON.parse(process.argv[2] ?? '{}')
 for (const [key, value] of Object.entries(given)) {
   if (!KNOWN.has(key)) throw new Error(`unknown number "${key}"; a center can set ${[...KNOWN].join(', ')}`)
@@ -38,8 +41,10 @@ const STEPS = [
   ['asset damage +2', { asset: center.asset + 2 }],
   ['upkeep -1', { upkeep: center.upkeep - 1 }],
   ['upkeep +1', { upkeep: center.upkeep + 1 }],
-  ['funding -5', { funding: center.funding - 5 }],
-  ['funding +5', { funding: center.funding + 5 }],
+  ['funding -2', { funding: center.funding - 2 }],
+  ['funding +2', { funding: center.funding + 2 }],
+  ['recovery -1', { recovery: center.recovery - 1 }],
+  ['recovery +1', { recovery: center.recovery + 1 }],
   ['repair bills -25%', { bills: center.bills * 0.75 }],
   ['repair bills +25%', { bills: center.bills * 1.25 }],
 ]
@@ -65,17 +70,17 @@ for (const [i, [label, moved]] of STEPS.entries()) {
   seeds = r.seeds
   const pct = (n) => `${((100 * n) / r.seeds).toFixed(1)}`
   const p = r['prepared:standard']
-  const f = r['follow:standard']
+  const x = r['expert:standard']
   const shown = Object.entries(moved).map(([k, v]) => `${k} ${v}`).join(', ') || JSON.stringify(step)
   rows.push(
-    `| ${label} (${shown}) | ${pct(p.wins)} | ${pct(r['prepared:easy'].wins)} | ${pct(r['novice:standard'].wins)} | ${pct(r['novice:easy'].wins)} | ${p.insolvencies} | ${grades(p.grades)} | ${pct(f.wins)} (${f.insolvencies} F) | ${pct(r['follow:easy'].wins)} (${r['follow:easy'].insolvencies} F) |`,
+    `| ${label} (${shown}) | ${pct(p.wins)} | ${pct(r['prepared:easy'].wins)} | ${pct(r['novice:standard'].wins)} | ${pct(r['novice:easy'].wins)} | ${p.insolvencies} | ${grades(p.grades)} | ${pct(x.wins)} | ${pct(r['expert:easy'].wins)} |`,
   )
   process.stderr.write(`${label} done\n`)
 }
 console.log(
   [
     `One-step sweep around ${JSON.stringify(center)}, ${seeds} seeds each, win percent:`,
-    '| Step | Prepared STANDARD | Prepared EASY | Novice STANDARD | Novice EASY | Prepared STD insolvent | Prepared STD S/A/B/C/D/F | Follows the flag STANDARD | Follows the flag EASY |',
+    '| Step | Prepared STANDARD | Prepared EASY | Novice STANDARD | Novice EASY | Prepared STD insolvent | Prepared STD S/A/B/C/D/F | Expert STANDARD | Expert EASY |',
     '|---|---|---|---|---|---|---|---|---|',
     ...rows,
   ].join('\n'),
