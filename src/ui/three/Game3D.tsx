@@ -666,7 +666,10 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const ro = new ResizeObserver(tell)
     ro.observe(dock)
     return () => ro.disconnect()
-  }, [wide, failed, phase])
+    // `ready`: a game resumed or started straight from the title is in its
+    // plan before the world exists, and a plan card of one height never
+    // resizes the dock, so the world is told again once it is there.
+  }, [wide, failed, phase, ready])
 
   // ---------------------------------------------------- the run's record
 

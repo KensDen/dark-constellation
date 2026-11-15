@@ -261,7 +261,13 @@ async function run(b, base, view, plan, log, shots, table) {
     const stage = await b.evaluate(`document.querySelector('.t3-root')?.dataset.t3Stage ?? 'title'`)
     shots.push({ file, run: name, label, stage, note })
     log.push(`- ${file} (${stage})${note ? `: ${note}` : ''}`)
-    const bad = await b.evaluate(AUDIT)
+    let bad = await b.evaluate(AUDIT)
+    // The camera eases for about half a second after a card opens or grows:
+    // a target is judged where the frame settles, not on the way there.
+    if (bad.some((x) => x.startsWith('the target is not in view'))) {
+      await sleep(900)
+      bad = await b.evaluate(AUDIT)
+    }
     for (const x of bad) failures.push(`${name} ${label}: ${x}`)
   }
   const fail = (m) => failures.push(`${name}: ${m}`)
@@ -530,7 +536,7 @@ async function run(b, base, view, plan, log, shots, table) {
         fail(`night ${nightNo}: the hold never settled`)
         return false
       }
-      await sleep(quick ? 300 : 700)
+      await sleep(quick ? 500 : 700)
       const verdict = await b.evaluate(`(() => { const c = document.querySelector('[data-t3-card="hold-result"]'); return c ? c.dataset.t3Verdict + ', ' + c.dataset.t3Truth + ', ' + (c.querySelector('[data-t3-delta]')?.textContent ?? '').trim() : 'no card' })()`)
       stats.holds += 1
       if (verdict.startsWith('right')) stats.holdsRight += 1
@@ -602,7 +608,9 @@ async function run(b, base, view, plan, log, shots, table) {
         fail(`night ${nightNo}: step ${i + 1} never showed its result`)
         return false
       }
-      await sleep(quick ? 250 : 600)
+      // A result takes no tap for 0.42 s after it arrives (the game's own
+      // guard), so a quick run waits that long before it taps on.
+      await sleep(quick ? 500 : 600)
       const verdict = await b.evaluate(`document.querySelector('[data-t3-verdict]')?.dataset.t3Verdict ?? 'windfall'`)
       const tapline = await b.evaluate(`(document.querySelector('[data-t3-tapline]')?.textContent ?? '').trim()`)
       if (tapline.startsWith('PERFECT')) stats.perfect += 1
@@ -698,6 +706,29 @@ async function run(b, base, view, plan, log, shots, table) {
     const sources = await b.evaluate(`document.querySelectorAll('[data-t3-source]').length`)
     if (sources < 1) fail('a filed Dossier card shows no source link')
     log.push(`- Dossier: ${await b.evaluate(`document.querySelector('[data-t3-dossier-count]')?.textContent`)}; the open card lists ${sources} source link${sources === 1 ? '' : 's'}`)
+    // NAME THAT SIGNATURE: a round on the cards this device has filed.
+    if (await exists(b, '[data-t3-quiz-open]:not([disabled])')) {
+      await b.evaluate(`document.querySelector('[data-t3-quiz-open]')?.scrollIntoView({ block: 'center' })`)
+      await tap(b, '[data-t3-quiz-open]')
+      if (!(await waitFor(b, 'document.querySelector("[data-t3-quiz]")', 3000))) fail('the signature round did not open')
+      else {
+        await sleep(500)
+        await shot('quiz', 'NAME THAT SIGNATURE: a filed signature in motion with no name, and 3 names to pick from')
+        await tap(b, '[data-t3-quiz-option]')
+        await sleep(300)
+        await shot('quiz-answer', 'the pick: right or wrong, and the look in words')
+        for (let i = 0; i < 16 && !(await exists(b, '[data-t3-quiz="end"]')); i += 1) {
+          await tap(b, (await exists(b, '[data-t3-quiz-next]')) ? '[data-t3-quiz-next]' : '[data-t3-quiz-option]')
+          await sleep(150)
+        }
+        if (!(await exists(b, '[data-t3-quiz="end"]'))) fail('the signature round did not reach its end')
+        else {
+          await shot('quiz-end', 'the round over: the score, and the best kept on this device')
+          log.push(`- Name that signature: ${await b.evaluate(`document.querySelector('[data-t3-quiz="end"] p')?.textContent`)}`)
+          await tap(b, '[data-t3-quiz-done]')
+        }
+      }
+    } else log.push('- Name that signature: fewer than 3 cards filed on this device, so the round is not offered')
     await tap(b, '[data-t3-room-back]')
   }
   if (plan.system) {
