@@ -1,5 +1,7 @@
 // The screens that must not ride in the initial chunk (v1.2 R0, brief
-// section 8).
+// section 8). Since v2.0 R3 the game is the 3D game alone: the pixel
+// board, its briefing, its Dossier and their guards here left with it,
+// and the last block holds that nothing on the branch still points at one.
 //
 // THE LIST IS NOT WRITTEN DOWN HERE. It is read out of App.tsx's own
 // `lazy(() => import(...))` declarations, so a screen added to the split
@@ -22,7 +24,7 @@
 // layer already measures what ships, and this has to fail in the suite a
 // developer runs before a build exists.
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -113,38 +115,20 @@ describe('the split screens stay out of the initial chunk (v1.2 R0)', () => {
     // Without this the whole file passes vacuously the moment the regex
     // stops matching, which is exactly the shape of guard that reports a
     // split nobody has any more.
-    // PINNED, not merely non-empty, and here is the mutation that earned
-    // it. Deriving the required set from the declarations is right, and it
-    // is blind in one direction: a screen converted BACK to a static
-    // import leaves the lazy set at the same moment it enters the initial
-    // chunk, so the check below has nothing to object to and passes. The
-    // first attempt at proving this guard did exactly that and slept.
-    // A count is a second structure: dropping one costs an edit here and a
-    // sentence about why. Six was five plus the dev-only SoundBoard, which
-    // is lazy too, behind an import.meta.env.DEV ternary that folds to
-    // null in a production build. Seven since the Round 1 fix batch: the
-    // Glossary joined the split once its overlay inside Game stopped
-    // importing it statically, which is the trail this guard reported in
-    // R0 when the declaration was tried too early. Eight since v1.2 R5b:
-    // the FIELD LIBRARY, a reading room most sessions never enter, in the
-    // menu's INTEL ARCHIVE (brief 7.3: lazy-loaded, its own chunk). Six
-    // since v1.3 Round 0: the FIELD MANUAL and HOW TO PLAY screens were
-    // deleted with their menu entries (v1.3 brief 5.1, critique rows M5
-    // and M20: the briefing teaches the rules), so their two declarations
-    // went with the files rather than turning static. Seven since the
-    // v1.3 R1 fixes: the TERMINAL CHROME, which frames only the reference
-    // screens and so travels with them, moved out to keep INITIAL under
-    // 155,000 when the title's fixes landed. Still seven since v1.3 R4,
-    // with two changed: the Field Library and the Glossary left App for
-    // LIBRARY (./ui/Library, which loads each as a tab), and the COLDVEIL
-    // Dossier (./ui/Dossier, brief 5.7) took the Glossary's old place
-    // behind the title's DOSSIER. Eight on exp/3d-slice (10 November 2026):
-    // the 3D slice experiment (./ui/three/Slice3D), behind the title's TRY
-    // 3D (EXPERIMENT). Still eight since v2.0 R1: the slice became the 3D
-    // game (./ui/three/Game3D), which PLAY opens, and which with three.js
-    // must never ride in the first download.
+    // PINNED, not merely non-empty: deriving the required set from the
+    // declarations is blind in one direction. A screen converted BACK to
+    // a static import leaves the lazy set at the same moment it enters the
+    // initial chunk, so the check below has nothing to object to. A count
+    // is a second structure: dropping one costs an edit here and a
+    // sentence about why.
+    // Six since v2.0 R3: the credits, the terminal chrome that frames
+    // them, the scoreboard, LIBRARY, the 3D game, and the dev-only sound
+    // board (behind an import.meta.env.DEV ternary that folds to null in a
+    // production build). Eight through R2: the pixel briefing
+    // (./ui/IntroSequence) and the pixel Dossier (./ui/Dossier) went with
+    // the pixel board, whose own module was fetched by ./ui/classic.
     expect(lazySpecs, 'the 3D game is no longer a lazy screen of the shell').toContain('./ui/three/Game3D')
-    expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(8)
+    expect(lazySpecs.length, 'the split covers a different number of screens than it did; say why').toBe(6)
     for (const spec of lazySpecs) {
       expect(resolveLocal(APP, spec), `lazy import ${spec} resolves to no file`).toBeTruthy()
     }
@@ -164,299 +148,127 @@ describe('the split screens stay out of the initial chunk (v1.2 R0)', () => {
     expect(offenders.join('\n'), 'a screen the split makes lazy is in the initial chunk anyway').toBe('')
   })
 
-  it('keeps the screen a session always needs in the initial chunk, and the pixel board out of it (v2.0 R1)', () => {
-    // The other direction. The title is the one screen every session
-    // reaches, so it is required to be static.
+  it('keeps the screen a session always needs in the initial chunk', () => {
+    // The title is the first thing anyone sees, so it is static on purpose.
     const graph = staticGraphFrom(ENTRY)
-    const title = resolveLocal(APP, './ui/Title')!
-    expect(graph.has(title), './ui/Title is no longer in the initial chunk').toBe(true)
-    expect(lazySpecs, './ui/Title was moved into the lazy set').not.toContain('./ui/Title')
-    // Through v1.7 the board was required here too. Since v2.0 R1 (Ken, 10
-    // November 2026) PLAY opens the 3D game and the pixel board answers at
-    // ?view=classic, so it is deferred: ./ui/classic fetches it, keeps the
-    // module, and the app renders from that. A static import of the board
-    // anywhere in the first download would put about 40,000 gzipped bytes
-    // back into it.
-    const board = resolveLocal(APP, './ui/Game')!
-    const trail = graph.get(board)
-    expect(trail && [...trail.slice(1), board].map((f) => f.slice(SRC.length + 1)).join(' -> '), 'the pixel board is back in the initial chunk').toBeUndefined()
-    const classic = readFileSync(resolveLocal(APP, './ui/classic')!, 'utf8')
-    expect(classic, './ui/classic no longer fetches the board').toMatch(/\bimport\(\s*'\.\/Game'\s*\)/)
-    expect(graph.has(resolveLocal(APP, './ui/classic')!), 'the app no longer reaches ./ui/classic').toBe(true)
+    expect(graph.has(resolveLocal(APP, './ui/Title')!), 'the title is no longer in the first download').toBe(true)
   })
 })
 
-describe("Game's own overlays stay out of the initial chunk (v1.2 R3)", () => {
-  // Game declares lazy modules of its own, for the overlays it opens in
-  // place: the Glossary and, since R3, the intel card (the three.js frame
-  // moved to the title with the start screen's retirement in v1.3 R1)
-  // (brief section 8: loaded on first open, so the first download grows as
-  // little as it can). App's declarations above do not include them, so
-  // they are read here from Game.tsx, pinned by count for the same reason,
-  // and walked the same way.
-  const GAME = join(SRC, 'ui', 'Game.tsx')
-  const gameSpecs = lazySpecifiers(readFileSync(GAME, 'utf8'))
-
-  it('finds them, and none is reachable by static import from the entry point', () => {
-    // Four since v1.2 R5: the score screen joined them. It replaces the
-    // end-of-run report, which every finished campaign reaches and no turn
-    // of play needs, so it arrives in its own chunk when a campaign ends
-    // (brief 7.2); the save code and the ways out stay static in Game.
-    // Five since v1.2 R5b: the Field Library, which an event card's "learn
-    // more" opens over the board at that threat's entries. The same module
-    // as App's FIELD LIBRARY screen, so the same chunk.
-    // Six since v1.2 R6: the wide board's columns, the ops log and the
-    // inspector, which only a screen 1024 wide and up fetches (brief 4.6
-    // and 8: "Round 6 loads its desktop layout only on wide screens").
-    // Five since v1.3 R1: the three.js constellation frame left Game with
-    // the start screen and is the title's now (Ken, 21 October 2026).
-    // Still five since v1.3 R4: the debrief (./Debrief, brief 5.6) replaced
-    // the score screen in the same place. Four since v1.3 R5: the wide
-    // board went (brief section 11: the desktop is the phone column,
-    // centered, with no three-column board). Five since v1.6 R3: the full
-    // brief left the TONIGHT card for a sheet of its own (Ken's playtest
-    // item 6), which Game opens like SYSTEM, from its chunk with brief.ts.
-    // Six since v1.7 R1: the desktop's night log (./board/NightLog), which
-    // a phone never shows, left the first download when the response's
-    // code needed its room; a wide screen fetches it as the board mounts.
-    expect(gameSpecs.length, "Game's lazy set changed size; say why").toBe(6)
-    const graph = staticGraphFrom(ENTRY)
-    const offenders: string[] = []
-    for (const spec of gameSpecs) {
-      const target = resolveLocal(GAME, spec)
-      expect(target, `lazy import ${spec} resolves to no file`).toBeTruthy()
-      const trail = graph.get(target!)
-      if (trail) offenders.push(`${spec} is reachable statically: ${[...trail.slice(1), target!].map((f) => f.slice(SRC.length + 1)).join(' -> ')}`)
-    }
-    expect(offenders.join('\n'), 'an overlay Game loads on demand is in the initial chunk anyway').toBe('')
-    expect(gameSpecs).toContain('./board/IntelCard')
-    expect(gameSpecs).toContain('./Debrief')
-    expect(gameSpecs).toContain('./board/FullBrief')
-    expect(gameSpecs).toContain('./FieldLibrary')
-    expect(gameSpecs).toContain('./board/NightLog')
-  })
-
-  it("keeps the night log and the responses' words out of the first download (v1.7 R1)", () => {
-    // The night log is lazy in Game (above), and this names it, so that a
-    // static import of it from anywhere the entry reaches fails here by
-    // name. The words of the responses (src/content/responseText.ts) are
-    // read only by the night's response card, so they ride the night's
-    // deferred cards chunk (./night/cards, which Night.tsx fetches by
-    // dynamic import): content the first download never shows.
-    const LOG = join(SRC, 'ui', 'board', 'NightLog.tsx')
-    const WORDS = join(SRC, 'content', 'responseText.ts')
-    const CARDS = join(SRC, 'ui', 'night', 'cards.tsx')
-    const NIGHT = join(SRC, 'ui', 'night', 'Night.tsx')
-    for (const f of [LOG, WORDS, CARDS]) expect(existsSync(f), `${f.slice(SRC.length + 1)} is gone`).toBe(true)
-    // The positive controls: the cards do reach the words by static
-    // import, and the night fetches the cards by dynamic import, so a pass
-    // below is not a walk that found nothing.
-    expect(staticGraphFrom(CARDS).has(WORDS), "the night's cards no longer reach the responses' words").toBe(true)
-    expect(readFileSync(NIGHT, 'utf8'), 'the night no longer fetches its cards by dynamic import').toMatch(/\bimport\(\s*'\.\/cards'\s*\)/)
-    const graph = staticGraphFrom(ENTRY)
-    const offenders = [LOG, WORDS, CARDS]
-      .filter((f) => graph.has(f))
-      .map((f) => `${f.slice(SRC.length + 1)} is reachable statically: ${[...graph.get(f)!.slice(1), f].map((x) => x.slice(SRC.length + 1)).join(' -> ')}`)
-    expect(offenders.join('\n'), "the night log or the responses' words are in the first download").toBe('')
-  })
-})
-
-describe("the title's constellation frame stays out of the first download (v1.3 R1)", () => {
-  // The three.js frame the retired start screen showed moved to the title,
-  // under the READ row (Ken, 21 October 2026). It is lazy there, as it was
-  // in Game: decoration nobody waits on.
-  // Since the v1.3 R1 fixes the frame sits one step further out: the
-  // title loads its decoration (the ripple band, the key art and the frame
-  // loader) as ./TitleArt, which loads the frame. Neither is in the first
-  // download.
+describe('three.js and the theater stay out of the first download (v2.0 R1; the title in 3D since v2.0 R3)', () => {
+  // The title's hero is the live theater, the game's own world. It and the
+  // three.js under it are the largest things the game ships, so the title
+  // asks for them after its first paint and nothing the entry reaches may
+  // import them statically.
   const TITLE = join(SRC, 'ui', 'Title.tsx')
-  const ART = join(SRC, 'ui', 'TitleArt.tsx')
-  const titleSpecs = lazySpecifiers(readFileSync(TITLE, 'utf8'))
-  const artSpecs = lazySpecifiers(readFileSync(ART, 'utf8'))
+  const WORLD = join(SRC, 'ui', 'TitleWorld.tsx')
+  const graph = staticGraphFrom(ENTRY)
 
-  it('declares the frame lazily, and nothing reaches it statically from the entry point', () => {
-    expect(titleSpecs, "the title's lazy set changed; say why").toEqual(['./TitleArt'])
-    expect(artSpecs, "the title art's lazy set changed; say why").toEqual(['./Constellation'])
-    const art = resolveLocal(TITLE, './TitleArt')!
-    const frame = resolveLocal(ART, './Constellation')!
-    expect(art, 'the title art resolves to no file').toBeTruthy()
-    expect(frame, 'the frame resolves to no file').toBeTruthy()
-    const graph = staticGraphFrom(ENTRY)
-    expect(graph.has(art), "the title's decoration is in the first download").toBe(false)
-    expect(graph.has(frame), 'the three.js frame is in the first download').toBe(false)
+  it('declares the title\'s world lazily, and it is where the title reaches the theater', () => {
+    expect(lazySpecifiers(readFileSync(TITLE, 'utf8')), "the title's lazy set changed; say why").toEqual(['./TitleWorld'])
+    expect(graph.has(WORLD), 'the title imports its world statically').toBe(false)
+    expect(staticGraphFrom(WORLD).has(join(SRC, 'ui', 'three', 'world.ts')), "the title's world is no longer the game's own").toBe(true)
+  })
+
+  it('never reaches three.js, the theater or the game by static import from the entry point', () => {
+    const offenders: string[] = []
+    for (const [file, trail] of graph) {
+      const rel = file.slice(SRC.length + 1)
+      if (/^ui\/three\/(theater|world|signatures|Game3D|cards3d|rooms3d|opening3d|glyphs)\./.test(rel)) offenders.push(`src/${rel} via ${trail.map((f) => f.slice(SRC.length + 1)).join(' -> ')}`)
+      let source = ''
+      try {
+        source = readFileSync(file, 'utf8')
+      } catch {
+        continue
+      }
+      if (staticImports(source).some((spec) => spec === 'three' || spec.startsWith('three/'))) offenders.push(`src/${rel} imports three.js`)
+    }
+    expect(offenders.join('\n'), 'three.js or the theater is in the first download').toBe('')
+    // Not vacuous: the walk is real, and the game does import three.js.
+    expect(graph.size).toBeGreaterThan(20)
+    expect(staticImports(readFileSync(join(SRC, 'ui', 'three', 'theater.ts'), 'utf8')).some((spec) => spec.startsWith('three'))).toBe(true)
+  })
+})
+
+describe("the game's rooms load beside it, in a chunk of their own (v2.0 R3)", () => {
+  // The debrief, the after-action replay, the Dossier and SYSTEM
+  // (./rooms3d) are asked for as the game mounts and never imported
+  // statically by it: a night is played without any of them, and their
+  // styles are a stylesheet of their own, which is what gave the game's
+  // stylesheet its room back under the 10,000 byte cap.
+  const GAME = join(SRC, 'ui', 'three', 'Game3D.tsx')
+  const ROOMS = join(SRC, 'ui', 'three', 'rooms3d.tsx')
+
+  it('reaches the rooms by dynamic import only', () => {
+    const source = readFileSync(GAME, 'utf8')
+    expect(source, 'the game no longer asks for its rooms').toMatch(/import\(\s*'\.\/rooms3d'\s*\)/)
+    const trail = staticGraphFrom(GAME).get(ROOMS)
+    expect(trail?.map((f) => f.slice(SRC.length + 1)).join(' -> ') ?? '', 'the rooms are reachable statically from the game').toBe('')
+  })
+
+  it("keeps the rooms' stylesheet with the rooms, and the game's with the game", () => {
+    const importsOf = (file: string) => staticImports(readFileSync(file, 'utf8')).filter((spec) => spec.endsWith('.css'))
+    expect(importsOf(ROOMS)).toEqual(['./rooms3d.css'])
+    expect(importsOf(GAME)).toEqual(['./game3d.css'])
+    // A class the rooms' sheet styles is one the rooms draw: a rule for a
+    // class only the game uses belongs in the game's sheet.
+    const rooms = readFileSync(ROOMS, 'utf8')
+    const stray = [...new Set([...readFileSync(join(SRC, 'ui', 'three', 'rooms3d.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/\.(t3-[a-z0-9-]+)/g)].map((m) => m[1]))].filter((c) => !rooms.includes(c))
+    expect(stray.filter((c) => !['t3-root', 't3-wide', 't3-btn', 't3-choice', 't3-choices', 't3-card', 't3-row', 't3-hint', 't3-primary', 't3-ok', 't3-warn', 't3-bad', 't3-blocked', 't3-halved', 't3-partial', 't3-hit', 't3-roomonly'].includes(c)), 'the rooms sheet styles a class the rooms never draw').toEqual([])
   })
 })
 
 describe("the Field Library's list and pairings stay out of the first download (v1.2 R5b)", () => {
-  // The event card's "learn more" shows for every threat without knowing
-  // the pairings (validation guarantees every threat has one), and the
-  // menu's FILED counter arrives by dynamic import. So the list, its
-  // schema and the FILED logic ride with the library: reachable from the
-  // library screen, never from the entry. The walk follows static imports
-  // only, which is what puts a module in the first download.
-  const LIBRARY = join(SRC, 'ui', 'FieldLibrary.tsx')
-  const own = ['content/fieldLibrary.ts', 'content/fieldLibraryData.ts', 'content/librarySchema.ts', 'ui/libraryProgress.ts', 'ui/library.css'].map((f) =>
-    join(SRC, f),
-  )
+  // The list is the largest single piece of content after the deck, and
+  // most sessions never open LIBRARY. It is reached from the library
+  // screen, which is itself lazy.
+  const LIBRARY = join(SRC, 'ui', 'Library.tsx')
+  const DATA = join(SRC, 'content', 'fieldLibraryData.ts')
 
   it('reaches them from the library screen and never from the entry point', () => {
-    const fromLibrary = staticGraphFrom(LIBRARY)
-    for (const f of own) expect(fromLibrary.has(f), `the library no longer reaches ${f.slice(SRC.length + 1)}`).toBe(true)
+    expect(lazySpecifiers(readFileSync(LIBRARY, 'utf8')).sort(), "LIBRARY's lazy set changed; say why").toEqual(['./FieldLibrary', './Glossary'])
     const graph = staticGraphFrom(ENTRY)
-    const offenders = own
-      .filter((f) => graph.has(f))
-      .map((f) => `${f.slice(SRC.length + 1)} is reachable statically: ${[...graph.get(f)!.slice(1), f].map((x) => x.slice(SRC.length + 1)).join(' -> ')}`)
-    expect(offenders.join('\n'), "the library's list is in the first download").toBe('')
-  })
-
-  // The menu's FILED counter left with the menu in v1.3 R1 (M1); the
-  // title's GOAL 2 counts the Dossier (src/persistence/dossier.ts) and
-  // reads nothing of the library.
-})
-
-describe('the debrief, the Dossier and LIBRARY carry their own weight (v1.3 R4)', () => {
-  // The debrief is lazy in Game (above), and replaced the v1.2 score screen
-  // and its threats-faced study guide there. It declares one lazy module
-  // of its own, the Dossier it opens over itself; the Dossier declares the
-  // Field Library its LEARN MORE opens; LIBRARY declares its two tabs.
-  // None of those blocks above reads these, so they are read here, pinned,
-  // and walked the same way: a static import of any would still be out of
-  // the first download, only inside another screen's chunk.
-  const DEBRIEF = join(SRC, 'ui', 'Debrief.tsx')
-  const DOSSIER = join(SRC, 'ui', 'Dossier.tsx')
-  const LIBRARY = join(SRC, 'ui', 'Library.tsx')
-
-  it('finds their lazy modules, and nothing reaches them statically', () => {
-    expect(lazySpecifiers(readFileSync(DEBRIEF, 'utf8')), "the debrief's lazy set changed; say why").toEqual(['./Dossier'])
-    expect(lazySpecifiers(readFileSync(DOSSIER, 'utf8')), "the Dossier's lazy set changed; say why").toEqual(['./FieldLibrary'])
-    expect(lazySpecifiers(readFileSync(LIBRARY, 'utf8')), "LIBRARY's lazy set changed; say why").toEqual(['./FieldLibrary', './Glossary'])
-    const pairs = [
-      [DEBRIEF, DOSSIER],
-      [DOSSIER, join(SRC, 'ui', 'FieldLibrary.tsx')],
-      [LIBRARY, join(SRC, 'ui', 'FieldLibrary.tsx')],
-      [LIBRARY, join(SRC, 'ui', 'Glossary.tsx')],
-    ] as const
-    for (const [from, target] of pairs) {
-      for (const [name, graph] of [
-        ['main.tsx', staticGraphFrom(ENTRY)],
-        [from.slice(SRC.length + 1), staticGraphFrom(from)],
-      ] as const) {
-        const trail = graph.get(target)
-        expect(trail && [...trail, target].map((f) => f.slice(SRC.length + 1)).join(' -> '), `${target.slice(SRC.length + 1)} is static from ${name}`).toBeUndefined()
-      }
+    for (const file of [DATA, join(SRC, 'ui', 'FieldLibrary.tsx'), join(SRC, 'ui', 'Glossary.tsx')]) {
+      expect(graph.get(file)?.map((f) => f.slice(SRC.length + 1)).join(' -> ') ?? '', `${file.slice(SRC.length + 1)} is in the first download`).toBe('')
     }
-  })
-
-  it("keeps the debrief's lower sections in a chunk of their own (v1.6 R2)", () => {
-    // The debrief's chunk stood at 9,831 of its 10,000-byte cap after v1.6
-    // R1 (brief 10). Its lower sections, WHAT YOU CAN NOW SAY to the turn
-    // strip, moved to ./DebriefMore, which the debrief fetches by dynamic
-    // import as it loads. A static import from the debrief, or from
-    // anything it reaches, would fold them back into its chunk.
-    const MORE = join(SRC, 'ui', 'DebriefMore.tsx')
-    expect(existsSync(MORE)).toBe(true)
-    expect(readFileSync(DEBRIEF, 'utf8'), 'the debrief no longer fetches its lower sections').toMatch(/import\(\s*['"]\.\/DebriefMore['"]\s*\)/)
-    for (const [name, graph] of [
-      ['main.tsx', staticGraphFrom(ENTRY)],
-      ['ui/Debrief.tsx', staticGraphFrom(DEBRIEF)],
-    ] as const) {
-      const trail = graph.get(MORE)
-      expect(trail && [...trail, MORE].map((f) => f.slice(SRC.length + 1)).join(' -> '), `ui/DebriefMore.tsx is static from ${name}`).toBeUndefined()
-    }
-  })
-
-  it('keeps what only the debrief needs out of the first download', () => {
-    // What the debrief reads to grade a run, read it back and share it:
-    // the grade and the strip, its model, the share text, its timing and
-    // its stylesheet. The positive control first: the debrief's own walk
-    // reaches every one, so a pass below is not a walk that found nothing.
-    const own = ['engine/grade.ts', 'ui/debriefModel.ts', 'ui/reportCard.ts', 'ui/debriefMotion.ts', 'ui/debrief.css'].map((f) => join(SRC, f))
-    const fromDebrief = staticGraphFrom(DEBRIEF)
-    for (const f of own) expect(fromDebrief.has(f), `the debrief no longer reaches ${f.slice(SRC.length + 1)}`).toBe(true)
-    const graph = staticGraphFrom(ENTRY)
-    const offenders = own
-      .filter((f) => graph.has(f))
-      .map((f) => `${f.slice(SRC.length + 1)} is reachable statically: ${[...graph.get(f)!.slice(1), f].map((x) => x.slice(SRC.length + 1)).join(' -> ')}`)
-    expect(offenders.join('\n'), "the debrief's own modules are in the initial chunk").toBe('')
+    expect(staticGraphFrom(join(SRC, 'ui', 'FieldLibrary.tsx')).has(DATA), 'the Field Library no longer carries its own list').toBe(true)
   })
 })
 
-describe("the cold open's own art stays in its chunk (v1.2 R4)", () => {
-  // The cold open reuses the board's backdrops and sprites, which the
-  // first download already carries, and adds only what the board never
-  // needed: the watch officer, the disaster zone, the four scenes and its
-  // stylesheet (brief 6 and section 8). Those arrive with the cold open or
-  // not at all. They are found by walking IntroSequence rather than listed
-  // here: every module it reaches whose name says it is the cold open's.
-  const INTRO = join(SRC, 'ui', 'IntroSequence.tsx')
-  // Since v1.3 R1 the briefing's scenes are canvas drawings in
-  // briefingScenes.ts, so the walk keeps them by that name too.
-  const own = [...staticGraphFrom(INTRO).keys()].filter((f) => /cold ?open|briefing/i.test(f.slice(SRC.length)))
+describe('the pixel board is retired on this branch (v2.0 R3, Ken\'s ruling of 15 November 2026)', () => {
+  // The 3D game is the only game here. The pixel game is kept as it was on
+  // main, v1.7/r1 and exp/3d-slice; on this branch nothing may route to
+  // it, link to it, or carry its switch.
+  const ROOT = join(SRC, '..')
+  const walkFiles = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walkFiles(join(dir, e.name)) : [join(dir, e.name)]))
+  const shipped = [...walkFiles(SRC).filter((f) => /\.(ts|tsx|css|html)$/.test(f)), join(ROOT, 'index.html')]
 
-  it('finds them through the cold open, the officer among them', () => {
-    // The positive control: the walk reaches the sprite data, so a pass
-    // below is not a walk that found nothing.
-    expect(own.map((f) => f.slice(SRC.length + 1))).toContain(join('ui', 'sprites', 'coldOpen.ts'))
-    expect(own.map((f) => f.slice(SRC.length + 1))).toContain(join('ui', 'briefingScenes.ts'))
-    // Three since v1.3 R1: the slide data, the officer's sprites and the
-    // canvas scenes (the SVG scene component and its stylesheet were
-    // deleted with the canvas port).
-    expect(own.length, 'the briefing reaches fewer of its own modules than it has').toBeGreaterThanOrEqual(3)
-  })
-
-  it('never reaches one of them by static import from the entry point', () => {
-    const graph = staticGraphFrom(ENTRY)
-    const offenders = own
-      .filter((f) => graph.has(f))
-      .map((f) => `${f.slice(SRC.length + 1)} is reachable statically: ${[...graph.get(f)!.slice(1), f].map((x) => x.slice(SRC.length + 1)).join(' -> ')}`)
-    expect(offenders.join('\n'), "the cold open's art is in the initial chunk").toBe('')
-  })
-
-  it("never pulls the cold open's stylesheet into the initial one through a CSS @import", () => {
-    // The walk above reads JS imports. A stylesheet the entry loads can
-    // bring another in by @import, and that one then ships in the initial
-    // CSS whatever the JS graph says.
-    const sheets = [...staticGraphFrom(ENTRY).keys()].filter((f) => f.endsWith('.css'))
-    expect(sheets.length, 'the entry loads no stylesheet, so this walks nothing').toBeGreaterThan(0)
-    const seen = new Set<string>()
-    const offenders: string[] = []
-    const walk = (sheet: string) => {
-      if (seen.has(sheet)) return
-      seen.add(sheet)
-      for (const [, spec] of readFileSync(sheet, 'utf8').matchAll(/@import\s+(?:url\()?\s*['"]([^'"]+)['"]/g)) {
-        const target = resolveLocal(sheet, spec)
-        if (!target) continue
-        if (own.includes(target)) offenders.push(`${sheet.slice(SRC.length + 1)} @imports ${target.slice(SRC.length + 1)}`)
-        walk(target)
-      }
+  it('has no address, link or switch to a pixel mode anywhere it ships', () => {
+    const hits: string[] = []
+    for (const file of shipped) {
+      const source = readFileSync(file, 'utf8')
+      source.split('\n').forEach((line, i) => {
+        if (/view=classic|classicView|loadClassic|classicGame/.test(line)) hits.push(`${file.slice(ROOT.length + 1)}:${i + 1}`)
+      })
     }
-    sheets.forEach(walk)
-    expect(offenders.join('\n'), "the cold open's stylesheet is in the initial CSS").toBe('')
+    expect(hits.join('\n'), 'something still points at the pixel board').toBe('')
   })
-})
 
-describe('the v1.5 R2 art stays out of the first download', () => {
-  // Ken's ruling of 24 October 2026: the art can be lazy chunks. The
-  // playfield is the strip's, declared lazily there; the key art rides in
-  // ./TitleArt (above); the emblems ride with the Dossier and the night's
-  // cards. None is reached by a static import from the entry point.
-  const STRIP = join(SRC, 'ui', 'board', 'AssetStrip.tsx')
-
-  it('loads the playfield by dynamic import, and nothing reaches it, the key art or the emblems statically from the entry point', () => {
-    // Fetched as the strip's module loads, and rendered from the loaded
-    // module, as the night's chunks are (src/ui/board/AssetStrip.tsx).
-    expect(readFileSync(STRIP, 'utf8'), 'the strip no longer imports the playfield dynamically').toMatch(/\bimport\(\s*'\.\/Playfield'\s*\)/)
-    const graph = staticGraphFrom(ENTRY)
-    for (const f of ['ui/board/Playfield.tsx', 'ui/TitleArt.tsx', 'ui/sprites/emblems.ts']) {
-      expect(graph.has(join(SRC, f)), `${f} is in the first download`).toBe(false)
+  it('has none of the pixel board\'s screens left to route to, and no rule switch in the engine', () => {
+    for (const gone of ['ui/Game.tsx', 'ui/classic.ts', 'ui/IntroSequence.tsx', 'ui/Dossier.tsx', 'ui/Debrief.tsx', 'ui/board/Playfield.tsx', 'ui/board/Procure.tsx', 'ui/night/Night.tsx']) {
+      expect(existsSync(join(SRC, gone)), `src/${gone} is back`).toBe(false)
     }
-    // Not vacuous: the walk reaches the strip from the board, and so would
-    // reach the playfield from it were the import static. (Through v1.7
-    // the strip was in the first download itself; since v2.0 R1 the board
-    // is deferred, src/ui/classic.ts, and the strip with it.)
-    const board = staticGraphFrom(join(SRC, 'ui', 'Game.tsx'))
-    expect(board.has(STRIP), 'the walk never reached the strip').toBe(true)
-    for (const f of ['ui/board/Playfield.tsx', 'ui/sprites/emblems.ts']) expect(board.has(join(SRC, f)), `${f} is static from the board`).toBe(false)
-    expect(graph.has(STRIP), 'the strip is back in the first download').toBe(false)
+    const types = readFileSync(join(SRC, 'engine', 'types.ts'), 'utf8')
+    expect(types, 'GameState carries a rule switch again').not.toMatch(/\bwatch\??:\s*Watch\b/)
+    expect(readFileSync(join(SRC, 'engine', 'reducer.ts'), 'utf8')).not.toMatch(/state\.watch\b/)
+    // The README sends no one to a pixel mode on this branch.
+    expect(readFileSync(join(ROOT, 'README.md'), 'utf8')).not.toMatch(/view=classic/)
+  })
+
+  it('opens every way into a game on the 3D game', () => {
+    const app = readFileSync(APP, 'utf8')
+    expect(app).toMatch(/type Screen = 'title' \| 'game3d' \|/)
+    expect(app, 'the shell names a screen for a board').not.toMatch(/'game'\s*[|)]/)
   })
 })

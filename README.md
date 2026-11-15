@@ -9,12 +9,13 @@ the mission assurance architect for a smallsat constellation and a drone squadro
 COLDVEIL, works on them across 6 nights. You scan for what is coming, place defenses, answer
 strikes, and make the call when your own automated defense stops one of your own.
 
-Play it: https://kensden.github.io/dark-constellation/ (the released v1.6 pixel board, until
-v2.0 merges)
+Play it: https://kensden.github.io/dark-constellation/ (the released v1.6 game, until v2.0
+merges)
 
-Status: **v2.0, Round 2, in work on the `v2.0/r2` branch** (14 November 2026). This README
-describes the 3D game on this branch. The title's PLAY, CONTINUE and DAILY OP open it; the pixel
-board it grew from is still there at `?view=classic`, with the rules it was released with.
+Status: **v2.0, Round 3, in work on the `v2.0/r3` branch** (15 November 2026). This README
+describes the game on this branch, which is the 3D game and nothing else: the pixel board it
+grew from is retired here, with its screens and its rule set out of the tree. That game is kept
+as it was released on `main`, and as it stood on the `v1.7/r1` and `exp/3d-slice` branches.
 
 ## How to play
 
@@ -26,6 +27,10 @@ fall under 35, or let the budget go below zero at a dawn, and the operation ends
 - **Scan.** Tonight's possible moves stand over the fleet as signatures, each with a look of its
   own, each on the asset it would strike. They are unidentified until you scan them, and you have
   2 scan pulses a night. Every signature is also a button in a row at the foot of the screen.
+- **Or name it on sight.** Each of the 18 threats has a look of its own, scanned or not. Know the
+  look and you can name an unidentified signature from 3 names, once a signature a night: right,
+  it is identified and no pulse is spent; wrong, it stays unidentified. The Dossier shows every
+  filed card's signature, and NAME THAT SIGNATURE there is the practice round.
 - **Place 1 defense.** A defense covers the whole fleet against the moves it answers, and COLDVEIL
   reads it: it takes the move you have covered least. Where you set the piece down matters too.
   The asset your newest defense sits on is the **watch post**, and any strike on that asset lands
@@ -76,12 +81,23 @@ battery run (`tests/sweep.spec.ts`). On STANDARD:
 | Novice: scans the first 2 signatures, places a piece the tray lights for one of them, answers 2 moves in 3, calls 2 holds in 3 right | 40.2% |
 | Nothing: no orders, no answers, no calls | 0% |
 
+Reported beside them, and held to no band: the Expert, who is Prepared saving the 3 answers for
+moves of 2 points or more, wins 96.6%. That is skill rewarded, and the gate holds every fixed
+line under it.
+
 No line that does less than Prepared wins more often than Prepared: not a line that places 2 or 3
 defenses and banks the rest, not a drone a night with no defense, not one written order of
 defenses, not answers with no orders. Prepared overriding every hold, and Prepared letting every
 block stand, each win about 10 points less than Prepared reading the evidence. Prepared placing
 its pieces at random wins about 30 points less. A perfect timed tap on every strike lifts the
-Novice by about 7 points.
+Novice by about 7 points. Naming every signature on sight lifts Prepared by about 3 points and
+the Novice by about 10; guessing at each (right 1 time in 3) lifts either by 3 at most.
+
+**Grades** run S to F. A win is graded on its final score plus a defense bonus, against bands set
+from the same sweep so that S is about the top 5 percent of wins and A the next 20, at each
+difficulty: on STANDARD, S from 90.6, A from 86.6, B from 77.5; on EASY, where hits do less and
+scores run higher, S from 92.6, A from 88.9, B from 80. A loss that lasted all 6 nights is a D,
+and one that ended early an F.
 
 ## Daily Op, the Dossier and the reading
 
@@ -147,8 +163,11 @@ operator's own incident report. Only public sources are used.
 ## Sound and feel
 
 - **Synthesized, not recorded.** Every effect is generated in the browser with Web Audio. No audio
-  files ship with the game. Each of the 18 threats has a sound motif of its own, built from the
-  engine's own voices, played as its move leaves COLDVEIL.
+  files ship with the game. Each of the 18 threats has a synthesized voice of its own, under a
+  second long, played as its move leaves COLDVEIL: jamming is noise in a band, a spoof is a tone
+  with a twin sliding off it, an implant is a heartbeat. The mix is measured, not guessed
+  (`scripts/measure-mix.js`, `tests/mix-measurement.json`): the 18 sit within 4 dB of each other
+  and under the hit's own sound.
 - **A procedural music bed** with layers that follow the campaign: a base pad, a tension layer
   when the score falls below the win line or a condition is active, and a threat layer while a
   BLACKOUT CHAIN is armed or a lost campaign is resolving. It loops by construction.
@@ -164,7 +183,7 @@ operator's own incident report. Only public sources are used.
 ## Tech notes
 
 - React, TypeScript, Tailwind, Vite, and three.js for the theater (one tree-shaken copy, in a
-  chunk of its own that the title's frame and the game share). Static build on GitHub Pages.
+  chunk of its own that the title's hero and the game share). Static build on GitHub Pages.
 - **Deterministic engine.** `resolveTurn(state, actions, rng)` is pure: no wall clock, no ambient
   randomness. A seeded PRNG with per-turn streams means the same seed and the same actions always
   produce the same game, which is what makes replays and save codes trustworthy. A committed
@@ -177,10 +196,14 @@ operator's own incident report. Only public sources are used.
   local storage. Save codes are portable base64 strings you can paste anywhere. The scoreboard
   and save layers sit behind interfaces so a remote implementation could drop in later, but no
   remote SDK is imported.
-- **Two rule sets, one engine.** A game the 3D game starts carries `watch: 2` in its state: the
-  pool of answers, the watch post, targets that stay where they were sighted, and the policy
-  engine's holds (`src/engine/rules.ts`, `src/engine/holds.ts`). A game without it plays the
-  rules the pixel board was released with, which its own suites still pin.
+- **One rule set.** The pool of answers, the watch post, targets that stay where they were
+  sighted, the policy engine's holds and the name on sight (`src/engine/rules.ts`,
+  `src/engine/holds.ts`) are the engine's only rules since v2.0 R3. The rules the pixel board was
+  released with (a paid intel brief, answers bought with credits) left the engine with it. A save
+  from that game is refused as from an earlier version; a save of a 3D game from Round 2 loads.
+- **Loaded in pieces.** The title is the first download. three.js is one tree-shaken chunk that
+  the title's hero and the game share; the theater, the game, and the game's rooms (the debrief,
+  the replay, the Dossier and SYSTEM) each follow as a chunk of their own.
 - A validation battery gates every round: typecheck and build, a bundle budget, determinism and
   content tests, the balance sweep, a copy-style scan, a local OPSEC tripwire, and an online link
   check of every cited source.
@@ -197,10 +220,9 @@ Deliberately out of scope, recorded here as future work:
 I did the design, code, writing, and direction.
 
 **Artwork: AI-generated, human-commanded.** The key art in this README's banner and the link preview
-image was generated with AI tools under my direction and selection. The constellation frame was
-authored as original vector work for this project, the wordmark is set in the DC Display face, and
-the title's key art, the playfield, the Dossier's emblems, the pixel sprites, icons and briefing
-scenes were drawn in code for this project.
+image was generated with AI tools under my direction and selection. The wordmark is set in the DC
+Display face, and the game's world (the theater behind the title and under every night, the
+fleet, the 18 signatures and their marks) is built in code for this project.
 
 ## Releases
 
@@ -250,14 +272,16 @@ node scripts/battery.mjs
 
 Runs typecheck, production build, a bundle budget on everything the build emits (the initial and
 deferred code gzipped, static assets raw), the whole test suite (determinism, content,
-persistence, director, cues, reading diet, sound, music, haptics and the DOM suites), a check that
-the dev sound board stays out of the build, a copy-style scan, a local OPSEC tripwire, and the
-online content link check. Must be green before a round closes.
+persistence, the rules, the balance sweep, cues, sound, music, haptics and the DOM suites), a
+check that the dev sound board stays out of the build, a copy-style scan, a local OPSEC tripwire,
+a phone layout pass in headless Chrome (the title, the reading rooms, and the game's briefing and
+first orders, as served and in wide fonts), and the online content link check. Must be green
+before a round closes.
 
-The determinism test replays fixed-seed full games on Standard difficulty and compares a hash of
-the event log against the committed snapshot in `tests/determinism.snap.json`. After a deliberate
-engine or content change, regenerate it with `UPDATE_SNAPSHOTS=1 npx vitest run` and commit the
-diff knowingly.
+The determinism tests replay fixed-seed full games and compare a hash of the event log against
+committed values (`tests/determinism.snap.json`, and the 2 hashes in `tests/watch.spec.ts`).
+After a deliberate engine or content change, regenerate them with `UPDATE_SNAPSHOTS=1 npx vitest
+run` and commit the diff knowingly.
 
 The balance sweep (part of the battery; this prints its table):
 
@@ -265,11 +289,11 @@ The balance sweep (part of the battery; this prints its table):
 npm run sweep
 ```
 
-The 3D game is also played by a bot in a real headless Chrome, by touch at 375x667 and 430x932
-and with a mouse at 1440x900. It plays whole six-night games, captures every beat, and checks
-what a capture cannot show: no page error, every button named and at least 44 px, no text under
-12 px, the dock leaving the world in view, the target of a strike clear of the cards, and the
-frame rate:
+The game is also played by a bot in a real headless Chrome, by touch at 375x553, 375x667 and
+430x932 and with a mouse at 1440x900. It plays whole six-night games, captures every beat, and
+checks what a capture cannot show: no page error, every button named and at least 44 px, no text
+under 12 px, the dock leaving the world in view, the tray showing whole pieces, the target of a
+strike clear of the cards, and the frame rate:
 
 ```
 npm run build

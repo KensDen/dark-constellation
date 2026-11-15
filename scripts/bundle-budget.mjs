@@ -60,7 +60,7 @@
 // The frame is RECOGNISED BY WHAT IT CARRIES, never by its file name, its
 // hash or its size rank: it is the one deferred chunk holding both
 // three.js (the `__THREE__` instance marker three's core sets on window)
-// and src/ui/Constellation.tsx (any of the distinctive string literals that
+// and src/ui/TitleWorld.tsx (any of the distinctive string literals that
 // file contains, parsed out of the source at measure time rather than
 // copied here). ANY, not every: the ruling's own review found builds that
 // drop literals the source still has, a dev-only warning or an entity the
@@ -108,7 +108,7 @@ export const THREE_MARKER = '__THREE__'
 
 // The module the frame chunk is built from, resolved from this file rather
 // than from the working directory.
-export const FRAME_SOURCE = fileURLToPath(new URL('../src/ui/Constellation.tsx', import.meta.url))
+export const FRAME_SOURCE = fileURLToPath(new URL('../src/ui/TitleWorld.tsx', import.meta.url))
 
 // Long enough that the literal names this file and not a common word.
 const DISTINCTIVE_LITERAL_CHARS = 20
@@ -123,7 +123,7 @@ const DISTINCTIVE_LITERAL_CHARS = 20
 // still be dropped (a dev-only branch), which is why a chunk needs only one.
 export function frameSourceMarkers(source) {
   const ts = createRequire(import.meta.url)('typescript')
-  const file = ts.createSourceFile('Constellation.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const file = ts.createSourceFile('TitleWorld.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const out = []
   const visit = (node) => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node) || ts.isTypeNode(node)) return
@@ -324,7 +324,7 @@ export function measureBundle({
   // marker of the build's own choosing: a literal of three's renderer).
   // The frame's budget then bounds that one chunk; more than one chunk
   // carrying the marker is a second copy of three.js and is refused; and
-  // the chunk built from src/ui/Constellation.tsx is a screen like any
+  // the chunk built from src/ui/TitleWorld.tsx is a screen like any
   // other, under the cap. With no marker recorded, the rule is the one
   // above it always was.
   const sharedThree = 'threeChunkMarker' in budget
@@ -347,7 +347,7 @@ export function measureBundle({
   }
   if (frames.length > 1) {
     throw new Error(
-      `${frames.map((c) => c.chunk).join(' and ')} all carry three.js and src/ui/Constellation.tsx; the frame budget is for one chunk, so which one it bounds is ambiguous`,
+      `${frames.map((c) => c.chunk).join(' and ')} all carry three.js and src/ui/TitleWorld.tsx; the frame budget is for one chunk, so which one it bounds is ambiguous`,
     )
   }
   // Half a frame is refused by name. If a build ever split three.js from
@@ -361,29 +361,30 @@ export function measureBundle({
     const sourceAt = where('source')
     if (threeAt && sourceAt) {
       throw new Error(
-        `the constellation frame is split: three.js is in ${threeAt}, src/ui/Constellation.tsx is in ${sourceAt}; ` +
+        `the constellation frame is split: three.js is in ${threeAt}, src/ui/TitleWorld.tsx is in ${sourceAt}; ` +
           'the frame budget was ruled for one chunk built from both, so this build needs the ruling revisited, not a cap',
       )
     }
     throw new Error(
       threeAt
         ? `no deferred chunk is recognisably the constellation frame: three.js is in ${threeAt}, but none of the literals ` +
-            `derived from src/ui/Constellation.tsx (${frameMarkers.map((m) => JSON.stringify(m)).join(', ')}) is in any deferred chunk, ` +
+            `derived from src/ui/TitleWorld.tsx (${frameMarkers.map((m) => JSON.stringify(m)).join(', ')}) is in any deferred chunk, ` +
             'so either the component left that chunk or none of those literals survives the build'
-        : `no deferred chunk is recognisably the constellation frame: src/ui/Constellation.tsx is in ${sourceAt}, ` +
+        : `no deferred chunk is recognisably the constellation frame: src/ui/TitleWorld.tsx is in ${sourceAt}, ` +
             `but no deferred chunk carries three.js's ${THREE_MARKER} marker`,
     )
   }
   const frame = frames[0] ?? null
   // THE NAMED CHUNKS (the 3D slice's one experiment chunk on exp/3d-slice;
-  // a list since v2.0 R1). Two lazily loaded chunks are far over the
-  // per-chunk cap by what they are, the 3D game and, deferred with it, the
-  // pixel board, so each exception is named and bounded rather than waved
-  // through: bundle-budget.json lists, under markedChunks, a name, a
-  // marker and a ceiling for each, and the one deferred chunk carrying a
-  // marker is held to that ceiling instead of the cap, and printed. With
-  // none listed nothing here applies and every chunk is a screen like any
-  // other. Recognised by content, as the frame is, and never the frame.
+  // a list since v2.0 R1). Some lazily loaded chunks are over the
+  // per-chunk cap by what they are (the 3D game, the theater it shares
+  // with the title, the cards and words every night shows), so each
+  // exception is named and bounded rather than waved through:
+  // bundle-budget.json lists, under markedChunks, a name, a marker and a
+  // ceiling for each, and the one deferred chunk carrying a marker is held
+  // to that ceiling instead of the cap, and printed. With none listed
+  // nothing here applies and every chunk is a screen like any other.
+  // Recognised by content, as the frame is, and never the frame.
   const markedIn = budget.markedChunks ?? []
   if (!Array.isArray(markedIn)) throw new Error('bundle-budget.json records markedChunks that is not a list')
   const marked = markedIn.map((m) => {

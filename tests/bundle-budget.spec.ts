@@ -474,7 +474,7 @@ describe('bundle budget', () => {
 //
 // These fixtures inject the sizes, so each boundary is hit to the byte, but
 // NOT the frame's markers: the frame text below is built from the same
-// derivation the battery runs against the real src/ui/Constellation.tsx.
+// derivation the battery runs against the real src/ui/TitleWorld.tsx.
 // And the frame is deliberately NOT named like the real one, while a decoy
 // is, because a gate that found the frame by name would pass here too.
 describe('the deferred group, budgeted per chunk (Ken, 2026-09-26)', () => {
@@ -592,7 +592,7 @@ describe('the deferred group, budgeted per chunk (Ken, 2026-09-26)', () => {
     const sourceOnly = frameText().replace(THREE_MARKER, '')
     expect(() =>
       ruled({ 'assets/Vendor-v1.js': { gz: 128_000, text: THREE_MARKER }, [FRAME]: { gz: 2_000, text: sourceOnly } }),
-    ).toThrow(/the constellation frame is split: three\.js is in assets\/Vendor-v1\.js, src\/ui\/Constellation\.tsx is in assets\/Zeta-q7\.js/)
+    ).toThrow(/the constellation frame is split: three\.js is in assets\/Vendor-v1\.js, src\/ui\/TitleWorld\.tsx is in assets\/Zeta-q7\.js/)
   })
 
   it('holds a screen carrying a frame signature to 10,000 all the same', () => {
@@ -614,24 +614,24 @@ describe('the deferred group, budgeted per chunk (Ken, 2026-09-26)', () => {
 
   it('holds a named chunk to its own recorded ceiling, and only when one is listed (exp/3d-slice; a list since v2.0 R1)', () => {
     const MARK = 'dc-game-chunk-marker'
-    const BOARD = 'dc-board-chunk-marker'
+    const BOARD = 'dc-rooms-chunk-marker'
     const frame = { gz: 129_273, text: frameText() }
     const slice = (gz: number) => ({ gz, text: `${THREE_MARKER};${MARK};slice` })
-    const WITH = { ...RULED, markedChunks: [{ name: 'the 3D game', marker: MARK, budgetGzipBytes: 160_000 }, { name: 'the pixel board', marker: BOARD, budgetGzipBytes: 50_000 }] }
+    const WITH = { ...RULED, markedChunks: [{ name: 'the 3D game', marker: MARK, budgetGzipBytes: 160_000 }, { name: 'the rooms', marker: BOARD, budgetGzipBytes: 50_000 }] }
     // Nothing listed: a second three.js in a lazy chunk is a screen.
     expect(() => ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(150_000) })).toThrow(/assets\/Slice-s1\.js is 150000 bytes gzipped, over the 10000 byte cap/)
     // Listed: at its ceiling it passes, a byte over it fails, by name.
-    const r = ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(160_000), 'assets/Board-b1.js': { gz: 41_000, text: `${BOARD};board` }, [DECOY]: screen(2_000) }, WITH)
+    const r = ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(160_000), 'assets/Rooms-b1.js': { gz: 41_000, text: `${BOARD};rooms` }, [DECOY]: screen(2_000) }, WITH)
     expect(r.marked).toEqual([
       { name: 'the 3D game', chunk: 'assets/Slice-s1.js', gz: 160_000, budget: 160_000 },
-      { name: 'the pixel board', chunk: 'assets/Board-b1.js', gz: 41_000, budget: 50_000 },
+      { name: 'the rooms', chunk: 'assets/Rooms-b1.js', gz: 41_000, budget: 50_000 },
     ])
     expect(r.frame, 'a named chunk was taken for the frame').toBe(FRAME)
     expect(r.largestOther, 'a named chunk was still counted among the screens').toBe(DECOY)
     expect(r.line).toContain('the 3D game assets/Slice-s1.js 160000 (budget 160000, headroom 0)')
-    expect(r.line).toContain('the pixel board assets/Board-b1.js 41000 (budget 50000, headroom 9000)')
+    expect(r.line).toContain('the rooms assets/Rooms-b1.js 41000 (budget 50000, headroom 9000)')
     expect(() => ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(160_001) }, WITH)).toThrow(/the 3D game, assets\/Slice-s1\.js, is 160001 bytes gzipped, over its 160000 byte budget/)
-    expect(() => ruled({ [FRAME]: frame, 'assets/Board-b1.js': { gz: 50_001, text: BOARD } }, WITH)).toThrow(/the pixel board, assets\/Board-b1\.js, is 50001 bytes gzipped, over its 50000 byte budget/)
+    expect(() => ruled({ [FRAME]: frame, 'assets/Rooms-b1.js': { gz: 50_001, text: BOARD } }, WITH)).toThrow(/the rooms, assets\/Rooms-b1\.js, is 50001 bytes gzipped, over its 50000 byte budget/)
     // The exception is for the one chunk carrying each marker: every other
     // chunk keeps the cap, and the frame keeps its own budget.
     expect(() => ruled({ [FRAME]: frame, 'assets/Slice-s1.js': slice(150_000), 'assets/Big-b2.js': screen(10_001) }, WITH)).toThrow(/assets\/Big-b2\.js is 10001 bytes gzipped, over the 10000 byte cap/)
@@ -649,7 +649,7 @@ describe('the deferred group, budgeted per chunk (Ken, 2026-09-26)', () => {
     // Ken's instruction of 10 November 2026: the title and the 3D game
     // share one three.js. It is then a chunk of its own, recognised by a
     // literal of three's renderer (the source entry carries no __THREE__),
-    // and the chunk built from src/ui/Constellation.tsx is a screen.
+    // and the chunk built from src/ui/TitleWorld.tsx is a screen.
     const THREE_LITERAL = 'WebGL 1 is not supported'
     const GAME = 'dc-game-chunk-marker'
     const SHARED = { ...RULED, threeChunkMarker: THREE_LITERAL, markedChunks: [{ name: 'the 3D game', marker: GAME, budgetGzipBytes: 90_000 }] }
@@ -693,7 +693,7 @@ describe('the deferred group, budgeted per chunk (Ken, 2026-09-26)', () => {
   it('derives the frame markers from its source, and three.js still carries its own', () => {
     const real = readFileSync(FRAME_SOURCE, 'utf8')
     const markers = frameSourceMarkers(real)
-    expect(markers.length, 'nothing in Constellation.tsx to recognise its chunk by').toBeGreaterThan(0)
+    expect(markers.length, 'nothing in TitleWorld.tsx to recognise its chunk by').toBeGreaterThan(0)
     for (const m of markers) expect(real, `${m} is not in the source it was derived from`).toContain(m)
     // What must NOT become a marker: a module specifier the bundler
     // rewrites, an apostrophe in a comment, a word of JSX text, a literal a
