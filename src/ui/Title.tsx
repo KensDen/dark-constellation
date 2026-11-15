@@ -1,24 +1,30 @@
 // THE TITLE (v1.3 R1, brief 5.1): the front door that replaced the
-// nine-entry menu (M1). The key art, with DARK CONSTELLATION / OP FIRST
-// LIGHT and the tagline over it; GOAL 1 and GOAL 2; CONTINUE TURN n when a
-// game is resumable; PLAY; DAILY OP #n, which after today's official run
-// reads DONE, the grade and the streak, and counts down to the next (v1.3
-// R4, M32); the READ row (BRIEFING, DOSSIER, LIBRARY); and SYSTEM as the
-// menu's last row. Below it, the constellation frame the retired start
-// screen used to carry (Ken, 21 October 2026: keep it on the title).
+// nine-entry menu (M1). The hero, with DARK CONSTELLATION / OP FIRST LIGHT
+// and the tagline over it; GOAL 1 and GOAL 2; CONTINUE NIGHT n when a game
+// is resumable; PLAY; DAILY OP #n, which after today's official run reads
+// DONE, the grade and the streak, and counts down to the next (v1.3 R4,
+// M32); the READ row (BRIEFING, DOSSIER, LIBRARY); and SYSTEM as the
+// menu's last row.
 //
-// The key art is behind the title since v1.5 R2 (Ken's ruling of 24
-// October 2026: above the fold), drawn in code (./TitleArt), in place of
-// the ripple band, whose dot field is its sky. On the desktop it spans the
-// screen and the menu stands in three columns under it.
+// IN THE 3D GAME'S LOOK since v2.0 R3 (Ken's ruling of 15 November 2026:
+// the title in 3D; a playtester: "the pixel title and the glossy game do
+// not match"). The hero is the game's own world, live (./TitleWorld), and
+// the menu is the game's glass: soft panels, round corners, the system
+// face, PLAY as the game's primary button. Its styles are a short block of
+// rules in src/index.css, not utility strings here: the title is in the
+// first download, and a rule said once is smaller than a class list said
+// on every element. The wordmark keeps the brand face; nothing else on
+// the title does. The pixel key art and the wireframe ring are gone.
+//
+// On the desktop the hero spans the screen and takes what the menu leaves
+// of the window, and the menu stands in three columns under it.
 //
 // No top bar since v1.3 R3 (Ken's R2 notes, 22 October 2026): the
 // difficulty chip left it in R2, and SYSTEM moved to the foot of the menu,
-// like Settings in a game menu, so the key art starts at the top. The
-// board keeps its own SYSTEM button in the HUD.
+// like Settings in a game menu, so the hero starts at the top.
 //
 // The Field Manual, How to Play and the menu's function keys are gone:
-// the briefing and FIRST ORDERS teach the rules (M5, M20).
+// the briefing teaches the rules (M5, M20).
 
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { DEFAULT_SCENARIO } from '../content'
@@ -31,23 +37,21 @@ import SystemPanel from './SystemPanel'
 import { DECK_LINE, SYSTEM_TITLE } from './systemControls'
 import { MOVED_TO_STANDARD, movedToStandard, toldMovedToStandard } from './session'
 import { DAILY_OPEN_LINE, TITLE_TAGLINE, dailyLineNow, dossierCount, goalOne } from './titleStatus'
-import PixelSprite from './sprites/PixelSprite'
-import { ICON_CHECK, tinted } from './sprites/icons'
 import Countdown from './Countdown'
-import PixelHash from './PixelHash'
 import Wordmark from './Wordmark'
 
-// The title's decoration, the key art and the frame, loads after the
-// title as its own chunk (v1.3 R1 fixes: INITIAL sat 26 bytes under its
-// 155,000 ceiling, and a CI runner's gzip counted 65 more). The key art's
-// box is the title's own, so the words are there before the art lands and
-// nothing moves when it does.
-const TitleArt = lazy(() => import('./TitleArt'))
+// The hero's world loads after the title as its own chunk, and three.js
+// with it (v1.3 R1 fixes: the title's decoration left the first download,
+// which sat 26 bytes under its ceiling). The hero's box is the title's
+// own, so the words are there before the world lands and nothing moves
+// when it does. A chunk that fails to load leaves the hero's still
+// gradient, never a broken title.
+const TitleWorld = lazy(() => import('./TitleWorld').catch(() => ({ default: () => null })))
 
 export interface TitleProps {
   difficulty: Difficulty
   onDifficulty: (d: Difficulty) => void
-  // The turn a resumable game is on, when there is one.
+  // The night a resumable game is on, when there is one.
   resumeTurn: number | null
   onContinue: () => void
   onPlay: () => void
@@ -66,9 +70,6 @@ export interface TitleProps {
   onCredits: () => void
   notice?: string
 }
-
-const TILE = 'flex flex-col justify-start border-2 border-dc-line bg-dc-panel p-3 text-left shadow-hard'
-const READ_BTN = 'flex min-h-11 flex-col justify-start border-2 border-dashed border-dc-line p-3 text-left'
 
 export default function Title(p: TitleProps) {
   const [system, setSystem] = useState(false)
@@ -124,197 +125,167 @@ export default function Title(p: TitleProps) {
   const daily = () => (p.resumeTurn !== null && !confirmDaily ? setConfirmDaily(true) : p.onDaily())
 
   return (
-    <main data-title className="mx-auto flex min-h-dvh w-full max-w-[520px] flex-col gap-4 px-4 pt-safe pb-10 text-dc-ink desk:max-w-none desk:gap-8 desk:px-0 desk:pt-0">
-      {/* The desktop's first screen (Claude's site review, 29 October): the
-          hero takes what the menu leaves of the window, so the two fill it
-          in balance; the frame follows below. A phone's wrapper steps aside. */}
-      <div data-title-screen className="contents desk:flex desk:min-h-dvh desk:flex-col desk:gap-8 desk:pb-10">
-      <header data-key-art className="relative mt-3 flex h-[212px] flex-col justify-end overflow-hidden border-2 border-dc-line bg-dc-shadow desk:mt-0 desk:h-auto desk:min-h-[360px] desk:flex-1 desk:border-x-0 desk:border-t-0">
-        <Suspense fallback={null}>
-          <TitleArt part="key" />
-        </Suspense>
-        <div className="relative px-2 pb-2.5 desk:mx-auto desk:w-full desk:max-w-[1200px] desk:px-8 desk:pb-9">
-          <h1 className="m-0 desk:[--wordmark:clamp(1.9rem,2.35vw,2.15rem)]">
-            <Wordmark size="var(--wordmark, clamp(0.9rem, 4.8vw, 1.7rem))" />
-          </h1>
-          <p className="mt-3 font-mono text-xs tracking-widest text-dc-friendly desk:mt-5 desk:text-[16px]">OP {DEFAULT_SCENARIO.name}</p>
-          {/* One line on a phone (Ken, 21 October): the size follows the
-              width, and the effect above fits it to the font, never under
-              10px. */}
-          <p ref={tagline} data-tagline className="mt-2 whitespace-nowrap text-[clamp(10px,3.2vw,14px)] text-dc-muted desk:text-[18px]">
-            {TITLE_TAGLINE}
-          </p>
-        </div>
-      </header>
+    <main data-title>
+      {/* The first screen: the hero, then the menu. On the desktop it is
+          the window's height, and the hero takes what the menu leaves
+          (Claude's site review, 29 October). */}
+      <div data-title-screen>
+        <header data-key-art>
+          {/* Covered by SYSTEM, the world has no one to draw for. */}
+          <Suspense fallback={null}>
+            <TitleWorld paused={system} />
+          </Suspense>
+          <div className="tt-words">
+            <h1>
+              <Wordmark size="var(--wordmark)" />
+            </h1>
+            <p className="tt-op">OP {DEFAULT_SCENARIO.name}</p>
+            {/* One line on a phone (Ken, 21 October): the size follows the
+                width, and the effect above fits it to the font, never under
+                10px. */}
+            <p ref={tagline} data-tagline>
+              {TITLE_TAGLINE}
+            </p>
+          </div>
+        </header>
 
-      {/* The menu: one column on a phone (these wrappers step aside), three
-          on the desktop: the goals, the ways to play, and READ with
-          SYSTEM. */}
-      <div data-title-menu className="contents desk:mx-auto desk:grid desk:w-full desk:max-w-[1200px] desk:grid-cols-3 desk:items-stretch desk:gap-6 desk:px-8">
-      <div className="contents desk:flex desk:flex-col desk:gap-4">
-      <div className="grid grid-cols-2 gap-2">
-        <div className={TILE} data-goal="1">
-          <p className="font-mono text-[10px] tracking-widest text-dc-muted">GOAL 1</p>
-          <p className="mt-1 text-sm font-bold">Hold the mission</p>
-          {/* The score at the end of the last turn is what counts (v1.5 R1;
-              R6b's fresh eyes, item 9: "keep" read as every turn). "Finish",
-              as the full brief's job says it: "End turn" is retired. */}
-          <p className="mt-1 font-mono text-xs text-dc-go">
-            {/* The 3D game counts nights; the pixel board (?view=classic) turns. */}
-            Finish {typeof location !== 'undefined' && location.search.includes('view=classic') ? 'turn' : 'night'} {DEFAULT_SCENARIO.totalTurns} at{'\u00a0'}{DEFAULT_SCENARIO.winThreshold}+
-          </p>
-          {/* Whether it is done yet, as GOAL 2 shows its count (v1.3 R5):
-              an icon and a word, never colour alone (rule 8). */}
-          <p data-goal-status className="mt-2 flex items-center gap-1.5 font-mono text-[10px] tracking-wider">
-            {held?.held && <PixelSprite sprite={tinted(ICON_CHECK, 'go')} scale={1} name="goal-held" />}
-            <span className={held?.held ? 'text-dc-go' : 'text-dc-muted'}>
-              {held ? `${held.held ? 'HELD' : 'NOT YET'} · BEST ${held.best.toFixed(1)}` : 'NOT YET'}
-            </span>
-          </p>
-        </div>
-        <button type="button" className={TILE} data-goal="2" onClick={p.onDossier}>
-          <span className="block font-mono text-[10px] tracking-widest text-dc-muted">GOAL 2</span>
-          <span className="mt-1 block text-sm font-bold">Complete the&nbsp;Dossier</span>
-          <span className="mt-1 block font-mono text-xs text-dc-go">
-            {goal.filed} / {goal.total} filed
-          </span>
-          <span className="mt-2 block h-1 w-full bg-dc-line" aria-hidden="true">
-            <span className="block h-1 bg-dc-go" style={{ width: `${(goal.filed / Math.max(1, goal.total)) * 100}%` }} />
-          </span>
-        </button>
-      </div>
-
-      {p.staleSave && (
-        <div role="status" data-stale-save className="border-2 border-dc-warn/50 bg-dc-panel p-3">
-          <p className="font-mono text-sm text-dc-warn">{STALE_SAVE_MESSAGE}.</p>
-          <button type="button" onClick={p.onPlay} className="mt-2 min-h-11 border-2 border-dc-go px-3 font-display text-[10px] text-dc-go">
-            START A NEW OPERATION
-          </button>
-        </div>
-      )}
-      </div>
-
-      <div data-title-play className="flex flex-col gap-2">
-        {p.resumeTurn !== null && (
-          <button
-            type="button"
-            data-continue
-            onClick={p.onContinue}
-            className="min-h-12 border-2 border-dc-friendly bg-dc-friendly/10 font-display text-xs text-dc-friendly shadow-press"
-          >
-            CONTINUE TURN {p.resumeTurn}
-          </button>
-        )}
-        <button
-          type="button"
-          data-play
-          onClick={p.onPlay}
-          className="flex min-h-14 flex-col items-center justify-center gap-1 border-2 border-dc-go bg-dc-go py-2 text-dc-ground shadow-press active:translate-y-[3px] active:shadow-none desk:min-h-28 desk:flex-1"
-        >
-          {/* Filled, as PLAY AGAIN is on the debrief (v1.3 R5): the main
-              way on looks the same wherever it is; the largest thing on
-              the desktop's menu (v1.5 R2's review). */}
-          <span className="font-display text-sm desk:text-2xl">PLAY</span>
-          {/* The mode PLAY will start (Ken's R1 phone pass, item 12): the
-              difficulty is changed in SYSTEM only. */}
-          <span data-play-mode className="font-mono text-[10px] tracking-wider text-dc-ground/75">
-            {DIFFICULTIES[p.difficulty].label.toUpperCase()}
-          </span>
-        </button>
-        {moved && (
-          <p data-moved-to-standard className="text-center font-mono text-[11px] leading-snug text-dc-go">
-            {MOVED_TO_STANDARD}
-          </p>
-        )}
-        {n >= 1 && (
-          <button
-            type="button"
-            data-daily
-            onClick={daily}
-            className="flex min-h-13 flex-col items-center justify-center gap-1 border-2 border-dc-friendly bg-dc-friendly/10 py-2 text-dc-friendly"
-          >
-            <span className="font-display text-xs">
-              DAILY OP <PixelHash />
-              {n}
-            </span>
-            <span data-daily-line className="font-mono text-[10px] tracking-wider text-dc-muted">
-              {dailyText}
-            </span>
-            {/* Once today's official run is in, the button replays it as
-                practice, and says so (section 4 rule 3). */}
-            {dailyText !== DAILY_OPEN_LINE && <span className="font-mono text-[10px] tracking-wider text-dc-friendly">REPLAY AS PRACTICE</span>}
-          </button>
-        )}
-        {/* The countdown once today's official run is in (brief 5.1), as
-            status under the button rather than inside it (rule 2). */}
-        {n >= 1 && dailyText !== DAILY_OPEN_LINE && (
-          <p data-daily-countdown className="-mt-1 text-center font-mono text-[10px] tracking-wider text-dc-muted">
-            NEXT DAILY OP IN <Countdown className="tabular-nums text-dc-ink" />
-          </p>
-        )}
-        {confirmDaily && (
-          <div role="group" aria-label="Replace the operation in progress" data-confirm-daily className="border-2 border-dc-warn/50 bg-dc-panel p-3">
-            <p className="font-mono text-sm text-dc-warn">The Daily Op replaces the operation in progress.</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <button type="button" onClick={p.onDaily} className="min-h-11 border-2 border-dc-warn px-3 font-display text-[10px] text-dc-warn">
-                START DAILY OP
-              </button>
-              <button type="button" onClick={() => setConfirmDaily(false)} className="min-h-11 border-2 border-dc-line px-3 font-display text-[10px] text-dc-ink">
-                KEEP IT
+        {/* The menu: one column on a phone, three on the desktop: the
+            goals, the ways to play, and READ with SYSTEM. */}
+        <div data-title-menu>
+          <div className="tt-col">
+            <div className="tt-goals">
+              <div className="tt-card" data-goal="1">
+                <p className="tt-label">GOAL 1</p>
+                <p className="tt-name">Hold the mission</p>
+                {/* The score at the end of the last night is what counts
+                    (v1.5 R1; R6b's fresh eyes, item 9: "keep" read as every
+                    turn). The 3D game counts nights. */}
+                <p className="tt-go">
+                  Finish night {DEFAULT_SCENARIO.totalTurns} at{' '}
+                  {DEFAULT_SCENARIO.winThreshold}+
+                </p>
+                {/* Whether it is done yet, as GOAL 2 shows its count (v1.3
+                    R5): a mark and a word, never colour alone (rule 8). */}
+                <p data-goal-status className={held?.held ? 'tt-go' : undefined}>
+                  {held?.held && (
+                    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+                      <path d="M2 6.5 4.8 9.2 10 3.4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                  {held ? `${held.held ? 'HELD' : 'NOT YET'} · BEST ${held.best.toFixed(1)}` : 'NOT YET'}
+                </p>
+              </div>
+              <button type="button" className="tt-card" data-goal="2" onClick={p.onDossier}>
+                <span className="tt-label">GOAL 2</span>
+                <span className="tt-name">Complete the&nbsp;Dossier</span>
+                <span className="tt-go">
+                  {goal.filed} / {goal.total} filed
+                </span>
+                <span className="tt-bar" aria-hidden="true">
+                  <span style={{ width: `${(goal.filed / Math.max(1, goal.total)) * 100}%` }} />
+                </span>
               </button>
             </div>
+
+            {p.staleSave && (
+              <div role="status" data-stale-save className="tt-card tt-warn">
+                <p>{STALE_SAVE_MESSAGE}.</p>
+                <button type="button" onClick={p.onPlay} className="tt-btn">
+                  START A NEW OPERATION
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      <div className="contents desk:flex desk:flex-col desk:gap-4">
-      <section aria-label="Read" className="grid gap-2">
-        <p className="font-mono text-[10px] tracking-widest text-dc-muted">READ</p>
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" data-read="briefing" className={`${READ_BTN} col-span-2`} onClick={p.onBriefing}>
-            <span className="block font-display text-[11px] text-dc-friendly">BRIEFING</span>
-            <span className="mt-1 block text-xs text-dc-muted">Who you are, what you protect, who is coming.</span>
-          </button>
-          <button type="button" data-read="dossier" className={READ_BTN} onClick={p.onDossier}>
-            <span className="block font-display text-[11px] text-dc-friendly">DOSSIER</span>
-            <span className="mt-1 block text-xs text-dc-muted">COLDVEIL’s moves and the techniques behind them.</span>
-          </button>
-          <button type="button" data-read="library" className={READ_BTN} onClick={p.onLibrary}>
-            <span className="block font-display text-[11px] text-dc-friendly">LIBRARY</span>
-            <span className="mt-1 block text-xs text-dc-muted">The public reading behind every threat.</span>
-          </button>
+          <div data-title-play className="tt-col">
+            {p.resumeTurn !== null && (
+              <button type="button" data-continue onClick={p.onContinue} className="tt-btn tt-sky">
+                CONTINUE NIGHT {p.resumeTurn}
+              </button>
+            )}
+            {/* The game's primary button, as PLAY AGAIN is on its debrief:
+                the main way on looks the same wherever it is, and it is the
+                largest thing on the desktop's menu (v1.5 R2's review). */}
+            <button type="button" data-play onClick={p.onPlay}>
+              <span>PLAY</span>
+              {/* The mode PLAY will start (Ken's R1 phone pass, item 12): the
+                  difficulty is changed in SYSTEM only. */}
+              <span data-play-mode className="tt-label">
+                {DIFFICULTIES[p.difficulty].label.toUpperCase()}
+              </span>
+            </button>
+            {moved && (
+              <p data-moved-to-standard className="tt-go">
+                {MOVED_TO_STANDARD}
+              </p>
+            )}
+            {n >= 1 && (
+              <button type="button" data-daily onClick={daily} className="tt-btn tt-sky">
+                <span>DAILY OP #{n}</span>
+                <span data-daily-line className="tt-label">
+                  {dailyText}
+                </span>
+                {/* Once today's official run is in, the button replays it as
+                    practice, and says so (section 4 rule 3). */}
+                {dailyText !== DAILY_OPEN_LINE && <span className="tt-label tt-sky">REPLAY AS PRACTICE</span>}
+              </button>
+            )}
+            {/* The countdown once today's official run is in (brief 5.1), as
+                status under the button rather than inside it (rule 2). */}
+            {n >= 1 && dailyText !== DAILY_OPEN_LINE && (
+              <p data-daily-countdown className="tt-label">
+                NEXT DAILY OP IN <Countdown className="tt-clock" />
+              </p>
+            )}
+            {confirmDaily && (
+              <div role="group" aria-label="Replace the operation in progress" data-confirm-daily className="tt-card tt-warn">
+                <p>The Daily Op replaces the operation in progress.</p>
+                <div className="tt-row">
+                  <button type="button" onClick={p.onDaily} className="tt-btn tt-warn">
+                    START DAILY OP
+                  </button>
+                  <button type="button" onClick={() => setConfirmDaily(false)} className="tt-btn">
+                    KEEP IT
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="tt-col">
+            <section aria-label="Read" className="tt-read">
+              <p className="tt-label">READ</p>
+              <button type="button" data-read="briefing" className="tt-card" onClick={p.onBriefing}>
+                <span className="tt-sky">BRIEFING</span>
+                <span>Who you are, what you protect, who is coming.</span>
+              </button>
+              <button type="button" data-read="dossier" className="tt-card" onClick={p.onDossier}>
+                <span className="tt-sky">DOSSIER</span>
+                <span>COLDVEIL’s moves and the techniques behind them.</span>
+              </button>
+              <button type="button" data-read="library" className="tt-card" onClick={p.onLibrary}>
+                <span className="tt-sky">LIBRARY</span>
+                <span>The public reading behind every threat.</span>
+              </button>
+            </section>
+
+            {/* SYSTEM, the menu's last row (Ken's R2 notes): difficulty, sound and
+                motion, the save code, Replay a seed, the scoreboard, credits. */}
+            <button type="button" data-title-system aria-haspopup="dialog" onClick={() => setSystem(true)} className="tt-btn">
+              {SYSTEM_TITLE}
+            </button>
+          </div>
         </div>
-      </section>
-
-      {/* SYSTEM, the menu's last row (Ken's R2 notes): difficulty, sound and
-          motion, the save code, Replay a seed, the scoreboard, credits. */}
-      <button
-        type="button"
-        data-title-system
-        aria-haspopup="dialog"
-        onClick={() => setSystem(true)}
-        className="min-h-12 border-2 border-dc-line bg-dc-panel font-display text-xs text-dc-ink shadow-press active:translate-y-[3px] active:shadow-none"
-      >
-        {SYSTEM_TITLE}
-      </button>
       </div>
-      </div>
-      </div>
-
-      <section aria-label="Constellation frame" className="mt-4">
-        <Suspense fallback={<div className="mx-auto h-64 w-64" />}>
-          <TitleArt part="frame" />
-        </Suspense>
-      </section>
 
       {system && (
         // Opaque and full height (Ken, 21 October): nothing of the title
         // shows through below a short panel.
-        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-dc-ground" role="dialog" aria-modal="true" aria-label={SYSTEM_TITLE}>
-          <div className="mx-auto min-h-full max-w-[520px] border-x-2 border-dc-line bg-dc-panel pb-safe">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b-2 border-dc-line bg-dc-panel px-3 py-2 pt-safe">
-              <h2 className="font-display text-[10px] text-dc-ink">{SYSTEM_TITLE}</h2>
-              <button type="button" onClick={() => setSystem(false)} className="min-h-11 border-2 border-dc-line px-3 font-display text-[10px] text-dc-ink">
+        <div className="tt-system" role="dialog" aria-modal="true" aria-label={SYSTEM_TITLE}>
+          <div>
+            <div className="tt-bar-top">
+              <h2 className="tt-label">{SYSTEM_TITLE}</h2>
+              <button type="button" onClick={() => setSystem(false)} className="tt-btn">
                 DONE
               </button>
             </div>

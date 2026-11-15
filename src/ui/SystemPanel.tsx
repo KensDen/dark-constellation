@@ -5,6 +5,10 @@
 //
 // The list of controls, with the names the tests find them by, is
 // SYSTEM_CONTROLS in ./systemControls.ts; this file renders it.
+//
+// In the 3D game's look since v2.0 R3 (Ken's ruling of 15 November 2026:
+// the title in 3D): the same controls, names and order, in the title's
+// own classes (src/index.css), so SYSTEM matches the title that opens it.
 
 import { useEffect, useRef, useState } from 'react'
 import type { SoundPrefs } from '../audio'
@@ -39,7 +43,7 @@ export interface SystemPanelProps {
   notice: string
 }
 
-const LABEL = 'font-display text-[10px] text-dc-muted'
+const LABEL = 'tt-label'
 const name = (id: SystemControl['id']) => SYSTEM_CONTROLS.find((c) => c.id === id)!.name
 
 export default function SystemPanel(p: SystemPanelProps) {
@@ -62,7 +66,7 @@ export default function SystemPanel(p: SystemPanelProps) {
     else p.onDifficulty(d)
   }
   return (
-    <div className="space-y-4 py-3 px-3 text-dc-ink">
+    <div className="tt-panel">
       {/* HOW TO PLAY (v1.6 R3): the job and the turn, behind one button so
           SYSTEM's controls stay where a player reaches for them. */}
       <section aria-label={name('howto')}>
@@ -70,7 +74,7 @@ export default function SystemPanel(p: SystemPanelProps) {
           HOW TO PLAY
         </button>
         {howTo && (
-          <ol data-how-to className="mt-2 list-decimal space-y-1.5 pl-5 text-sm">
+          <ol data-how-to>
             {howToLines().map((line) => (
               <li key={line}>{line}</li>
             ))}
@@ -80,18 +84,18 @@ export default function SystemPanel(p: SystemPanelProps) {
 
       <section data-system-control="difficulty" aria-label={name('difficulty')}>
         <p className={LABEL}>DIFFICULTY</p>
-        <div className="mt-1 flex flex-wrap gap-2">
+        <div className="tt-row">
           {(Object.keys(DIFFICULTIES) as Difficulty[]).map((d) => (
             <button key={d} type="button" aria-pressed={p.difficulty === d} data-selected={p.difficulty === d || undefined} className={SHEET_TOGGLE(p.difficulty === d)} onClick={() => pick(d)}>
               {DIFFICULTIES[d].label}
             </button>
           ))}
         </div>
-        <p className="mt-1 text-xs text-dc-muted">{p.restartsOperation ? 'Changing it restarts the operation.' : 'For your next operation.'}</p>
+        <p className="tt-note">{p.restartsOperation ? 'Changing it restarts the operation.' : 'For your next operation.'}</p>
         {pending && (
-          <div role="group" aria-label="Restart the operation" className="mt-2 border-2 border-dc-warn/60 p-2">
-            <p className="text-sm text-dc-warn">Restart the operation on {DIFFICULTIES[pending].label}?</p>
-            <div className="mt-2 flex gap-2">
+          <div role="group" aria-label="Restart the operation" className="tt-card tt-warn">
+            <p>Restart the operation on {DIFFICULTIES[pending].label}?</p>
+            <div className="tt-row">
               <button type="button" className={SHEET_PRIMARY} onClick={() => { p.onDifficulty(pending); setPending(null) }}>
                 RESTART
               </button>
@@ -105,7 +109,7 @@ export default function SystemPanel(p: SystemPanelProps) {
 
       <section data-system-control="sound" aria-label="Sound and motion">
         <p className={LABEL}>SOUND AND MOTION</p>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
+        <div className="tt-row">
           <SoundToggles prefs={p.soundPrefs} onChange={p.onSoundPrefs} />
           <button
             type="button"
@@ -121,35 +125,35 @@ export default function SystemPanel(p: SystemPanelProps) {
 
       <section aria-label="Save code">
         <p className={LABEL}>SAVE CODE</p>
-        <div className="mt-1 flex flex-wrap gap-2" data-system-control="export">
+        <div className="tt-row" data-system-control="export">
           {p.onExport && (
             <button type="button" className={SHEET_BUTTON} onClick={p.onExport}>
               {name('export')}
             </button>
           )}
         </div>
-        <label className="mt-2 block text-xs text-dc-muted" data-system-control="import">
+        <label className="tt-note" data-system-control="import">
           Paste a code to load that operation.
           <textarea
-            className="mt-1 h-14 w-full border-2 border-dc-line bg-dc-ground px-2 py-1 font-mono text-[16px] text-dc-ink"
+            className="tt-field"
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder="DC1-..."
             aria-label="save code"
           />
         </label>
-        <button type="button" className={`${SHEET_BUTTON} mt-1`} disabled={!code.trim()} onClick={() => p.onImport(code)}>
+        <button type="button" className={SHEET_BUTTON} disabled={!code.trim()} onClick={() => p.onImport(code)}>
           {name('import')}
         </button>
       </section>
 
       <section data-system-control="replay" aria-label={name('replay')}>
         <p className={LABEL}>REPLAY A SEED</p>
-        <p className="mt-1 text-xs text-dc-muted">Same seed, same game.</p>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
+        <p className="tt-note">Same seed, same game.</p>
+        <div className="tt-row">
           <input
             inputMode="numeric"
-            className="w-36 border-2 border-dc-line bg-dc-ground px-2 py-1 font-mono text-[16px] text-dc-ink min-h-11"
+            className="tt-field"
             value={seedText}
             onChange={(e) => setSeedText(e.target.value)}
             aria-label="seed"
@@ -162,7 +166,7 @@ export default function SystemPanel(p: SystemPanelProps) {
       </section>
 
       <section aria-label="Records">
-        <div className="flex flex-wrap gap-2">
+        <div className="tt-row">
           <button type="button" data-system-control="scoreboard" className={SHEET_BUTTON} onClick={p.onScoreboard}>
             {name('scoreboard')}
           </button>
@@ -176,9 +180,9 @@ export default function SystemPanel(p: SystemPanelProps) {
           )}
         </div>
         {leaving && p.onTitle && (
-          <div ref={confirmRef} role="group" aria-label="Leave this operation" data-confirm-leave className="mt-2 border-2 border-dc-warn/60 p-2">
-            <p className="text-sm text-dc-warn">Leave this operation? It is saved; CONTINUE picks it up.</p>
-            <div className="mt-2 flex gap-2">
+          <div ref={confirmRef} role="group" aria-label="Leave this operation" data-confirm-leave className="tt-card tt-warn">
+            <p>Leave this operation? It is saved; CONTINUE picks it up.</p>
+            <div className="tt-row">
               <button type="button" className={SHEET_PRIMARY} onClick={p.onTitle}>
                 LEAVE
               </button>
@@ -188,12 +192,12 @@ export default function SystemPanel(p: SystemPanelProps) {
             </div>
           </div>
         )}
-        <p data-deck-line className="mt-3 font-mono text-[10px] text-dc-muted">
+        <p data-deck-line className="tt-note">
           {p.deckLine}
         </p>
       </section>
 
-      {p.notice && <p className="font-mono text-xs text-alert-amber">{p.notice}</p>}
+      {p.notice && <p className="tt-warn">{p.notice}</p>}
     </div>
   )
 }

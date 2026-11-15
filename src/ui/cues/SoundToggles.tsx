@@ -5,8 +5,8 @@
 //
 // The labels come from brief.ts, where they were counted while the
 // toggles sat on the board. They live in SYSTEM now, styled as its other
-// buttons, and say ON or OFF as well as carrying it on aria-pressed (Ken,
-// 21 October 2026).
+// buttons (the title's glass since v2.0 R3), and say ON or OFF as well as
+// carrying it on aria-pressed (Ken, 21 October 2026).
 
 import { SOUND_TOGGLE_LABELS } from '../systemControls'
 import type { SoundPrefs } from '../../audio'
@@ -24,7 +24,7 @@ export interface SoundTogglesProps {
 
 export default function SoundToggles({ prefs, onChange, className }: SoundTogglesProps) {
   return (
-    <span className={`inline-flex items-center gap-2 ${className ?? ''}`}>
+    <span className={`tt-row ${className ?? ''}`}>
       <button
         type="button"
         aria-pressed={prefs.effects}

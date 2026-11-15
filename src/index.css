@@ -29,8 +29,8 @@
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-display: 'DC Display', 'JetBrains Mono', ui-monospace, monospace;
-  /* The desktop screens (v1.5 R2): the title's, the Dossier's and the
-     debrief's wide layouts; the board's own is WIDE_BOARD. */
+  /* The desktop screens (v1.5 R2): the title's and the reading rooms'
+     wide layouts. */
   --breakpoint-desk: 1100px;
 }
 
@@ -93,8 +93,7 @@
   box-shadow: 0 3px 0 var(--dc-shadow);
 }
 
-/* Safe-area padding for the notch and the home indicator, ready for the
-   board rounds. index.html carries viewport-fit=cover, without which every
+/* Safe-area padding for the notch and the home indicator. index.html carries viewport-fit=cover, without which every
    env(safe-area-inset-*) resolves to zero and these are silently no-ops.
    Utilities rather than bare classes so they take variants: sm:pb-safe. */
 @utility pt-safe {
@@ -142,17 +141,6 @@ body {
    nowrap. */
 body {
   text-wrap-style: pretty;
-}
-
-/* A disclosure's arrow turns as it opens (v1.6 R3: the "details ›" text
-   links on the debrief's save code, the Dossier's cards and the night's
-   Dossier row became this). */
-.dc-open-turn {
-  display: inline-block;
-  transition: transform 120ms ease;
-}
-details[open] .dc-open-turn {
-  transform: rotate(180deg);
 }
 
 /* Focus visibility on a dark terminal surface. */
@@ -209,361 +197,6 @@ details[open] .dc-open-turn {
   }
 }
 
-/* ---------------------------------------------------------------------
-   The idle life (v1.2 R2; v1.3 R2). The scenery backdrops left the board
-   with the layer panels, and the prototype's sprites have no rotor, spark
-   or smoke parts, so of the board's idle life only the beacons blink. CSS
-   only, inside the no-preference guard, so under reduced motion a beacon
-   simply rests lit. The block sits ahead of the cue layer's own guard,
-   which tests/cues.spec.ts finds as the last one in the file; the
-   keyframes and the hidden-tab pause are at the end.
-   --------------------------------------------------------------------- */
-@media (prefers-reduced-motion: no-preference) {
-  .dc-beacon {
-    animation: dc-blink 2.2s steps(1, end) infinite;
-  }
-}
-
-/* ---------------------------------------------------------------------
-   Cue vocabulary (game-feel brief v0.5 section 6, Round 3). CSS first, no
-   dependencies. Every motion rule lives inside a no-preference media
-   query, so reduced motion gets the same state changes with none of the
-   movement: badges still attach and clear, meters still read the right
-   number, nothing strobes or shakes. Colour-only cues (flash tones) stay
-   on in both modes because they carry meaning, but they do not animate.
-   --------------------------------------------------------------------- */
-
-/* Tile press: the control takes the press even without motion, via the
-   border and background; the scale is the motion-only half. */
-.dc-tile {
-  transition: background-color 120ms ease-out, border-color 120ms ease-out, transform 90ms ease-out;
-}
-
-/* The suggested next step on the action bar (v1.2 R2b): a brighter
-   border and a 3px ring in the go colour at 18 percent, over the button's
-   own 3px shadow. A plain rule outside Tailwind's layers, so it wins over
-   the border and shadow utilities it sits beside. It does not move, so it
-   is the same under reduced motion. */
-/* Condition and layer badges. The attached state is structural, so it is
-   set in both modes; only the entrance and the pulse are motion. Opacity
-   is a fade, not movement, so it stays in both modes; the transform
-   transition is movement and lives under the guard below. */
-.dc-badge {
-  transition: opacity 180ms ease-out;
-}
-
-.dc-flash-bad {
-  color: var(--color-hero-magenta);
-}
-
-.dc-flash-good {
-  color: var(--color-hero-blue);
-}
-
-/* The bar's width is driven frame by frame by the count-up in
-   src/ui/cues/motion.ts, so it must not also transition here: a width
-   transition on top of an eased value made the bar a damped follower that
-   arrived about 400ms after its own digits had settled. What is left is
-   the tone colour, and the guard below drops that under reduce, where the
-   count-up snaps as well; a reduce user gets the right number and the
-   right colour with no movement at all. Keep the two in step: if the JS
-   snap goes, this goes. */
-.dc-meter-fill {
-  transition: background-color 200ms ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dc-meter-fill {
-    transition: none;
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .dc-badge {
-    transition: opacity 180ms ease-out, transform 180ms ease-out;
-  }
-
-  .dc-tile:active {
-    transform: scale(0.97);
-  }
-
-  /* THE SHIELD STAMP (v1.3 R5): pressed down onto the BLOCKED banner and the
-     tile a defense held, overshooting once. Under reduced motion the
-     stamp is simply there. */
-  .dc-stamp-pop {
-    animation: dc-stamp-pop 280ms cubic-bezier(0.2, 1.5, 0.4, 1) both;
-  }
-
-  /* THE DECODE (v1.3 R5, brief 8.3): green noise over a move's name as
-     the intel brief names it, fading off it, as the prototype draws it.
-     Its length is Tonight's DECODE_MS. */
-  .dc-decode {
-    animation: dc-decode 900ms ease-in both;
-  }
-
-  /* A bottom sheet rises over the board (v1.2 R1). Under reduced motion it
-     is simply there. */
-  .dc-sheet-in {
-    animation: dc-sheet-in 180ms ease-out;
-  }
-
-  .dc-flash-bad {
-    animation: dc-flash-bad 520ms ease-out both;
-  }
-
-  .dc-flash-good {
-    animation: dc-flash-good 520ms ease-out both;
-  }
-
-  .dc-badge-attach {
-    animation: dc-badge-attach 420ms ease-out both;
-  }
-
-  .dc-badge-clear {
-    animation: dc-badge-clear 520ms ease-out both;
-  }
-
-  .dc-badge-tick {
-    animation: dc-pulse-soft 700ms ease-out both;
-  }
-
-  .dc-pulse-hostile {
-    animation: dc-pulse-hostile 620ms ease-out both;
-  }
-
-  .dc-pulse-friendly {
-    animation: dc-pulse-friendly 620ms ease-out both;
-  }
-
-  .dc-transmission-in {
-    animation: dc-transmission-in 320ms ease-out both;
-  }
-
-  .dc-strobe {
-    animation: dc-strobe 1.6s ease-in-out infinite;
-  }
-
-  /* A bought item sliding into the manifest. */
-  .dc-manifest-in {
-    animation: dc-manifest-in 320ms ease-out both;
-  }
-
-  /* v1.2 R3: the hit lands on its tile (brief 4.5); since v1.3 R3 it is
-     the night's strike (brief 5.5 item 1). Every duration is a share of
-     --dc-beat, the strike's length, which Game sets on the board root.
-     Transform and opacity only. The lock-on is the first LOCK_SHARE of
-     the strike (src/ui/board/strike.ts); the rest starts when it lands. */
-  .dc-lock-on {
-    animation: dc-lock-on calc(var(--dc-beat, 1500ms) * 0.3) steps(3, end) both;
-  }
-
-  .dc-hit-strobe {
-    animation: dc-hit-strobe calc(var(--dc-beat, 1500ms) * 0.45) steps(1, end) forwards;
-  }
-
-  .dc-burst {
-    animation: dc-burst calc(var(--dc-beat, 1500ms) * 0.12) steps(1, end) forwards;
-  }
-
-  .dc-burst-1 {
-    animation-delay: calc(var(--dc-beat, 1500ms) * 0.12);
-  }
-
-  .dc-burst-2 {
-    animation-delay: calc(var(--dc-beat, 1500ms) * 0.24);
-  }
-
-  .dc-pip-pop {
-    animation: dc-pip-pop calc(var(--dc-beat, 1500ms) * 0.4) ease-out forwards;
-  }
-
-  .dc-mai-float {
-    animation: dc-mai-float calc(var(--dc-beat, 1500ms) * 0.6) ease-out forwards;
-  }
-
-  .dc-shield-flash {
-    animation: dc-shield-flash calc(var(--dc-beat, 1500ms) * 0.5) steps(1, end) both;
-  }
-}
-
-@keyframes dc-manifest-in {
-  from {
-    opacity: 0;
-    transform: translateX(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes dc-flash-bad {
-  0% { color: var(--color-hero-magenta); text-shadow: 0 0 10px var(--color-hero-magenta); }
-  100% { color: var(--color-hero-magenta); text-shadow: none; }
-}
-
-@keyframes dc-flash-good {
-  0% { color: var(--color-hero-blue); text-shadow: 0 0 10px var(--color-hero-blue); }
-  100% { color: var(--color-hero-blue); text-shadow: none; }
-}
-
-@keyframes dc-badge-attach {
-  0% { opacity: 0; transform: scale(0.6) translateY(-6px); }
-  55% { opacity: 1; transform: scale(1.12); box-shadow: 0 0 14px var(--color-hero-magenta); }
-  100% { opacity: 1; transform: scale(1); box-shadow: none; }
-}
-
-@keyframes dc-badge-clear {
-  0% { opacity: 1; transform: scale(1); box-shadow: 0 0 14px var(--color-phosphor); }
-  100% { opacity: 0; transform: scale(0.8); box-shadow: none; }
-}
-
-@keyframes dc-pulse-soft {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
-
-@keyframes dc-pulse-hostile {
-  0% { transform: scale(1); filter: drop-shadow(0 0 0 var(--color-hero-magenta)); }
-  45% { transform: scale(1.18); filter: drop-shadow(0 0 8px var(--color-hero-magenta)); }
-  100% { transform: scale(1); filter: drop-shadow(0 0 0 var(--color-hero-magenta)); }
-}
-
-@keyframes dc-pulse-friendly {
-  0% { transform: scale(1); filter: drop-shadow(0 0 0 var(--color-hero-blue)); }
-  45% { transform: scale(1.14); filter: drop-shadow(0 0 8px var(--color-hero-blue)); }
-  100% { transform: scale(1); filter: drop-shadow(0 0 0 var(--color-hero-blue)); }
-}
-
-@keyframes dc-transmission-in {
-  0% { opacity: 0; transform: translateX(-12px); }
-  100% { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes dc-strobe {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
-}
-
-@keyframes dc-sheet-in {
-  from {
-    transform: translateY(24px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-/* Hidden means paused (the policy in src/ui/cues/visibility.ts), for every
-   animation on the board, idle or cue: Game sets this class on the board
-   root from visibilitychange. !important because an animation shorthand
-   resets animation-play-state to running, so a later or more specific
-   shorthand would otherwise win over the pause. */
-.dc-board-hidden,
-.dc-board-hidden * {
-  animation-play-state: paused !important;
-}
-
-@keyframes dc-blink {
-  0% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.25;
-  }
-}
-
-/* The hit's effects rest invisible (v1.2 R3): the no-preference rules
-   above animate them in, so under reduced motion there is no strobe,
-   burst, pip pop or falling "-n", and the tile, its pips and the score
-   simply change. The lock-on brackets and HELD are not motion and stand
-   still in both modes. The delta chip's float left this list in v1.6 R1:
-   it holds its colour, and with motion off the chip stands without the
-   class. */
-.dc-hit-strobe,
-.dc-burst,
-.dc-pip-pop {
-  opacity: 0;
-}
-
-@keyframes dc-lock-on {
-  0% {
-    opacity: 0;
-    transform: scale(1.6);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-/* Three magenta flashes. */
-@keyframes dc-hit-strobe {
-  0%,
-  33%,
-  66% {
-    opacity: 1;
-  }
-  16%,
-  50%,
-  83%,
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes dc-burst {
-  0% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes dc-pip-pop {
-  0% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-6px) scale(2);
-  }
-}
-
-/* The fall (or NO LOSS) holds in its slot over the margin line, readable,
-   then lifts a little as it fades (v1.3 R3 fresh-eyes review: a 20px rise
-   carried it into the label row above). */
-@keyframes dc-mai-float {
-  /* Full colour for its whole life (v1.6 R1's fresh eyes, F4: a still
-     caught the fade at a third of its colour); it drifts up, and goes when
-     the move's card comes. */
-  0% {
-    transform: translateY(3px);
-  }
-  100% {
-    transform: translateY(-2px);
-  }
-}
-
-@keyframes dc-shield-flash {
-  0%,
-  40%,
-  80% {
-    opacity: 1;
-  }
-  20%,
-  60% {
-    opacity: 0.2;
-  }
-  100% {
-    opacity: 1;
-  }
-}
-
 /* SYSTEM's motion toggle (v1.3 R1, brief 5.8). Off stops every CSS
    animation and transition whatever the system preference says; the
    components read the same setting through useReducedMotion and take
@@ -592,306 +225,440 @@ details[open] .dc-open-turn {
 }
 
 /* App sets this on the root from visibilitychange: a hidden tab holds
-   every animation where it is, on every screen (the board has had its own
-   since v1.2 R2). */
+   every animation where it is, on every screen. */
 .dc-page-hidden *,
 .dc-page-hidden *::before,
 .dc-page-hidden *::after {
   animation-play-state: paused !important;
 }
 
-/* THE DESKTOP DEBRIEF (v1.5 R2, Ken's ruling of 24 October 2026: a
-   full-width desktop layout in place of the phone column): the grade, the
-   lead, the stats and FILED THIS GAME stand on the left and stay in view,
-   and the sections that explain the game run down the right, each a
-   readable line; the way on spans both. In the stylesheet rather than the
-   debrief's chunk, which sits near its 10,000-byte cap. */
-@media (min-width: 1100px) {
-  [data-debrief-screen] {
-    max-width: 1200px;
-  }
-  [data-debrief] {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    /* Two columns that each flow from the top (v1.6 R2, R1's fresh eyes
-       F18: a won debrief left a band of about 100px under FILED THIS
-       GAME). The first screen takes its own height; the left column's
-       sections start right under it, and the right column's group spans
-       both rows, so neither column waits on the other. */
-    grid-template-rows: auto 1fr;
-    column-gap: 28px;
-    row-gap: 12px;
-    align-items: start;
-  }
-  [data-debrief] > * {
-    grid-column: 1 / -1;
-  }
-  [data-debrief] > [data-debrief-first] {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  [data-debrief] > [data-debrief-col] {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-  /* Balanced (v1.5 R2's review: the left column ended half way down):
-     what you can say, NEXT TIME and the decisions on the right; the turn
-     strip right under the result (v1.5 R2's re-review: it was below the
-     fold), then the ladder, on the left. */
-  [data-debrief] > [data-debrief-col='right'] {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-  }
-  [data-debrief] > [data-debrief-col='left'] {
-    grid-column: 1;
-    grid-row: 2;
-  }
-  [data-debrief-col='left'] > [data-turns] {
-    order: -1;
-  }
+/* ---------------------------------------------------------------------
+   THE TITLE IN THE 3D GAME'S LOOK (v2.0 R3, Ken's ruling of 15 November
+   2026: the title in 3D). The title and its SYSTEM in the game's glass:
+   soft panels, round corners, one-pixel edges, no hard shadows, the
+   system face, a monospace for the small caps labels, and PLAY as the
+   game's primary button. Plain rules and short class names, because both
+   are in the first download: a rule said once is smaller than a utility
+   list said on every element. The game's stylesheet loads with the game,
+   so its glass is said again here (.t3-root in src/ui/three/game3d.css
+   has the same values); the colours are the --dc tokens above, which
+   already match the game's.
+   --------------------------------------------------------------------- */
+:root {
+  --tt-dim: #9aa8ba;
+  --tt-glass: rgba(10, 16, 28, 0.78);
+  --tt-edge: rgba(160, 190, 230, 0.16);
 }
 
-/* The desktop board's playfield, wider on a wide screen, draws its tiles
-   bigger (v1.5 R2's re-review: small sprites in large starfields). */
-@media (min-width: 1300px) and (min-height: 600px) {
-  [data-board] [data-strip] [data-art] {
-    zoom: 3;
-  }
-}
-
-/* THE PLAYFIELD (v1.5 R2): once its chunk is here it paints each layer's
-   panel as a place (src/ui/board/Playfield.tsx), so the panels give up
-   their plain fill. */
-[data-field='on'] > [data-layer] {
-  background-color: transparent;
-}
-/* Its shield's dome stands in for the block's square reticle, and its
-   burst for the hit's filled strobe (v1.5 R2's reviews). */
-[data-field='on'] [data-shield-reticle],
-[data-field='on'] [data-strobe] {
+/* The scanlines are the pixel screens'; over glass they are noise. */
+body:has([data-title]) .crt-overlay {
   display: none;
 }
-/* The tiles' words stay readable over the scene. */
-[data-field='on'] [data-layer] :is(h2, span) {
-  text-shadow: 0 1px 0 var(--dc-shadow), 0 0 3px var(--dc-ground);
+
+[data-title] {
+  min-height: 100dvh;
+  background: #04070d;
+  color: var(--dc-ink);
+  font-size: 14px;
+  line-height: 1.35;
 }
-/* On a phone with height to spare (390x844, not 375x667), the layers get
-   up to 64px of sky, none where the board has none, placed by altitude:
-   the satellites high over the Earth, the drones mid-sky, the station on
-   the ground. The sprites grow a quarter there too. */
-[data-strip] {
-  --dc-sky: clamp(0px, calc((100dvh - 700px) * 0.45), 64px);
+[data-title] :focus-visible {
+  outline-color: var(--dc-friendly);
 }
-[data-strip] [data-tiles] {
-  padding-top: var(--dc-sky);
-}
-[data-strip] [data-layer='ORBIT'] [data-tiles] {
-  padding-top: 0;
-  padding-bottom: var(--dc-sky);
-}
-[data-strip] [data-layer='AIR'] [data-tiles] {
-  padding-top: calc(var(--dc-sky) / 2);
-  padding-bottom: calc(var(--dc-sky) / 2);
-}
-@media (max-width: 559px) and (min-height: 800px) {
-  [data-strip] [data-art] {
-    zoom: 1.25;
-  }
+[data-title-screen] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 100dvh;
+  padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
 }
 
-/* THE WIDER STRIP (brief section 11, R5; the prototype at 560px and up):
-   its tiles widen. zoom scales the art and its strike marks together,
-   crisp, since the sprites draw with crispEdges. */
-@media (min-width: 560px) {
-  [data-strip] [data-art] {
-    zoom: 1.5;
-  }
+/* THE HERO. Its box is set here, in the first download, so the world
+   lands in it and nothing moves: a share of the screen's height on a
+   phone, and on a tall one whatever the menu leaves, so the title ends
+   where the screen does. Its still gradients, the globe's lit limb in the
+   dark and COLDVEIL's glow off its shoulder, stand where the world will
+   put them: they are what shows until the world arrives, and all that
+   shows if it never does (no WebGL, or its chunk did not load). */
+[data-key-art] {
+  position: relative;
+  display: flex;
+  flex: 1 0 auto;
+  align-items: flex-end;
+  overflow: hidden;
+  min-height: clamp(220px, 44dvh, 360px);
+  background:
+    radial-gradient(circle 56px at var(--tt-foe, 13% 17%), rgba(255, 90, 79, 0.36), transparent),
+    radial-gradient(circle var(--tt-globe, 34vw) at var(--tt-at, 58% 71%), #0a1c38, #060f1f 62%, #1d4f8f 79%, rgba(90, 169, 255, 0.28) 81%, transparent);
+}
+/* The scrim the words stand on, and the hero's foot fading into the page. */
+[data-key-art]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(to top, #04070d 3%, rgba(4, 7, 13, 0.7) 34%, transparent 68%);
+}
+.tt-world {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+.tt-world[data-on] {
+  opacity: 1;
+}
+.tt-world canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.tt-words {
+  --wordmark: clamp(0.9rem, 4.8vw, 1.7rem);
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-width: 0;
+  padding: 0 16px 10px;
+}
+.tt-op {
+  margin-top: 12px;
+  font: 600 12px var(--font-mono);
+  letter-spacing: 0.18em;
+  color: var(--dc-friendly);
+}
+/* One line on a phone: the title's effect steps this down to fit. */
+[data-tagline] {
+  margin-top: 6px;
+  white-space: nowrap;
+  font-size: clamp(10px, 3.2vw, 14px);
+  color: var(--tt-dim);
 }
 
-/* THE DESKTOP BOARD (v1.5 R2, Ken's ruling of 24 October 2026: a
-   full-width desktop layout in place of the centered phone column). From
-   WIDE_BOARD up (src/ui/board/boardModel.ts, the same query) the board is
-   three columns: the playfield, its layers stacked as bands; the phone's
-   column, with the HUD, TONIGHT or the night, and the dock, no wider than
-   a readable line; and the side panel, where PROCURE stands open while the
-   player decides and the other sheets open over it. During the night the
-   side panel goes and the middle column widens. The same components as
-   the phone's: the board's two wrappers step aside (display: contents) so
-   their children are the grid's. */
-@media (min-width: 1100px) and (min-height: 600px) {
-  [data-board] {
+/* THE MENU: one column on a phone, three from the desktop width up. */
+[data-title-menu] {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 0 max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px));
+}
+.tt-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.tt-goals,
+.tt-read {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+/* READ's label and BRIEFING span the row; DOSSIER and LIBRARY share one. */
+.tt-read > :nth-child(-n + 2) {
+  grid-column: 1 / -1;
+}
+.tt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.tt-label {
+  font: 600 12px/1.3 var(--font-mono);
+  letter-spacing: 0.14em;
+  color: var(--tt-dim);
+}
+.tt-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--tt-edge);
+  border-radius: 14px;
+  background: var(--tt-glass);
+  text-align: left;
+}
+.tt-name {
+  font-size: 15px;
+  font-weight: 700;
+}
+[data-goal] > .tt-go,
+[data-read] > span {
+  font-size: 13px;
+}
+[data-read] > :first-child {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+[data-read] > :last-child {
+  color: var(--tt-dim);
+}
+/* Each goal's last line stands at the foot of its tile, so the two tiles
+   end level whatever wraps above. */
+[data-goal-status],
+.tt-bar {
+  margin-top: auto;
+}
+[data-goal-status] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 4px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--tt-dim);
+}
+.tt-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--tt-edge);
+  overflow: hidden;
+}
+.tt-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--dc-go);
+}
+.tt-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 48px;
+  padding: 6px 16px;
+  border: 1px solid var(--tt-edge);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--dc-ink);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-align: center;
+}
+.tt-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* The colours, after the looks they tint. */
+.tt-go {
+  color: var(--dc-go);
+}
+.tt-sky {
+  color: var(--dc-friendly);
+}
+.tt-warn {
+  color: var(--dc-warn);
+}
+.tt-off {
+  color: var(--tt-dim);
+}
+.tt-btn:is(.tt-go, .tt-sky, .tt-warn),
+.tt-card.tt-warn {
+  border-color: color-mix(in srgb, currentColor 45%, transparent);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.tt-card.tt-warn {
+  gap: 8px;
+}
+/* A choice or a switch that is on is filled (Ken, 21 October). */
+.tt-btn.tt-on {
+  border-color: transparent;
+  background: var(--dc-go);
+  color: #04110a;
+}
+/* PLAY, as the game's primary button (.t3-btn.t3-primary). */
+[data-play] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 62px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #a6ffbb, #6ff08f);
+  box-shadow: 0 8px 26px rgba(124, 255, 155, 0.3);
+  color: #04110a;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  /* The tracking's last gap, taken back so the word stands centred. */
+  text-indent: 0.2em;
+}
+[data-play-mode] {
+  color: rgba(4, 17, 10, 0.72);
+  text-indent: 0.14em;
+}
+[data-daily] {
+  min-height: 56px;
+  padding: 8px 12px;
+}
+[data-daily-line] {
+  letter-spacing: 0.04em;
+}
+[data-daily-countdown],
+[data-moved-to-standard] {
+  text-align: center;
+}
+[data-moved-to-standard] {
+  font-size: 13px;
+}
+.tt-clock {
+  color: var(--dc-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* SYSTEM, over the title: opaque and the screen's height (Ken, 21
+   October), a glass column in the middle of a wide screen. */
+.tt-system {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: #04070d;
+}
+.tt-system > div {
+  max-width: 520px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-inline: 1px solid var(--tt-edge);
+  background: var(--tt-glass);
+}
+.tt-bar-top {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(8px, env(safe-area-inset-top, 0px)) 16px 8px;
+  border-bottom: 1px solid var(--tt-edge);
+  background: #0a101c;
+}
+.tt-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 16px;
+}
+.tt-panel section > * + * {
+  margin-top: 8px;
+}
+.tt-note,
+[data-how-to] {
+  font-size: 13px;
+  color: var(--tt-dim);
+}
+[data-how-to] {
+  display: grid;
+  gap: 6px;
+  padding-left: 20px;
+  list-style: decimal;
+  color: var(--dc-ink);
+}
+/* 16px, or iOS Safari zooms the page on focusing a field, and stays. */
+.tt-field {
+  width: 9rem;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid var(--tt-edge);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  font: 16px var(--font-mono);
+  color: var(--dc-ink);
+}
+textarea.tt-field {
+  display: block;
+  width: 100%;
+  height: 64px;
+  margin-top: 6px;
+}
+
+@media (min-width: 1100px) {
+  [data-title] {
+    font-size: 15px;
+  }
+  /* The first screen is the window: the hero takes what the menu leaves. */
+  [data-title-screen] {
+    gap: 28px;
+    padding-bottom: 40px;
+  }
+  [data-key-art] {
+    --tt-foe: 38% 22%;
+    --tt-globe: 21vw;
+    --tt-at: 68% 100%;
+    min-height: 360px;
+  }
+  /* The words stand at the foot of the left here, so the scrim does too,
+     and the globe beside them keeps its light. */
+  [data-key-art]::after {
+    background: linear-gradient(to top, #04070d 2%, transparent 24%), radial-gradient(60% 75% at 16% 100%, rgba(4, 7, 13, 0.82) 30%, transparent 72%);
+  }
+  .tt-words {
+    --wordmark: clamp(1.9rem, 2.35vw, 2.15rem);
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 32px 34px;
+  }
+  .tt-op {
+    margin-top: 20px;
+    font-size: 16px;
+  }
+  [data-tagline] {
+    margin-top: 8px;
+    font-size: 18px;
+  }
+  [data-title-menu] {
     display: grid;
-    max-width: 1480px;
-    grid-template-columns: minmax(320px, 1fr) minmax(380px, 500px) minmax(300px, 380px);
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    grid-template-areas:
-      'field hud side'
-      'field play side'
-      'field dock side';
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+    max-width: 1200px;
+    padding: 0 32px;
   }
-  [data-board][data-side='none'] {
-    grid-template-columns: minmax(360px, 1fr) minmax(400px, 540px);
-    grid-template-areas:
-      'field hud'
-      'field play'
-      'field dock';
+  .tt-col {
+    gap: 14px;
   }
-  [data-board] [data-hud] {
-    grid-area: hud;
+  /* The goals one over the other, each as tall as its share of the column. */
+  .tt-goals {
+    flex: 1;
+    grid-template-columns: 1fr;
   }
-  [data-board] [data-dock] {
-    grid-area: dock;
+  [data-title] .tt-card {
+    padding: 16px;
   }
-  [data-board] [data-board-frame],
-  [data-board] [data-board-body] {
-    display: contents;
+  [data-title] .tt-name {
+    font-size: 17px;
   }
-  [data-board] [data-board-play] {
-    grid-area: play;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    padding: 6px 12px;
+  [data-goal] > .tt-go,
+  [data-read] > span {
+    font-size: 14px;
   }
-  /* The playfield: the layers as bands, orbit over air over ground. */
-  [data-board] [data-strip] {
-    grid-area: field;
-    flex-direction: column;
-    gap: 8px;
-    min-height: 0;
-    padding: 12px;
-    border-right: 2px solid var(--dc-line);
-    background: var(--dc-shadow);
-  }
-  [data-board] [data-strip] > [data-layer] {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 0 !important;
-    padding: 6px 10px;
-  }
-  [data-board] [data-strip] > [data-layer='ORBIT'] {
-    flex-grow: 1.3 !important;
-  }
-  [data-board] [data-strip] > [data-layer='GROUND'] {
-    flex-grow: 0.8 !important;
-  }
-  [data-board] [data-strip] [data-layer] h2,
-  [data-board] [data-strip] [data-condition-chip] {
-    font-size: 12px;
-  }
-  [data-board] [data-strip] [data-tiles],
-  [data-board] [data-strip] [data-layer='ORBIT'] [data-tiles],
-  [data-board] [data-strip] [data-layer='AIR'] [data-tiles] {
-    margin: auto 0;
-    padding: 0;
-    justify-content: space-evenly;
-    gap: 12px;
-  }
-  [data-board] [data-strip] [data-layer='GROUND'] [data-tiles] {
-    margin: auto 0 0;
-  }
-  [data-board] [data-strip] [data-art] {
-    zoom: 2.5;
-  }
-  [data-board] [data-strip] .dc-tile span {
-    font-size: 12px;
-  }
-  [data-board] [data-strip-over] {
-    grid-area: field;
-    align-self: end;
-    padding: 4px 12px 14px;
-  }
-  /* Desktop type (v1.6 R2, R1's fresh eyes F25 and the round's own G8):
-     the phone's 9 to 11px labels and tags read as phone sizes at 1440, so
-     in the HUD, the night's column, the dock and the side panel nothing
-     is set under 12px. */
-  [data-board] :is([data-hud], [data-board-play], [data-dock], [data-sheet]) :is(.text-\[8px\], .text-\[9px\], .text-\[10px\], .text-\[11px\]) {
-    font-size: 12px;
-  }
-  /* The full brief, open with TONIGHT here, has the room to show more. */
-  [data-board] [data-brief-scroll] {
-    max-height: 40dvh;
-  }
-  /* The HUD's first line, SYSTEM's, stands clear of the labels under it. */
-  [data-board] [data-hud] > div:first-child {
-    padding-bottom: 6px;
-  }
-  /* The strike's banner stands in the night's column, empty while the
-     move plays out on the playfield beside it. */
-  [data-board] [data-board-play] [data-strike-banner] {
-    position: absolute;
-  }
-  /* The side panel: the sheets, in place, the board beside them live. */
-  [data-board] [data-sheet] {
-    grid-area: side;
-    position: static;
-    max-height: none;
-    min-height: 0;
-    height: 100%;
-    border-top: 0;
-    border-left: 2px solid var(--dc-line);
-  }
-  /* The assets two to a row in the side panel, whose 12px floor runs a
-     name past a quarter's tile (v1.6 R4's fresh eyes, K1); and END OF
-     TURN's TONIGHT steps aside for the night's log beside it (K13). */
-  [data-board] [data-procure-assets] {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  [data-board] [data-end-tonight] {
-    display: none;
-  }
-  /* PROCURE's "?" and a tile's blurb stand over the panel, not the board
-     (v1.6 R4). */
-  [data-board] [data-sheet='procure'] {
-    position: relative;
-  }
-  [data-board] [data-sheet-backdrop],
-  [data-board] [data-board-more],
-  [data-board] [data-sheet='procure'] [data-sheet-close],
-  [data-board] [data-sheet='procure'] [data-confirm],
-  [data-board] [data-dock] [data-action='procure'] {
-    display: none;
-  }
-  /* The tile's intel card, the Glossary and the Field Library open as a
-     drawer over the side panel, with the board dimmed beside it. */
-  [data-intel-overlay],
-  [data-glossary-overlay],
-  [data-library-overlay] {
-    left: auto;
-    width: min(520px, 40vw);
-    border-left: 2px solid var(--dc-line);
-    box-shadow: 0 0 0 100vmax rgba(5, 8, 12, 0.7);
+  [data-play] {
+    flex: 1;
+    min-height: 112px;
+    font-size: 30px;
   }
 }
 
-/* THE SHIELD STAMP's landing (v1.3 R5); its rule is in the guard above. */
-
-@keyframes dc-stamp-pop {
-  0% {
-    opacity: 0;
-    transform: scale(2.2) rotate(-12deg);
+/* The title's own motion: the world fades in over the still gradient, and
+   a button gives under the finger. */
+@media (prefers-reduced-motion: no-preference) {
+  .tt-world {
+    transition: opacity 0.9s;
   }
-  60% {
-    opacity: 1;
+  .tt-btn,
+  .tt-card,
+  [data-play] {
+    transition: transform 0.12s;
   }
-  100% {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-/* THE DECODE's fade (v1.3 R5); its rule is in the guard above. */
-
-@keyframes dc-decode {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
+  :is(.tt-btn, button.tt-card, [data-play]):active {
+    transform: scale(0.97);
   }
 }

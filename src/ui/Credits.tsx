@@ -24,9 +24,8 @@ export default function Credits({ onBack }: { onBack: () => void }) {
         <p className="font-mono text-phosphor">Artwork: AI-generated, human-commanded.</p>
         <p className="text-ink-dim">
           The README banner and the link preview image were generated with AI tools under my direction and selection.
-          The constellation frame was authored as original vector work for this project, the wordmark is set in the DC
-          Display face, and the title’s key art, the playfield, the Dossier’s emblems, the pixel sprites, icons and
-          briefing scenes were drawn in code for this project.
+          The wordmark is set in the DC Display face, and the world of the game, on the title and in play (the globe,
+          the fleet, COLDVEIL and every effect), is built in code for this project, with no image files.
         </p>
       </section>
 
