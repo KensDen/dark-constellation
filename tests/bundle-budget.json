@@ -116,13 +116,13 @@
   "v20r1GameChunkGzipBytes": 57310,
   "v20r1BoardChunkGzipBytes": 18434,
   "v20r3Note": "v2.0 Round 3 (15 November 2026, Ken's rulings: the pixel board retired, the title in 3D, INITIAL under 155,000, one shared three.js, the three.js chunk's budget unchanged unless the round truly needs it and reported if so). Four changes to what is measured. (1) The pixel board's marked chunk is gone with the board. (2) THE THREE.JS CEILING IS RAISED from 132,000 to 138,000, and this is the report of why. three.js did not grow and the game uses no new class of it. Through R2 the shared chunk held only the part of three.js that the title's wireframe ring and the game had in common (131,740), and the part only the game used rode in the game's chunk. The title's hero is now the game's own theater, so the title asks for every part of three.js the game asks for, and all of it is in the one shared chunk: 136,570, named as a chunk of its own in vite.config.ts so it is three.js and nothing else. The alternative that keeps 132,000 is a title that does not draw the theater. (3) THE GAME'S CODE IS FOUR NAMED CHUNKS where R2 had one of 72,000: the theater, which the title and the game share (v20r3TheaterChunkGzipBytes, ceiling 21,000), the game (ceiling 20,000), the cards, model and words that the game and its rooms share (ceiling 32,000), and the rooms, loaded beside the game: the debrief, the after-action replay, the Dossier and SYSTEM (ceiling 12,000). The four ceilings sum to 85,000, against 72,000 plus the pixel board's 24,000 before. (4) THE GAME'S STYLESHEET, which had 110 bytes under the 10,000 cap at R2: retiring the pixel board freed nothing in it, since the board's styles were never in that file (they were in the first download's stylesheet, which fell from about 10,300 to v20r3InitialCssGzipBytes with the board's rules out and the title's new ones in). The room came from the rooms' own stylesheet leaving with the rooms' chunk: the game's sheet is v20r3GameCssGzipBytes and the rooms' v20r3RoomsCssGzipBytes, each under the cap, which is not raised. The first download is v20r3InitialGzipBytes, down from 132,728 at R2: the board's shared models and styles left it, and the 17 new threat voices (1,209) and the title's new rules joined it.",
-  "v20r3InitialGzipBytes": 123411,
-  "v20r3InitialCssGzipBytes": 6770,
+  "v20r3InitialGzipBytes": 123372,
+  "v20r3InitialCssGzipBytes": 6730,
   "v20r3ThreeChunkGzipBytes": 136570,
   "v20r3TheaterChunkGzipBytes": 18150,
-  "v20r3GameChunkGzipBytes": 16438,
-  "v20r3CardsChunkGzipBytes": 28397,
-  "v20r3RoomsChunkGzipBytes": 10309,
-  "v20r3GameCssGzipBytes": 7813,
-  "v20r3RoomsCssGzipBytes": 3012
+  "v20r3GameChunkGzipBytes": 16552,
+  "v20r3CardsChunkGzipBytes": 29313,
+  "v20r3RoomsChunkGzipBytes": 10430,
+  "v20r3GameCssGzipBytes": 7884,
+  "v20r3RoomsCssGzipBytes": 3017
 }
