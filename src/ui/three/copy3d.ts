@@ -49,13 +49,22 @@ export const UNIDENTIFIED = 'UNIDENTIFIED'
 export const CONFIRMED = 'CONFIRMED'
 export const ALLIED_FEED = 'ALLIED FEED: every signature tonight is identified.'
 export const pulsesLeft = (left: number, of: number) => `${left} of ${of} pulse${of === 1 ? '' : 's'} left`
-export const scanButton = (left: number) => `SCAN IT · 1 PULSE (${left} LEFT)`
+// Short enough to share a row with NAME IT ON SIGHT on a 375 px screen.
+export const scanButton = (left: number) => `SCAN IT · ${left} LEFT`
 export const NO_PULSES = 'No pulses left tonight'
 export const scanHint = (tracks: number, sigs: number) =>
   tracks === 1 ? `${ADVERSARY} makes 1 move tonight: 1 of the ${sigs} signature${sigs === 1 ? '' : 's'} over the fleet.` : `${ADVERSARY} makes ${tracks} moves tonight, 1 from each track: ${sigs} signatures over the fleet.`
 export const UNKNOWN_LEAD = 'Unidentified signature'
 export const unknownBody = (n: number) => (n > 1 ? `${ADVERSARY} is choosing between ${n} moves here, and plays 1 of them tonight. This is 1 of the ${n}.` : `${ADVERSARY} plays this move tonight.`)
-export const KNOW_THE_LOOK = 'Know the look? Every card you file in the Dossier shows its signature.'
+export const KNOW_THE_LOOK = 'Know the look? Name it and spend no pulse. Every card you file in the Dossier shows its signature.'
+// THE NAME ON SIGHT (v2.0 R3): an unidentified signature named from its look.
+export const SIGHT_BUTTON = 'NAME IT ON SIGHT'
+export const SIGHT_ASK = 'Which is it?'
+export const SIGHT_TERMS = '1 try tonight, and no pulse spent. Close the card to keep the try.'
+export const SIGHT_MISSED = 'Named wrong tonight. A scan pulse can still identify it.'
+export const SIGHTED = 'NAMED ON SIGHT'
+export const sightRight = (name: string) => `Named on sight: ${name}. No pulse spent.`
+export const sightWrong = (name: string) => `Not ${name}. It stays unidentified, and a scan can still name it.`
 export const trackOf = (n: number, of: number) => `TRACK ${n} OF ${of}`
 export const FAVOR = {
   confirmed: 'CONFIRMED: this move is coming.',
@@ -97,6 +106,8 @@ export const TAG: Record<string, string> = {
 export const KIT = 'DEFENSES'
 export const FLEET = 'FLEET'
 export const ONE_A_NIGHT = '1 new defense a night'
+export const TRAY_MORE = 'More defenses'
+export const TRAY_BACK = 'Back to the first defenses'
 export const placeOn = (sign: string) => `PLACE ON ${sign}`
 export const PLACED = 'PLACED'
 export const TAKE_BACK = 'TAKE IT BACK'
@@ -246,6 +257,27 @@ export const READINGS = 'OPEN THE READING LIST'
 
 // SYSTEM AND UNLOCKS.
 export const SYSTEM = 'SYSTEM'
+// THE WORDS (v2.0 R3). Round 2's first-time reviewer finished a game
+// without working out PNT, GNSS, RPO, SSA, the frameworks' names, what
+// blunts means beside stops, or what WORST CASE is in CR. Each in a line,
+// in SYSTEM, where a player who is stuck looks. The numbers are passed in.
+export const WORDS = 'THE WORDS'
+export const wordsFor = (n: { coverageMin: number; coverageBonus: number; harden: number; collapse: number }): readonly (readonly [string, string])[] => [
+  ['GNSS', 'Satellite navigation, GPS among it. The drones steer by it.'],
+  ['PNT', 'Position, navigation and timing: what GNSS gives the fleet.'],
+  ['LiDAR', 'A laser range sensor. The drones and the inspection satellite see with it.'],
+  ['RPO', 'Rendezvous and proximity operations: one satellite working close to another.'],
+  ['SSA', 'Space situational awareness: tracking what else is in orbit, debris included.'],
+  ['SPARTA, ATT&CK, ATLAS', 'Public catalogs of attack techniques: for space systems, for networks, and for AI. Every threat here cites one.'],
+  ['STOPS, BLUNTS', 'A defense that stops a move takes all of its strength. One that blunts it takes some, and the rest lands.'],
+  ['LIKELY, POSSIBLE, NOT FAVORED', `What ${ADVERSARY} does with a move on a track: it plays the one your defenses take the least off.`],
+  ['WATCH POST', `The asset your newest defense sits on. Any strike there lands ${n.harden} point weaker.`],
+  ['AT STAKE', 'The most score tonight could take, if the worst move on each track landed as things stand.'],
+  ['WORST CASE', 'The budget after the worst night tonight could be. A budget under 0 at dawn ends the operation.'],
+  ['UPKEEP, RECOVERY', 'Upkeep is what each defense costs every night. Recovery is what each meter gets back at dawn.'],
+  ['COVERAGE', `The fleet's share of the score. At ${n.coverageMin} or more it also pays ${n.coverageBonus} CR at dawn.`],
+  ['SCORE', `Mission assurance, 0 to 100: coverage, links, data and sensors together. Under ${n.collapse} ends the operation.`],
+]
 export const ASSIST = 'Assist'
 export const ASSIST_NOTE = 'The timed tap is granted at a steady, modest rate. No timing needed.'
 export const LOW_POWER = 'Low power'
@@ -256,7 +288,9 @@ export const MUSIC = 'Music'
 export const SKIN = 'FLEET FINISH'
 export const POSTURE = `${ADVERSARY} POSTURE`
 export const OPENING_PICK = 'OPENING'
-export const CLASSIC = 'Open the classic pixel board'
+// The world could not be drawn (no WebGL): the game is the 3D game, and
+// the reading still opens.
+export const NO_3D = 'This device could not start the 3D view, and the game needs it. The Dossier and the Library still open from the title.'
 export const REPLAY_GUIDE = 'Replay the guide'
 export const REPLAY_BRIEFING = 'Replay the briefing'
 export const SKINS = {
@@ -308,6 +342,9 @@ export const holdRow = (night: number, sign: string) => `Night ${night} · ${sig
 export const CALLED = { override: 'OVERRODE', stand: 'LET IT STAND', none: 'NO CALL' } as const
 export const NO_HOLDS = 'The policy engine raised no hold this operation.'
 export const LOADING = 'Bringing the theater up'
+// A room whose chunk never arrived (the debrief, the Dossier, SYSTEM).
+export const ROOM_UNAVAILABLE = 'This screen could not load. Check the connection and try again.'
+export const ROOM_BACK = 'BACK'
 
 // NAME THAT SIGNATURE (v2.0 R2): a round in the Dossier on the cards filed.
 export const QUIZ = 'NAME THAT SIGNATURE'

@@ -514,15 +514,6 @@ html.t3-on body {
   vertical-align: 2px;
 }
 
-.t3-threat {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.t3-threat + .t3-threat {
-  padding-top: 8px;
-  border-top: 1px solid var(--t3-edge);
-}
 
 .t3-choices {
   display: flex;
@@ -609,6 +600,12 @@ html.t3-on body {
 }
 .t3-btn:active {
   transform: scale(0.97);
+}
+/* A button with nothing to do says so: the scan with no pulse left stood
+   as bright as one with two. */
+.t3-btn:disabled {
+  opacity: 0.45;
+  box-shadow: none;
 }
 .t3-btn.t3-primary {
   border: 0;
@@ -726,24 +723,6 @@ html.t3-on body {
   letter-spacing: 0.14em;
   animation: t3-pop 0.4s cubic-bezier(0.2, 1.6, 0.4, 1) both;
 }
-.t3-scoreline {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font: 600 20px ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--t3-dim);
-}
-.t3-scoreline b {
-  font-size: 40px;
-  line-height: 1;
-  color: var(--t3-ink);
-}
-.t3-scoreline i {
-  font-size: 15px;
-}
-.t3-scoreline svg {
-  align-self: center;
-}
 .t3-ledger {
   font: 600 13px ui-monospace, Menlo, monospace;
 }
@@ -837,15 +816,6 @@ html.t3-on body {
 
 .t3-root a {
   color: var(--t3-sky);
-}
-a.t3-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  text-decoration: none;
-  color: var(--t3-ink);
-  font-size: 12.5px;
 }
 .t3-grow {
   flex: 1 1 0;
@@ -1389,551 +1359,6 @@ a.t3-btn {
   letter-spacing: 0.06em;
 }
 
-/* ----------------------------------------------------- the debrief */
-.t3-debrief,
-.t3-room {
-  position: absolute;
-  inset: 0;
-  z-index: 8;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  background: linear-gradient(rgba(4, 7, 13, 0.2), rgba(4, 7, 13, 0.86) 34%, rgba(4, 7, 13, 0.96));
-  user-select: text;
-  -webkit-user-select: text;
-}
-.t3-room {
-  z-index: 12;
-  background: rgba(4, 7, 13, 0.95);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-.t3-roomonly .t3-room {
-  background: #04070d;
-}
-.t3-debrief-in {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  max-width: 560px;
-  margin: 0 auto;
-  padding: max(70px, calc(env(safe-area-inset-top, 0px) + 60px)) 16px max(24px, env(safe-area-inset-bottom, 0px));
-}
-.t3-debrief h2,
-.t3-debrief h3,
-.t3-debrief p,
-.t3-debrief dl,
-.t3-debrief dd,
-.t3-room h2,
-.t3-room h4,
-.t3-room h5,
-.t3-room p,
-.t3-room dl,
-.t3-room dd,
-.t3-room ul {
-  margin: 0;
-  padding: 0;
-}
-.t3-gradehead {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 4px 14px;
-  align-items: center;
-}
-.t3-gradehead > * {
-  grid-column: 1;
-}
-.t3-gradehead h2 {
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  line-height: 1.05;
-}
-.t3-grade {
-  grid-column: 2;
-  grid-row: 1 / span 4;
-  display: grid;
-  place-items: center;
-  width: 108px;
-  height: 108px;
-  border-radius: 28px;
-  background: var(--t3-glass);
-  box-shadow: inset 0 0 0 2px rgba(124, 255, 155, 0.7), 0 0 44px rgba(124, 255, 155, 0.25);
-  animation: t3-pop 0.7s cubic-bezier(0.2, 1.5, 0.4, 1) 0.5s both;
-}
-.is-lost .t3-grade {
-  box-shadow: inset 0 0 0 2px rgba(255, 90, 79, 0.7), 0 0 44px rgba(255, 90, 79, 0.2);
-}
-.t3-grade span {
-  margin-bottom: -22px;
-  font-size: 12px;
-  letter-spacing: 0.24em;
-  color: var(--t3-dim);
-}
-.t3-grade b {
-  font: 800 62px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.t3-final {
-  font-size: 12px;
-  letter-spacing: 0.1em;
-  color: var(--t3-dim);
-}
-.t3-final b {
-  font: 700 26px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--t3-ink);
-}
-.t3-strip {
-  display: flex;
-  gap: 6px;
-}
-.t3-strip i {
-  flex: 1;
-  display: grid;
-  place-items: center;
-  height: 30px;
-  border-radius: 9px;
-  font: 700 12px ui-monospace, Menlo, monospace;
-  color: #04110a;
-}
-.t3-sq-go {
-  background: var(--t3-go);
-}
-.t3-sq-warn {
-  background: var(--t3-warn);
-}
-.t3-sq-bad {
-  background: var(--t3-foe);
-}
-.t3-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-.t3-stats div {
-  padding: 9px 10px;
-  border-radius: 14px;
-  background: var(--t3-glass);
-  box-shadow: inset 0 0 0 1px var(--t3-edge);
-}
-.t3-stats dt {
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  color: var(--t3-dim);
-}
-.t3-stats dd {
-  font: 700 19px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.t3-stats small {
-  font-size: 12px;
-  color: var(--t3-dim);
-}
-.t3-next,
-.t3-earned {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-  border-radius: 20px;
-  background: rgba(255, 181, 71, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(255, 181, 71, 0.4);
-}
-.t3-earned {
-  background: rgba(124, 255, 155, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(124, 255, 155, 0.4);
-}
-.t3-next h3,
-.t3-earned h3 {
-  font-size: 12px;
-  letter-spacing: 0.2em;
-  color: var(--t3-warn);
-}
-.t3-earned h3 {
-  color: var(--t3-go);
-}
-.t3-next p {
-  font-size: 15px;
-  line-height: 1.4;
-}
-.t3-code {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.t3-code textarea {
-  height: 84px;
-  padding: 8px;
-  border-radius: 12px;
-  border: 1px solid var(--t3-edge);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--t3-ink);
-  font: 16px ui-monospace, Menlo, monospace;
-  word-break: break-all;
-}
-
-/* ------------------------------------------------------ the replay */
-.t3-replay {
-  gap: 7px;
-}
-.t3-seg {
-  flex: none;
-  display: flex;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: inset 0 0 0 1px var(--t3-edge);
-}
-.t3-seg button {
-  min-height: 44px;
-  padding: 0 11px;
-  border: 0;
-  background: none;
-  font: 700 12px ui-monospace, Menlo, monospace;
-  color: var(--t3-dim);
-}
-.t3-seg button[aria-pressed='true'] {
-  color: #04110a;
-  background: var(--t3-go);
-}
-.t3-seg button[data-t3-who='ghost'][aria-pressed='true'] {
-  background: var(--t3-shield);
-}
-.t3-spark {
-  width: 100%;
-  height: 54px;
-}
-.t3-spark path {
-  fill: none;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: 0.45;
-}
-.t3-spark path.is-on {
-  opacity: 1;
-  stroke-width: 2.6;
-}
-.t3-spark-line {
-  stroke: var(--t3-warn);
-  stroke-dasharray: 3 4;
-  stroke-width: 1.2 !important;
-}
-.t3-spark-you {
-  stroke: var(--t3-go);
-}
-.t3-spark-ghost {
-  stroke: var(--t3-shield);
-}
-.t3-spark-dot {
-  fill: var(--t3-go);
-}
-.t3-spark-dot.is-ghost {
-  fill: var(--t3-shield);
-}
-.t3-scrub {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.t3-scrub input {
-  width: 100%;
-  height: 28px;
-  accent-color: var(--t3-go);
-}
-.t3-nights {
-  display: flex;
-  gap: 5px;
-}
-.t3-nights button {
-  flex: 1;
-  min-height: 44px;
-  border: 0;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.07);
-  font: 700 14px ui-monospace, Menlo, monospace;
-}
-.t3-nights button[aria-pressed='true'] {
-  color: #04110a;
-  background: var(--t3-ink);
-}
-.t3-events {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 13px;
-}
-.t3-events li {
-  opacity: 0.32;
-  transition: opacity 0.3s;
-}
-.t3-events li.is-in {
-  opacity: 1;
-}
-.t3-events .t3g {
-  display: inline-block;
-  margin-right: 5px;
-  vertical-align: -6px;
-}
-.t3-events li > span {
-  font-weight: 800;
-  letter-spacing: 0.04em;
-}
-.t3-events span.t3-blocked {
-  color: var(--t3-shield);
-}
-.t3-events span.t3-hit {
-  color: var(--t3-foe);
-}
-.t3-events span.t3-halved,
-.t3-events span.t3-partial {
-  color: var(--t3-warn);
-}
-.t3-events i {
-  font-size: 8px;
-  color: var(--t3-foe);
-}
-.t3-events b {
-  font: 600 12px ui-monospace, Menlo, monospace;
-  color: var(--t3-foe);
-}
-.t3-events small {
-  display: block;
-  padding-left: 27px;
-  font-size: 12px;
-  color: var(--t3-dim);
-}
-
-/* --------------------------------------------- the Dossier, SYSTEM */
-.t3-roomhead {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: max(10px, env(safe-area-inset-top, 0px)) 14px 10px;
-  background: linear-gradient(#04070d 70%, rgba(4, 7, 13, 0));
-}
-.t3-roomhead .t3-btn {
-  min-height: 44px;
-  padding: 0 14px;
-  font-size: 12px;
-}
-.t3-roomhead h2 {
-  font-size: 17px;
-  letter-spacing: 0.12em;
-}
-.t3-roomhead p {
-  font-size: 12px;
-  color: var(--t3-dim);
-}
-.t3-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 10px;
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 4px 14px max(28px, env(safe-area-inset-bottom, 0px));
-}
-.t3-dcard {
-  border-radius: 20px;
-  background: var(--t3-glass);
-  box-shadow: inset 0 0 0 1px var(--t3-edge);
-}
-.t3-dcard.is-filed {
-  box-shadow: inset 0 0 0 1px rgba(124, 255, 155, 0.3);
-}
-.t3-dcard.is-open {
-  grid-column: 1 / -1;
-  box-shadow: inset 0 0 0 1.5px rgba(124, 255, 155, 0.7);
-}
-.t3-dcard-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  width: 100%;
-  padding: 12px;
-  border: 0;
-  border-radius: 20px;
-  background: none;
-  text-align: left;
-}
-.t3-dcard-head:disabled {
-  cursor: default;
-}
-.t3-dcard-head .t3g {
-  flex: none;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.05);
-}
-.t3-dcard:not(.is-filed) .t3g {
-  opacity: 0.7;
-}
-.t3-dcard-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.t3-dcard-text small {
-  font-size: 12px;
-  letter-spacing: 0.14em;
-  color: var(--t3-dim);
-}
-.t3-dcard-text b {
-  font-size: 16px;
-}
-.t3-dcard-text span {
-  font-size: 13px;
-  color: #c4cfdc;
-}
-.t3-dcard-text em {
-  font-style: normal;
-  font-size: 12px;
-  color: var(--t3-warn);
-}
-.t3-dcard-body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-width: 720px;
-  padding: 0 14px 14px;
-  font-size: 14px;
-  line-height: 1.45;
-}
-.t3-dcard-body dl {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 4px 12px;
-  font-size: 13px;
-}
-.t3-dcard-body dt,
-.t3-learn h5 {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  color: var(--t3-dim);
-}
-.t3-dcard-body dd a {
-  display: block;
-}
-.t3-learn {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
-}
-.t3-learn h4 {
-  font-size: 14px;
-}
-.t3-learn ul {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  list-style: none;
-  font-size: 13px;
-}
-.t3-learn a,
-.t3-dcard-body dd a {
-  display: inline-block;
-  padding: 6px 0;
-}
-.t3-sys {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  max-width: 560px;
-  margin: 0 auto;
-  padding: 4px 14px max(28px, env(safe-area-inset-bottom, 0px));
-}
-.t3-toggle {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 52px;
-  padding: 8px 14px;
-  border: 0;
-  border-radius: 16px;
-  background: var(--t3-glass);
-  box-shadow: inset 0 0 0 1px var(--t3-edge);
-  text-align: left;
-}
-.t3-toggle span {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-.t3-toggle small {
-  font-size: 12px;
-  color: var(--t3-dim);
-}
-.t3-toggle i {
-  flex: none;
-  position: relative;
-  width: 46px;
-  height: 28px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
-}
-.t3-toggle i::after {
-  content: '';
-  position: absolute;
-  left: 3px;
-  top: 3px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--t3-ink);
-  transition: transform 0.2s;
-}
-.t3-toggle.is-on i {
-  background: var(--t3-go);
-}
-.t3-toggle.is-on i::after {
-  transform: translateX(18px);
-  background: #04110a;
-}
-.t3-picks {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
-  margin: 4px 0 0;
-  padding: 0;
-  border: 0;
-}
-.t3-picks legend {
-  padding: 0 0 5px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: var(--t3-dim);
-}
-.t3-picks button {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-height: 52px;
-  padding: 8px 12px;
-  border: 0;
-  border-radius: 14px;
-  background: var(--t3-glass);
-  box-shadow: inset 0 0 0 1px var(--t3-edge);
-  text-align: left;
-}
-.t3-picks button.is-on {
-  box-shadow: inset 0 0 0 2px var(--t3-go);
-}
-.t3-picks button:disabled {
-  opacity: 0.6;
-}
-.t3-picks small {
-  font-size: 12px;
-  color: var(--t3-dim);
-}
-
 /* --------------------------------------- the signatures, in motion */
 .t3g-static {
   animation: t3g-static 0.5s steps(3) infinite;
@@ -2124,35 +1549,18 @@ a.t3-btn {
 .t3-root[data-reduced] .t3g *,
 .t3-root[data-reduced] .t3-contact,
 .t3-root[data-reduced] .t3-coach,
-.t3-root[data-reduced] .t3-grade,
 .t3-root[data-reduced] .t3-tap,
 .t3-root[data-reduced] .t3-asset.is-drop,
 .t3-root[data-reduced] .t3-asset.is-isolate {
   animation: none !important;
 }
-.t3-root[data-reduced] .t3-events li,
-.t3-root[data-reduced] .t3-toggle i::after {
-  transition: none;
-}
 @media (prefers-reduced-motion: reduce) {
   .t3g *,
   .t3-contact,
   .t3-coach,
-  .t3-grade,
   .t3-tap {
     animation: none !important;
   }
-}
-
-/* The reading list (the Field Library's own screen), over the page. */
-.t3-reading {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  background: var(--dc-ground);
-  color: var(--dc-ink, #e6edf3);
 }
 
 /* ------------------------------------------ v2.0 R1, after the reviews */
@@ -2160,14 +1568,6 @@ a.t3-btn {
    words on them. */
 .t3-root {
   --t3-glass: rgba(9, 14, 25, 0.93);
-}
-.t3-room {
-  background: #060a12;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-.t3-debrief {
-  background: linear-gradient(rgba(4, 7, 13, 0.35), rgba(4, 7, 13, 0.97) 26%, #04070d);
 }
 .t3-root[data-t3-phase='debrief'] .t3-tags {
   opacity: 0;
@@ -2212,50 +1612,6 @@ a.t3-btn {
 .t3-what span {
   color: var(--t3-foe);
 }
-.t3-legend {
-  margin-top: -8px;
-  font-size: 12px;
-}
-.t3-chartkey {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin: -4px 0 0;
-  font-size: 12px;
-  color: var(--t3-dim);
-}
-.t3-chartkey i {
-  display: inline-block;
-  width: 16px;
-  height: 0;
-  margin-left: 8px;
-  border-top: 2px solid var(--t3-go);
-}
-.t3-chartkey i:first-child {
-  margin-left: 0;
-}
-.t3-chartkey i.is-ghost {
-  border-top: 2px solid var(--t3-shield);
-}
-.t3-chartkey i.is-line {
-  border-top: 1px dashed var(--t3-dim);
-}
-.t3-stats {
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-}
-.t3-sys {
-  gap: 11px;
-  padding-bottom: max(56px, calc(env(safe-area-inset-bottom, 0px) + 40px));
-}
-.t3-picks {
-  margin-top: 12px;
-}
-.t3-sys > .t3-row {
-  margin-top: 12px;
-}
-.t3-code {
-  padding-bottom: 18px;
-}
 /* A wide screen: the same cards, at a size a desk reads. */
 .t3-wide .t3-dock {
   width: 440px;
@@ -2286,9 +1642,6 @@ a.t3-btn {
 }
 .t3-wide .t3-tag-foe span {
   font-size: 12px;
-}
-.t3-wide .t3-debrief-in {
-  max-width: 760px;
 }
 .t3-wide .t3-dossier-body {
   max-height: 30vh;
@@ -2351,10 +1704,7 @@ a.t3-btn {
 .t3-meter span,
 .t3-stakes span,
 .t3-lens span,
-.t3-stats dt,
-.t3-picks legend,
-.t3-why span,
-.t3-grade span {
+.t3-why span {
   letter-spacing: 0.06em;
 }
 .t3-where {
@@ -2431,13 +1781,6 @@ a.t3-btn {
   -webkit-mask-image: linear-gradient(#000 calc(100% - 16px), transparent);
   mask-image: linear-gradient(#000 calc(100% - 16px), transparent);
   padding-bottom: 16px;
-}
-.t3-root:not(.t3-wide) .t3-replay {
-  max-height: none;
-  overflow: visible;
-}
-.t3-root:not(.t3-wide) .t3-replay .t3-events {
-  max-height: 12vh;
 }
 
 /* The tray and BEGIN share the foot of the screen. */
@@ -2784,38 +2127,6 @@ a.t3-btn {
 .t3-root:not(.t3-wide)[data-t3-phase='dawn'] .t3-tag[data-asset] .t3-sign {
   opacity: 0;
 }
-.t3-holdlog ul {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.t3-holdlog li {
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
-  font-size: 13.5px;
-}
-.t3-holdlog li p {
-  margin: 0;
-}
-.t3-holdrow {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 12px;
-  letter-spacing: 0.04em;
-}
-.t3-hic {
-  padding: 8px 10px;
-  border-radius: 12px;
-  box-shadow: inset 0 0 0 1px var(--t3-edge);
-}
-.t3-roomhead {
-  background: #070c16;
-}
 
 /* WHAT A FINGER MAY DRAG. Every button here takes touch-action:
    manipulation from the rule at the top of the file, which outranks a
@@ -2838,9 +2149,6 @@ a.t3-btn {
   position: sticky;
   bottom: 0;
   box-shadow: 0 -10px 14px 2px #0a101c;
-}
-.t3-final small {
-  font-size: 12px;
 }
 
 .t3-holdhint {
@@ -2901,51 +2209,8 @@ a.t3-btn {
   padding: 3px 10px 4px;
 }
 
-/* ---- name that signature (v2.0 R2) ------------------------------------ */
-.t3-quizbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 14px 10px;
-}
-.t3-quizbar .t3-btn {
-  flex: none;
-  min-height: 48px;
-}
-.t3-quizbar p {
-  margin: 0;
-}
-.t3-quiz {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  max-width: 460px;
-  margin: 0 auto;
-  padding: 6px 14px 24px;
-}
-.t3-quiz p {
-  margin: 0;
-}
-.t3-quizglyph {
-  align-self: center;
-}
-.t3-quiz .t3-choice {
-  min-height: 52px;
-}
-.t3-cards[hidden] {
-  display: none;
-}
-
 .t3-eyebrow .t3-right {
   white-space: nowrap;
-}
-.t3-scrub input::-webkit-slider-thumb {
-  width: 30px;
-  height: 30px;
-}
-.t3-scrub input {
-  min-height: 44px;
 }
 
 
@@ -3001,10 +2266,6 @@ a.t3-btn {
   font-size: 19px;
 }
 
-.t3-final small {
-  white-space: nowrap;
-}
-
 /* ---- a wide screen (v2.0 R2) ------------------------------------------
    The column beside the theater has room: the officer's line is whole,
    tonight's signatures wrap, the tray wraps under them. */
@@ -3030,35 +2291,12 @@ a.t3-btn {
 .t3-wide .t3-begin {
   min-height: 52px;
 }
-/* The debrief in 2 columns: the grade and the nights on the left, what to
-   do about it on the right. */
-.t3-wide .t3-debrief-in {
-  display: block;
-  max-width: 1080px;
-  columns: 2;
-  column-gap: 32px;
-}
-.t3-wide .t3-debrief-in > * {
-  break-inside: avoid;
-  margin-bottom: 14px;
-}
-.t3-wide .t3-quizbar,
-.t3-wide .t3-quiz {
-  max-width: 1100px;
-  margin-left: auto;
-  margin-right: auto;
-}
 
 @media (max-height: 700px) {
   /* The dawn card says the night's change; under the big score it ran into the card. */
   .t3-root:not(.t3-wide) .t3-worldscore i {
     display: none;
   }
-}
-
-.t3-learn small,
-.t3-dcard-body small {
-  font-size: 12px;
 }
 /* A result on a phone: what happened and what would have helped keep to a
    few lines each, so the Dossier card and the way on are both in view. */
@@ -3075,15 +2313,6 @@ a.t3-btn {
 .t3-root:not(.t3-wide) [data-t3-card='result'] {
   max-height: min(62vh, 480px);
   max-height: min(62svh, 480px);
-}
-@media (max-height: 620px) {
-  .t3-root:not(.t3-wide) .t3-replay .t3-spark,
-  .t3-root:not(.t3-wide) .t3-replay .t3-chartkey {
-    display: none;
-  }
-  .t3-root:not(.t3-wide) .t3-replay .t3-events {
-    max-height: 9vh;
-  }
 }
 
 /* After the first-time review (v2.0 R2): the risk warning is said whole,
@@ -3116,13 +2345,43 @@ a.t3-btn {
 .t3-root:not(.t3-wide) .t3-dock > .t3-coach {
   top: calc(max(10px, env(safe-area-inset-top, 0px)) + 78px);
 }
-.t3-kitbar .t3-tray {
-  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent);
-  mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent);
+/* On a phone the tray shows 2 whole pieces and moves a page at a time,
+   by a swipe that settles on a piece's edge or by the button at its end.
+   No bleed to the screen's edge: the piece before the first one shown
+   would stand in it as a sliver. */
+.t3-root:not(.t3-wide) .t3-kitbar .t3-tray {
+  margin: 0;
+  padding: 2px;
+  scroll-snap-type: x mandatory;
+  scroll-padding-left: 2px;
 }
-.t3-wide .t3-kitbar .t3-tray {
-  -webkit-mask-image: none;
-  mask-image: none;
+/* The 3 names offered for an unidentified signature, side by side. */
+.t3-names .t3-btn {
+  padding: 6px;
+  letter-spacing: 0;
+  line-height: 1.15;
+}
+.t3-root:not(.t3-wide) .t3-piece {
+  flex: 0 0 calc((100% - 7px) / 2);
+  min-width: 0;
+  padding: 6px 10px;
+  scroll-snap-align: start;
+}
+.t3-root:not(.t3-wide) .t3-piece b {
+  white-space: normal;
+  line-height: 1.12;
+}
+.t3-traymore {
+  flex: none;
+  width: 44px;
+  border: 0;
+  border-radius: 14px;
+  color: var(--t3-dim);
+  background: var(--t3-glass);
+  box-shadow: inset 0 0 0 1px var(--t3-edge);
+}
+.t3-wide .t3-traymore {
+  display: none;
 }
 .t3-pool {
   min-width: max-content;
@@ -3130,7 +2389,4 @@ a.t3-btn {
 .t3-card .t3-pool,
 .t3-card .t3-holdhint {
   padding: 5px 10px;
-}
-.t3-root:not(.t3-wide) .t3-quizbar {
-  flex-wrap: wrap;
 }

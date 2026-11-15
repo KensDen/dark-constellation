@@ -94,6 +94,9 @@ export class World extends Theater {
 
   constructor(canvas: HTMLCanvasElement, place: Place, reduced: boolean) {
     super(canvas, place, reduced)
+    // The mark the bundle budget finds the theater's chunk by, which the
+    // title's hero and the game share (tests/bundle-budget.json).
+    canvas.dataset.t3World = 'dc-3d-theater-chunk'
     this.sigHost = {
       scene: this.scene,
       sparks: this.sparks,
@@ -627,8 +630,8 @@ export class World extends Theater {
     }
   }
 
-  dispose(): void {
+  dispose(release = false): void {
     this.clearSignatures()
-    super.dispose()
+    super.dispose(release)
   }
 }

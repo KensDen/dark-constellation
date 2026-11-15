@@ -23,6 +23,7 @@ export function Opening({ world, reduced, polar, play, onDone }: { world: RefObj
   const [beat, setBeat] = useState(0)
   const [typed, setTyped] = useState(0)
   const go = useRef<HTMLButtonElement | null>(null)
+  const typing = useRef(0)
   const line = c3.OPENING[beat]
   const whole = reduced || typed >= line.line.length
 
@@ -43,6 +44,7 @@ export function Opening({ world, reduced, polar, play, onDone }: { world: RefObj
       setTyped(n)
       if (n >= c3.OPENING[beat].line.length) window.clearInterval(id)
     }, 40)
+    typing.current = id
     return () => window.clearInterval(id)
   }, [beat, reduced])
 
@@ -50,7 +52,13 @@ export function Opening({ world, reduced, polar, play, onDone }: { world: RefObj
 
   const last = beat === c3.OPENING.length - 1
   const next = () => {
-    if (!whole) return setTyped(line.line.length)
+    // A tap on a line still being typed finishes it, and it stays
+    // finished: through R2 the typing went on and took the line back, so
+    // the way on wanted several taps (found by the layout guard, v2.0 R3).
+    if (!whole) {
+      window.clearInterval(typing.current)
+      return setTyped(line.line.length)
+    }
     play('soft-tick')
     if (last) {
       world.current?.setBeat('wide')

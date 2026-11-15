@@ -220,6 +220,18 @@ const AUDIT = `(() => {
     if (m && dock && (m.m42 > dock.top - 6 || m.m42 < 60)) bad.push('the target is not in view at ' + Math.round(m.m41) + ',' + Math.round(m.m42) + ' (dock top ' + Math.round(dock.top) + ')')
   }
   if (document.documentElement.scrollWidth > innerWidth + 1) bad.push('the page scrolls sideways')
+  // The tray shows whole pieces on a phone (v2.0 R3): at rest, none stands
+  // half under BEGIN. A swipe or a page still on its way is not judged.
+  const tray = document.querySelector('[data-t3-tray]')
+  if (tray && innerWidth < 1000) {
+    const tr = tray.getBoundingClientRect()
+    const pieces = [...tray.querySelectorAll('.t3-piece')].map((p) => [p, p.getBoundingClientRect()])
+    const atRest = pieces.some(([, r]) => Math.abs(r.left - (tr.left + parseFloat(getComputedStyle(tray).paddingLeft))) < 2) || tray.scrollLeft + tray.clientWidth >= tray.scrollWidth - 2
+    if (atRest) for (const [p, r] of pieces) {
+      const seen = Math.min(r.right, tr.right) - Math.max(r.left, tr.left)
+      if (seen > 2 && seen < r.width - 2) bad.push('a tray piece is cut: "' + p.textContent.trim().slice(0, 24) + '" shows ' + Math.round(seen) + ' of ' + Math.round(r.width) + 'px')
+    }
+  }
   return bad
 })()`
 
@@ -317,7 +329,7 @@ async function run(b, base, view, plan, log, shots, table) {
   if (!(await waitFor(b, stageIs('plan')))) return [...failures, `${name}: the game never reached its first plan`]
   log.push(`- ${await b.evaluate(`document.querySelector('[data-t3-night]')?.textContent`)}, status ${await b.evaluate(root('t3Status'))}`)
 
-  const stats = { scans: 0, lens: 0, placed: 0, dragged: 0, rerouted: 0, isolated: 0, shielded: 0, tapped: 0, perfect: 0, good: 0, rode: 0, burned: 0, held: 0, holds: 0, holdsRight: 0 }
+  const stats = { scans: 0, lens: 0, sightAsked: 0, sightRight: 0, sightWrong: 0, placed: 0, dragged: 0, rerouted: 0, isolated: 0, shielded: 0, tapped: 0, perfect: 0, good: 0, rode: 0, burned: 0, held: 0, holds: 0, holdsRight: 0 }
   let fpsLogged = false
 
   let reloaded = false
@@ -394,6 +406,45 @@ async function run(b, base, view, plan, log, shots, table) {
       await sleep(quick ? 150 : 500)
       if (scanned === 1 && night <= 3) await shot(`n${night}-identified`, 'identified: the name, what COLDVEIL does with it, what it would take, and the pieces that answer it')
       contacts = await b.evaluate(CONTACTS)
+    }
+    // THE NAME ON SIGHT (v2.0 R3): what the pulses did not reach is named
+    // from its look, right by a player who knows the signatures and on a
+    // coin among the 3 names by one who guesses. The guide's first step
+    // teaches the scan, so a first night with nothing scanned offers none.
+    if (plan.sight && scanned > 0) {
+      for (const c of unknown()) {
+        if (!(await exists(b, `[data-t3-sig="${c.id}"]`))) await tap(b, '[data-t3-close]')
+        await sleep(120)
+        await tap(b, `[data-t3-sig="${c.id}"]`)
+        await sleep(quick ? 150 : 450)
+        if (!(await exists(b, `[data-t3-sight="${c.id}"]`))) {
+          fail(`night ${night}: no name on sight offered for ${c.id}`)
+          continue
+        }
+        const pulses = await b.evaluate(root('t3Pulses'))
+        await tap(b, `[data-t3-sight="${c.id}"]`)
+        await sleep(quick ? 150 : 450)
+        const names = await b.evaluate(`[...document.querySelectorAll('[data-t3-sight-option]')].map((e) => e.dataset.t3SightOption)`)
+        if (names.length !== 3 || !names.includes(c.id)) fail(`night ${night}: the names offered for ${c.id} are ${JSON.stringify(names)}`)
+        if (stats.sightAsked === 0) await shot(`n${night}-sight-ask`, 'the name on sight: 3 names for an unidentified signature, 1 try tonight, no pulse spent')
+        stats.sightAsked += 1
+        const pick = plan.sight === 'knows' ? c.id : names[Math.floor(coin() * names.length)]
+        await tap(b, `[data-t3-sight-option="${pick}"]`)
+        await sleep(quick ? 200 : 600)
+        if (pick === c.id) {
+          if (!(await waitFor(b, `document.querySelector('[data-t3-contact="${c.id}"][data-known="true"]')`, 3000))) fail(`night ${night}: the right name did not identify ${c.id}`)
+          if ((await b.evaluate(root('t3Pulses'))) !== pulses) fail(`night ${night}: naming ${c.id} on sight spent a pulse`)
+          if (stats.sightRight === 0) await shot(`n${night}-sight-right`, 'named on sight: identified, with its answers, and the pulses as they were')
+          stats.sightRight += 1
+        } else {
+          if (!(await waitFor(b, `document.querySelector('[data-t3-sight-state="missed"]')`, 3000))) fail(`night ${night}: a wrong name for ${c.id} was not said to be wrong`)
+          if (await exists(b, `[data-t3-sight="${c.id}"]`)) fail(`night ${night}: a second try was offered for ${c.id}`)
+          if (await b.evaluate(`document.querySelector('[data-t3-contact="${c.id}"]')?.dataset.known === 'true'`)) fail(`night ${night}: a wrong name identified ${c.id}`)
+          if (stats.sightWrong === 0) await shot(`n${night}-sight-wrong`, 'named wrong: it stays unidentified, with no second try tonight')
+          stats.sightWrong += 1
+        }
+        contacts = await b.evaluate(CONTACTS)
+      }
     }
     await tap(b, '[data-t3-close]')
     contacts = await b.evaluate(CONTACTS)
@@ -736,6 +787,16 @@ async function run(b, base, view, plan, log, shots, table) {
     await waitFor(b, 'document.querySelector("[data-t3-room=system]")')
     await sleep(300)
     await shot('system', 'SYSTEM: Assist, Reduce motion, Low power, sound, and what finished games have earned')
+    // THE WORDS (v2.0 R3): the terms on the cards, each in a line. No link
+    // to a pixel board is left anywhere in the room.
+    if (await b.evaluate(`/classic|pixel/i.test(document.querySelector('[data-t3-room=system]').innerHTML)`)) fail('SYSTEM still names the pixel board')
+    if (!(await tap(b, '[data-t3-words] summary'))) fail('SYSTEM has no THE WORDS')
+    await sleep(300)
+    await b.evaluate(`document.querySelector('[data-t3-words]')?.scrollIntoView({ block: 'start' })`)
+    await sleep(200)
+    const words = await b.evaluate(`document.querySelectorAll('[data-t3-words] p').length`)
+    if (words < 10) fail(`THE WORDS lists ${words} terms`)
+    await shot('system-words', 'THE WORDS, in SYSTEM: GNSS, PNT, RPO, SSA, the frameworks, stops and blunts, WORST CASE, each in a line')
     await tap(b, '[data-t3-room-back]')
   }
   if (plan.again) {
@@ -841,11 +902,11 @@ const VIEWS = [
 // The four players of the brief, and a fifth for Reduce Motion and Assist.
 const GAMES = [
   { name: 'a-first-time-easy', label: 'First-time EASY (hands on)', what: 'a first visit: the briefing in the world, the guide, then a careful game on EASY with every gesture made by hand', fresh: true, seed: 3, scan: 'lens', place: 'smart', hands: true, fleet: true, respond: 'best', timing: 'aim', debris: 'burn', hold: 'read', system: true, views: ['375x553', '375x667', '430x932', '1440x900'] },
-  { name: 'b-daily-op', label: 'Daily Op (STANDARD, hands on)', what: 'the Daily Op from the title, on STANDARD, played carefully by hand, and shared', daily: true, seed: 5, scan: 'tap', place: 'smart', hands: true, respond: 'best', timing: 'aim', debris: 'burn', hold: 'read', views: ['375x667', '1440x900'] },
+  { name: 'b-daily-op', label: 'Daily Op (STANDARD, hands on)', what: 'the Daily Op from the title, on STANDARD, played carefully by hand by a player who knows the signatures on sight, and shared', daily: true, seed: 5, scan: 'tap', sight: 'knows', place: 'smart', hands: true, respond: 'best', timing: 'aim', debris: 'burn', hold: 'read', views: ['375x667', '1440x900'] },
   { name: 'c-poor', label: 'Deliberately poor (STANDARD)', what: 'nothing scanned, nothing placed, every move ridden out, HOLD on the debris', difficulty: 'standard', seed: 20261110, scan: 'none', place: 'none', respond: 'ride', timing: 'none', debris: 'hold', hold: 'timeout', reloadAt: 2, views: ['375x667'] },
-  { name: 'd-beginner', label: 'Beginner (EASY, taps only)', what: 'a beginner on EASY who only taps: scans the first signatures, places a piece that looks good, answers 2 moves in 3, taps the TAP button late or early', difficulty: 'easy', seed: 77, scan: 'second', place: 'random', respond: 'careless', timing: 'button', debris: 'coin', hold: 'shaky', continueAt: 3, again: true, views: ['375x553', '430x932', '1440x900'] },
+  { name: 'd-beginner', label: 'Beginner (EASY, taps only)', what: 'a beginner on EASY who only taps: scans the first signatures, guesses a name for the rest, places a piece that looks good, answers 2 moves in 3, taps the TAP button late or early', difficulty: 'easy', seed: 77, scan: 'second', sight: 'guess', place: 'random', respond: 'careless', timing: 'button', debris: 'coin', hold: 'shaky', continueAt: 3, again: true, views: ['375x553', '430x932', '1440x900'] },
 ]
-const EXTRA = [{ name: 'e-reduced-assist', label: 'Reduce Motion and Assist (EASY, taps only)', what: 'Reduce Motion with Assist and low power: no camera travel, no timed tap, every action a plain activation', difficulty: 'easy', seed: 3, reduced: true, assist: true, lowPower: true, scan: 'tap', place: 'smart', respond: 'best', timing: 'none', debris: 'burn', hold: 'read', views: ['375x667'] }]
+const EXTRA = [{ name: 'e-reduced-assist', label: 'Reduce Motion and Assist (EASY, taps only)', what: 'Reduce Motion with Assist and low power: no camera travel, no timed tap, every action a plain activation', difficulty: 'easy', seed: 3, reduced: true, assist: true, lowPower: true, scan: 'tap', sight: 'knows', place: 'smart', respond: 'best', timing: 'none', debris: 'burn', hold: 'read', views: ['375x667'] }]
 async function main() {
   const chrome = findChrome()
   if (!chrome) {

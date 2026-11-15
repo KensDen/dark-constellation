@@ -14,9 +14,10 @@
 // Reduce Motion the camera holds one framing, nothing shakes and nothing
 // sways.
 //
-// three.js comes from its source entry, not the package root, so this
-// chunk tree-shakes its own copy and the title's constellation frame chunk
-// (which the bundle budget recognises by content) is left exactly as built.
+// three.js comes from its source entry, not the package root, so the build
+// tree-shakes one copy of it. The title's world (src/ui/TitleWorld.tsx,
+// v2.0 R3) is this same theater, so the title and the game share that copy
+// and this file.
 
 import {
   AdditiveBlending,
@@ -1444,7 +1445,14 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     return { calls: r.calls, triangles: r.triangles, points: r.points }
   }
 
-  dispose(): void {
+  // `release` also gives the WebGL context back at once (v2.0 R3, Ken's
+  // ruling of 15 November 2026: the title in 3D). The title's backdrop
+  // asks for it: the game builds its own renderer right after PLAY, and
+  // iOS allows few contexts. It is asked for, not the default, because a
+  // lost context stays lost on its canvas: only an owner whose canvas goes
+  // with it may ask (the game's canvas is React's, and an effect that runs
+  // again on it would find the context dead).
+  dispose(release = false): void {
     this.dead = true
     this.running = false
     cancelAnimationFrame(this.raf)
@@ -1463,5 +1471,6 @@ void main(){ float c = clamp(-dot(vN, vV) / 0.5, 0.0, 1.0); float lit = 0.3 + 0.
     })
     this.glow.dispose()
     this.renderer.dispose()
+    if (release) this.renderer.forceContextLoss()
   }
 }

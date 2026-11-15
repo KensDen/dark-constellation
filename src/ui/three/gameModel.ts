@@ -19,10 +19,8 @@ import {
   ASSET_DAMAGE_PER_SEVERITY,
   DEPLOY_TURNS,
   HARDEN,
-  RESPONSE_DAMAGE_SHARE,
   TIMING_BONUS,
   aimOf,
-  billAfter,
   briefFree,
   chainBonusOf,
   countersAfter,
@@ -53,6 +51,10 @@ export interface Orders {
   place?: string | null
   assets: AssetKind[]
   scans: string[]
+  // THE NAME ON SIGHT (v2.0 R3): the signatures named right from their
+  // look tonight, and the ones named wrong, which get no second try.
+  sighted?: string[]
+  missed?: string[]
 }
 export const NO_ORDERS: Orders = { defense: null, place: null, assets: [], scans: [] }
 
@@ -72,8 +74,8 @@ export function actionsOf(orders: Orders, inputs?: NightInputs): TurnActions {
   return {
     buyAssets: orders.assets.map((kind) => ({ kind })),
     buyCounters: orders.defense ? [orders.defense] : [],
-    intelBrief: false,
     scans: [...orders.scans],
+    ...(orders.sighted?.length ? { sighted: [...orders.sighted] } : {}),
     ...(orders.defense && orders.place ? { placeOn: { [orders.defense]: orders.place } } : {}),
     ...(inputs ? { responses: [...inputs.responses], timing: [...inputs.timing], debris: inputs.debris ?? 'hold', tiebreak: inputs.hold === 'override' || inputs.hold === 'stand' ? inputs.hold : null } : {}),
   }
@@ -117,7 +119,6 @@ export const domainOf = (state: GameState, id: CountermeasureId): AssetKind[] =>
 // The post as tonight's orders leave it: where tonight's piece is set
 // down, and otherwise where it already stands.
 export function postNow(state: GameState, orders: Orders): string | undefined {
-  if (state.watch !== 2) return undefined
   if (orders.defense && !state.counters.includes(orders.defense)) return orders.place ?? undefined
   return postOf(state)
 }
@@ -180,13 +181,6 @@ export function estimateLoss(state: GameState, def: ThreatEvent, exposed: number
   return -tenth(loss / total)
 }
 
-function standIn(state: GameState, def: ThreatEvent, nth: number): Asset | undefined {
-  const live = state.assets.filter((a) => a.integrity > 0 && def.layers.includes(a.layer))
-  const preferred = def.prefersKinds ? live.filter((a) => def.prefersKinds!.includes(a.kind)) : []
-  const pool = preferred.length ? preferred : live
-  return pool.length ? pool[nth % pool.length] : undefined
-}
-
 export function contactsFor(state: GameState, orders: Orders): Contact[] {
   const actions = actionsOf(orders)
   const counters = countersAfter(state, actions)
@@ -197,13 +191,13 @@ export function contactsFor(state: GameState, orders: Orders): Contact[] {
   const post = postNow(state, orders)
   const out: Contact[] = []
   reads.forEach((read, slot) => {
-    read.candidates.forEach((c, nth) => {
+    read.candidates.forEach((c) => {
       const def = eventDef(state, c.id)
       const debris = def.effect.special === 'debrisStrike'
       const played = events[slot]?.eventId === c.id ? events[slot] : undefined
-      // Under the 3D game's rules a signature's target is its own, whatever
-      // is ordered (rules.ts, aimOf): it stays where it was sighted.
-      const target = debris ? debrisTarget(state) : state.watch === 2 ? aimOf(state, slot, def) : (assetById(state, played?.targetAssetId) ?? standIn(state, def, slot + nth))
+      // A signature's target is its own, whatever is ordered (rules.ts,
+      // aimOf): it stays where it was sighted.
+      const target = debris ? debrisTarget(state) : aimOf(state, slot, def)
       const strength = def.baseSeverity + (played ? played.chainBonus : chainBonusOf(def, denied))
       const mitigation = mitigationOf(def, counters)
       const hardened = debris || !target || post !== target.id ? 0 : Math.min(HARDEN, Math.max(0, strength - mitigation))
@@ -214,7 +208,7 @@ export function contactsFor(state: GameState, orders: Orders): Contact[] {
         def,
         fixed: read.fixed,
         debris,
-        known: read.fixed || everything || orders.scans.includes(c.id),
+        known: read.fixed || everything || orders.scans.includes(c.id) || !!orders.sighted?.includes(c.id),
         targetId: target?.id,
         strength,
         mitigation,
@@ -238,6 +232,44 @@ export function scanState(state: GameState, orders: Orders): { pulses: number; l
   return { pulses, left: Math.max(0, pulses - orders.scans.length) }
 }
 export const canScan = (state: GameState, orders: Orders, contact: Contact): boolean => !contact.known && scanState(state, orders).left > 0
+
+// THE NAME ON SIGHT (v2.0 R3; the rule is in src/engine/rules.ts). Every
+// signature has a look of its own, so a player who knows the look can name
+// an unidentified one and spend no pulse. The game offers the name once a
+// signature a night, among SIGHT_CHOICES names: its own and others it
+// could be mistaken for. The others are threats that strike the layer its
+// target is on where there are enough of them (a satellite's signature
+// offered beside two ground attacks would name itself), never a move
+// CONFIRMED tonight (its name is already on the board), and the 3 stand in
+// an order fixed by the seed, the night and the signature, so a reload
+// offers the same names and every player of a Daily Op is asked the same.
+export const SIGHT_CHOICES = 3
+const sightHash = (text: string): number => {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i += 1) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0
+  h ^= h >>> 15
+  return Math.imul(h, 0x2c1b3c6d) >>> 0
+}
+export function sightChoices(state: GameState, contact: Contact): string[] {
+  const key = (id: string) => sightHash(`${state.seed}:${state.turn}:${contact.id}:${id}`)
+  const layer = assetById(state, contact.targetId)?.layer
+  const confirmed = new Set((planFor(state, state.turn)?.slots ?? []).flatMap((slot) => (slot.fixed ? [slot.fixed] : [])))
+  const others = state.scenario.events.filter((e) => (e.kind ?? 'threat') === 'threat' && e.effect.special !== 'debrisStrike' && e.id !== contact.id && !confirmed.has(e.id))
+  const near = others.filter((e) => layer !== undefined && e.layers.includes(layer))
+  const far = others.filter((e) => !near.includes(e))
+  const byKey = (a: ThreatEvent, b: ThreatEvent) => key(a.id) - key(b.id)
+  const picked = [...near.sort(byKey), ...far.sort(byKey)].slice(0, SIGHT_CHOICES - 1).map((e) => e.id)
+  return [contact.id, ...picked].sort((a, b) => key(`#${a}`) - key(`#${b}`))
+}
+// Whether a signature can still be named tonight: unidentified, and not
+// already named wrong.
+export const canSight = (orders: Orders, contact: Contact): boolean => !contact.known && !contact.fixed && !orders.missed?.includes(contact.id)
+// The orders with a name given: right, the signature is identified; wrong,
+// it has had its try.
+export function withSight(orders: Orders, contact: Contact, named: string): Orders {
+  if (named === contact.id) return { ...orders, sighted: [...(orders.sighted ?? []), contact.id] }
+  return { ...orders, missed: [...(orders.missed ?? []), contact.id] }
+}
 
 // WHERE TONIGHT'S PIECE DOES MOST: the asset it can sit on with the most
 // strength aimed at it tonight, read as the board shows it with the piece
@@ -360,7 +392,7 @@ export function nightNow(state: GameState, orders: Orders, inputs: NightInputs):
   const after = resolve(state, orders, inputs)
   const events = lastEvents(after)
   // An answer is asked for only while the watch has one left.
-  const open = events.findIndex((ev, i) => (ev.debris ? !!ev.debris.assetId && inputs.debris === null : ev.room !== undefined && (ev.left === undefined || ev.left > 0) && inputs.responses[i] === undefined))
+  const open = events.findIndex((ev, i) => (ev.debris ? !!ev.debris.assetId && inputs.debris === null : (ev.left ?? 0) > 0 && inputs.responses[i] === undefined))
   return { after, night: nightOf(state, after), open, holdOpen: !!holdTonight(state) && inputs.hold === undefined }
 }
 
@@ -370,11 +402,8 @@ export interface Choice {
   id: string | null
   effect: 'block' | 'halve' | 'ride'
   gesture: Gesture | null
-  cost: number
   fits: boolean
-  why?: 'used' | 'budget'
-  // What it has to fit in the room: its price and the repair it leaves.
-  need: number
+  why?: 'used'
   // The score's change and the repair bill under this answer.
   score: number
   repair: number
@@ -385,13 +414,10 @@ export function choicesFor(state: GameState, orders: Orders, inputs: NightInputs
     const ev = lastEvents(resolve(state, orders, { ...inputs, responses: answered(inputs.responses, index, id) }))[index]
     return { score: tenth(ev.scoreAfter - ev.scoreBefore), repair: ev.repairCost }
   }
-  const options: ResponseOption[] = responseOptions(step.def, step.ev, state.difficulty)
+  const options: ResponseOption[] = responseOptions(step.def, step.ev)
   return [
-    ...options.map((o): Choice => {
-      const need = o.cost + billAfter(step.def, exposedOf(step.ev), RESPONSE_DAMAGE_SHARE[o.effect], state.difficulty)
-      return { id: o.id, effect: o.effect, gesture: gestureOf(o.id), cost: o.cost, fits: o.fits, why: o.why, need, ...(o.fits ? outcome(o.id) : { score: 0, repair: 0 }) }
-    }),
-    { id: null, effect: 'ride', gesture: null, cost: 0, fits: true, need: 0, ...outcome(null) },
+    ...options.map((o): Choice => ({ id: o.id, effect: o.effect, gesture: gestureOf(o.id), fits: o.fits, why: o.why, ...(o.fits ? outcome(o.id) : { score: 0, repair: 0 }) })),
+    { id: null, effect: 'ride', gesture: null, fits: true, ...outcome(null) },
   ]
 }
 
@@ -422,20 +448,18 @@ export const gradeTap = (offBy: number | null): TimingGrade | 0 => (offBy === nu
 // takes the good grade, a fixed modest rate (src/engine/rules.ts).
 export const ASSIST_GRADE: TimingGrade = 1
 // Whether a tap can do anything to a move: it takes damage off one that
-// lands and pays back a response that blocked one; a move a defense holds
-// has nothing for it to improve, so the ring is not shown there.
-export const tapMatters = (ev: ResolvedEvent): boolean => ev.effectiveSeverity > 0 || (ev.response?.effect === 'block' && ev.response.cost > 0)
+// lands; a move that is stopped has nothing for it to improve, so the ring
+// is not shown there.
+export const tapMatters = (ev: ResolvedEvent): boolean => ev.effectiveSeverity > 0
 
-// What a timed tap did, for the card: the share it took off a hit, or the
-// credits a clean block paid back; nothing on a move a defense held.
+// What a timed tap did, for the card: the share it took off a hit; nothing
+// on a move that was stopped.
 // `saved` is the score the tap kept, measured: the same night with no tap
 // on this move. Damage is whole numbers, so a tap's share can round to
 // more than its rate or to nothing, and the card says what it did.
 export function tapLine(ev: ResolvedEvent, assist = false, saved?: number): string {
-  if (!ev.timing) return ''
-  if (!ev.refund && ev.effectiveSeverity === 0) return ''
+  if (!ev.timing || ev.effectiveSeverity === 0) return ''
   const word = assist ? 'ASSIST' : ev.timing === 2 ? 'PERFECT' : 'GOOD'
-  if (ev.refund) return `${word} · +${ev.refund} CR back`
   if (saved !== undefined) return saved >= 0.05 ? `${word} · braced, saved ${saved.toFixed(1)}` : `${word} · braced, nothing to save this time`
   if (ev.effectiveSeverity > 0) return `${word} · braced, ${TIMING_BONUS[ev.timing] * 100}% less damage`
   return word
@@ -479,11 +503,11 @@ export function inputsOf(state: GameState): TurnActions[] {
     return {
       buyAssets,
       buyCounters,
-      intelBrief: r.purchases.some((p) => p.startsWith('Intel brief (')),
       ...(debris ? { debris } : {}),
       responses: r.events.map((e) => e.response?.id ?? null),
       timing: r.events.map((e) => e.timing ?? 0),
       scans: r.scanned ?? [],
+      ...(r.sighted ? { sighted: r.sighted } : {}),
       // Where that night's defense was set down, and the call on its hold.
       placeOn: { ...state.placed },
       tiebreak: r.hold && r.hold.call !== 'none' ? r.hold.call : null,
@@ -494,11 +518,11 @@ export function inputsOf(state: GameState): TurnActions[] {
 // The game played from its seed with these inputs: every state on the way,
 // the opening first. Stops where the engine refuses a turn.
 export function timeline(state: GameState, inputs: readonly TurnActions[]): GameState[] {
-  const out = [newGame(state.scenario, state.seed, state.difficulty, state.posture, state.watch)]
+  const out = [newGame(state.scenario, state.seed, state.difficulty, state.posture)]
   try {
     for (let t = 0; out[out.length - 1].status === 'playing' && t < state.scenario.totalTurns; t += 1) {
       const s = out[out.length - 1]
-      out.push(resolveTurn(s, inputs[t] ?? { buyAssets: [], buyCounters: [], intelBrief: false, scans: [] }, turnRng(s.seed, s.turn)))
+      out.push(resolveTurn(s, inputs[t] ?? { buyAssets: [], buyCounters: [], scans: [] }, turnRng(s.seed, s.turn)))
     }
   } catch {
     // The run so far stands.
@@ -520,7 +544,7 @@ export function nightsOf(states: readonly GameState[]): Night[] {
 // needs one, while WORST CASE stays at 0 or more, takes the strongest
 // answer the budget meets, and burns when the fuel is safe.
 function coachOrders(state: GameState): TurnActions {
-  let actions: TurnActions = { buyAssets: [], buyCounters: [], intelBrief: false, scans: [] }
+  let actions: TurnActions = { buyAssets: [], buyCounters: [], scans: [] }
   const denied = gnssDenied(state.conditions, state.scenario)
   for (const read of adversaryPicks(state, state.counters)) {
     const def = eventDef(state, read.least[0])
@@ -543,7 +567,7 @@ function coachOrders(state: GameState): TurnActions {
 }
 
 export function coachRun(state: GameState): GameState[] {
-  const out = [newGame(state.scenario, state.seed, state.difficulty, state.posture, state.watch)]
+  const out = [newGame(state.scenario, state.seed, state.difficulty, state.posture)]
   while (out[out.length - 1].status === 'playing') {
     const s = out[out.length - 1]
     const actions = coachOrders(s)
@@ -551,11 +575,11 @@ export function coachRun(state: GameState): GameState[] {
     let after = resolveTurn(s, { ...actions, responses }, turnRng(s.seed, s.turn))
     for (;;) {
       const events = lastEvents(after)
-      const i = events.findIndex((ev, k) => ev.room !== undefined && responses[k] === undefined)
+      const i = events.findIndex((ev, k) => ev.left !== undefined && responses[k] === undefined)
       if (i < 0) break
-      // Under the pool it keeps its answers for moves worth one.
-      const worth = events[i].left === undefined || exposedOf(events[i]) >= 2 || s.turn >= s.scenario.totalTurns
-      const pick = worth ? (responseOptions(eventDef(s, events[i].eventId), events[i], s.difficulty).find((o) => o.fits)?.id ?? null) : null
+      // It keeps its answers for moves worth one.
+      const worth = exposedOf(events[i]) >= 2 || s.turn >= s.scenario.totalTurns
+      const pick = worth ? (responseOptions(eventDef(s, events[i].eventId), events[i]).find((o) => o.fits)?.id ?? null) : null
       responses = answered(responses, i, pick)
       after = resolveTurn(s, { ...actions, responses }, turnRng(s.seed, s.turn))
     }

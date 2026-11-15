@@ -134,6 +134,22 @@ export function nightMark(run: string, turn: number): NightMark | null {
 
 // How many holds this device has called (v2.0 R2): the first one a device
 // meets has no clock, so the tie-break is learned before it is timed.
+// THE NAMES GIVEN ON SIGHT TONIGHT (v2.0 R3), kept while the plan is open:
+// the orders themselves are not saved until BEGIN, and a name is offered
+// once a signature a night, so a reload must not hand back the try.
+export interface SightMark {
+  run: string
+  turn: number
+  sighted: string[]
+  missed: string[]
+}
+const SIGHT_KEY = 'dc-3d-sight'
+export const markSight = (mark: SightMark): void => write(SIGHT_KEY, mark)
+export function sightMark(run: string, turn: number): SightMark | null {
+  const m = read<SightMark | null>(SIGHT_KEY, null)
+  return m && m.run === run && m.turn === turn && Array.isArray(m.sighted) && Array.isArray(m.missed) ? m : null
+}
+
 const HOLDS_KEY = 'dc-3d-holds'
 export const holdsSeen = (): number => read<{ n: number }>(HOLDS_KEY, { n: 0 }).n
 export const sawHold = (): void => write(HOLDS_KEY, { n: holdsSeen() + 1 })

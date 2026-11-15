@@ -4,7 +4,7 @@
 // why it held and the Dossier card. At dawn: the turn's close. Each one
 // only shows what Game3D hands it; the engine's figures arrive computed.
 
-import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
 import { RESPONSE_TEXT } from '../../content/responseText'
 import { answersLeft, answersOf } from '../../engine/rules'
 import { maiScore } from '../../engine/scoring'
@@ -71,15 +71,14 @@ export function PlanCard({
   stakes: Stakes
   scanLeft: number
   scanPulses: number
-  // The answers left for the operation, and how many it began with (0: the
-  // classic rules, where an answer is bought).
+  // The answers left for the operation, and how many it began with.
   answers: number
   answersOf: number
   onPick: (id: string) => void
   lens: ReactNode
 }) {
   return (
-    <div className="t3-card t3-plan" data-t3-card="plan">
+    <div className="t3-card t3-plan" data-t3-card="plan" data-t3-chunk={CHUNK_MARK}>
       <p className="t3-eyebrow">
         {eyebrow}
         <span className="t3-right">{summary}</span>
@@ -137,17 +136,44 @@ export function PlanCard({
   )
 }
 
-// THE TRAY: the defenses as pieces to pick up, the ones that answer what
-// the scan has named first, and the fleet's door at the end.
-export function Tray({ kit, fleetOrdered, selected, onPick, onFleet, startDrag }: { kit: KitPiece[]; fleetOrdered: number; selected: CountermeasureId | 'fleet' | null; onPick: (id: CountermeasureId) => void; onFleet: () => void; startDrag: StartDrag }) {
+// THE TRAY: the fleet's door, then the defenses as pieces to pick up, in
+// the catalog's order every night, with the ones that answer what has been
+// identified lit.
+//
+// ON A PHONE IT SHOWS WHOLE PIECES (v2.0 R3). Through R2 the row scrolled
+// freely beside BEGIN, so the third piece always stood half under the
+// button, and a fade over the cut did not make it read as anything but a
+// cut (the R2 reviewer). Now 2 pieces fill the row and it moves a page at
+// a time: by a swipe, which settles on a piece's edge, or by the button at
+// its end, which turns back at the last page. When a signature is
+// identified the first piece lit for it is brought into view: lit, not
+// moved, so the order is still the one to learn.
+export function Tray({ kit, fleetOrdered, selected, reduced, onPick, onFleet, startDrag }: { kit: KitPiece[]; fleetOrdered: number; selected: CountermeasureId | 'fleet' | null; reduced: boolean; onPick: (id: CountermeasureId) => void; onFleet: () => void; startDrag: StartDrag }) {
+  const box = useRef<HTMLDivElement | null>(null)
+  const [atEnd, setAtEnd] = useState(false)
+  const isHot = (p: KitPiece) => !p.blocked && p.answers.some((a) => a.contact.favor !== 'unlikely' && a.contact.exposed > 0)
+  const lit = kit.filter(isHot).map((p) => p.cm.id).join(' ')
+  const to = (left: number) => box.current?.scrollTo?.({ left, behavior: reduced ? 'auto' : 'smooth' })
+  useEffect(() => {
+    const b = box.current
+    const el = b?.querySelector<HTMLElement>('.is-hot')
+    if (b && el) to(b.scrollLeft + el.getBoundingClientRect().left - b.getBoundingClientRect().left - 2)
+    // When what is lit changes, and not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lit])
+  const page = () => {
+    const b = box.current
+    if (b) to(atEnd ? 0 : b.scrollLeft + b.clientWidth)
+  }
   return (
-    <div className="t3-tray" role="group" aria-label={`${c3.KIT}. ${c3.ONE_A_NIGHT}.`} data-t3-tray>
+    <>
+    <div ref={box} className="t3-tray" role="group" aria-label={`${c3.KIT}. ${c3.ONE_A_NIGHT}.`} data-t3-tray onScroll={(e) => setAtEnd(e.currentTarget.scrollLeft + e.currentTarget.clientWidth >= e.currentTarget.scrollWidth - 6)}>
       <button type="button" data-t3-fleet aria-pressed={selected === 'fleet'} aria-label={`${c3.FLEET}. Order new assets.${fleetOrdered ? ` ${fleetOrdered} ordered.` : ''}`} className={`t3-piece t3-piece-fleet${selected === 'fleet' ? ' is-on' : ''}${fleetOrdered ? ' is-ordered' : ''}`} onClick={onFleet}>
         <b>{c3.FLEET}</b>
         <span>{fleetOrdered ? `${fleetOrdered} ${c3.ORDERED}` : '+ assets'}</span>
       </button>
       {kit.map((p) => {
-        const hot = p.answers.some((a) => a.contact.favor !== 'unlikely' && a.contact.exposed > 0)
+        const hot = isHot(p)
         const state = p.blocked === 'owned' ? c3.OWNED : p.ordered ? c3.PLACED : `${p.cm.cost} CR`
         const does = p.answers.length ? p.answers.map((a) => `${verbWord(a.verb)} ${shortName(a.contact.def)}`).join('. ') : c3.nothingKnown
         return (
@@ -159,7 +185,7 @@ export function Tray({ kit, fleetOrdered, selected, onPick, onFleet, startDrag }
             aria-pressed={selected === p.cm.id}
             aria-label={`${p.cm.name}. ${state}. ${does}.${p.blocked === 'budget' ? ' Not enough budget tonight.' : ''}${p.risky && !p.ordered ? ` ${c3.RISKY}.` : ''}`}
             data-risky={p.risky || undefined}
-            className={`t3-piece${p.ordered ? ' is-ordered' : ''}${p.blocked ? ` is-${p.blocked}` : ''}${hot && !p.blocked ? ' is-hot' : ''}${p.risky && !p.ordered ? ' is-risky' : ''}${selected === p.cm.id ? ' is-on' : ''}`}
+            className={`t3-piece${p.ordered ? ' is-ordered' : ''}${p.blocked ? ` is-${p.blocked}` : ''}${hot ? ' is-hot' : ''}${p.risky && !p.ordered ? ' is-risky' : ''}${selected === p.cm.id ? ' is-on' : ''}`}
             onPointerDown={p.blocked ? undefined : (e) => startDrag(e, p.cm.id, PIECE[p.cm.id])}
             title={p.risky && !p.ordered ? c3.RISK_MARK : undefined}
             onClick={() => onPick(p.cm.id)}
@@ -170,12 +196,31 @@ export function Tray({ kit, fleetOrdered, selected, onPick, onFleet, startDrag }
         )
       })}
     </div>
+    <button type="button" className="t3-traymore" data-t3-tray-more={atEnd ? 'back' : 'more'} aria-label={atEnd ? c3.TRAY_BACK : c3.TRAY_MORE} onClick={page}>
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+        <path d={atEnd ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+    </>
   )
 }
 
-// A SIGNATURE IN HAND. Unidentified: its look, and the scan. Identified:
+// A SIGNATURE IN HAND. Unidentified: its look, the scan, and the name on
+// sight (v2.0 R3: 3 names, 1 try a night, no pulse spent). Identified:
 // what it is, what COLDVEIL does with it, what it would take from the
 // score, and the pieces that answer it.
+export interface SightView {
+  // The names on offer, when the player has asked to name it.
+  options: { id: string; name: string }[] | null
+  // Named wrong already tonight: no second try.
+  missed: boolean
+  onOpen: () => void
+  onName: (id: string) => void
+}
+// The mark the bundle budget finds this chunk by: the cards, the model and
+// the words the game and its rooms share (tests/bundle-budget.json).
+const CHUNK_MARK = 'dc-3d-cards-chunk'
+
 export interface AnswerView {
   id: CountermeasureId
   name: string
@@ -199,6 +244,7 @@ export function ContactCard({
   answers,
   locked,
   scanning,
+  sight,
   onScan,
   onPlace,
   onStep,
@@ -215,6 +261,8 @@ export function ContactCard({
   locked: string | null
   // The scan is on its way: the button says so at once.
   scanning: boolean
+  // The name on sight, where it is offered.
+  sight: SightView | null
   onScan: () => void
   onPlace: (id: CountermeasureId) => void
   // To the signature before or after this one, under the thumb.
@@ -246,16 +294,44 @@ export function ContactCard({
             <p className="t3-eyebrow">
               {c3.UNIDENTIFIED} · {sign}
             </p>
-            <h2 className="t3-title">{c3.UNKNOWN_LEAD}</h2>
+            <h2 className="t3-title">{sight?.options ? c3.SIGHT_ASK : c3.UNKNOWN_LEAD}</h2>
           </div>
-          {tracks > 0 && siblings > 0 && step}
+          {tracks > 0 && siblings > 0 && !sight?.options && step}
           <Close onClose={onClose} />
         </div>
-        <p className="t3-hook">{c3.unknownBody(siblings)}</p>
-        <button type="button" data-t3-scan={contact.id} className="t3-btn t3-primary t3-scanbtn" disabled={scanLeft <= 0 || scanning} onClick={onScan}>
-          {scanning ? 'SCANNING' : scanLeft > 0 ? c3.scanButton(scanLeft) : c3.NO_PULSES}
-        </button>
-        <p className="t3-hint">{c3.KNOW_THE_LOOK}</p>
+        {sight?.options ? (
+          <>
+            {/* 3 names in a row, by the short name each wears on the board. */}
+            <div role="group" aria-label={c3.SIGHT_BUTTON} className="t3-row t3-names">
+              {sight.options.map((o) => (
+                <button key={o.id} type="button" data-t3-sight-option={o.id} className="t3-btn" onClick={() => sight.onName(o.id)}>
+                  {o.name}
+                </button>
+              ))}
+            </div>
+            <p className="t3-hint" data-t3-sight-ask>
+              {c3.SIGHT_TERMS}
+            </p>
+          </>
+        ) : (
+          <>
+            {/* Named wrong: said where the eye is, in place of the line it has read. */}
+            <p className={`t3-hook${sight?.missed ? ' t3-warn' : ''}`} data-t3-sight-state={sight?.missed ? 'missed' : undefined}>
+              {sight?.missed ? c3.SIGHT_MISSED : c3.unknownBody(siblings)}
+            </p>
+            <div className="t3-row">
+              <button type="button" data-t3-scan={contact.id} className="t3-btn t3-primary t3-scanbtn" disabled={scanLeft <= 0 || scanning} onClick={onScan}>
+                {scanning ? 'SCANNING' : scanLeft > 0 ? c3.scanButton(scanLeft) : c3.NO_PULSES}
+              </button>
+              {sight && !sight.missed && (
+                <button type="button" data-t3-sight={contact.id} className="t3-btn" disabled={scanning} onClick={sight.onOpen}>
+                  {c3.SIGHT_BUTTON}
+                </button>
+              )}
+            </div>
+            {sight && !sight.missed && <p className="t3-hint">{c3.KNOW_THE_LOOK}</p>}
+          </>
+        )}
       </div>
     )
   }
@@ -434,14 +510,12 @@ export interface Queued {
 }
 
 // THE ANSWER, BESIDE ITS TARGET. Each answer is a piece: drag it onto the
-// target, make its gesture on the world, or tap it. Under the 3D game's
-// rules it spends 1 of the operation's answers (`pool`); under the classic
-// rules it is bought.
+// target, make its gesture on the world, or tap it. It spends 1 of the
+// operation's answers (`pool`).
 export function ChoiceCard({
   step,
   choices,
   sign,
-  credits,
   chain,
   queue,
   pool,
@@ -452,11 +526,10 @@ export function ChoiceCard({
   step: NightStep
   choices: Choice[]
   sign: string
-  credits: number
   chain: boolean
   // The moves still to come tonight after this one.
   queue: Queued[]
-  pool: { left: number; of: number; nightsLeft: number } | null
+  pool: { left: number; of: number; nightsLeft: number }
   first: RefObject<HTMLButtonElement | null>
   onRespond: (id: string | null) => void
   startDrag: StartDrag
@@ -465,7 +538,6 @@ export function ChoiceCard({
   const strength = ev.baseSeverity + ev.chainBonus
   const exposed = exposedOf(ev)
   const { held } = defensesFor(def, step.before.counters, step.before.scenario)
-  const lastNight = step.before.turn >= step.before.scenario.totalTurns
   const took = [held && ev.mitigation > 0 ? `your ${PIECE[held.id]} takes ${ev.mitigation} off` : '', ev.hardened ? `the watch post takes ${ev.hardened} off` : ''].filter(Boolean)
   const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
   return (
@@ -478,15 +550,13 @@ export function ChoiceCard({
             {c3.TAG[def.id] ?? shortName(def)} <i className="t3-bad">{dots(strength)}</i>
           </h2>
         </div>
-        {pool && (
-          <p className="t3-pool" data-t3-pool={pool.left} aria-label={c3.answersLeft(pool.left, pool.of)}>
-            <span>{c3.ANSWERS}</span>
-            <b aria-hidden="true">
-              {'●'.repeat(pool.left)}
-              {'○'.repeat(Math.max(0, pool.of - pool.left))}
-            </b>
-          </p>
-        )}
+        <p className="t3-pool" data-t3-pool={pool.left} aria-label={c3.answersLeft(pool.left, pool.of)}>
+          <span>{c3.ANSWERS}</span>
+          <b aria-hidden="true">
+            {'●'.repeat(pool.left)}
+            {'○'.repeat(Math.max(0, pool.of - pool.left))}
+          </b>
+        </p>
       </div>
       <p className="t3-hook">
         {chain ? `${copy.CHAIN_ADDS}. ` : ''}
@@ -496,8 +566,8 @@ export function ChoiceCard({
         {choices.map((c, k) => {
           const label = c.id ? (RESPONSE_TEXT[def.id]?.[c.id] ?? c.id) : copy.RIDE_IT_OUT
           const effect = c.fits ? copy.effectLine(c.effect, c.score, c.repair) : copy.EFFECT_WORD[c.effect]
-          const why = c.fits ? '' : pool ? c3.NO_ANSWERS : c.why === 'used' ? copy.ALREADY_ANSWERED : c3.needs(c.need, ev.room ?? 0, c.need > c.cost, lastNight)
-          const cost = !c.id ? copy.FREE : pool ? c3.ONE_ANSWER : copy.crFace(c.cost)
+          const why = c.fits ? '' : c3.NO_ANSWERS
+          const cost = !c.id ? copy.FREE : c3.ONE_ANSWER
           const how = c.gesture && c.fits ? ` ${c3.GESTURE[c.gesture]}, or tap.` : ''
           return (
             <button
@@ -542,7 +612,8 @@ export function ChoiceCard({
         </div>
       ) : null}
       <p className="t3-foot" data-t3-response-budget>
-        {pool ? `${queue.length === 0 ? `${c3.LAST_MOVE} ` : ''}${c3.answersNote(pool.left, pool.nightsLeft)}` : `${c3.freeForAnswer(ev.room ?? 0, credits, lastNight)} ${c3.moreToCome(queue.length)}`}
+        {queue.length === 0 ? `${c3.LAST_MOVE} ` : ''}
+        {c3.answersNote(pool.left, pool.nightsLeft)}
       </p>
     </div>
   )
@@ -797,7 +868,6 @@ export function ResultCard({
   // Stopped with no defense that answers it and no answer: the post did it.
   const byPost = verdict === 'blocked' && !ev.response && !held && !!ev.hardened
   const tap = tapLine(ev, assist, saved)
-  const used = ev.room !== undefined && !ev.response && (ev.left !== undefined ? ev.left === 0 : (ev.answered ?? 0) > 0)
   return (
     <div className={`t3-card t3-result-${verdict}`} key={`res-${step.index}`} data-t3-card="result" data-t3-verdict={verdict}>
       <div className="t3-verdict">
@@ -811,9 +881,9 @@ export function ResultCard({
       </div>
       <p className="t3-tagsline">
         {ev.response ? (
-          <span data-t3-took={ev.response.id}>{ev.left !== undefined ? `${RESPONSE_TEXT[def.id]?.[ev.response.id] ?? ev.response.id} · 1 answer` : copy.youDid(RESPONSE_TEXT[def.id]?.[ev.response.id] ?? ev.response.id, ev.response.cost)}</span>
-        ) : ev.room !== undefined ? (
-          <span data-t3-took={used ? 'used' : 'ride'}>{ev.left === 0 ? c3.NO_ANSWERS : used ? c3.ANSWER_USED : copy.RODE_OUT}</span>
+          <span data-t3-took={ev.response.id}>{RESPONSE_TEXT[def.id]?.[ev.response.id] ?? ev.response.id} · 1 answer</span>
+        ) : ev.left !== undefined ? (
+          <span data-t3-took={ev.left === 0 ? 'used' : 'ride'}>{ev.left === 0 ? c3.NO_ANSWERS : copy.RODE_OUT}</span>
         ) : null}
         {tap && (
           <span className="t3-ok" data-t3-tapline>
@@ -850,7 +920,7 @@ export function ResultCard({
           ? c3.POST_STOPPED
           : byDefense && held
           ? joined(partner ? copy.canNowSayWith(held.name, shortName(def), partner.name) : copy.canNowSay(held.name, shortName(def)))
-          : `${ev.response ? `${copy.TONIGHT_ONLY} ` : ''}${helped}${stops}${could && could.id ? (ev.left !== undefined ? ` An answer was there: ${RESPONSE_TEXT[def.id]?.[could.id] ?? could.id}.` : ` ${joined(copy.couldHave(RESPONSE_TEXT[def.id]?.[could.id] ?? could.id, could.cost))}`) : ''}`}
+          : `${ev.response ? `${copy.TONIGHT_ONLY} ` : ''}${helped}${stops}${could && could.id ? ` An answer was there: ${RESPONSE_TEXT[def.id]?.[could.id] ?? could.id}.` : ''}`}
       </p>
       {dossierFold}
       {way}
@@ -904,7 +974,6 @@ function DossierFold({ step, fresh, open, onOpen }: { step: NightStep; fresh: bo
 
 // A strike on its way in, or landing: its name, its look, and the tap.
 export function StrikeBanner({ step, sign, landing, tapOn, assist, chain, used, onTap }: { step: NightStep; sign: string; landing: boolean; tapOn: boolean; assist: boolean; chain: boolean; used: boolean; onTap: () => void }) {
-  const out = step.ev.left === 0
   return (
     <div className={`t3-card t3-banner${chain ? ' t3-chain' : ''}`} key={`in-${step.index}`} data-t3-card="strike">
       <p className="t3-eyebrow t3-bad">{chain ? c3.CHAIN : 'INCOMING'}</p>
@@ -912,7 +981,7 @@ export function StrikeBanner({ step, sign, landing, tapOn, assist, chain, used, 
         <SignatureGlyph id={step.def.id} size={28} /> <b>{shortName(step.def)}</b> on {sign || 'the fleet'}
       </p>
       {chain && !landing && <p className="t3-hint">{c3.CHAIN_LINE}</p>}
-      {used && <p className="t3-hint t3-warn">{out ? c3.NO_ANSWERS : copy.ALREADY_ANSWERED}.</p>}
+      {used && <p className="t3-hint t3-warn">{c3.NO_ANSWERS}.</p>}
       {landing &&
         (tapOn ? (
           <button type="button" data-t3-tap className="t3-tap" aria-label={`${c3.TAP}. ${c3.TAP_HINT}.`} onPointerDown={onTap} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onTap()}>
@@ -960,13 +1029,11 @@ export function DawnCard({
   const l = rec.ledger
   const worst = threats.filter((s) => s.ev.effectiveSeverity > 0).sort((a, b) => a.scoreAfter - a.scoreBefore - (b.scoreAfter - b.scoreBefore))[0]
   const missing = worst ? defensesFor(worst.def, after.counters, after.scenario).missing : undefined
-  const fix = !worst ? copy.NOTHING_THROUGH : missing ? joined(copy.fixDefense(PIECE[missing.id], missing.cost, shortName(worst.def), stopVerb(missing.id, worst.def) === 'stops' ? 'stops' : 'blunts')) : before.watch === 2 ? `${shortName(worst.def)} got through. Keep an answer for a move like it.` : copy.fixRespond(shortName(worst.def))
+  const fix = !worst ? copy.NOTHING_THROUGH : missing ? joined(copy.fixDefense(PIECE[missing.id], missing.cost, shortName(worst.def), stopVerb(missing.id, worst.def) === 'stops' ? 'stops' : 'blunts')) : `${shortName(worst.def)} got through. Keep an answer for a move like it.`
   const hold = rec.hold
   const parts = [
     l.ordered ? `Orders -${l.ordered}` : '',
     l.fuel ? `Fuel -${l.fuel}` : '',
-    l.responses ? `Responses -${l.responses}` : '',
-    l.refunds ? `Clean blocks +${l.refunds}` : '',
     l.windfall ? `Windfall +${l.windfall}` : '',
     l.repairs ? `Repairs -${l.repairs}` : '',
     l.upkeep ? `Upkeep -${l.upkeep}` : '',

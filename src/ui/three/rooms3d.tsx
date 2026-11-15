@@ -4,6 +4,7 @@
 // figure says comes from the engine's record through the debrief's own
 // model (src/ui/debriefModel.ts) and the game's model (gameModel.ts).
 
+import './rooms3d.css'
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useSoundPrefs } from '../../audio'
@@ -13,7 +14,7 @@ import { holdTemplate } from '../../engine/holds'
 import { RESPONSE_TEXT } from '../../content/responseText'
 import { MOMENT_CUES, gradeSound, type SoundCue } from '../../cues'
 import { turnStrip } from '../../engine/grade'
-import { DIFFICULTIES } from '../../engine/reducer'
+import { HARDEN, DIFFICULTIES } from '../../engine/reducer'
 import type { CountermeasureId, GameState, TurnActions } from '../../engine/types'
 import { captureGame, dossier, encodeSaveCode, readRun, type DailyOp, type DailyStanding } from '../../persistence'
 import { callSigns } from '../board/board'
@@ -42,6 +43,9 @@ type Play = (cue: SoundCue) => void
 
 // ------------------------------------------------------------ NEXT TIME
 
+// The mark the bundle budget finds the rooms' chunk by (tests/bundle-budget.json).
+const CHUNK_MARK = 'dc-3d-rooms-chunk'
+
 // The debrief's one lesson, in the 3D game's words (a night, a piece
 // placed), from the same measured replay the pixel debrief reads.
 export function nextTimeText(state: GameState, next: NextTime | null): string {
@@ -61,7 +65,7 @@ export function nextTimeText(state: GameState, next: NextTime | null): string {
     return `${lead}${ahead}. Played again with every other order the same, ${ends(next.final, next.was, next.won)}`
   }
   if (next?.kind === 'answer')
-    return `On night ${next.turn}, answer ${threatName(state, next.move)} when it comes: "${RESPONSE_TEXT[next.move]?.[next.response] ?? next.response}" (${state.watch === 2 ? '1 answer' : `${next.cost} CR`}). Played again with every order the same, ${ends(next.final, next.was, next.won)}`
+    return `On night ${next.turn}, answer ${threatName(state, next.move)} when it comes: "${RESPONSE_TEXT[next.move]?.[next.response] ?? next.response}" (1 answer). Played again with every order the same, ${ends(next.final, next.was, next.won)}`
   if (next?.kind === 'none') return 'No single change this game missed ends it higher.'
   return state.history.some((r) => r.events.some((e) => e.effectiveSeverity > 0)) ? 'Every move that got through met a defense you already had.' : 'Nothing got through.'
 }
@@ -83,7 +87,7 @@ export function ghostOf(state: GameState, next: NextTime | null): { states: Game
   } else if (next?.kind === 'answer') {
     const rec = state.history[next.turn - 1]
     const i = rec?.events.findIndex((e) => e.eventId === next.move) ?? -1
-    if (rec && i >= 0) changed = base.map((o, k) => (k === next.turn - 1 ? { ...o, responses: rec.events.map((e, j) => (j === i ? next.response : state.watch === 2 ? (e.response?.id ?? null) : null)) } : o))
+    if (rec && i >= 0) changed = base.map((o, k) => (k === next.turn - 1 ? { ...o, responses: rec.events.map((e, j) => (j === i ? next.response : (e.response?.id ?? null))) } : o))
   }
   if (changed) {
     const states = timeline(state, changed)
@@ -123,6 +127,7 @@ export function Debrief({
 }) {
   const block = useMemo(() => gradeBlock(state), [state])
   const stats = useMemo(() => debriefStats(state), [state])
+  const sighted = state.history.reduce((n, r) => n + (r.sighted?.length ?? 0), 0)
   const next = useMemo(() => nextTime(state), [state])
   const strip = useMemo(() => turnStrip(state), [state])
   const [said, setSaid] = useState('')
@@ -192,6 +197,13 @@ export function Debrief({
               </dd>
             </div>
           ))}
+          {/* The Dossier paying in play (v2.0 R3): signatures named from their look. */}
+          {sighted > 0 && (
+            <div data-t3-sighted>
+              <dt>{c3.SIGHTED}</dt>
+              <dd>{sighted}</dd>
+            </div>
+          )}
           {ms !== undefined && ms > 0 && (
             <div>
               <dt>{c3.TIME}</dt>
@@ -200,7 +212,7 @@ export function Debrief({
           )}
         </dl>
 
-        {state.watch === 2 && <HoldLog state={state} />}
+        <HoldLog state={state} />
 
         <section className="t3-next" data-t3-next-time>
           <h3>{c3.NEXT_TIME}</h3>
@@ -483,7 +495,7 @@ export function ReplayDock({ state, world, reduced, play, onShow, onBack }: { st
           const v = verdictOf(s.ev)
           const d = tenth(s.scoreAfter - s.scoreBefore)
           const { missing, held } = defensesFor(s.def, night.closing.counters, state.scenario)
-          const helped = v === 'blocked' ? (s.ev.response ? copy.youDid(RESPONSE_TEXT[s.def.id]?.[s.ev.response.id] ?? '', s.ev.response.cost) : held ? `${PIECE[held.id]} held it.` : '') : missing ? (held ? copy.finishedIt(PIECE[missing.id], missing.cost) : copy.wouldHaveHelped(PIECE[missing.id], missing.cost)).join('') : copy.fixRespond(shortName(s.def))
+          const helped = v === 'blocked' ? (s.ev.response ? `${RESPONSE_TEXT[s.def.id]?.[s.ev.response.id] ?? ''} · 1 answer` : held ? `${PIECE[held.id]} held it.` : '') : missing ? (held ? copy.finishedIt(PIECE[missing.id], missing.cost) : copy.wouldHaveHelped(PIECE[missing.id], missing.cost)).join('') : `${shortName(s.def)} got through. Keep an answer for a move like it.`
           return (
             <li key={s.index} className={s.index < shown ? 'is-in' : ''} data-t3-replay-event={v}>
               <SignatureGlyph id={s.def.id} size={22} />
@@ -627,6 +639,9 @@ export function DossierRoom({ onBack, backLabel = c3.TITLE, focus }: { onBack: (
   const filed = dossier()
   const log = hitLog()
   const threats = DEFAULT_SCENARIO.events.filter((e) => (e.kind ?? 'threat') === 'threat')
+  // The deck's own cards only: an id the store holds from another version
+  // of the deck is not a card filed here.
+  const filedCount = threats.filter((t) => filed.has(t.id)).length
   const [open, setOpen] = useState<string | null>(focus ?? null)
   const [reading, setReading] = useState<string | null>(null)
   const back = useRef<HTMLButtonElement | null>(null)
@@ -646,21 +661,21 @@ export function DossierRoom({ onBack, backLabel = c3.TITLE, focus }: { onBack: (
   }
 
   return (
-    <div className="t3-room" role="dialog" aria-label={c3.DOSSIER_HEAD} data-t3-room="dossier">
+    <div className="t3-room" role="dialog" aria-label={c3.DOSSIER_HEAD} data-t3-room="dossier" data-t3-chunk={CHUNK_MARK}>
       <header className="t3-roomhead">
         <button ref={back} type="button" className="t3-btn" data-t3-room-back onClick={onBack}>
           {backLabel}
         </button>
         <div>
           <h2>{c3.DOSSIER_HEAD}</h2>
-          <p data-t3-dossier-count>{c3.filedOf(filed.size, threats.length)}</p>
+          <p data-t3-dossier-count>{c3.filedOf(filedCount, threats.length)}</p>
         </div>
       </header>
       <div className="t3-quizbar">
-        <button type="button" className="t3-btn" data-t3-quiz-open disabled={filed.size < QUIZ_MIN} aria-pressed={quiz} onClick={() => setQuiz((q) => !q)}>
+        <button type="button" className="t3-btn" data-t3-quiz-open disabled={filedCount < QUIZ_MIN} aria-pressed={quiz} onClick={() => setQuiz((q) => !q)}>
           {quiz ? c3.QUIZ_DONE : c3.QUIZ}
         </button>
-        <p className="t3-hint">{filed.size < QUIZ_MIN ? c3.QUIZ_LOCKED(QUIZ_MIN - filed.size) : c3.QUIZ_LEAD}</p>
+        <p className="t3-hint">{filedCount < QUIZ_MIN ? c3.QUIZ_LOCKED(QUIZ_MIN - filedCount) : c3.QUIZ_LEAD}</p>
       </div>
       {quiz && <Quiz ids={threats.filter((t) => filed.has(t.id)).map((t) => t.id)} onDone={() => setQuiz(false)} />}
       <div className="t3-cards" hidden={quiz}>
@@ -820,9 +835,6 @@ export function SystemSheet({
               {c3.COPY_CODE}
             </button>
           )}
-          <a className="t3-btn" data-t3-sys="classic" href="?view=classic">
-            {c3.CLASSIC}
-          </a>
           <button type="button" className="t3-btn" data-t3-sys="title" onClick={onExit}>
             {c3.TITLE}
           </button>
@@ -832,6 +844,14 @@ export function SystemSheet({
             {said}
           </p>
         )}
+        <details className="t3-words" data-t3-words>
+          <summary className="t3-btn">{c3.WORDS}</summary>
+          {c3.wordsFor({ coverageMin: state.scenario.slaBonus.coverageMin, coverageBonus: state.scenario.slaBonus.credits, harden: HARDEN, collapse: state.scenario.collapseThreshold }).map(([term, meaning]) => (
+            <p key={term} className="t3-hint">
+              <b>{term}</b> {meaning}
+            </p>
+          ))}
+        </details>
       </div>
     </div>
   )

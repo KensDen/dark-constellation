@@ -2,7 +2,7 @@
 // played in a world, with the player's hands on it. The engine, the
 // content and the night's words are the game's own; the presentation is
 // new. Reached from the title's PLAY, CONTINUE and DAILY OP, in a deferred
-// chunk of its own; the pixel board stays at ?view=classic.
+// chunk of its own. Since v2.0 R3 it is the only game on this branch.
 //
 // A turn: BEFORE THE NIGHT the player scans the theater (tap a signature
 // or drag the scan lens over it), places one defense on an asset (drag the
@@ -13,7 +13,7 @@
 // target and a well-timed tap takes a little off. AT DAWN the turn closes.
 // After night 6, the debrief, the after-action replay and the Dossier.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import './game3d.css'
 import { strikeIntensity, useMusicState, useSound } from '../../audio'
 import { THREAT_EVENT_COUNT } from '../../content'
@@ -21,8 +21,7 @@ import { RESPONSE_TEXT } from '../../content/responseText'
 import { CONDITION_CUES, MOMENT_CUES, outcomeSound, strikeSound } from '../../cues'
 import { planFor } from '../../engine/campaign'
 import { holdTemplate, holdTonight } from '../../engine/holds'
-import { newGame } from '../../engine/reducer'
-import { answersLeft, answersOf } from '../../engine/rules'
+import { DIFFICULTIES, answersLeft, answersOf } from '../../engine/rules'
 import { defenseBonus } from '../../engine/learning'
 import { maiScore } from '../../engine/scoring'
 import type { AssetKind, CountermeasureId, DebrisChoice, GameState, HoldCall, TimingGrade } from '../../engine/types'
@@ -45,6 +44,7 @@ import {
   PIECE,
   assetById,
   canScan,
+  canSight,
   chainArmed,
   choicesFor,
   conditionsOn,
@@ -57,10 +57,12 @@ import {
   nightNow,
   postNow,
   scanState,
+  sightChoices,
   spotFor,
   stakesFor,
   verdictOf,
   withResponse,
+  withSight,
   withTiming,
   type Contact,
   type NightInputs,
@@ -69,11 +71,39 @@ import {
 } from './gameModel'
 import { SignatureGlyph } from './glyphs'
 import { Opening } from './opening3d'
-import { Debrief, DossierRoom, ReplayDock, SystemSheet } from './rooms3d'
 import { playMotif } from './sounds3d'
-import { clearNight, holdsSeen, logNight, markNight, nightMark, prefs as readPrefs, progress, recordFinish, sawHold, setPrefs, unlocksFor, type Prefs } from './store3d'
+import { clearNight, holdsSeen, logNight, markNight, markSight, nightMark, prefs as readPrefs, progress, recordFinish, sawHold, setPrefs, sightMark, unlocksFor, type Prefs } from './store3d'
 import type { Impact } from './theater'
 import { World } from './world'
+
+// THE ROOMS LOAD BESIDE THE GAME (v2.0 R3): the debrief, the after-action
+// replay, the Dossier and SYSTEM are a chunk of their own with their own
+// stylesheet (./rooms3d), since a night is played without any of them. It
+// is asked for as soon as the game mounts, so SYSTEM opens at a tap and
+// the debrief is there before night 6 is over; a room whose chunk never
+// arrived leaves a way back rather than a blank screen.
+const rooms = () => import('./rooms3d')
+function RoomUnavailable({ onBack, onExit, onClose }: { onBack?: () => void; onExit?: () => void; onClose?: () => void }) {
+  return (
+    <div className="t3-failed">
+      <p>{c3.ROOM_UNAVAILABLE}</p>
+      <button type="button" className="t3-btn" onClick={onClose ?? onBack ?? onExit}>
+        {c3.ROOM_BACK}
+      </button>
+    </div>
+  )
+}
+const room = <K extends 'Debrief' | 'DossierRoom' | 'ReplayDock' | 'SystemSheet'>(name: K) =>
+  lazy(() => rooms().then((m) => ({ default: m[name] }), () => ({ default: RoomUnavailable as unknown as (typeof import('./rooms3d'))[K] })))
+const Debrief = room('Debrief')
+const DossierRoom = room('DossierRoom')
+const ReplayDock = room('ReplayDock')
+const SystemSheet = room('SystemSheet')
+const RoomLoading = () => (
+  <p className="t3-loading" role="status">
+    {c3.LOADING}
+  </p>
+)
 
 // The mark the bundle budget finds this chunk by (scripts/bundle-budget.mjs;
 // tests/bundle-budget.json records the same string).
@@ -150,10 +180,6 @@ function arrive(initial: RestoredGame | null): { state: GameState; daily?: Daily
   let state = op.state
   const fresh = state.status === 'playing' && state.turn === 1 && state.history.length === 0
   if (fresh && !op.daily && !state.posture && readPrefs().posture === 'dark' && unlocksFor(progress(), dossier().size).postures.dark) state = { ...state, posture: 'dark' }
-  // A game that begins here plays the 3D game's rules (v2.0 R2: the pool
-  // of answers, the watch post, the policy engine's holds). One already
-  // under way keeps the rules it was started under.
-  if (fresh && state.watch !== 2) state = newGame(state.scenario, state.seed, state.difficulty, state.posture, 2)
   return { state, daily: op.daily }
 }
 
@@ -195,12 +221,14 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const [failed, setFailed] = useState(false)
   const [wide, setWide] = useState(() => typeof innerWidth === 'number' && innerWidth >= WIDE)
   const [sheet, setSheet] = useState(false)
-  const [room, setRoom] = useState<{ focus?: string } | null>(null)
+  const [roomOpen, setRoom] = useState<{ focus?: string } | null>(null)
   const [earned, setEarned] = useState<string[]>([])
   const [drag, setDrag] = useState<Drag | null>(null)
   const [dwell, setDwell] = useState<string | null>(null)
   const [tapOpen, setTapOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
+  // The signature whose names are on offer (the name on sight, v2.0 R3).
+  const [sighting, setSighting] = useState<string | null>(null)
   // The first frame of the world is drawn: until then, a word in its place.
   const [ready, setReady] = useState(false)
   // A frame-rate readout for a pass on a real phone: add fps=1 to the
@@ -312,7 +340,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     list.forEach((a, i) => {
       const sign = a.el.querySelector<HTMLElement>('.t3-sign')
       // A little air around each call sign, so two that only touch count
-      // as on each other.
+      // as on each other; and a call sign on another label costs 4 times
+      // its area, so a small overlap is enough to send it to a clear side
+      // (through R2 a drone's sign could rest against a satellite's).
       const w = Math.max(60, sign?.offsetWidth ?? 70) + 14
       const h = Math.max(22, sign?.offsetHeight ?? 26) + 4
       // Under the asset, over it, or to either side of it.
@@ -325,9 +355,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       // It stays where it is unless another side is clearly better.
       const was = a.el.dataset.flip ?? ''
       let best = spots.find((sp) => sp[0] === was) ?? spots[0]
-      let bestCost = cost(best[1], i) - 60
+      let bestCost = cost(best[1], i, 4) - 60
       for (const sp of spots) {
-        const c = cost(sp[1], i) + sp[2]
+        const c = cost(sp[1], i, 4) + sp[2]
         if (c < bestCost) {
           best = sp
           bestCost = c
@@ -500,7 +530,12 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // The app's CRT overlay and page scroll belong to the pixel game.
+  // The rooms' chunk, asked for once the game is up (see `rooms`, above).
+  useEffect(() => {
+    void rooms().catch(() => undefined)
+  }, [])
+
+  // The app's CRT overlay and page scroll are the title's and the reading screens'.
   useEffect(() => {
     document.documentElement.classList.add('t3-on')
     return () => document.documentElement.classList.remove('t3-on')
@@ -583,7 +618,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const at2: Record<string, string | undefined> = { ...game.placed, ...(orders.defense && orders.place ? { [orders.defense]: orders.place } : {}) }
     const ids = [...game.counters, ...(orders.defense && !game.counters.includes(orders.defense) ? [orders.defense] : [])]
     for (const id of ids) {
-      const where = at2[id] ?? (game.watch === 2 ? undefined : game.assets.find((a) => a.integrity > 0 && a.kind === 'groundStation')?.id)
+      const where = at2[id]
       if (where) counts.set(where, (counts.get(where) ?? 0) + 1)
     }
     t.setModules(counts)
@@ -693,7 +728,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   }, [mode, run, playing, visible])
 
   // A finished game is recorded once: the scoreboard or the Daily Op's
-  // ledger, as the pixel board records it, and what it unlocked.
+  // ledger, and what it unlocked.
   const finish = (after: GameState) => {
     if (recorded.current) return
     recorded.current = true
@@ -773,6 +808,32 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     if (guide === 'scan') setGuide('place')
   }
 
+  // THE NAME ON SIGHT (v2.0 R3): a name given to an unidentified signature.
+  // Right, it is identified and no pulse is spent; wrong, it has had its
+  // one try tonight. Kept with the night's mark, so a reload neither loses
+  // a name nor buys a second try.
+  const nameOnSight = (c: Contact, named: string) => {
+    if (!deciding || !canSight(orders, c)) return
+    const right = named === c.id
+    const next = withSight(orders, c, named)
+    setOrders(next)
+    markSight({ run, turn: game.turn, sighted: next.sighted ?? [], missed: next.missed ?? [] })
+    setSighting(null)
+    play(right ? 'relief-chime' : 'denied-buzz')
+    const wrong = game.scenario.events.find((e) => e.id === named)
+    setSay(right ? c3.sightRight(shortName(c.def)) : c3.sightWrong(wrong ? shortName(wrong) : 'that'))
+    if (right && guide === 'scan') setGuide('place')
+  }
+  // The names given before a reload stand.
+  useEffect(() => {
+    if (mode !== 'play' || phase !== 'plan' || game.status !== 'playing') return
+    const mark = sightMark(run, game.turn)
+    if (mark) setOrders((o) => (o.sighted || o.missed ? o : { ...o, sighted: mark.sighted, missed: mark.missed }))
+    // Once a night, as its plan opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, game.turn])
+  useEffect(() => setSighting(null), [sel])
+
   const place = (id: CountermeasureId, assetId?: string) => {
     if (!deciding || game.counters.includes(id)) return
     const cm = defenseDef(game, id)
@@ -797,7 +858,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     // COLDVEIL reacts to what is placed: say so when a track's favor moves.
     const moved = after.find((c) => c.favor === 'likely' && before.find((b) => b.id === c.id)?.favor !== 'likely' && before.some((b) => b.slot === c.slot && b.favor === 'likely'))
     const sign = signs.get(where ?? '') ?? 'the fleet'
-    setNote(`${moved ? `${ADVERSARY_NAME} switches to ${moved.known ? shortName(moved.def) : 'an unidentified move'}. ` : ''}${game.watch === 2 && where ? c3.postLine(sign) : ''}`)
+    setNote(`${moved ? `${ADVERSARY_NAME} switches to ${moved.known ? shortName(moved.def) : 'an unidentified move'}. ` : ''}${where ? c3.postLine(sign) : ''}`)
     setSay(c3.placedSay(cm.name, sign))
     if (guide === 'place' || guide === 'scan') setGuide('begin')
   }
@@ -914,12 +975,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           return
         }
         const asks = cur.open === stage.i
-        // The night stops on a move it can be answered on, and on one the
-        // budget cannot meet too: the answers stand there greyed with why,
-        // so a strike never lands unanswered without a word. (With
-        // tonight's one response used, it does not stop: the banner says.)
-        const offered = asks ? choicesFor(g, ordersRef.current, inputsRef.current, stage.i, s).filter((c) => c.id !== null) : []
-        const can = offered.some((c) => c.fits || c.why === 'budget')
+        // The night stops on a move while the watch has an answer for it.
+        // With the pool spent it does not stop: the banner says so.
+        const can = asks && choicesFor(g, ordersRef.current, inputsRef.current, stage.i, s).some((c) => c.id !== null && c.fits)
         const chain = s.def.id === 'blackout-chain'
         stopMotif = playMotif(play, s.def.id)
         setSay(`Incoming: ${shortName(s.def)} on ${names.get(target) ?? 'the fleet'}.`)
@@ -936,8 +994,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           setStage({ at: 'choose', i: stage.i })
           setGuide((gd) => (gd === null && !readPrefs().guideSeen && g.turn === 1 ? 'respond' : gd))
         } else {
-          // Tonight's one response is used: the move is ridden out, and
-          // the banner says so.
+          // No answer is left: the move is ridden out, and the banner says so.
           if (asks) answer(withResponse(inputsRef.current, stage.i, null))
           setStage({ at: 'land', i: stage.i })
         }
@@ -961,7 +1018,6 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         }
         const verdict = verdictOf(s.ev)
         if (s.ev.response) {
-          setHud((h) => ({ ...h, credits: h.credits - (s.ev.response?.cost ?? 0) }))
           await t.wait(reduced ? 0.2 : 0.45)
           if (!live) return
         } else if (verdict === 'blocked') {
@@ -969,8 +1025,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           shielded.current.add(target)
         }
         // The ring is offered only where a tap can do something: on a move
-        // that lands, or one a response blocks. A move a defense holds has
-        // nothing for it to improve, and asks for no tap.
+        // that lands. A move that is stopped has nothing for it to improve,
+        // and asks for no tap.
         const matters = tapMatters(s.ev)
         const ring = !assist && matters
         setTapOpen(ring)
@@ -1348,24 +1404,29 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      if (room) setRoom(null)
+      if (roomOpen) setRoom(null)
       else if (sheet) setSheet(false)
       else setSel(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [room, sheet])
+  }, [roomOpen, sheet])
 
   // ----------------------------------------------------------------- view
 
   const score = useCountUp(hud.score, reduced, 700)
-  const credits = useCountUp(phase === 'plan' && stakes ? stakes.remaining : hud.credits, reduced, 500)
+  // The budget is read to decide with, so while the orders are open it is
+  // the figure at once: counting to it showed a first-time player 43, 38,
+  // 40 and 42 on successive looks (the R2 review).
+  const credits = useCountUp(phase === 'plan' && stakes ? stakes.remaining : hud.credits, reduced || phase === 'plan', 500)
   const line = game.scenario.winThreshold
   const turnShown = phase === 'dawn' && last ? last.night.record.turn : Math.min(game.turn, totalTurns)
   const threatSteps = now ? now.night.steps.filter((s) => s.kind === 'threat') : []
   const phaseLine =
     phase === 'plan'
-      ? c3.PHASE.plan
+      ? daily && !wide
+        ? c3.dailyTag(daily.n)
+        : c3.PHASE.plan
       : phase === 'dawn'
         ? c3.PHASE.dawn
         : phase === 'debrief'
@@ -1385,7 +1446,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   if (mode === 'dossier') {
     return (
       <div className="t3-root t3-roomonly" data-game3d={CHUNK_MARK}>
-        <DossierRoom onBack={leave} />
+        <Suspense fallback={<RoomLoading />}>
+          <DossierRoom onBack={leave} />
+        </Suspense>
       </div>
     )
   }
@@ -1393,10 +1456,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   if (failed) {
     return (
       <div className="t3-root t3-failed" data-game3d={CHUNK_MARK}>
-        <p>This device could not start the 3D view.</p>
-        <a className="t3-btn" href="?view=classic">
-          {c3.CLASSIC}
-        </a>
+        <p>{c3.NO_3D}</p>
         <button type="button" className="t3-btn" onClick={leave}>
           {c3.TITLE}
         </button>
@@ -1622,7 +1682,10 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           </svg>
         </button>
         <div className="t3-where">
-          <b data-t3-night>{mode === 'briefing' ? 'DARK CONSTELLATION' : phase === 'replay' ? c3.PHASE.replay : `${daily ? `${c3.dailyTag(daily.n)} · ` : ''}${c3.nightOf(turnShown, totalTurns)}`}</b>
+          {/* On a phone the Daily Op's tag takes the second line while the
+              orders are open: beside the night on the first it ran under
+              the score (375 px leaves about 17 characters there). */}
+          <b data-t3-night>{mode === 'briefing' ? 'DARK CONSTELLATION' : phase === 'replay' ? c3.PHASE.replay : `${daily && wide ? `${c3.dailyTag(daily.n)} · ` : ''}${c3.nightOf(turnShown, totalTurns)}`}</b>
           <span data-t3-phaseline>{phase === 'replay' ? '' : phaseLine}</span>
         </div>
         {phase !== 'opening' && phase !== 'replay' && (
@@ -1736,6 +1799,21 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             answers={selContact.known ? answersFor(selContact) : []}
             locked={ownedName}
             scanning={scanning}
+            sight={
+              // Not on the first step of the first night's guide: that
+              // step teaches the scan.
+              selContact.fixed || guide === 'scan'
+                ? null
+                : {
+                    options: sighting === selContact.id && canSight(orders, selContact) ? sightChoices(game, selContact).map((id) => ({ id, name: c3.TAG[id] ?? shortName(game.scenario.events.find((e) => e.id === id) ?? selContact.def) })) : null,
+                    missed: !!orders.missed?.includes(selContact.id),
+                    onOpen: () => {
+                      setSighting(selContact.id)
+                      play('soft-tick')
+                    },
+                    onName: (id) => nameOnSight(selContact, id),
+                  }
+            }
             onScan={() => void doScan(selContact.id)}
             onPlace={(id) => place(id)}
             onStep={(by) => {
@@ -1788,6 +1866,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
               kit={kit}
               fleetOrdered={orders.assets.length}
               selected={sel?.kind === 'piece' ? sel.id : sel?.kind === 'fleet' ? 'fleet' : null}
+              reduced={reduced}
               onPick={(id) => {
                 if (swallow.current) return
                 setSel(sel?.kind === 'piece' && sel.id === id ? null : { kind: 'piece', id })
@@ -1827,7 +1906,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             seconds={holdLeft}
             total={HOLD_CLOCK_S[game.difficulty]}
             hint={guide === 'hold' ? c3.GUIDE.hold : undefined}
-            stake={Math.round((game.scenario.watch2?.holdStake ?? 0) * (game.difficulty === 'easy' ? 0.75 : 1) * 10) / 10}
+            stake={Math.round(game.scenario.holdStake * DIFFICULTIES[game.difficulty].damage * 10) / 10}
             first={primary}
             onCall={callHold}
           />
@@ -1854,7 +1933,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             tapOn={tapOpen}
             assist={assist}
             chain={step.def.id === 'blackout-chain'}
-            used={step.ev.room !== undefined && !step.ev.response && (step.ev.left !== undefined ? step.ev.left === 0 : (step.ev.answered ?? 0) > 0)}
+            used={step.ev.left === 0 && !step.ev.response}
             onTap={() => world.current?.tap()}
           />
         )}
@@ -1872,10 +1951,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             step={step}
             choices={choices}
             sign={signs.get(step.ev.targetAssetId ?? '') ?? ''}
-            credits={step.before.credits}
             chain={step.ev.chainBonus > 0 && chainArmed(step.before)}
             queue={queueAfter(stage.i)}
-            pool={game.watch === 2 ? { left: step.ev.left ?? 0, of: answersOf(game), nightsLeft: totalTurns - game.turn } : null}
+            pool={{ left: step.ev.left ?? 0, of: answersOf(game), nightsLeft: totalTurns - game.turn }}
             first={primary}
             onRespond={(id) => {
               if (!swallow.current) respond(id)
@@ -1898,7 +1976,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             onOpen={() => setOpenCard((o) => !o)}
             last={stage.i + 1 >= now.night.steps.length}
             first={primary}
-            could={step.kind !== 'threat' || step.ev.response || step.ev.room === undefined ? undefined : choicesFor(game, orders, inputs, stage.i, step).find((c) => c.id !== null && c.fits)}
+            could={step.kind !== 'threat' || step.ev.response || step.ev.left === undefined ? undefined : choicesFor(game, orders, inputs, stage.i, step).find((c) => c.id !== null && c.fits)}
             onContinue={onward}
           />
         )}
@@ -1906,22 +1984,25 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         {phase === 'dawn' && last && <DawnCard before={last.before} night={last.night} after={last.after} signs={callSigns(last.after)} first={primary} onNext={nextTurn} />}
 
         {phase === 'replay' && (
-          <ReplayDock
-            state={game}
-            world={world}
-            reduced={reduced}
-            play={play}
-            onShow={setReplayBoard}
-            onBack={() => {
-              setReplayBoard(null)
-              setPhase('debrief')
-            }}
-          />
+          <Suspense fallback={null}>
+            <ReplayDock
+              state={game}
+              world={world}
+              reduced={reduced}
+              play={play}
+              onShow={setReplayBoard}
+              onBack={() => {
+                setReplayBoard(null)
+                setPhase('debrief')
+              }}
+            />
+          </Suspense>
         )}
       </div>
 
+      <Suspense fallback={phase === 'debrief' || roomOpen ? <RoomLoading /> : null}>
       {phase === 'debrief' && (
-          <Debrief
+        <Debrief
           state={game}
           daily={daily}
           standing={standing}
@@ -1937,7 +2018,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       )}
 
       {sheet && (
-          <SystemSheet
+        <SystemSheet
           prefs={pf}
           state={game}
           daily={daily}
@@ -1956,9 +2037,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           onExit={leave}
         />
       )}
-      {room && (
-        <DossierRoom focus={room.focus} onBack={() => setRoom(null)} backLabel="BACK" />
-      )}
+      {roomOpen && <DossierRoom focus={roomOpen.focus} onBack={() => setRoom(null)} backLabel="BACK" />}
+      </Suspense>
     </div>
   )
 }
