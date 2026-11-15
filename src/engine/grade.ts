@@ -46,13 +46,30 @@ export type Grade = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
 // three quarters of the damage there, so a game ends about 4 points higher
 // for the same play, and one set of bands either handed S to a careful
 // EASY game or put it out of reach on STANDARD. With its own, the gate's
-// Novice takes S on 0.2 percent of its EASY wins and Prepared on 11.5; on
-// STANDARD, Novice on 0.5 and Prepared on 8.9. The Expert (reported,
-// outside the calibration) takes S on about half its EASY wins.
+// Novice would take S on 0.2 percent of its EASY wins and Prepared on 11.5; on
+// STANDARD, Novice on 0.5 and Prepared on 8.9.
+//
+// AND S IS NOT EARNED ON EASY AT ALL (TOP_GRADE). The bands alone did not
+// keep the ruling: the round's own fresh-eyes reviewer, a careful first
+// game on EASY at a desktop, won at 89.1 with a bonus of 4.0 and took S at
+// 93.1, and the Expert line took S on half its EASY wins. A band high
+// enough to stop that would be out of reach of any game. So EASY's best
+// grade is A, from the same 88.9, which with what was S makes A the top
+// quarter of EASY's wins; S is STANDARD's, and the debrief says so. A
+// first win moves PLAY to STANDARD in any case.
 export const GRADE_BANDS = {
   standard: { S: 90.6, A: 86.6, B: 77.5 },
   easy: { S: 92.6, A: 88.9, B: 80 },
 } as const satisfies Record<Difficulty, { S: number; A: number; B: number }>
+export const TOP_GRADE: Record<Difficulty, Grade> = { standard: 'S', easy: 'A' }
+
+// What the next grade up takes at a difficulty, for the debrief: the grade
+// and the graded score it starts at, or nothing from the top grade.
+export function nextGrade(grade: Grade, difficulty: Difficulty): { grade: Grade; from: number } | null {
+  if (grade === TOP_GRADE[difficulty] || grade === 'S' || grade === 'D' || grade === 'F') return null
+  const up = grade === 'C' ? 'B' : grade === 'B' ? 'A' : 'S'
+  return { grade: up, from: GRADE_BANDS[difficulty][up] }
+}
 
 // What a grade reads: how the campaign ended, its final mission assurance,
 // the defense bonus it earned, and the difficulty it was played on
@@ -77,7 +94,7 @@ export function gradeFor({ status, lossReason, finalMai, bonus = 0, difficulty =
   if (status === 'lost') return lossReason === 'belowThreshold' ? 'D' : 'F'
   const graded = gradedScore(finalMai, bonus)
   const bands = GRADE_BANDS[difficulty]
-  if (graded >= bands.S) return 'S'
+  if (graded >= bands.S && TOP_GRADE[difficulty] === 'S') return 'S'
   if (graded >= bands.A) return 'A'
   if (graded >= bands.B) return 'B'
   return 'C'

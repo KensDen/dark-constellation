@@ -52,7 +52,7 @@ export interface Orders {
   assets: AssetKind[]
   scans: string[]
   // THE NAME ON SIGHT (v2.0 R3): the signatures named right from their
-  // look tonight, and the ones named wrong, which get no second try.
+  // look tonight, and the one named wrong, which ended naming for the night.
   sighted?: string[]
   missed?: string[]
 }
@@ -235,15 +235,26 @@ export const canScan = (state: GameState, orders: Orders, contact: Contact): boo
 
 // THE NAME ON SIGHT (v2.0 R3; the rule is in src/engine/rules.ts). Every
 // signature has a look of its own, so a player who knows the look can name
-// an unidentified one and spend no pulse. The game offers the name once a
-// signature a night, among SIGHT_CHOICES names: its own and others it
-// could be mistaken for. The others are threats that strike the layer its
-// target is on where there are enough of them (a satellite's signature
-// offered beside two ground attacks would name itself), never a move
-// CONFIRMED tonight (its name is already on the board), and the 3 stand in
-// an order fixed by the seed, the night and the signature, so a reload
-// offers the same names and every player of a Daily Op is asked the same.
-export const SIGHT_CHOICES = 3
+// an unidentified one and spend no pulse. The game offers SIGHT_CHOICES
+// names: its own and others it could be mistaken for. A right name
+// identifies it, and the player may go on naming; THE FIRST WRONG NAME ENDS
+// NAMING FOR THE NIGHT, so a name is a risk taken and not a free guess.
+//
+// AS FIRST BUILT IT WAS A GIVEAWAY, and the round's first-time reviewer
+// showed it: 3 names, one try a signature, the other names drawn from the
+// whole deck. A player with an empty Dossier named 11 of 12, because 2 of
+// the 3 names were usually moves already identified on tonight's board
+// (elimination), and the third was nothing like the look. So:
+//   - no other name is a move on tonight's board, identified or not, so
+//     nothing on screen rules a name out;
+//   - the others are the moves it is most easily taken for: the same kind
+//     of attack first (a jam beside a spoof, one LiDAR trick beside
+//     another), then moves on the layer its target is on, then the rest;
+//   - 4 names, not 3, and a miss costs the rest of the night's naming.
+// The names stand in an order fixed by the seed, the night and the
+// signature, so a reload offers the same names and every player of a
+// Daily Op is asked the same.
+export const SIGHT_CHOICES = 4
 const sightHash = (text: string): number => {
   let h = 0x811c9dc5
   for (let i = 0; i < text.length; i += 1) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0
@@ -253,19 +264,20 @@ const sightHash = (text: string): number => {
 export function sightChoices(state: GameState, contact: Contact): string[] {
   const key = (id: string) => sightHash(`${state.seed}:${state.turn}:${contact.id}:${id}`)
   const layer = assetById(state, contact.targetId)?.layer
-  const confirmed = new Set((planFor(state, state.turn)?.slots ?? []).flatMap((slot) => (slot.fixed ? [slot.fixed] : [])))
-  const others = state.scenario.events.filter((e) => (e.kind ?? 'threat') === 'threat' && e.effect.special !== 'debrisStrike' && e.id !== contact.id && !confirmed.has(e.id))
-  const near = others.filter((e) => layer !== undefined && e.layers.includes(layer))
-  const far = others.filter((e) => !near.includes(e))
-  const byKey = (a: ThreatEvent, b: ThreatEvent) => key(a.id) - key(b.id)
-  const picked = [...near.sort(byKey), ...far.sort(byKey)].slice(0, SIGHT_CHOICES - 1).map((e) => e.id)
+  const tonight = new Set((planFor(state, state.turn)?.slots ?? []).flatMap((slot) => (slot.fixed ? [slot.fixed] : (slot.drawFrom ?? []))))
+  const others = state.scenario.events.filter((e) => (e.kind ?? 'threat') === 'threat' && e.effect.special !== 'debrisStrike' && e.id !== contact.id && !tonight.has(e.id))
+  // How easily a move is taken for this one: 0 the same kind of attack, 1
+  // one that strikes the same layer, 2 any other.
+  const near = (e: ThreatEvent) => (e.vector === contact.def.vector ? 0 : layer !== undefined && e.layers.includes(layer) ? 1 : 2)
+  const picked = [...others].sort((a, b) => near(a) - near(b) || key(a.id) - key(b.id)).slice(0, SIGHT_CHOICES - 1).map((e) => e.id)
   return [contact.id, ...picked].sort((a, b) => key(`#${a}`) - key(`#${b}`))
 }
-// Whether a signature can still be named tonight: unidentified, and not
-// already named wrong.
-export const canSight = (orders: Orders, contact: Contact): boolean => !contact.known && !contact.fixed && !orders.missed?.includes(contact.id)
+// Whether naming is still open tonight: no wrong name has been given.
+export const sightOpen = (orders: Orders): boolean => !orders.missed?.length
+// Whether a signature can be named: unidentified, and naming still open.
+export const canSight = (orders: Orders, contact: Contact): boolean => !contact.known && !contact.fixed && sightOpen(orders)
 // The orders with a name given: right, the signature is identified; wrong,
-// it has had its try.
+// naming is over for the night.
 export function withSight(orders: Orders, contact: Contact, named: string): Orders {
   if (named === contact.id) return { ...orders, sighted: [...(orders.sighted ?? []), contact.id] }
   return { ...orders, missed: [...(orders.missed ?? []), contact.id] }
@@ -414,7 +426,12 @@ export function choicesFor(state: GameState, orders: Orders, inputs: NightInputs
     const ev = lastEvents(resolve(state, orders, { ...inputs, responses: answered(inputs.responses, index, id) }))[index]
     return { score: tenth(ev.scoreAfter - ev.scoreBefore), repair: ev.repairCost }
   }
-  const options: ResponseOption[] = responseOptions(step.def, step.ev)
+  // AN ANSWER THAT DOES LESS FOR THE SAME PRICE IS NOT OFFERED (v2.0 R3).
+  // Every answer costs 1 of the pool since R2, so where a move can be
+  // blocked its halving was a dead third of the card (both of the round's
+  // reviewers said so). The halving is offered where it is the move's best.
+  const all: ResponseOption[] = responseOptions(step.def, step.ev)
+  const options = all.some((o) => o.effect === 'block') ? all.filter((o) => o.effect === 'block') : all
   return [
     ...options.map((o): Choice => ({ id: o.id, effect: o.effect, gesture: gestureOf(o.id), fits: o.fits, why: o.why, ...(o.fits ? outcome(o.id) : { score: 0, repair: 0 }) })),
     { id: null, effect: 'ride', gesture: null, fits: true, ...outcome(null) },

@@ -13,8 +13,8 @@ import { HUMAN_IN_COMMAND } from '../../content/holds'
 import { holdTemplate } from '../../engine/holds'
 import { RESPONSE_TEXT } from '../../content/responseText'
 import { MOMENT_CUES, gradeSound, type SoundCue } from '../../cues'
-import { turnStrip } from '../../engine/grade'
-import { HARDEN, DIFFICULTIES } from '../../engine/reducer'
+import { TOP_GRADE, nextGrade, turnStrip } from '../../engine/grade'
+import { HARDEN, DIFFICULTIES, scanPulses } from '../../engine/reducer'
 import type { CountermeasureId, GameState, TurnActions } from '../../engine/types'
 import { captureGame, dossier, encodeSaveCode, readRun, type DailyOp, type DailyStanding } from '../../persistence'
 import { callSigns } from '../board/board'
@@ -66,7 +66,7 @@ export function nextTimeText(state: GameState, next: NextTime | null): string {
   }
   if (next?.kind === 'answer')
     return `On night ${next.turn}, answer ${threatName(state, next.move)} when it comes: "${RESPONSE_TEXT[next.move]?.[next.response] ?? next.response}" (1 answer). Played again with every order the same, ${ends(next.final, next.was, next.won)}`
-  if (next?.kind === 'none') return 'No single change this game missed ends it higher.'
+  if (next?.kind === 'none') return 'No single change to this game would have ended it higher: not a defense placed a night sooner, not an answer spent on another move.'
   return state.history.some((r) => r.events.some((e) => e.effectiveSeverity > 0)) ? 'Every move that got through met a defense you already had.' : 'Nothing got through.'
 }
 
@@ -174,6 +174,7 @@ export function Debrief({
           <p className="t3-hook">
             {block.reason.replace(/\bturn\b/g, 'night').replace(/\bTurn\b/g, 'Night')}
             {block.bonus ? ` Defense bonus +${block.bonus.bonus.toFixed(1)}: graded on ${block.bonus.graded.toFixed(1)}.` : ''}
+            {state.status === 'won' ? ` ${c3.nextGradeLine(nextGrade(block.grade, state.difficulty), state.difficulty === 'easy' && block.grade === TOP_GRADE.easy)}` : ''}
           </p>
           {daily && <p className="t3-hint">{standing === 'official' ? c3.OFFICIAL_DAILY : c3.PRACTICE_DAILY}</p>}
         </header>
@@ -815,6 +816,17 @@ export function SystemSheet({
         </div>
       </header>
       <div className="t3-sys">
+        {/* First in the room: it is what a player who is stuck came for,
+            and at the foot of the page two reviewers found it only after
+            their game was over. */}
+        <details className="t3-words" data-t3-words>
+          <summary className="t3-btn">{c3.WORDS}</summary>
+          {c3.wordsFor({ coverageMin: state.scenario.slaBonus.coverageMin, coverageBonus: state.scenario.slaBonus.credits, harden: HARDEN, collapse: state.scenario.collapseThreshold, answers: state.scenario.answers, pulses: scanPulses(state) }).map(([term, meaning]) => (
+            <p key={term} className="t3-hint">
+              <b>{term}</b> {meaning}
+            </p>
+          ))}
+        </details>
         <Toggle id="assist" label={c3.ASSIST} note={c3.ASSIST_NOTE} on={prefs.assist} onChange={(on) => onPrefs({ assist: on })} />
         <Toggle id="motion" label={c3.MOTION} on={motionOff} onChange={(on) => setMotionSettingOff(on)} />
         <Toggle id="low" label={c3.LOW_POWER} note={c3.LOW_POWER_NOTE} on={prefs.lowPower} onChange={(on) => onPrefs({ lowPower: on })} />
@@ -844,14 +856,6 @@ export function SystemSheet({
             {said}
           </p>
         )}
-        <details className="t3-words" data-t3-words>
-          <summary className="t3-btn">{c3.WORDS}</summary>
-          {c3.wordsFor({ coverageMin: state.scenario.slaBonus.coverageMin, coverageBonus: state.scenario.slaBonus.credits, harden: HARDEN, collapse: state.scenario.collapseThreshold }).map(([term, meaning]) => (
-            <p key={term} className="t3-hint">
-              <b>{term}</b> {meaning}
-            </p>
-          ))}
-        </details>
       </div>
     </div>
   )

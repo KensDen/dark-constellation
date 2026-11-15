@@ -77,13 +77,17 @@ export function PlanCard({
   onPick: (id: string) => void
   lens: ReactNode
 }) {
+  const [whole, setWhole] = useState(false)
   return (
     <div className="t3-card t3-plan" data-t3-card="plan" data-t3-chunk={CHUNK_MARK}>
       <p className="t3-eyebrow">
         {eyebrow}
         <span className="t3-right">{summary}</span>
       </p>
-      <p className={risk ? 't3-note t3-risknote' : note ? 't3-note' : 't3-lead'} role={risk ? 'alert' : undefined}>
+      {/* A line cut short to keep the card's height opens at a tap: cut
+          lines that could not be opened were the phone reviewer's second
+          complaint. */}
+      <p className={`${risk ? 't3-note t3-risknote' : note ? 't3-note' : 't3-lead'}${whole ? ' is-whole' : ''}`} role={risk ? 'alert' : undefined} data-t3-line onClick={() => setWhole((w) => !w)}>
         {risk || note || intro}
       </p>
       <div className="t3-sigs" role="group" aria-label={c3.signaturesOver(contacts.length)} data-t3-sigs>
@@ -116,7 +120,7 @@ export function PlanCard({
         </p>
         <p title={c3.worstNote(stakes.worst)}>
           <span>{c3.WORST}</span>
-          <b className={stakes.worst < 0 ? 't3-bad' : ''}>{stakes.worst} CR</b>
+          <b className={stakes.worst < 0 ? 't3-bad' : ''}>{c3.worstFace(stakes.worst)}</b>
         </p>
         {answersOf > 0 && (
           <p data-t3-answers={answers} aria-label={c3.answersLeft(answers, answersOf)}>
@@ -145,29 +149,33 @@ export function PlanCard({
 // button, and a fade over the cut did not make it read as anything but a
 // cut (the R2 reviewer). Now 2 pieces fill the row and it moves a page at
 // a time: by a swipe, which settles on a piece's edge, or by the button at
-// its end, which turns back at the last page. When a signature is
-// identified the first piece lit for it is brought into view: lit, not
-// moved, so the order is still the one to learn.
+// its end, which says which page of how many it is on and turns back at
+// the last. It never moves by itself: a first build brought the piece lit
+// for an identified signature into view, and the round's phone reviewer
+// read that as the row reordering and lost the fleet's door behind it.
+// Lit, not moved, so the order is the one to learn.
 export function Tray({ kit, fleetOrdered, selected, reduced, onPick, onFleet, startDrag }: { kit: KitPiece[]; fleetOrdered: number; selected: CountermeasureId | 'fleet' | null; reduced: boolean; onPick: (id: CountermeasureId) => void; onFleet: () => void; startDrag: StartDrag }) {
   const box = useRef<HTMLDivElement | null>(null)
-  const [atEnd, setAtEnd] = useState(false)
+  // The page in view and how many there are: 2 pieces a page on a phone.
+  const [at, setAt] = useState({ page: 1, of: 1 })
+  const atEnd = at.page >= at.of
   const isHot = (p: KitPiece) => !p.blocked && p.answers.some((a) => a.contact.favor !== 'unlikely' && a.contact.exposed > 0)
-  const lit = kit.filter(isHot).map((p) => p.cm.id).join(' ')
   const to = (left: number) => box.current?.scrollTo?.({ left, behavior: reduced ? 'auto' : 'smooth' })
+  const measure = (b: HTMLElement) => {
+    const of = Math.max(1, Math.round(b.scrollWidth / Math.max(1, b.clientWidth)))
+    const page = b.scrollLeft + b.clientWidth >= b.scrollWidth - 6 ? of : Math.min(of, Math.round(b.scrollLeft / Math.max(1, b.clientWidth)) + 1)
+    setAt((was) => (was.page === page && was.of === of ? was : { page, of }))
+  }
   useEffect(() => {
-    const b = box.current
-    const el = b?.querySelector<HTMLElement>('.is-hot')
-    if (b && el) to(b.scrollLeft + el.getBoundingClientRect().left - b.getBoundingClientRect().left - 2)
-    // When what is lit changes, and not on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lit])
+    if (box.current) measure(box.current)
+  }, [kit.length])
   const page = () => {
     const b = box.current
     if (b) to(atEnd ? 0 : b.scrollLeft + b.clientWidth)
   }
   return (
     <>
-    <div ref={box} className="t3-tray" role="group" aria-label={`${c3.KIT}. ${c3.ONE_A_NIGHT}.`} data-t3-tray onScroll={(e) => setAtEnd(e.currentTarget.scrollLeft + e.currentTarget.clientWidth >= e.currentTarget.scrollWidth - 6)}>
+    <div ref={box} className="t3-tray" role="group" aria-label={`${c3.KIT}. ${c3.ONE_A_NIGHT}.`} data-t3-tray onScroll={(e) => measure(e.currentTarget)}>
       <button type="button" data-t3-fleet aria-pressed={selected === 'fleet'} aria-label={`${c3.FLEET}. Order new assets.${fleetOrdered ? ` ${fleetOrdered} ordered.` : ''}`} className={`t3-piece t3-piece-fleet${selected === 'fleet' ? ' is-on' : ''}${fleetOrdered ? ' is-ordered' : ''}`} onClick={onFleet}>
         <b>{c3.FLEET}</b>
         <span>{fleetOrdered ? `${fleetOrdered} ${c3.ORDERED}` : '+ assets'}</span>
@@ -196,23 +204,27 @@ export function Tray({ kit, fleetOrdered, selected, reduced, onPick, onFleet, st
         )
       })}
     </div>
-    <button type="button" className="t3-traymore" data-t3-tray-more={atEnd ? 'back' : 'more'} aria-label={atEnd ? c3.TRAY_BACK : c3.TRAY_MORE} onClick={page}>
+    <button type="button" className="t3-traymore" data-t3-tray-more={atEnd ? 'back' : 'more'} aria-label={`${atEnd ? c3.TRAY_BACK : c3.TRAY_MORE}. ${c3.trayPage(at.page, at.of)}.`} onClick={page}>
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
         <path d={atEnd ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
+      <span aria-hidden="true">
+        {at.page}/{at.of}
+      </span>
     </button>
     </>
   )
 }
 
 // A SIGNATURE IN HAND. Unidentified: its look, the scan, and the name on
-// sight (v2.0 R3: 3 names, 1 try a night, no pulse spent). Identified:
+// sight (v2.0 R3: 4 names, no pulse spent, and the first wrong name ends
+// naming for the night). Identified:
 // what it is, what COLDVEIL does with it, what it would take from the
 // score, and the pieces that answer it.
 export interface SightView {
   // The names on offer, when the player has asked to name it.
   options: { id: string; name: string }[] | null
-  // Named wrong already tonight: no second try.
+  // A name was wrong tonight: naming is over until the next night.
   missed: boolean
   onOpen: () => void
   onName: (id: string) => void
@@ -301,7 +313,7 @@ export function ContactCard({
         </div>
         {sight?.options ? (
           <>
-            {/* 3 names in a row, by the short name each wears on the board. */}
+            {/* 4 names, 2 a row, by the short name each wears on the board. */}
             <div role="group" aria-label={c3.SIGHT_BUTTON} className="t3-row t3-names">
               {sight.options.map((o) => (
                 <button key={o.id} type="button" data-t3-sight-option={o.id} className="t3-btn" onClick={() => sight.onName(o.id)}>
@@ -346,7 +358,7 @@ export function ContactCard({
             {contact.hardened > 0 ? ` · ${c3.postTook(contact.hardened)}` : ''}
             {filed ? '' : ' · NEW'}
           </p>
-          <h2 className="t3-title">
+          <h2 className={`t3-title${shortName(def).length > 26 ? ' is-long' : ''}`}>
             {shortName(def)} {!contact.debris && <i className="t3-bad">{dots(contact.strength)}</i>}
           </h2>
         </div>
@@ -612,6 +624,7 @@ export function ChoiceCard({
         </div>
       ) : null}
       <p className="t3-foot" data-t3-response-budget>
+        {choices.some((c) => c.effect === 'block') ? '' : `${c3.NO_BLOCK} `}
         {queue.length === 0 ? `${c3.LAST_MOVE} ` : ''}
         {c3.answersNote(pool.left, pool.nightsLeft)}
       </p>
@@ -712,10 +725,17 @@ export function HoldResultCard({ hold, template, sign, entry, first, onContinue 
       <div className="t3-verdict">
         <b className={`t3-${tone}`}>{verdict}</b>
         <span>{hold.compromised ? c3.HOLD_TRUTH.compromised : c3.HOLD_TRUTH.clean}</span>
-        <span className="t3-right" data-t3-delta>
-          {hold.right ? c3.holdSaved(hold.saved) : c3.holdCost(hold.cost)}
-        </span>
+        {!hold.right && (
+          <span className="t3-right" data-t3-delta>
+            {c3.holdCost(hold.cost)}
+          </span>
+        )}
       </div>
+      {hold.right && (
+        <p className="t3-tagsline" data-t3-delta>
+          <span className="t3-ok">{c3.holdSaved(hold.saved)}</span>
+        </p>
+      )}
       <p className="t3-helped">
         {sign}: {c3.youCalled[hold.call]} {hold.call === 'none' ? (hold.right ? c3.MACHINE_RIGHT : c3.MACHINE_WRONG) : ''} {c3.holdTell(tells)}
       </p>
@@ -1071,7 +1091,7 @@ export function DawnCard({
       {hold && (
         <p className="t3-tagsline" data-t3-dawn-hold>
           <span className={hold.right ? 't3-ok' : 't3-warn'}>
-            {hold.call === 'none' ? c3.HOLD_VERDICT.none : hold.right ? c3.HOLD_VERDICT.right : c3.HOLD_VERDICT.wrong} on the hold · {hold.right ? c3.holdSaved(hold.saved).toLowerCase() : c3.holdCost(hold.cost).toLowerCase()}
+            {hold.call === 'none' ? c3.HOLD_VERDICT.none : hold.right ? c3.HOLD_VERDICT.right : c3.HOLD_VERDICT.wrong} on the hold · {hold.right ? c3.HOLD_NO_COST : c3.holdCost(hold.cost).toLowerCase()}
           </span>
         </p>
       )}

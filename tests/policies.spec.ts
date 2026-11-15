@@ -19,7 +19,7 @@ import { NEW_DEFENSES_PER_NIGHT, countersAfter, domainOf, eventById, newDefenses
 import type { GameState, TurnActions } from '../src/engine/types'
 import { worstCase } from '../src/engine/worstCase'
 import { spotFor } from '../src/ui/three/gameModel'
-import { FIXED, WATCH, WATCH_REPORTED, type WatchLine } from './policies'
+import { FIXED, GUESS_RATE, WATCH, WATCH_REPORTED, type WatchLine } from './policies'
 
 const SEEDS = 100
 const line = (name: string): WatchLine => [...WATCH, ...FIXED, ...WATCH_REPORTED].find((l) => l.name === name)!
@@ -103,25 +103,33 @@ describe('the sweep lines do what their comments say', () => {
     expect(lit, 'it never placed a piece the tray lit').toBeGreaterThan(SEEDS)
   })
 
-  it('the lines that name on sight name only what the scan did not, and the guesser about 1 in 3 of those', () => {
-    let offered = 0
-    let guessed = 0
+  it('the lines that name on sight name only what the scan did not, and the guesser stops at its first wrong name', () => {
+    let nights = 0
+    let firstRight = 0
+    let named = 0
     for (const { state, actions, after, where } of decisions(line('preparedSight'))) {
       const scans = actions.scans ?? []
       const rest = drawnTonight(state).filter((id) => !scans.includes(id))
       expect(actions.sighted ?? [], where).toEqual(rest)
       expect(after.history.at(-1)!.sighted ?? []).toEqual(rest)
     }
-    for (const { state, actions } of decisions(line('preparedGuess'))) {
+    for (const { state, actions, where } of decisions(line('preparedGuess'))) {
       const scans = actions.scans ?? []
       const rest = drawnTonight(state).filter((id) => !scans.includes(id))
-      for (const id of actions.sighted ?? []) expect(rest).toContain(id)
-      offered += rest.length
-      guessed += (actions.sighted ?? []).length
+      if (rest.length === 0) continue
+      // What it named is the first of what was left, in the night's order:
+      // nothing after a miss.
+      const got = actions.sighted ?? []
+      expect(got, where).toEqual(rest.slice(0, got.length))
+      nights += 1
+      named += got.length
+      if (got.length > 0) firstRight += 1
     }
-    expect(offered).toBeGreaterThan(SEEDS * 4)
-    expect(guessed / offered, 'the guesser is right about 1 time in 3').toBeGreaterThan(0.28)
-    expect(guessed / offered).toBeLessThan(0.39)
+    expect(nights).toBeGreaterThan(SEEDS * 4)
+    expect(firstRight / nights, 'the guesser is right about 1 time in 4').toBeGreaterThan(GUESS_RATE - 0.05)
+    expect(firstRight / nights).toBeLessThan(GUESS_RATE + 0.05)
+    // About a third of a signature a night, where knowing them names them all.
+    expect(named / nights).toBeLessThan(0.5)
   })
 
   it('Nothing orders nothing, makes no call and takes no answer', () => {

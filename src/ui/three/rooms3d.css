@@ -657,7 +657,9 @@
   font-size: 12px;
   letter-spacing: 0.04em;
 }
-.t3-hic {
+/* Named with the root so its padding outranks the game's reset on every
+   paragraph: without it the text stood on the box's own edge. */
+.t3-root .t3-hic {
   padding: 8px 10px;
   border-radius: 12px;
   box-shadow: inset 0 0 0 1px var(--t3-edge);

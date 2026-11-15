@@ -58,6 +58,7 @@ import {
   postNow,
   scanState,
   sightChoices,
+  sightOpen,
   spotFor,
   stakesFor,
   verdictOf,
@@ -119,6 +120,8 @@ const ADVERSARY_NAME = 'COLDVEIL'
 // The hold's clock, in seconds: generous on EASY, and none at all on the
 // first hold a device meets, with Assist, or with Reduce Motion.
 const HOLD_CLOCK_S = { easy: 25, standard: 18 } as const
+// How near the satellite a burn's drag must start, in CSS pixels.
+const BURN_REACH = 130
 
 type Stage =
   | { at: 'fall' }
@@ -248,8 +251,10 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   }, [])
   // The hold's clock, in seconds left; null when there is none.
   const [holdLeft, setHoldLeft] = useState<number | null>(null)
-  // BEGIN asked once more on a night whose WORST CASE is below 0.
+  // BEGIN asked once more on a night whose WORST CASE is below 0, and on
+  // one begun with no new defense while one could be placed.
   const [atRisk, setAtRisk] = useState(false)
+  const [bare, setBare] = useState(false)
   const [guide, setGuide] = useState<GuideStep>(() => (mode === 'play' && !readPrefs().guideSeen && start.state.status === 'playing' && start.state.history.length === 0 ? 'scan' : null))
   // Whether this game's finish has been recorded. True from the start for
   // a game that arrived finished: it was not played here.
@@ -292,7 +297,6 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const anchor = useRef<string | null>(null)
   const wideRef = useRef(wide)
   wideRef.current = wide
-  const dockAt = useRef({ y: 0, set: false })
   const frameNo = useRef(0)
   // Each asset's signatures are tied to it by a line, so a block of them
   // set aside from a crowded spot still reads as that asset's.
@@ -477,20 +481,21 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           const dock = dockRef.current
           const line = leaderRef.current
           if (!dock) return
-          const H = innerHeight
           if (wideRef.current) {
-            const dh = dock.offsetHeight
+            // THE COLUMN STANDS STILL (v2.0 R3). Through R2 it rode level
+            // with the asset, easing after it as the camera moved, so every
+            // button in it moved too: the round's desktop reviewer lost
+            // clicks on NEXT MOVE and on the card's arrows, and BEGIN was
+            // somewhere new on every card. Now the cards stand at the top
+            // of the column and BEGIN at its foot, and the line does the
+            // pointing.
+            const card = dock.firstElementChild?.getBoundingClientRect()
             const left = dock.offsetLeft
-            const top = Math.max(84, Math.min(H - dh - 24, y - dh * 0.4))
-            const d = dockAt.current
-            d.y += (top - d.y) * (d.set ? 0.14 : 1)
-            d.set = true
-            dock.style.transform = `translate3d(0, ${d.y.toFixed(1)}px, 0)`
-            if (line) {
+            if (line && card) {
               line.setAttribute('x1', `${x + 34}`)
               line.setAttribute('y1', `${y}`)
               line.setAttribute('x2', `${left - 6}`)
-              line.setAttribute('y2', `${Math.max(d.y + 28, Math.min(d.y + dh - 28, y))}`)
+              line.setAttribute('y2', `${Math.max(card.top + 28, Math.min(card.bottom - 28, y))}`)
               line.style.opacity = on && left - x > 70 ? '1' : '0'
             }
           } else if (line) {
@@ -672,9 +677,6 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           : null
   useLayoutEffect(() => {
     anchor.current = anchorId
-    dockAt.current.set = false
-    const dock = dockRef.current
-    if (dock && (!anchorId || !wide)) dock.style.transform = ''
     if (leaderRef.current && !anchorId) leaderRef.current.style.opacity = '0'
   }, [anchorId, wide])
 
@@ -782,8 +784,12 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
 
   // --------------------------------------------------------------- orders
 
-  // An order changed: the risk is asked about afresh.
-  useEffect(() => setAtRisk(false), [orders])
+  // An order changed: the risk is asked about afresh, and so is a night
+  // with no defense.
+  useEffect(() => {
+    setAtRisk(false)
+    setBare(false)
+  }, [orders])
 
   const float = (key: string, text: string, tone: Floater['tone']) => {
     const id = Date.now() + Math.random()
@@ -809,9 +815,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   }
 
   // THE NAME ON SIGHT (v2.0 R3): a name given to an unidentified signature.
-  // Right, it is identified and no pulse is spent; wrong, it has had its
-  // one try tonight. Kept with the night's mark, so a reload neither loses
-  // a name nor buys a second try.
+  // Right, it is identified and no pulse is spent; wrong, naming is over
+  // for the night. Kept with the night's mark, so a reload neither loses a
+  // name nor buys the night's naming back.
   const nameOnSight = (c: Contact, named: string) => {
     if (!deciding || !canSight(orders, c)) return
     const right = named === c.id
@@ -877,10 +883,24 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     // what it risks said first: insolvency ends the operation.
     if (stakes && stakes.worst < 0 && !atRisk) {
       setAtRisk(true)
+      // The reason is on the plan card: whatever card was open over it is
+      // closed, so the warning is never behind the panel that caused it.
+      setSel(null)
       play('denied-buzz')
       setSay(c3.riskLine(stakes.worst))
       return
     }
+    // A night begun with no new defense while one could be placed is asked
+    // about once: BEGIN stands beside the tray, and a slip of the thumb
+    // there started a night with nothing placed (the R3 phone review).
+    if (!bare && !atRisk && !orders.defense && stakes && stakes.atStake < -0.05 && kit.some((p) => !p.blocked && !p.risky)) {
+      setBare(true)
+      setSel(null)
+      play('soft-tick')
+      setSay(c3.BARE_LINE)
+      return
+    }
+    setBare(false)
     setAtRisk(false)
     markNight({ run, turn: game.turn, orders, inputs: NO_INPUTS })
     setSel(null)
@@ -1359,7 +1379,18 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 56) call('burn')
         return
       }
-      if (!d.over) return
+      if (!d.over) {
+        // A piece let go over an asset it cannot sit on says so: the drag
+        // used to end in silence, and only the card's list said why.
+        const on = d.kind === 'piece' ? assetAt(ev.clientX, ev.clientY) : null
+        if (on) {
+          play('denied-buzz')
+          const text = c3.cannotSit(d.label, signs.get(on) ?? 'that asset')
+          setNote(text)
+          setSay(text)
+        }
+        return
+      }
       if (d.kind === 'piece') place(d.id as CountermeasureId, d.over)
       if (d.kind === 'response') respond(d.id)
       if (d.kind === 'link') respond(d.id, d.over)
@@ -1534,9 +1565,16 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           ? () => world.current?.tap()
           : phase === 'night' && stage.at === 'call' && nightTarget
             ? (e) => {
-                // The burn is a drag anywhere across the sky, not only from
-                // the satellite: on a phone it is a few points wide.
-                if (!(e.target as HTMLElement).closest('[data-t3-dock], .t3-top')) startDrag(e as unknown as ReactPointerEvent<HTMLElement>, 'burn', nightTarget, copy.BURN)
+                // The burn is a drag from around the satellite, not only from
+                // the satellite itself: on a phone it is a few points wide.
+                // And it starts near the satellite (v2.0 R3): a drag anywhere
+                // across the sky is how the camera is turned at every other
+                // moment, and here it spent 10 CR with no word (the desktop
+                // review). Within a thumb's reach of it, about a third of
+                // a phone's width.
+                const sat = at.current.get(nightTarget)
+                const near = !!sat && Math.hypot(e.clientX - sat.x, e.clientY - sat.y) <= BURN_REACH
+                if (near && !(e.target as HTMLElement).closest('[data-t3-dock], .t3-top')) startDrag(e as unknown as ReactPointerEvent<HTMLElement>, 'burn', nightTarget, copy.BURN)
               }
             : undefined
       }
@@ -1714,7 +1752,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         {say}
       </p>
 
-      <div ref={dockRef} className={`t3-dock${anchorId && wide ? ' is-anchored' : ''}`} data-t3-dock>
+      <div ref={dockRef} className="t3-dock" data-t3-dock>
         {guide && guide !== 'hold' && (phase === 'plan' || phase === 'night' || phase === 'dawn') && (
           <p className="t3-coach" data-t3-guide={guide} role="status">
             <span>{guide === 'scan' && selContact && !selContact.known ? 'SCAN IT: 1 pulse names this signature.' : c3.GUIDE[guide]}</span>
@@ -1753,7 +1791,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             summary={c3.orderLine(ownedName, orders.assets.length, orders.scans.length)}
             intro={contacts.every((c) => c.known) && contacts.some((c) => !c.fixed) && orders.scans.length === 0 ? `${intro} ${c3.ALLIED_FEED}` : intro}
             note={note}
-            risk={atRisk && stakes.worst < 0 ? c3.riskLine(stakes.worst) : undefined}
+            risk={atRisk && stakes.worst < 0 ? c3.riskLine(stakes.worst) : bare ? c3.BARE_LINE : undefined}
             contacts={contacts}
             signs={signs}
             stakes={stakes}
@@ -1806,7 +1844,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
                 ? null
                 : {
                     options: sighting === selContact.id && canSight(orders, selContact) ? sightChoices(game, selContact).map((id) => ({ id, name: c3.TAG[id] ?? shortName(game.scenario.events.find((e) => e.id === id) ?? selContact.def) })) : null,
-                    missed: !!orders.missed?.includes(selContact.id),
+                    missed: !sightOpen(orders),
                     onOpen: () => {
                       setSighting(selContact.id)
                       play('soft-tick')
@@ -1878,6 +1916,11 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             {atRisk && stakes && stakes.worst < 0 && (
               <p className="t3-sr" role="alert" data-t3-risk>
                 {c3.riskLine(stakes.worst)}
+              </p>
+            )}
+            {bare && (
+              <p className="t3-sr" role="alert" data-t3-bare>
+                {c3.BARE_LINE}
               </p>
             )}
             <span className="t3-sr" data-t3-order-line>

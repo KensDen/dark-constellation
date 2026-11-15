@@ -28,9 +28,10 @@ fall under 35, or let the budget go below zero at a dawn, and the operation ends
   own, each on the asset it would strike. They are unidentified until you scan them, and you have
   2 scan pulses a night. Every signature is also a button in a row at the foot of the screen.
 - **Or name it on sight.** Each of the 18 threats has a look of its own, scanned or not. Know the
-  look and you can name an unidentified signature from 3 names, once a signature a night: right,
-  it is identified and no pulse is spent; wrong, it stays unidentified. The Dossier shows every
-  filed card's signature, and NAME THAT SIGNATURE there is the practice round.
+  look and you can name an unidentified signature from 4 names, the other 3 being moves it is
+  easily taken for and none of them on tonight's board. Right, it is identified and no pulse is
+  spent, and you may name another; the first wrong name ends naming for the night. The Dossier
+  shows every filed card's signature, and NAME THAT SIGNATURE there is the practice round.
 - **Place 1 defense.** A defense covers the whole fleet against the moves it answers, and COLDVEIL
   reads it: it takes the move you have covered least. Where you set the piece down matters too.
   The asset your newest defense sits on is the **watch post**, and any strike on that asset lands
@@ -91,13 +92,14 @@ defenses, not answers with no orders. Prepared overriding every hold, and Prepar
 block stand, each win about 10 points less than Prepared reading the evidence. Prepared placing
 its pieces at random wins about 30 points less. A perfect timed tap on every strike lifts the
 Novice by about 7 points. Naming every signature on sight lifts Prepared by about 3 points and
-the Novice by about 10; guessing at each (right 1 time in 3) lifts either by 3 at most.
+the Novice by about 10. Guessing at names (right 1 time in 4, until the first miss ends it) is
+held to a gain of 5 points at most, and measures as a few points either side of none.
 
 **Grades** run S to F. A win is graded on its final score plus a defense bonus, against bands set
 from the same sweep so that S is about the top 5 percent of wins and A the next 20, at each
 difficulty: on STANDARD, S from 90.6, A from 86.6, B from 77.5; on EASY, where hits do less and
-scores run higher, S from 92.6, A from 88.9, B from 80. A loss that lasted all 6 nights is a D,
-and one that ended early an F.
+scores run higher, A from 88.9 and B from 80. A is the top grade on EASY: S is earned on
+STANDARD. A loss that lasted all 6 nights is a D, and one that ended early an F.
 
 ## Daily Op, the Dossier and the reading
 

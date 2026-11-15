@@ -329,7 +329,7 @@ async function run(b, base, view, plan, log, shots, table) {
   if (!(await waitFor(b, stageIs('plan')))) return [...failures, `${name}: the game never reached its first plan`]
   log.push(`- ${await b.evaluate(`document.querySelector('[data-t3-night]')?.textContent`)}, status ${await b.evaluate(root('t3Status'))}`)
 
-  const stats = { scans: 0, lens: 0, sightAsked: 0, sightRight: 0, sightWrong: 0, placed: 0, dragged: 0, rerouted: 0, isolated: 0, shielded: 0, tapped: 0, perfect: 0, good: 0, rode: 0, burned: 0, held: 0, holds: 0, holdsRight: 0 }
+  const stats = { scans: 0, lens: 0, sightAsked: 0, sightRight: 0, sightWrong: 0, bare: 0, placed: 0, dragged: 0, rerouted: 0, isolated: 0, shielded: 0, tapped: 0, perfect: 0, good: 0, rode: 0, burned: 0, held: 0, holds: 0, holdsRight: 0 }
   let fpsLogged = false
 
   let reloaded = false
@@ -409,8 +409,9 @@ async function run(b, base, view, plan, log, shots, table) {
     }
     // THE NAME ON SIGHT (v2.0 R3): what the pulses did not reach is named
     // from its look, right by a player who knows the signatures and on a
-    // coin among the 3 names by one who guesses. The guide's first step
-    // teaches the scan, so a first night with nothing scanned offers none.
+    // coin among the 4 names by one who guesses, whose first wrong name
+    // ends naming for the night. The guide's first step teaches the scan,
+    // so a first night with nothing scanned offers none.
     if (plan.sight && scanned > 0) {
       for (const c of unknown()) {
         if (!(await exists(b, `[data-t3-sig="${c.id}"]`))) await tap(b, '[data-t3-close]')
@@ -421,12 +422,14 @@ async function run(b, base, view, plan, log, shots, table) {
           fail(`night ${night}: no name on sight offered for ${c.id}`)
           continue
         }
+        const onBoard = contacts.map((x) => x.id)
         const pulses = await b.evaluate(root('t3Pulses'))
         await tap(b, `[data-t3-sight="${c.id}"]`)
         await sleep(quick ? 150 : 450)
         const names = await b.evaluate(`[...document.querySelectorAll('[data-t3-sight-option]')].map((e) => e.dataset.t3SightOption)`)
-        if (names.length !== 3 || !names.includes(c.id)) fail(`night ${night}: the names offered for ${c.id} are ${JSON.stringify(names)}`)
-        if (stats.sightAsked === 0) await shot(`n${night}-sight-ask`, 'the name on sight: 3 names for an unidentified signature, 1 try tonight, no pulse spent')
+        if (names.length !== 4 || !names.includes(c.id)) fail(`night ${night}: the names offered for ${c.id} are ${JSON.stringify(names)}`)
+        if (names.some((id) => id !== c.id && onBoard.includes(id))) fail(`night ${night}: a name offered for ${c.id} is a move on tonight's board (${JSON.stringify(names)})`)
+        if (stats.sightAsked === 0) await shot(`n${night}-sight-ask`, 'the name on sight: 4 names for an unidentified signature, none of them on tonight’s board, no pulse spent')
         stats.sightAsked += 1
         const pick = plan.sight === 'knows' ? c.id : names[Math.floor(coin() * names.length)]
         await tap(b, `[data-t3-sight-option="${pick}"]`)
@@ -438,10 +441,12 @@ async function run(b, base, view, plan, log, shots, table) {
           stats.sightRight += 1
         } else {
           if (!(await waitFor(b, `document.querySelector('[data-t3-sight-state="missed"]')`, 3000))) fail(`night ${night}: a wrong name for ${c.id} was not said to be wrong`)
-          if (await exists(b, `[data-t3-sight="${c.id}"]`)) fail(`night ${night}: a second try was offered for ${c.id}`)
+          if (await exists(b, '[data-t3-sight]')) fail(`night ${night}: naming was still offered after a wrong name`)
           if (await b.evaluate(`document.querySelector('[data-t3-contact="${c.id}"]')?.dataset.known === 'true'`)) fail(`night ${night}: a wrong name identified ${c.id}`)
-          if (stats.sightWrong === 0) await shot(`n${night}-sight-wrong`, 'named wrong: it stays unidentified, with no second try tonight')
+          if (stats.sightWrong === 0) await shot(`n${night}-sight-wrong`, 'named wrong: it stays unidentified, and naming is over for the night')
           stats.sightWrong += 1
+          contacts = await b.evaluate(CONTACTS)
+          break
         }
         contacts = await b.evaluate(CONTACTS)
       }
@@ -506,6 +511,16 @@ async function run(b, base, view, plan, log, shots, table) {
     log.push(`- night ${night}: ${await b.evaluate(`(document.querySelector('[data-t3-order-line]')?.textContent ?? '').trim()`)}; ${await b.evaluate(`(document.querySelector('[data-t3-stakes]')?.textContent ?? '').replace(/\\s+/g, ' ').trim()`)}`)
     if (!(await tap(b, '[data-t3-begin]'))) fail(`night ${night}: no BEGIN THE NIGHT`)
     await sleep(250)
+    // A night with no new defense while one could be placed is asked about
+    // once (v2.0 R3): the bot reads it and begins anyway.
+    const bare = async () => {
+      if (!(await exists(b, '[data-t3-bare]'))) return
+      if (stats.bare === 0) await shot(`n${night}-begin-bare`, 'BEGIN asked once: no defense placed tonight, and one could be')
+      stats.bare += 1
+      await tap(b, '[data-t3-begin]')
+      await sleep(250)
+    }
+    await bare()
     if (await exists(b, '[data-t3-risk]')) {
       // WORST CASE is below 0: the game asks again, and says what it risks.
       await shot(`n${night}-at-risk`, 'BEGIN asked twice: tonight could break the budget, and the game says so first')
@@ -522,7 +537,8 @@ async function run(b, base, view, plan, log, shots, table) {
         log.push(`- night ${night}: took ${mine} back`)
       }
       await tap(b, '[data-t3-begin]')
-      await sleep(150)
+      await sleep(250)
+      await bare()
       if (await exists(b, '[data-t3-risk]')) await tap(b, '[data-t3-begin]')
     }
   }

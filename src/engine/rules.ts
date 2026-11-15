@@ -148,13 +148,15 @@ export const damageShare = (ev: Pick<ResolvedEvent, 'response' | 'timing'>): num
 // Every signature has a look of its own, scanned or not. A player who can
 // name an unidentified one from its look has identified it, with no pulse
 // spent, and its card opens as a scanned one's does: what it is, what it
-// would cost, and the defenses that answer it. The presentation offers a
-// name once a signature a night, among others it could be mistaken for
-// (src/ui/three/gameModel.ts, sightChoices), and a wrong name leaves it
-// unidentified; the engine takes the ids named right with the orders
+// would cost, and the defenses that answer it. The presentation offers 4
+// names, the others being moves it could be mistaken for
+// (src/ui/three/gameModel.ts, sightChoices); a wrong name leaves it
+// unidentified and ends naming for the night, so a name is a risk and
+// not a free guess. The engine takes the ids named right with the orders
 // (TurnActions.sighted), so a seed and the player's inputs replay exactly.
 // Knowledge, like the scan: no number in the night reads it.
-// tests/sweep.spec.ts reports what knowing every signature is worth.
+// tests/sweep.spec.ts reports what knowing every signature is worth, and
+// holds what guessing is worth to a few points.
 export const SCANS_PER_NIGHT = 2
 export const scanPulses = (state: Pick<GameState, 'posture'>): number => (state.posture === 'dark' ? 1 : SCANS_PER_NIGHT)
 

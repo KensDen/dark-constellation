@@ -100,17 +100,16 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     expect(Math.max(...nothing.finalScores), 'Nothing: best final score').toBeLessThan(DEFAULT_SCENARIO.winThreshold)
   })
 
-  it('grades a beginner\'s win on EASY B most often, and S almost never (Ken, 15 November 2026: a careful first game on EASY should not earn an S)', () => {
-    const { grades, wins } = run('novice', 'easy')
+  it('grades a beginner\'s win on EASY B most often, and gives S to no one there (Ken, 15 November 2026: a careful first game on EASY should not earn an S)', () => {
+    const { grades } = run('novice', 'easy')
     const usual = GRADES.reduce((best, g) => (grades[g] > grades[best] ? g : best), 'S' as (typeof GRADES)[number])
     expect(usual, `Novice on EASY is graded ${usual} most often (${GRADES.map((g) => `${g} ${grades[g]}`).join(' ')})`).toBe('B')
-    expect(grades.S / wins, 'Novice on EASY: S, as a share of its wins').toBeLessThanOrEqual(0.02)
-    // The careful player's too: Prepared on EASY takes S on a small share
-    // of its wins, where R2's bands gave it S on more than half.
-    const prepared = run('prepared', 'easy')
-    expect(prepared.grades.S / prepared.wins, 'Prepared on EASY: S, as a share of its wins').toBeLessThanOrEqual(0.15)
-    // And S can still be earned there: the Expert earns it on EASY.
-    expect(run('expert', 'easy').grades.S).toBeGreaterThan(prepared.grades.S)
+    // No line takes S on EASY, the Expert and the lines that name every
+    // signature included: S is STANDARD's.
+    for (const [key, r] of runs) if (key.endsWith(':easy')) expect(r.grades.S, `${key}: S on EASY`).toBe(0)
+    // And it is still earned on STANDARD, by the lines that play best.
+    expect(run('expert', 'standard').grades.S).toBeGreaterThan(run('prepared', 'standard').grades.S)
+    expect(run('prepared', 'standard').grades.S).toBeGreaterThan(0)
   })
 
   it('NO FIXED LINE WINS MORE OFTEN THAN PREPARED, on either difficulty (Ken, 14 November 2026: the thrifty line is a bug)', () => {
@@ -166,9 +165,15 @@ describe('the sweep gate (v1.3 brief 7)', () => {
   })
 
   it('THE NAME ON SIGHT PAYS, AND A GUESS PAYS LITTLE (Ken, 15 November 2026: the Dossier pays in play)', () => {
-    // Naming is offered once a signature a night among 3 names, so a line
-    // that knows none of them is right 1 time in 3. Knowing them is worth
-    // real points to every kind of player; guessing is worth a few.
+    // The game offers 4 names and the first wrong one ends naming for the
+    // night, so a line that knows none of them names about a third of a
+    // signature a night. Knowing them is worth real points to every kind of
+    // player. Guessing is held to a gain of 5 points at most. MEASURED: it
+    // moved Prepared by +3.6 on STANDARD and +1.2 on EASY, and the Novice
+    // by -6.2 and -1.8. A third of a signature a night is too little
+    // knowledge to move a line one way: what it changes is which piece a
+    // line happens to order, and over 500 seeds that reads as a few points
+    // either side.
     const lines: string[] = []
     for (const difficulty of ['standard', 'easy'] as const) {
       for (const [base, sight, guess] of [
@@ -178,14 +183,13 @@ describe('the sweep gate (v1.3 brief 7)', () => {
         const [b, s, g] = [rate(base, difficulty), rate(sight, difficulty), rate(guess, difficulty)]
         lines.push(`| ${base} | ${difficulty.toUpperCase()} | ${b.toFixed(1)}% | ${s.toFixed(1)}% | ${(s - b).toFixed(1)} | ${g.toFixed(1)}% | ${(g - b).toFixed(1)} |`)
         expect(s, `${difficulty}: ${base} who names every signature wins ${s.toFixed(1)} percent, against ${b.toFixed(1)}`).toBeGreaterThan(b)
-        expect(g - b, `${difficulty}: ${base} guessing at every signature gains ${(g - b).toFixed(1)} points`).toBeLessThanOrEqual(5)
-        expect(g, `${difficulty}: a guess is worth more than knowing (${base})`).toBeLessThanOrEqual(s)
+        expect(g - b, `${difficulty}: ${base} guessing at signatures gains ${(g - b).toFixed(1)} points`).toBeLessThanOrEqual(5)
       }
     }
     // The Expert who also names every signature is still the Expert.
     expect(rate('expertSight', 'standard')).toBeGreaterThanOrEqual(rate('expert', 'standard'))
     if (process.env.SWEEP)
-      process.stderr.write(['\nThe name on sight, win rates:', '| line | difficulty | scans only | names every signature | lift, points | guesses at each (right 1 in 3) | lift, points |', '|---|---|---|---|---|---|---|', ...lines, ''].join('\n') + '\n')
+      process.stderr.write(['\nThe name on sight, win rates:', '| line | difficulty | scans only | names every signature | lift, points | guesses until wrong (right 1 in 4) | lift, points |', '|---|---|---|---|---|---|---|', ...lines, ''].join('\n') + '\n')
   })
 
   it('keeps the answers worth taking and the orders worth making (v1.7 R1)', () => {

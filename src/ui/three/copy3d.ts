@@ -26,11 +26,11 @@ export const openingCount = (n: number, of: number) => `Briefing ${n} of ${of}`
 // THE GUIDE: the first night teaches by doing. One short line a step.
 export const GUIDE = {
   scan: 'SCAN: tap a signature below to identify it.',
-  place: 'PLACE: tap a defense that answers it, or drag one onto an asset.',
+  place: 'PLACE: 1 new defense a night. Tap one that answers it, or drag it onto an asset.',
   begin: 'Ready. BEGIN when your orders are set.',
   respond: 'ANSWER: you have 3 for all 6 nights. Spend 1 here, or let it ride.',
   tap: 'TAP as the ring closes on the target for a bonus.',
-  done: 'That is the whole watch: scan, place, answer.',
+  done: 'That is the whole watch: scan, place, answer. The words on the cards are explained in the menu, under THE WORDS.',
   hold: 'YOUR CALL: read the 3 checks, then override the block or let it stand.',
 } as const
 export const GUIDE_SKIP = 'Skip guide'
@@ -56,15 +56,15 @@ export const scanHint = (tracks: number, sigs: number) =>
   tracks === 1 ? `${ADVERSARY} makes 1 move tonight: 1 of the ${sigs} signature${sigs === 1 ? '' : 's'} over the fleet.` : `${ADVERSARY} makes ${tracks} moves tonight, 1 from each track: ${sigs} signatures over the fleet.`
 export const UNKNOWN_LEAD = 'Unidentified signature'
 export const unknownBody = (n: number) => (n > 1 ? `${ADVERSARY} is choosing between ${n} moves here, and plays 1 of them tonight. This is 1 of the ${n}.` : `${ADVERSARY} plays this move tonight.`)
-export const KNOW_THE_LOOK = 'Know the look? Name it and spend no pulse. Every card you file in the Dossier shows its signature.'
+export const KNOW_THE_LOOK = 'Know the look? Name it and spend no pulse. A wrong name ends naming for tonight.'
 // THE NAME ON SIGHT (v2.0 R3): an unidentified signature named from its look.
 export const SIGHT_BUTTON = 'NAME IT ON SIGHT'
 export const SIGHT_ASK = 'Which is it?'
-export const SIGHT_TERMS = '1 try tonight, and no pulse spent. Close the card to keep the try.'
-export const SIGHT_MISSED = 'Named wrong tonight. A scan pulse can still identify it.'
+export const SIGHT_TERMS = 'Right: identified, no pulse spent. Wrong: no more naming tonight. Not sure? Close the card.'
+export const SIGHT_MISSED = 'A name was wrong, so naming is over for tonight. A scan pulse still identifies a signature.'
 export const SIGHTED = 'NAMED ON SIGHT'
 export const sightRight = (name: string) => `Named on sight: ${name}. No pulse spent.`
-export const sightWrong = (name: string) => `Not ${name}. It stays unidentified, and a scan can still name it.`
+export const sightWrong = (name: string) => `Not ${name}. It stays unidentified, and naming is over for tonight. A scan can still name it.`
 export const trackOf = (n: number, of: number) => `TRACK ${n} OF ${of}`
 export const FAVOR = {
   confirmed: 'CONFIRMED: this move is coming.',
@@ -107,6 +107,7 @@ export const KIT = 'DEFENSES'
 export const FLEET = 'FLEET'
 export const ONE_A_NIGHT = '1 new defense a night'
 export const TRAY_MORE = 'More defenses'
+export const trayPage = (page: number, of: number) => `Page ${page} of ${of}`
 export const TRAY_BACK = 'Back to the first defenses'
 export const placeOn = (sign: string) => `PLACE ON ${sign}`
 export const PLACED = 'PLACED'
@@ -154,7 +155,14 @@ export const BEGIN = 'BEGIN'
 export const BEGIN_LONG = 'Begin the night'
 export const BEGIN_AT_RISK = 'BEGIN AT RISK'
 export const RISKY = 'Risky: a bad night would break the budget'
-export const riskLine = (worst: number) => `Worst case: ${worst} CR. A bad night would break the budget and end the operation. Take an order back, or tap BEGIN again.`
+export const riskLine = (worst: number) =>
+  `WORST CASE: ${-worst} CR short. That is the budget after tonight's worst repairs and upkeep, with what the nights ahead could need held back. A budget under 0 at dawn ends the operation. Take an order back, or tap BEGIN again.`
+// A night begun with no new defense, asked about once (v2.0 R3).
+export const BARE_LINE = 'No defense placed tonight, and you have 1 to place. Tap BEGIN again to go without.'
+export const cannotSit = (piece: string, sign: string) => `${piece} cannot sit on ${sign}. Its card lists where it can.`
+// WORST CASE on the plan card, said as what is left or what is missing: a
+// bare "1 CR" read as "I lose 1 credit" (the R3 phone review).
+export const worstFace = (n: number) => (n < 0 ? `${-n} CR short` : `${n} CR left`)
 export const orderLine = (defense: string | null, assets: number, scans: number) =>
   [defense ? `${defense} placed` : 'No defense placed', assets ? `${assets} asset${assets === 1 ? '' : 's'} ordered` : '', `${scans} scanned`].filter(Boolean).join(' · ')
 
@@ -168,6 +176,7 @@ export const needs = (need: number, room: number, repair: boolean, last: boolean
 export const freeForAnswer = (room: number, budget: number, last: boolean) => `${Math.max(0, room)} CR free for an answer: the budget of ${budget} CR, less tonight's bills${last ? '' : ' and what the nights ahead need'}.`
 export const moreToCome = (n: number) => (n > 0 ? `${n} more move${n === 1 ? '' : 's'} to come tonight, and 1 answer between them.` : '')
 export const LAST_MOVE = 'The last move tonight.'
+export const NO_BLOCK = 'Nothing blocks this one outright: its answer takes half.'
 export const ANSWER_USED = 'ANSWER ALREADY USED'
 // A signature that moved when an order changed: COLDVEIL reads the fleet.
 export const REAIMED = 'COLDVEIL re-aims as your orders change: a signature moved.'
@@ -196,12 +205,16 @@ export const CHAIN_LINE = `${ADVERSARY}'s signature move: jam GNSS, then fool th
 
 // THE DEBRIS CALL.
 export const YOUR_CALL = 'YOUR CALL'
-export const BURN_DRAG = 'Or drag across the sky to burn.'
+export const BURN_DRAG = 'Or drag the satellite off its orbit to burn.'
 
 // DAWN.
 export const dawnOf = (n: number) => `DAWN · NIGHT ${n}`
 export const CLEAN = 'A CLEAN NIGHT'
 export const stoppedOf = (n: number, of: number, halved = 0, partial = 0) => `${n} OF ${of} STOPPED${halved ? ` · ${halved} HALVED` : ''}${partial ? ` · ${partial} PARTIAL` : ''}`
+// What the next grade takes, said under the grade (v2.0 R3): the round's
+// reviewers finished with nothing telling them what an A needs.
+export const nextGradeLine = (next: { grade: string; from: number } | null, easyTop: boolean) =>
+  next ? `${next.grade} is graded from ${next.from.toFixed(1)}.` : easyTop ? 'A is the top grade on EASY: S is earned on STANDARD.' : ''
 export const STRIP_LEGEND = 'A night a square: green held, amber slipped, red fell 3 or more or lost an asset.'
 export const SAVE_CODE_NOTE = 'A save code is this operation as text. Paste it into SYSTEM on the title, on any device, to read this debrief again.'
 export const CHART = { you: 'you', ghost: 'ghost', line: 'win line' } as const
@@ -262,7 +275,15 @@ export const SYSTEM = 'SYSTEM'
 // blunts means beside stops, or what WORST CASE is in CR. Each in a line,
 // in SYSTEM, where a player who is stuck looks. The numbers are passed in.
 export const WORDS = 'THE WORDS'
-export const wordsFor = (n: { coverageMin: number; coverageBonus: number; harden: number; collapse: number }): readonly (readonly [string, string])[] => [
+export const wordsFor = (n: { coverageMin: number; coverageBonus: number; harden: number; collapse: number; answers: number; pulses: number }): readonly (readonly [string, string])[] => [
+  ['SIGNATURE, TRACK', `A signature is a move ${ADVERSARY} could make tonight, shown over the asset it would strike. A track is a set of them: ${ADVERSARY} plays 1 from each track.`],
+  ['STRENGTH', 'The red dots on a move, 1 to 3. Each point that gets through costs score.'],
+  ['SCAN, NAME ON SIGHT', `A scan pulse identifies 1 signature, and you have ${n.pulses} a night. Naming one from its look costs no pulse, but the first wrong name ends naming for the night.`],
+  ['DEFENSES', 'You place 1 new defense a night, and keep it. It covers the whole fleet against the moves it answers, every night.'],
+  ['ANSWERS', `What you do in the night when a move would land: block it, halve it, or ride it out. You have ${n.answers} for the whole operation.`],
+  ['HOLD', 'Your own policy engine stopped one of your assets. Read the 3 checks: override the block if all are clean, let it stand if any is not.'],
+  ['CONDITIONS', 'Some hits linger (jammed, spoofed, ransomed). A condition takes a little score at the start of each night until it lifts.'],
+  ['STREAK, DEFENSE BONUS', 'Moves stopped in a row. Your best streak and the points your defenses saved add a few points to the score your grade is read from.'],
   ['GNSS', 'Satellite navigation, GPS among it. The drones steer by it.'],
   ['PNT', 'Position, navigation and timing: what GNSS gives the fleet.'],
   ['LiDAR', 'A laser range sensor. The drones and the inspection satellite see with it.'],
@@ -327,7 +348,9 @@ export const HOLD_TRUTH = { compromised: 'It was compromised', clean: 'A false p
 export const youCalled = { override: 'You overrode the block.', stand: 'You let the block stand.', none: 'The clock ran out and the block stood.' } as const
 export const holdTell = (labels: readonly string[]) => (labels.length ? `The tell: ${labels.join(', and ')}.` : 'Every check was clean: the rule tripped on something unusual, and nothing else was wrong.')
 export const holdCost = (d: number) => `Cost ${d.toFixed(1)} score`
-export const holdSaved = (d: number) => `A wrong call: -${d.toFixed(1)} score`
+// Under a right call: said so that it cannot read as a penalty paid.
+export const holdSaved = (d: number) => `Nothing lost. A wrong call would have cost ${d.toFixed(1)}.`
+export const HOLD_NO_COST = 'nothing lost'
 export const holdStakes = (d: number) => `A wrong call costs about ${d} points of score, either way.`
 export const POST_STOPPED = 'The watch post stopped it: your newest defense sits on the asset it was aimed at, and a strike there is 1 weaker.'
 export const LOGGED = 'Logged'

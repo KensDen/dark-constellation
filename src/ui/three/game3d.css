@@ -387,15 +387,20 @@ html.t3-on body {
 .t3-wide .t3-dock {
   left: auto;
   right: 36px;
-  top: 50%;
-  bottom: auto;
+  top: 96px;
+  bottom: 28px;
   width: 412px;
   padding: 0;
-  transform: translateY(-50%);
 }
-.t3-wide .t3-dock.is-anchored {
-  top: 0;
-  will-change: transform;
+/* The column stands still (v2.0 R3): cards at its top, the tray and BEGIN
+   at its foot, so no button moves when a card opens, closes or grows. */
+.t3-wide .t3-dock > .t3-kitbar {
+  margin-top: auto;
+}
+.t3-wide .t3-dock > .t3-card {
+  flex-shrink: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .t3-card {
   display: flex;
@@ -1799,11 +1804,21 @@ html.t3-on body {
 }
 .t3-root .t3-begin {
   flex: none;
-  min-width: 92px;
+  width: 92px;
   min-height: 56px;
-  padding: 0 14px;
+  padding: 0 6px;
   font-size: 14px;
+  line-height: 1.15;
   letter-spacing: 0.08em;
+}
+/* BEGIN keeps its width when it asks again: a longer word used to widen
+   it and squeeze the tray's pieces until their names broke. */
+.t3-root .t3-begin.t3-risk {
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+}
+.t3-wide .t3-begin {
+  width: auto;
 }
 .t3-piece {
   min-height: 56px;
@@ -2331,6 +2346,16 @@ html.t3-on body {
 .t3-plan:has(.t3-risknote) .t3-sigs {
   display: none;
 }
+/* A cut line, opened at a tap. */
+.t3-root .t3-plan .is-whole {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+/* A long name keeps the first answer in view on a phone. */
+.t3-root:not(.t3-wide) [data-t3-card='contact'] .t3-title.is-long {
+  font-size: 17px;
+}
 @media (max-height: 700px) {
   .t3-root:not(.t3-wide) .t3-worldscore {
     display: none;
@@ -2355,9 +2380,15 @@ html.t3-on body {
   scroll-snap-type: x mandatory;
   scroll-padding-left: 2px;
 }
-/* The 3 names offered for an unidentified signature, side by side. */
+/* The 4 names offered for an unidentified signature, 2 a row. */
+.t3-names {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
 .t3-names .t3-btn {
-  padding: 6px;
+  min-height: 44px;
+  padding: 4px 6px;
   letter-spacing: 0;
   line-height: 1.15;
 }
@@ -2373,7 +2404,13 @@ html.t3-on body {
 }
 .t3-traymore {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
   width: 44px;
+  font: 600 12px ui-monospace, Menlo, monospace;
   border: 0;
   border-radius: 14px;
   color: var(--t3-dim);

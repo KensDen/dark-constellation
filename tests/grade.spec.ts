@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
-import { GRADE_BANDS, TURN_STRIP, gradeFor, gradeOf, hitsTaken, knockoutsByTurn, stripColour, turnStrip, type Grade } from '../src/engine/grade'
+import { GRADE_BANDS, TOP_GRADE, TURN_STRIP, gradeFor, nextGrade, gradeOf, hitsTaken, knockoutsByTurn, stripColour, turnStrip, type Grade } from '../src/engine/grade'
 import { defenseBonus } from '../src/engine/learning'
 import { newGame, resolveTurn } from '../src/engine/reducer'
 import { playNight, type Responder } from '../src/engine/responses'
@@ -28,7 +28,7 @@ describe('the grade', () => {
     for (const difficulty of DIFFICULTIES) {
       const bands = GRADE_BANDS[difficulty]
       const won = (finalMai: number) => gradeFor({ status: 'won', finalMai, difficulty })
-      expect(won(bands.S)).toBe('S')
+      expect(won(bands.S)).toBe(TOP_GRADE[difficulty])
       expect(won(bands.S - STEP)).toBe('A')
       expect(won(bands.A)).toBe('A')
       expect(won(bands.A - STEP)).toBe('B')
@@ -52,6 +52,19 @@ describe('the grade', () => {
     for (const g of ['S', 'A', 'B'] as const) expect(GRADE_BANDS.easy[g]).toBeGreaterThan(GRADE_BANDS.standard[g])
     // A graded score that is an S on STANDARD is an A on EASY.
     expect(gradeFor({ status: 'won', finalMai: GRADE_BANDS.standard.S, difficulty: 'easy' })).toBe('A')
+  })
+
+  it('never gives S on EASY, whatever the score, and says what the next grade takes (Ken, 15 November 2026: a careful first game on EASY should not earn an S)', () => {
+    expect(TOP_GRADE).toEqual({ standard: 'S', easy: 'A' })
+    for (const finalMai of [GRADE_BANDS.easy.S, 95, 100]) for (const bonus of [0, 5]) expect(gradeFor({ status: 'won', finalMai, bonus, difficulty: 'easy' })).toBe('A')
+    expect(gradeFor({ status: 'won', finalMai: 100, bonus: 5, difficulty: 'standard' })).toBe('S')
+    // The round's desktop reviewer: 89.1 on EASY with a bonus of 4.0.
+    expect(gradeFor({ status: 'won', finalMai: 89.1, bonus: 4, difficulty: 'easy' })).toBe('A')
+    expect(nextGrade('C', 'easy')).toEqual({ grade: 'B', from: GRADE_BANDS.easy.B })
+    expect(nextGrade('B', 'standard')).toEqual({ grade: 'A', from: GRADE_BANDS.standard.A })
+    expect(nextGrade('A', 'standard')).toEqual({ grade: 'S', from: GRADE_BANDS.standard.S })
+    expect(nextGrade('A', 'easy'), 'EASY has a grade above A').toBeNull()
+    for (const g of ['S', 'D', 'F'] as const) expect(nextGrade(g, 'standard')).toBeNull()
   })
 
   it('gives D to a campaign that survived every turn under the line, and F to one that ended early', () => {
@@ -155,7 +168,7 @@ describe('the grade is calibrated (brief 7.2)', () => {
   // the method.
   for (const difficulty of DIFFICULTIES) {
     it(
-      `gives S to about the top 5 percent of wins and A to about the next 20, on ${difficulty.toUpperCase()}`,
+      `holds the top grades to their shares of the wins on ${difficulty.toUpperCase()}`,
       () => {
         const grades: Grade[] = []
         for (const { policy, respond } of POLICIES) {
@@ -167,10 +180,17 @@ describe('the grade is calibrated (brief 7.2)', () => {
         }
         expect(grades.length, 'too few wins to calibrate against').toBeGreaterThanOrEqual(100)
         const share = (g: Grade) => grades.filter((x) => x === g).length / grades.length
-        expect(share('S'), 'S is not roughly the top 5 percent of wins').toBeGreaterThanOrEqual(0.03)
-        expect(share('S')).toBeLessThanOrEqual(0.07)
-        expect(share('A'), 'A is not roughly the next 20 percent of wins').toBeGreaterThanOrEqual(0.17)
-        expect(share('A')).toBeLessThanOrEqual(0.23)
+        if (TOP_GRADE[difficulty] === 'S') {
+          expect(share('S'), 'S is not roughly the top 5 percent of wins').toBeGreaterThanOrEqual(0.03)
+          expect(share('S')).toBeLessThanOrEqual(0.07)
+          expect(share('A'), 'A is not roughly the next 20 percent of wins').toBeGreaterThanOrEqual(0.17)
+          expect(share('A')).toBeLessThanOrEqual(0.23)
+        } else {
+          // EASY's top grade is A: the top quarter or so of its wins.
+          expect(share('S'), 'S was earned on EASY').toBe(0)
+          expect(share('A'), 'A is not roughly the top quarter of wins').toBeGreaterThanOrEqual(0.2)
+          expect(share('A')).toBeLessThanOrEqual(0.3)
+        }
         // C is a win that scraped the line: the lowest quarter or so.
         expect(share('C'), 'C').toBeGreaterThanOrEqual(0.15)
         expect(share('C')).toBeLessThanOrEqual(0.3)

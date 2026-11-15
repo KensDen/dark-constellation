@@ -26,7 +26,7 @@ import type { GameState, TurnActions } from '../src/engine/types'
 import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
 import { ordersOf, replay } from '../src/ui/debriefModel'
 import { nightOf } from '../src/ui/night/nightModel'
-import { NO_ORDERS as NO_PLAN, SIGHT_CHOICES, actionsOf, canSight, coachRun, contactsFor, finalScore, inputsOf, sightChoices, spotFor, timeline, withSight } from '../src/ui/three/gameModel'
+import { NO_ORDERS as NO_PLAN, SIGHT_CHOICES, actionsOf, canSight, coachRun, contactsFor, finalScore, inputsOf, sightChoices, sightOpen, spotFor, timeline, withSight } from '../src/ui/three/gameModel'
 import { FIXED, NO_ORDERS, WATCH, WATCH_REPORTED, careless, sensible } from './policies'
 
 const SEEDS = Array.from({ length: 60 }, (_, i) => i * 7919 + 1)
@@ -480,14 +480,15 @@ describe('a signature named on sight is identified, and costs no pulse (v2.0 R3)
     expect(rec.sighted).toEqual([drawn[1]])
   })
 
-  it('offers 3 names with the right one among them, the same 3 every time, never a move confirmed tonight', () => {
+  it('offers 4 names with the right one among them, the same 4 every time, none of them a move on tonight\'s board, the nearest look-alikes first', () => {
     let offered = 0
+    let alike = 0
     const first = new Map<number, number>()
     for (const seed of SEEDS.slice(0, 40)) {
       let s = game(seed)
       while (s.status === 'playing') {
         const contacts = contactsFor(s, NO_PLAN)
-        const confirmed = contacts.filter((c) => c.fixed).map((c) => c.id)
+        const tonight = contacts.map((c) => c.id)
         for (const c of contacts) {
           expect(canSight(NO_PLAN, c), `${c.id}: a name is offered exactly for an unidentified signature`).toBe(!c.known)
           if (c.known) continue
@@ -496,37 +497,52 @@ describe('a signature named on sight is identified, and costs no pulse (v2.0 R3)
           expect(new Set(names).size).toBe(SIGHT_CHOICES)
           expect(names).toContain(c.id)
           expect(sightChoices(s, c)).toEqual(names)
-          for (const id of names) {
-            expect(confirmed).not.toContain(id)
+          const others = names.filter((id) => id !== c.id)
+          for (const id of others) {
+            // Nothing on the board rules a name out: no other name is one
+            // of tonight's moves, identified or not.
+            expect(tonight, `${c.id}: ${id} is on tonight's board`).not.toContain(id)
             const def = eventById(s.scenario, id)
             expect(def.kind ?? 'threat').toBe('threat')
             expect(def.effect.special).not.toBe('debrisStrike')
           }
+          // Look-alikes first: every move of its own kind that is not on
+          // the board is offered before any other kind is.
+          const sameKind = s.scenario.events.filter((e) => (e.kind ?? 'threat') === 'threat' && e.effect.special !== 'debrisStrike' && e.vector === c.def.vector && e.id !== c.id && !tonight.includes(e.id)).map((e) => e.id)
+          const offeredSame = others.filter((id) => sameKind.includes(id)).length
+          expect(offeredSame, `${c.id}: a look-alike was passed over`).toBe(Math.min(sameKind.length, SIGHT_CHOICES - 1))
+          if (offeredSame > 0) alike += 1
           first.set(names.indexOf(c.id), (first.get(names.indexOf(c.id)) ?? 0) + 1)
           offered += 1
-          // Right, it is identified and its card opens; wrong, it stays
-          // unidentified and has had its try.
+          // Right, it is identified, its card opens, and naming goes on.
           const right = withSight(NO_PLAN, c, c.id)
           expect(contactsFor(s, right).find((x) => x.id === c.id)!.known).toBe(true)
           expect(scanState(s, right).left).toBe(scanState(s, NO_PLAN).left)
-          const wrong = withSight(NO_PLAN, c, names.find((id) => id !== c.id)!)
-          const still = contactsFor(s, wrong).find((x) => x.id === c.id)!
-          expect(still.known).toBe(false)
-          expect(canSight(wrong, still)).toBe(false)
+          expect(sightOpen(right)).toBe(true)
+          // Wrong, it stays unidentified, and naming is over for the
+          // night: for this signature and for every other.
+          const wrong = withSight(NO_PLAN, c, others[0])
+          const after = contactsFor(s, wrong)
+          expect(after.find((x) => x.id === c.id)!.known).toBe(false)
+          expect(sightOpen(wrong)).toBe(false)
+          for (const x of after) expect(canSight(wrong, x), `${x.id} can still be named after a miss`).toBe(false)
           expect(actionsOf(wrong).sighted).toBeUndefined()
+          // A scan still identifies it.
+          expect(contactsFor(s, { ...wrong, scans: [c.id] }).find((x) => x.id === c.id)!.known).toBe(true)
         }
         s = resolveTurn(s, { ...NO_ORDERS, debris: 'burn' }, turnRng(s.seed, s.turn))
       }
     }
     expect(offered).toBeGreaterThan(400)
-    // The right name is not always in one place: each of the 3 places
+    expect(alike / offered, 'a look-alike is among the names on most offers').toBeGreaterThan(0.7)
+    // The right name is not always in one place: each of the 4 places
     // holds it on a fair share of the offers.
-    for (let i = 0; i < SIGHT_CHOICES; i += 1) expect((first.get(i) ?? 0) / offered, `place ${i + 1}`).toBeGreaterThan(0.2)
+    for (let i = 0; i < SIGHT_CHOICES; i += 1) expect((first.get(i) ?? 0) / offered, `place ${i + 1}`).toBeGreaterThan(0.15)
   })
 
   it('replays a game with names on sight to itself, by both readers of the record', () => {
     for (const seed of SEEDS.slice(0, 20)) {
-      for (const name of ['preparedSight', 'noviceGuess']) {
+      for (const name of ['preparedSight', 'noviceSight']) {
         const l = line(name)
         const end = play(game(seed), l.policy, l.respond).at(-1)!
         expect(end.history.some((r) => r.sighted?.length), `seed ${seed} ${name}: nothing was named`).toBe(true)

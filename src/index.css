@@ -276,10 +276,12 @@ body:has([data-title]) .crt-overlay {
 /* THE HERO. Its box is set here, in the first download, so the world
    lands in it and nothing moves: a share of the screen's height on a
    phone, and on a tall one whatever the menu leaves, so the title ends
-   where the screen does. Its still gradients, the globe's lit limb in the
-   dark and COLDVEIL's glow off its shoulder, stand where the world will
-   put them: they are what shows until the world arrives, and all that
-   shows if it never does (no WebGL, or its chunk did not load). */
+   where the screen does. Its still gradient, the globe's lit limb in the
+   dark, stands where the world will put the globe: it is what shows until
+   the world arrives, and all that shows if it never does (no WebGL, or
+   its chunk did not load). COLDVEIL's red glow stood there too until both
+   of the round's reviewers read a red blur in an empty sky as a title
+   that had not finished loading. */
 [data-key-art] {
   position: relative;
   display: flex;
@@ -287,9 +289,7 @@ body:has([data-title]) .crt-overlay {
   align-items: flex-end;
   overflow: hidden;
   min-height: clamp(220px, 44dvh, 360px);
-  background:
-    radial-gradient(circle 56px at var(--tt-foe, 13% 17%), rgba(255, 90, 79, 0.36), transparent),
-    radial-gradient(circle var(--tt-globe, 34vw) at var(--tt-at, 58% 71%), #0a1c38, #060f1f 62%, #1d4f8f 79%, rgba(90, 169, 255, 0.28) 81%, transparent);
+  background: radial-gradient(circle var(--tt-globe, 34vw) at var(--tt-at, 58% 71%), #0a1c38, #060f1f 62%, #1d4f8f 79%, rgba(90, 169, 255, 0.28) 81%, transparent);
 }
 /* The scrim the words stand on, and the hero's foot fading into the page. */
 [data-key-art]::after {
@@ -591,7 +591,6 @@ textarea.tt-field {
     padding-bottom: 40px;
   }
   [data-key-art] {
-    --tt-foe: 38% 22%;
     --tt-globe: 21vw;
     --tt-at: 68% 100%;
     min-height: 360px;
@@ -640,9 +639,10 @@ textarea.tt-field {
   [data-read] > span {
     font-size: 14px;
   }
+  /* As tall as a goal's card and no taller: filling its column it stood
+     217 px high, a slab with one word in it (the desktop review). */
   [data-play] {
-    flex: 1;
-    min-height: 112px;
+    min-height: 132px;
     font-size: 30px;
   }
 }

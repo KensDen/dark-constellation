@@ -109,16 +109,23 @@ export function scanFor(state: GameState): string[] {
 // HOW A LINE KNOWS A SIGNATURE IT DID NOT SCAN (v2.0 R3, the name on
 // sight: src/engine/rules.ts). 'scan': it does not. 'all': it names every
 // one from its look, as a player who has learned the Dossier can. 'guess':
-// it offers a name for every one and is right 1 time in 3, which is what
-// the game's 3 names give a player who knows none of them. What it names
-// goes to the engine with the orders (TurnActions.sighted).
+// it knows none of them and names anyway, in the night's order, right 1
+// time in 4 (the game offers 4 names), until its first wrong name ends
+// naming for the night, as the game ends it. What it names goes to the
+// engine with the orders (TurnActions.sighted).
 export type Sight = 'scan' | 'all' | 'guess'
+export const GUESS_RATE = 1 / 4
 function sightedBy(state: GameState, scans: readonly string[], sight: Sight): string[] {
   if (sight === 'scan') return []
   const drawn = (planFor(state, state.turn)?.slots ?? []).flatMap((s) => (s.fixed ? [] : (s.drawFrom ?? []))).filter((id) => !scans.includes(id))
   if (sight === 'all') return drawn
   const r = streamFor(state, 0x516e7ed)
-  return drawn.filter(() => r.chance(1 / 3))
+  const out: string[] = []
+  for (const id of drawn) {
+    if (!r.chance(GUESS_RATE)) break
+    out.push(id)
+  }
+  return out
 }
 
 function preparedLine(sight: Sight = 'scan'): Policy {
@@ -392,10 +399,10 @@ export const WATCH_REPORTED: readonly WatchLine[] = [
   // THE NAME ON SIGHT (v2.0 R3): what knowing the signatures is worth, to
   // each kind of player, and what guessing at them is worth.
   { name: 'preparedSight', label: 'Prepared, naming every signature on sight', policy: onWatch(preparedSight, atSpot, reads), respond: sensible },
-  { name: 'preparedGuess', label: 'Prepared, guessing a name for each (right 1 in 3)', policy: onWatch(preparedGuess, atSpot, reads), respond: sensible },
+  { name: 'preparedGuess', label: 'Prepared, guessing names until one is wrong (right 1 in 4)', policy: onWatch(preparedGuess, atSpot, reads), respond: sensible },
   { name: 'expertSight', label: 'Expert, naming every signature on sight', policy: onWatch(preparedSight, atSpot, reads), respond: saver },
   { name: 'noviceSight', label: 'Novice, naming every signature on sight', policy: onWatch(beginnerLine('all'), atSpot, shaky(2 / 3)), respond: careless },
-  { name: 'noviceGuess', label: 'Novice, guessing a name for each (right 1 in 3)', policy: onWatch(beginnerLine('guess'), atSpot, shaky(2 / 3)), respond: careless },
+  { name: 'noviceGuess', label: 'Novice, guessing names until one is wrong (right 1 in 4)', policy: onWatch(beginnerLine('guess'), atSpot, shaky(2 / 3)), respond: careless },
   { name: 'preparedDrones', label: 'Prepared, a drone a night as well', policy: onWatch(withDrones(prepared, 4), atSpot, reads), respond: sensible },
   { name: 'noviceReads', label: 'Novice, reading every hold right', policy: onWatch(beginner, atSpot, reads), respond: careless },
   { name: 'noviceR1', label: 'The R1 Novice (a defense at random each night)', policy: onWatch(novice, atRandom, shaky(2 / 3)), respond: careless },
