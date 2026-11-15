@@ -536,7 +536,10 @@ function Quiz({ ids, onDone }: { ids: string[]; onDone: () => void }) {
   const over = n >= rounds.length
   const next = useRef<HTMLButtonElement | null>(null)
   useEffect(() => {
-    if (picked || over) next.current?.focus({ preventScroll: true })
+    if (!picked && !over) return
+    next.current?.focus({ preventScroll: true })
+    // On a short phone the way on is under the fold once the answer shows.
+    next.current?.scrollIntoView?.({ block: 'nearest' })
   }, [picked, over])
   useEffect(() => {
     if (over) setQuizBest(score)
