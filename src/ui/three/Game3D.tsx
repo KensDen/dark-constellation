@@ -409,7 +409,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     // One asset's marks never stand on another's (v2.0 R4): any overlap
     // costs more than the farthest spot.
     const marked: Box[] = []
-    const onMarks = (box: Box) => marked.reduce((n, b) => n + (over(box, b) > 0 ? 500 + over(box, b) * 10 : 0), 0)
+    // (500 at first: the bot met a night where a 3-mark block still took
+    // the spot over its asset and stood on its neighbour's mark.)
+    const onMarks = (box: Box) => marked.reduce((n, b) => n + (over(box, b) > 0 ? 4000 + over(box, b) * 40 : 0), 0)
     list.forEach((a, i) => {
       const chips = a.el.querySelector<HTMLElement>('.t3-contacts')
       if (!chips) return
@@ -425,6 +427,13 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         [34, -h / 2],
         [-34 - w, -h / 2],
         [-w / 2, down],
+        // Over it or under it and a little to one side (v2.0 R4): a block of
+        // 3 marks often fits between its neighbours' marks only off centre,
+        // and the next spot that was clear stood it beside another asset.
+        [-w / 2 - 30, up],
+        [-w / 2 + 30, up],
+        [-w / 2 - 30, down],
+        [-w / 2 + 30, down],
         [8, up],
         [-w - 8, up],
         [8, down],
