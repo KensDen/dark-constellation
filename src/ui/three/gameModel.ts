@@ -414,6 +414,10 @@ export interface KitPiece {
   // Placing it tonight would leave WORST CASE below 0: a night that went
   // as badly as it can would break the budget.
   risky: boolean
+  // How far under 0 WORST CASE would read with it (v2.0 R4): a piece can
+  // be risky at a price the figure on screen seems to cover, because it
+  // adds upkeep and can turn COLDVEIL to a costlier move.
+  short: number
   // The identified signatures tonight it answers, and what it does to each.
   answers: { contact: Contact; verb: Answer['verb'] }[]
   domain: AssetKind[]
@@ -430,8 +434,8 @@ export function kitFor(state: GameState, orders: Orders, contacts: readonly Cont
     const owned = state.counters.includes(cm.id)
     const answers = contacts.filter((c) => c.known && c.def.counters.includes(cm.id)).map((c) => ({ contact: c, verb: stopVerb(cm.id, c.def) }))
     const blocked = owned ? ('owned' as const) : cm.cost > free ? ('budget' as const) : null
-    const risky = !blocked && worstCase(state, actionsOf({ ...orders, defense: cm.id })).value < 0
-    return { cm, blocked, ordered: orders.defense === cm.id, risky, answers, domain: domainOf(state, cm.id) }
+    const reads = blocked ? 0 : worstCase(state, actionsOf({ ...orders, defense: cm.id })).value
+    return { cm, blocked, ordered: orders.defense === cm.id, risky: reads < 0, short: Math.max(0, -reads), answers, domain: domainOf(state, cm.id) }
   })
   // In the catalog's own order, every night: a tray that reshuffled itself
   // after each scan could not be learned (the round's fresh-eyes review).
@@ -446,6 +450,7 @@ export interface FleetPiece {
   ordered: boolean
   fits: boolean
   risky: boolean
+  short: number
 }
 const FLEET_ORDER: AssetKind[] = ['drone', 'groundStation', 'sat', 'rpoSat']
 export function fleetFor(state: GameState, orders: Orders): FleetPiece[] {
@@ -453,8 +458,8 @@ export function fleetFor(state: GameState, orders: Orders): FleetPiece[] {
     const ordered = orders.assets.includes(kind)
     const price = state.scenario.prices[kind]
     const fits = ordered || price <= remaining(state, orders)
-    const risky = fits && !ordered && worstCase(state, actionsOf({ ...orders, assets: [...orders.assets, kind] })).value < 0
-    return { kind, price, eta: DEPLOY_TURNS[kind], ordered, fits, risky }
+    const reads = fits && !ordered ? worstCase(state, actionsOf({ ...orders, assets: [...orders.assets, kind] })).value : 0
+    return { kind, price, eta: DEPLOY_TURNS[kind], ordered, fits, risky: reads < 0, short: Math.max(0, -reads) }
   })
 }
 

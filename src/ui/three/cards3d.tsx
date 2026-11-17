@@ -243,6 +243,7 @@ export interface AnswerView {
   ordered: boolean
   blocked: 'owned' | 'budget' | null
   risky: boolean
+  short: number
   // What COLDVEIL does once it is placed, when it moves.
   then: string
 }
@@ -373,7 +374,7 @@ export function ContactCard({
       </p>
       {answers.map((a) => {
         const lockedBy = !a.ordered && !a.owned && locked ? ` · ${c3.replaces(locked).replace(/\.$/, '')}` : ''
-        const line = a.owned ? c3.OWNED : a.ordered ? `${c3.PLACED} · tap to take it back` : `${verbWord(a.verb)} it${a.then ? `, ${a.then}` : ', every night'}${lockedBy}${a.risky ? `. ${c3.RISKY}` : ''}`
+        const line = a.owned ? c3.OWNED : a.ordered ? `${c3.PLACED} · tap to take it back` : `${verbWord(a.verb)} it${a.then ? `, ${a.then}` : ', every night'}${lockedBy}${a.risky ? `. ${c3.riskyBy(a.short)}` : ''}`
         return (
           <button
             key={a.id}
@@ -421,7 +422,7 @@ export function PieceCard({ piece, targets, postCost, locked, upkeep, placedOn, 
           : c3.nothingKnown}
       </p>
       {piece.blocked === 'budget' && <p className="t3-note">Not enough budget tonight.</p>}
-      {piece.risky && !piece.ordered && <p className="t3-note">{c3.RISKY}.</p>}
+      {piece.risky && !piece.ordered && <p className="t3-note">{c3.riskyBy(piece.short)}.</p>}
       {piece.ordered ? (
         <>
           {placedOn && <p className="t3-fav t3-ok">{c3.postLine(placedOn)}</p>}
@@ -504,7 +505,7 @@ export function FleetCard({ fleet, signs, onToggle, onClose }: { fleet: FleetPie
               <span>{f.price} CR</span>
             </span>
             <span className={`t3-choice-sub ${f.risky ? 't3-warn' : 't3-ok'}`}>
-              {f.ordered ? `${c3.ORDERED} · ${(signs[f.kind] ?? '').replace(/-/g, '\u2011')} ${c3.arrivesIn(f.eta)} · tap to cancel` : f.fits ? `${c3.coverageOf(COVERAGE_PER_KIND[f.kind])} · ${c3.arrivesIn(f.eta)}${f.risky ? `. ${c3.RISKY}` : ''}` : 'Not enough budget tonight'}
+              {f.ordered ? `${c3.ORDERED} · ${(signs[f.kind] ?? '').replace(/-/g, '\u2011')} ${c3.arrivesIn(f.eta)} · tap to cancel` : f.fits ? `${c3.coverageOf(COVERAGE_PER_KIND[f.kind])} · ${c3.arrivesIn(f.eta)}${f.risky ? `. ${c3.riskyBy(f.short)}` : ''}` : 'Not enough budget tonight'}
             </span>
           </button>
         ))}

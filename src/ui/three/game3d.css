@@ -2358,6 +2358,12 @@ html.t3-on body {
     width: 44px;
     height: 44px;
   }
+  /* An identified signature's card: what answers it comes before the line
+     about what it is, which the Dossier keeps (the Mobile Safari review:
+     the one thing to do was under the fold on an iPhone SE). */
+  .t3-root:not(.t3-wide) [data-t3-card='contact'][data-known='true'] .t3-hook {
+    display: none;
+  }
   /* A whole asset needs no bar to say so, and 7 bars under 7 call signs
      were a third of the ink in a short phone's sky: the bar shows once
      there is damage to read. */

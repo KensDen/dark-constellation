@@ -172,6 +172,9 @@ export const BEGIN_LONG = 'Begin the night'
 export const BEGIN_AT_RISK = 'BEGIN AT RISK'
 // Said without "tomorrow": on the last night there is none (v2.0 R4).
 export const RISKY = 'Risky: the worst case would break the budget'
+// With the figure, so it squares with the tile beside it (the Mobile Safari
+// reviewer: "Risky" on a 15 CR piece under "19 CR left").
+export const riskyBy = (short: number) => `Risky: with it WORST CASE reads ${short} CR short`
 // BEGIN on a night that could break the budget (v2.0 R4: said as the two
 // things it can be, and with what the player can do about it). `dawn` is
 // the budget after tonight's worst repairs and upkeep; `later` is what
@@ -193,7 +196,7 @@ export const cannotSit = (piece: string, sign: string) => `${piece} cannot sit o
 // bare "1 CR" read as "I lose 1 credit" (the R3 phone review).
 export const worstFace = (n: number) => (n < 0 ? `${-n} CR short` : `${n} CR left`)
 export const orderLine = (defense: string | null, assets: number, scans: number) =>
-  [defense ? `${defense} placed` : 'No defense placed', assets ? `${assets} asset${assets === 1 ? '' : 's'} ordered` : '', `${scans} scanned`].filter(Boolean).join(' · ')
+  [defense ? `${defense} placed` : 'No new defense yet', assets ? `${assets} asset${assets === 1 ? '' : 's'} ordered` : '', `${scans} scanned`].filter(Boolean).join(' · ')
 
 // THE NIGHT.
 export const NIGHT_FALLS = 'Night falls over the area of operations.'

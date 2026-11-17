@@ -275,6 +275,18 @@ body:has([data-title]) .crt-overlay {
   min-height: 100dvh;
   padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
 }
+/* The title is a page that scrolls, and in Mobile Safari it scrolls up
+   under the clock and the battery once Safari's bar folds away (v2.0 R4,
+   the Mobile Safari review: "GOAL 1" printed under "Carrier"). A strip of
+   the page's own dark keeps the status bar's height clear. */
+[data-title-screen]::before {
+  content: '';
+  position: fixed;
+  z-index: 5;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  background: #05060e;
+}
 
 /* THE HERO. Its box is set here, in the first download, so the world
    lands in it and nothing moves: a share of the screen's height on a

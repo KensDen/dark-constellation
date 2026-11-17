@@ -1584,7 +1584,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         const advice = spotAdvice(game, orders, a.cm.id)
         if (advice.raises && advice.gives) then = c3.postCostShort(signs.get(advice.gives) ?? advice.gives)
       }
-      return { id: a.cm.id, name: a.cm.name, cost: a.cm.cost, verb: a.verb, owned: a.owned, ordered: a.ordered, blocked: piece?.blocked ?? null, risky: !!piece?.risky && !a.ordered, then }
+      return { id: a.cm.id, name: a.cm.name, cost: a.cm.cost, verb: a.verb, owned: a.owned, ordered: a.ordered, blocked: piece?.blocked ?? null, risky: !!piece?.risky && !a.ordered, short: piece?.short ?? 0, then }
     })
 
   const assetTap = (id: string) => {
