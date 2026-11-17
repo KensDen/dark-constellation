@@ -30,14 +30,39 @@
       name="twitter:image:alt"
       content="DARK CONSTELLATION key art: a dark sphere split by a diagonal magenta beam, blue energy on one side and magenta on the other."
     />
+    <!-- The wordmark's face, asked for with the page and not once the
+         stylesheet is read: on a slow phone the title's first paint showed
+         the wordmark in a fallback face and swapped it a second later. -->
+    <link rel="preload" as="font" type="font/woff2" href="/src/ui/assets/fonts/display.woff2" crossorigin />
     <style>
       html {
         background-color: #05060e;
       }
+      /* Before the game's script has run there is nothing to show. A page
+         still dark after most of a second says it is loading, so a slow
+         phone's first seconds do not read as a broken page; a fast load
+         never shows it. The title replaces it. */
+      .boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        font: 600 12px/1 ui-monospace, Menlo, monospace;
+        letter-spacing: 0.3em;
+        color: #8b98a8;
+        opacity: 0;
+        animation: boot 0.4s 0.8s forwards;
+      }
+      @keyframes boot {
+        to {
+          opacity: 1;
+        }
+      }
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><p class="boot">LOADING</p></div>
+    <noscript><p style="margin: 40vh 24px 0; text-align: center; font: 14px system-ui, sans-serif; color: #e6edf3">DARK CONSTELLATION needs JavaScript to run.</p></noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

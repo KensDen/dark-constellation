@@ -108,6 +108,12 @@ export default function TitleWorld({ paused = false }: { paused?: boolean }) {
       if (still.current) t.hold()
     }
     size()
+    // The camera starts where the title frames it (v2.0 R4). It used to
+    // start at the game's own distance and close in over the first second,
+    // so the theater arrived as a small globe beside the still one the
+    // stylesheet draws in its place, and grew: two globes for a moment, on
+    // a desktop most of all.
+    t.hold()
     const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(size)
     ro?.observe(canvas)
     const io = typeof IntersectionObserver === 'undefined' ? null : new IntersectionObserver((e) => setInView(e[e.length - 1].isIntersecting))

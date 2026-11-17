@@ -26,7 +26,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-import { findChrome, serve } from './phone-layout.mjs'
+import { SOFTWARE_GL, findChrome, serve } from './phone-layout.mjs'
 
 const args = process.argv.slice(2)
 const flag = (name) => args.includes(name)
@@ -49,7 +49,7 @@ async function browser(chrome) {
   const profile = mkdtempSync(join(tmpdir(), 'dc-3d-'))
   const proc = spawn(
     chrome,
-    ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--mute-audio', '--hide-scrollbars', '--no-sandbox', '--enable-gpu', '--ignore-gpu-blocklist', 'about:blank'],
+    ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--mute-audio', '--hide-scrollbars', '--no-sandbox', '--enable-gpu', '--ignore-gpu-blocklist', ...SOFTWARE_GL, 'about:blank'],
     { stdio: 'ignore' },
   )
   let list

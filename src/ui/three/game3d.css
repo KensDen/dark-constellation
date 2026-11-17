@@ -1239,7 +1239,9 @@ html.t3-on body {
 }
 .t3-coach button {
   flex: none;
-  min-height: 44px;
+  /* 46, so it is still a thumb's height while the line rises (v2.0 R4:
+     measured mid-rise on a slow frame it was 43). */
+  min-height: 46px;
   padding: 0 10px;
   border: 0;
   border-radius: 12px;

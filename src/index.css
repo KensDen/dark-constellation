@@ -8,7 +8,10 @@
   src: url('./ui/assets/fonts/display.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
-  font-display: swap;
+  /* Held back for the face, never shown in another (v2.0 R4): the page
+     preloads it (index.html), so the wait is short, and the wordmark in a
+     fallback face read as a page that had not finished. */
+  font-display: block;
 }
 
 /* Design tokens (design brief v0.2). Green is the terminal chrome; the

@@ -233,6 +233,7 @@ fleet, the 18 signatures and their marks) is built in code for this project.
 
 ## Releases
 
+- v2.0.0, November 2026: the game in 3D. The pixel board is retired; the same six nights are played in a 3D theater by scanning, placing, answering and calling holds.
 - v1.6.2, 29 October 2026: the title screen's desktop layout, curled apostrophes.
 - v1.6.1, 27 October 2026: the v1.6.0 deploy fix (size trim, link entry).
 - v1.6.0, 27 October 2026: COLDVEIL per seed, the phone night and the playtest passes.

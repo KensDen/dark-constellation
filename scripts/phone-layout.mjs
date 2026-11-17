@@ -97,10 +97,20 @@ async function freePort() {
 
 // The GPU flags are the bot's: the game draws with WebGL, and a headless
 // Chrome without them may refuse it.
+//
+// DC_SOFTWARE_GL=1 (v2.0 R4) asks Chrome to draw WebGL in software, for a
+// machine with no GPU: a CI runner. Without it such a Chrome may refuse
+// WebGL, the game shows its fallback, and this guard checks the title and
+// the reading rooms and says the game's screens were not checked. With it
+// the guard ran whole on a Mac in about 2 minutes against 47 seconds on
+// the GPU. Off by default: it has not been run on the runner that builds
+// main (.github/workflows/deploy.yml), and a slow software frame there is
+// a timeout here.
+export const SOFTWARE_GL = process.env.DC_SOFTWARE_GL ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : []
 export async function browser(chrome) {
   const port = await freePort()
   const profile = mkdtempSync(join(tmpdir(), 'dc-fit-'))
-  const proc = spawn(chrome, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--mute-audio', '--hide-scrollbars', '--no-sandbox', '--enable-gpu', '--ignore-gpu-blocklist', 'about:blank'], { stdio: 'ignore' })
+  const proc = spawn(chrome, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--mute-audio', '--hide-scrollbars', '--no-sandbox', '--enable-gpu', '--ignore-gpu-blocklist', ...SOFTWARE_GL, 'about:blank'], { stdio: 'ignore' })
   let list
   for (let i = 0; i < 300 && !list; i += 1) {
     try {
@@ -230,7 +240,10 @@ const SMALL = `((root, floor) => {
   for (const e of root.querySelectorAll('button, a[href]')) {
     const r = e.getBoundingClientRect()
     if (r.width < 1 || r.height < 1 || getComputedStyle(e).visibility === 'hidden') continue
-    if (r.height < 43.5) bad.push('a target ' + Math.round(r.height) + 'px tall "' + (e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 24) + '"')
+    // A signature's mark on a phone is drawn at 34px and touched at 44: its
+    // own area reaches past its rim (v2.0 R4, game3d.css), and the reach counts.
+    const reach = e.matches('.t3-contact') ? Math.max(0, -parseFloat(getComputedStyle(e, '::after').top) || 0) : 0
+    if (r.height + reach * 2 < 43.5) bad.push('a target ' + Math.round(r.height) + 'px tall "' + (e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 24) + '"')
   }
   return bad
 })`
