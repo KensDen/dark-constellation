@@ -439,7 +439,7 @@ export function PieceCard({ piece, targets, postCost, locked, upkeep, placedOn, 
             </p>
           )}
           <div className="t3-row t3-wrap">
-            {targets.slice(0, 4).map((t) => (
+            {targets.map((t) => (
               <button key={t.id} type="button" data-t3-place={t.id} data-best={t.best || undefined} className={`t3-btn${t.best ? ' t3-primary' : ''}`} onClick={() => onPlace(t.id)}>
                 {c3.placeOn(t.sign)}
                 {t.best ? <span> · {c3.BEST_SPOT}</span> : null}
@@ -898,7 +898,8 @@ export function ResultCard({
   const dodge = missing && !ev.response && !held ? dodgeOf(step.before, def, missing.id, placed) : undefined
   const helped = missing
     ? dodge
-      ? c3.wouldSwitch(piece, missing.cost, stopVerb(missing.id, def) === 'stops' ? 'stops' : 'blunts', shortName(def), shortName(dodge), placed ? PIECE[placed] : undefined)
+      ? // By the short names the board wears, so the switch is inside a phone's 3 lines.
+        c3.wouldSwitch(piece, missing.cost, stopVerb(missing.id, def) === 'stops' ? 'stops' : 'blunts', c3.TAG[def.id] ?? shortName(def), c3.TAG[dodge.id] ?? shortName(dodge), placed ? PIECE[placed] : undefined)
       : joined(ev.response ? copy.lastingAnswer(piece, missing.cost) : held ? copy.finishedIt(piece, missing.cost) : copy.wouldHaveHelped(piece, missing.cost))
     : ''
   const stops = missing && !held && !dodge ? ` It ${stopVerb(missing.id, def) === 'stops' ? 'stops' : 'blunts'} ${shortName(def)} every night.` : ''

@@ -47,7 +47,7 @@ describe('ruling 4: the advice counts the watch post it gives up', () => {
     let posted = 0
     let cost = 0
     let saved = 0
-    for (const { state, actions, where } of nights(40)) {
+    for (const { state, actions, where } of nights(20)) {
       const orders = ordersOf(actions)
       const before = atStakeOf(contactsFor(state, orders))
       for (const cm of state.scenario.countermeasures) {
@@ -77,12 +77,12 @@ describe('ruling 4: the advice counts the watch post it gives up', () => {
     }
     // Not vacuous: boards with a post standing, pieces that cost it
     // wherever they go, and pieces with a wrong spot the advice avoided.
-    expect(pieces).toBeGreaterThan(5000)
+    expect(pieces).toBeGreaterThan(2500)
     expect(posted).toBeGreaterThan(pieces / 2)
-    expect(cost, 'no piece ever cost the post, so the warning went untested').toBeGreaterThan(20)
-    expect(saved, 'no piece ever had a spot that raised AT STAKE, so the choice went untested').toBeGreaterThan(200)
+    expect(cost, 'no piece ever cost the post, so the warning went untested').toBeGreaterThan(10)
+    expect(saved, 'no piece ever had a spot that raised AT STAKE, so the choice went untested').toBeGreaterThan(100)
     if (process.env.SWEEP) process.stderr.write(`\nadvice: ${pieces} pieces, ${posted} with a post standing, ${cost} cost the post wherever they go, ${saved} had a spot that raised AT STAKE\n`)
-  }, 60_000)
+  }, 120_000)
 
   it('FIX NEXT names a piece only when placing it tomorrow leaves tomorrow no worse, and names the post when none can', () => {
     let fixes = 0

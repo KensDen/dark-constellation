@@ -135,7 +135,7 @@ export const postCost = (sign: string, before: number, after: number) => `Placin
 export const postCostShort = (sign: string) => `moves the post off ${sign}: more at stake tonight`
 export const fixCostsPost = (move: string, piece: string, sign: string) => `${move} got through. ${piece} answers it, but placing it tomorrow would cost the watch post on ${sign}. Keep an answer for it.`
 export const wouldSwitch = (piece: string, price: number, verb: string, move: string, other: string, inPlaceOf?: string) =>
-  `${piece}, ${price} CR, ${verb} ${move} every night. Tonight${inPlaceOf ? `, in place of ${inPlaceOf},` : ''} COLDVEIL would have switched to ${other}.`
+  `${piece}, ${price} CR, ${verb} ${move}. Tonight${inPlaceOf ? `, in place of ${inPlaceOf},` : ''} COLDVEIL would have switched to ${other}.`
 export const spotWhy = (sign: string, n: number) => (n > 0 ? `Most is aimed at ${sign} tonight.` : `Nothing is aimed where it can sit: ${sign} is as good as any.`)
 export const postTook = (n: number) => `Watch post -${n}`
 export const cantAfford = (need: number) => `Needs ${need} CR more`
