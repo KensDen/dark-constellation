@@ -121,8 +121,9 @@ describe('the split screens stay out of the initial chunk (v1.2 R0)', () => {
     // initial chunk, so the check below has nothing to object to. A count
     // is a second structure: dropping one costs an edit here and a
     // sentence about why.
-    // Six since v2.0 R3: the credits, the terminal chrome that frames
-    // them, the scoreboard, LIBRARY, the 3D game, and the dev-only sound
+    // Six since v2.0 R3: the credits, the terminal chrome (which framed
+    // them through R3 and frames the dev board alone since R4), the
+    // scoreboard, LIBRARY, the 3D game, and the dev-only sound
     // board (behind an import.meta.env.DEV ternary that folds to null in a
     // production build). Eight through R2: the pixel briefing
     // (./ui/IntroSequence) and the pixel Dossier (./ui/Dossier) went with

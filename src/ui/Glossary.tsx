@@ -6,10 +6,12 @@
 import { useMemo, useState } from 'react'
 import { DC_BTN } from './buttons'
 import { glossaryEntries, glossaryMatches, type GlossaryEntry } from './reference'
+import './rooms.css'
 
 // A framework's own page, an outbound source: a chip in the ink with the
-// Library's ↗, not link-blue underlined text (v1.6 R3's sweep).
-const SOURCE_CHIP = 'inline-flex min-h-8 items-center border border-dc-line bg-dc-chrome px-2 uppercase tracking-wider text-dc-ink'
+// Library's ↗, not link-blue underlined text (v1.6 R3's sweep). The
+// game's glass chip since v2.0 R4, in a 44px target (./rooms.css).
+const SOURCE_CHIP = 'rm-chip'
 
 const CATEGORIES: GlossaryEntry['category'][] = ['Technique', 'Advisory', 'Countermeasure', 'Threat event', 'Opportunity']
 
@@ -55,37 +57,33 @@ export default function Glossary({
   const shown = q ? all.filter((e) => glossaryMatches(e, q)) : all
 
   return (
-    <Root data-glossary className="mx-auto w-full max-w-[520px] pb-10 text-dc-ink">
+    <Root data-glossary className={bare ? undefined : 'rm'}>
       {!bare && (
-        <>
-          <div className="sticky top-0 z-10 border-b-2 border-dc-line bg-dc-panel px-4 pt-safe">
-            <div className="py-2">
-              <button type="button" data-back className={DC_BTN} onClick={onBack}>
-                {backLabel.toUpperCase()}
-              </button>
-            </div>
-          </div>
-          <Heading className="px-4 pt-4 font-display text-[13px] leading-tight text-dc-ink">GLOSSARY</Heading>
-        </>
+        <div className="rm-head">
+          <button type="button" data-back className={DC_BTN} onClick={onBack}>
+            {backLabel.toUpperCase()}
+          </button>
+        </div>
       )}
-      <div className="px-4">
-      <p className="mt-3 text-[13px] leading-snug text-dc-muted">
+      <div className="rm-body">
+      {!bare && <Heading className="rm-h">GLOSSARY</Heading>}
+      <p className="tt-note">
         {all.length} entries: framework techniques, an NSA advisory, countermeasures with their SPARTA controls and tiers,
         and each threat and opportunity event.
       </p>
       {/* The short words the briefing and the board use before anything
           explains them (R6 question 10; R4 question 11 sent it here). */}
-      <p data-glossary-acronyms className="mt-2 text-[13px] leading-snug text-dc-muted">
+      <p data-glossary-acronyms className="tt-note">
         {ACRONYMS.map(([short, long], i) => (
           <span key={short}>
             {i > 0 && '; '}
-            <b className="font-mono font-normal text-dc-ink">{short}</b>, {long}
+            <b>{short}</b>, {long}
           </span>
         ))}
         .
       </p>
       <input
-        className="mt-3 min-h-11 w-full border-2 border-dc-line bg-dc-chrome px-2 py-1 font-mono text-[16px] text-dc-ink placeholder:text-dc-muted"
+        className="tt-field"
         placeholder="Type to filter the entries"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
@@ -97,13 +95,13 @@ export default function Glossary({
           GLOSSARY and leaving them to look. The full list still follows,
           because the tag is a way in rather than a replacement for it. */}
       {focused && (
-        <section className="mt-4" data-glossary-focus={focused.key}>
-          <Sub className="font-mono text-[11px] uppercase tracking-widest text-dc-go">From the intel brief</Sub>
-          <div className="mt-2 border-l-4 border-dc-go bg-dc-go/10 px-3 py-2">
-            <p className="text-sm font-bold">{focused.term}</p>
-            <p className="text-sm mt-1">{focused.body}</p>
+        <section className="rm-sec" data-glossary-focus={focused.key}>
+          <Sub className="tt-label tt-go uppercase">From the intel brief</Sub>
+          <div className="rm-card rm-go">
+            <p className="rm-name">{focused.term}</p>
+            <p>{focused.body}</p>
             {focused.refs.length > 0 && (
-              <p className="text-xs mt-1 font-mono">
+              <p>
                 {focused.refs.map((r, i) => (
                   <span key={r.url}>
                     {i > 0 ? ' ' : ''}
@@ -122,17 +120,17 @@ export default function Glossary({
         const entries = shown.filter((e) => e.category === cat)
         if (entries.length === 0) return null
         return (
-          <section key={cat} className="mt-5">
-            <Sub className="font-mono text-[11px] uppercase tracking-widest text-dc-go">
+          <section key={cat} className="rm-sec">
+            <Sub className="tt-label tt-go uppercase">
               {cat} ({entries.length})
             </Sub>
-            <dl className="mt-2">
+            <dl className="rm-grid">
               {entries.map((e) => (
-                <div key={e.term} className="mt-2 bg-dc-panel px-3 py-2">
-                  <dt className="text-sm font-bold">{e.term}</dt>
-                  <dd className="text-sm mt-1">{e.body}</dd>
+                <div key={e.term} className="rm-card">
+                  <dt>{e.term}</dt>
+                  <dd>{e.body}</dd>
                   {e.refs.length > 0 && (
-                    <dd className="text-xs mt-1 font-mono">
+                    <dd>
                       {e.refs.map((r, i) => (
                         <span key={r.url}>
                           {i > 0 ? ' ' : ''}
@@ -150,7 +148,7 @@ export default function Glossary({
           </section>
         )
       })}
-      {shown.length === 0 && <p className="mt-4 text-[13px] text-dc-muted">No entries match that filter.</p>}
+      {shown.length === 0 && <p className="tt-note">No entries match that filter.</p>}
       </div>
     </Root>
   )

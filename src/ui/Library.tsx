@@ -6,8 +6,9 @@
 
 import { Suspense, lazy, useState, type KeyboardEvent } from 'react'
 import { DC_BTN } from './buttons'
+import './rooms.css'
 
-const TabUnavailable = () => <p className="px-4 pt-4 font-mono text-[12px] text-dc-warn">This tab could not load. Try again in a moment.</p>
+const TabUnavailable = () => <p className="rm-body rm-warn">This tab could not load. Try again in a moment.</p>
 const FieldLibrary = lazy(() => import('./FieldLibrary').catch(() => ({ default: TabUnavailable })))
 const Glossary = lazy(() => import('./Glossary').catch(() => ({ default: TabUnavailable })))
 
@@ -28,15 +29,16 @@ export default function Library({ onBack, tab: initial = 'library' }: { onBack: 
     document.getElementById(`tab-${next}`)?.focus()
   }
   return (
-    <main data-library className="mx-auto w-full max-w-[520px] text-dc-ink">
-      <div className="sticky top-0 z-10 border-b-2 border-dc-line bg-dc-panel px-4 pb-0 pt-safe">
-        <div className="flex items-center justify-between gap-2 py-2">
-          <button type="button" data-back onClick={onBack} className={DC_BTN}>
-            BACK TO TITLE
-          </button>
-          <h1 className="font-display text-[13px] text-dc-ink">LIBRARY</h1>
-        </div>
-        <div role="tablist" aria-label="Library" className="-mb-0.5 grid grid-cols-2" onKeyDown={onKey}>
+    <main data-library className="rm">
+      {/* The game's room bar (v2.0 R4): the way back and the room's name,
+          and the two tabs as one filled choice, under them on a phone and
+          beside them on a desk. */}
+      <div className="rm-head">
+        <button type="button" data-back onClick={onBack} className={DC_BTN}>
+          BACK TO TITLE
+        </button>
+        <h1>LIBRARY</h1>
+        <div role="tablist" aria-label="Library" className="rm-tabs" onKeyDown={onKey}>
           {TABS.map((t) => {
             const on = t.id === tab
             return (
@@ -50,7 +52,6 @@ export default function Library({ onBack, tab: initial = 'library' }: { onBack: 
                 aria-controls={`panel-${t.id}`}
                 tabIndex={on ? 0 : -1}
                 onClick={() => setTab(t.id)}
-                className={`min-h-11 border-b-4 font-display text-[10px] ${on ? 'border-dc-go text-dc-go' : 'border-transparent text-dc-muted'}`}
               >
                 {t.label}
               </button>
@@ -59,7 +60,7 @@ export default function Library({ onBack, tab: initial = 'library' }: { onBack: 
         </div>
       </div>
       <div id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`}>
-        <Suspense fallback={<p className="px-4 pt-4 font-mono text-[12px] text-dc-muted">Opening the {tab === 'library' ? 'Field Library' : 'Glossary'}.</p>}>
+        <Suspense fallback={<p className="rm-body tt-note">Opening the {tab === 'library' ? 'Field Library' : 'Glossary'}.</p>}>
           {tab === 'library' ? <FieldLibrary bare /> : <Glossary bare />}
         </Suspense>
       </div>

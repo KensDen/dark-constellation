@@ -17,6 +17,7 @@ import { pairNote, pairedEvents, type LibraryEntry } from '../content/librarySch
 import { DC_BTN } from './buttons'
 import { libraryProgress } from './libraryProgress'
 import { techniqueLabel } from './labels'
+import './rooms.css'
 import './library.css'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -26,32 +27,30 @@ const day = (iso: string) => {
   return `${d} ${MONTHS[m - 1]} ${y}`
 }
 
-const LABEL = 'font-mono text-[10px] tracking-widest text-dc-muted'
-
 function Entry({ entry, filed, note }: { entry: LibraryEntry; filed: boolean; note?: string }) {
   return (
-    <li data-library-entry={entry.title} className="relative border-t-2 border-dc-line pt-2 mt-3">
+    <li data-library-entry={entry.title} className="rm-card">
       {filed && (
-        <span data-filed className="dc-filed font-mono text-[10px] tracking-widest text-dc-go">
+        <span data-filed className="dc-filed">
           FILED
         </span>
       )}
-      <a className="text-sm font-bold text-dc-ink underline decoration-dc-line underline-offset-2" href={entry.url} target="_blank" rel="noopener noreferrer">
+      <a className="rm-name" href={entry.url} target="_blank" rel="noopener noreferrer">
         {entry.title}
-        {/\.pdf$/i.test(entry.url) && <span className="font-normal text-dc-muted">{'\u00a0'}(PDF)</span>}
+        {/\.pdf$/i.test(entry.url) && <span className="rm-meta">{'\u00a0'}(PDF)</span>}
         {/* The marker stays on the title's last line (fresh-eyes review). */}
         <span aria-hidden="true">{'\u00a0'}↗</span>
         <span className="dc-offscreen"> (opens in a new tab)</span>
       </a>
-      <p className="mt-1 font-mono text-[10px] text-dc-muted">
+      <p className="rm-meta">
         {entry.source}
         {entry.year ? `, ${entry.year}` : ''} · {entry.type}
         {note ? ` (${note})` : ''}
       </p>
-      <p className="mt-1 text-sm text-dc-ink">
-        <span className="text-dc-muted">Why:</span> {entry.why}
+      <p>
+        <span className="tt-off">Why:</span> {entry.why}
       </p>
-      <p className="mt-1 font-mono text-[10px] text-dc-muted">
+      <p className="rm-meta">
         Checked {day(entry.checked)}
         {entry.urlNote ? ` · ${entry.urlNote}` : ''}
       </p>
@@ -99,26 +98,24 @@ export default function FieldLibrary({
   })).filter((shelf) => shelf.entries.length > 0)
 
   return (
-    <Root data-field-library className="mx-auto w-full max-w-[520px] pb-10 text-dc-ink">
+    <Root data-field-library className={bare ? undefined : 'rm'}>
       {!bare && (
-        <>
-          <div className="sticky top-0 z-10 border-b-2 border-dc-line bg-dc-panel px-4 pt-safe">
-            <div className="py-2">
-              <button type="button" data-back className={DC_BTN} onClick={onBack}>
-                {backLabel.toUpperCase()}
-              </button>
-            </div>
-          </div>
-          <Heading ref={title} tabIndex={-1} className="px-4 pt-4 font-display text-[13px] leading-tight text-dc-ink outline-none">
-            FIELD LIBRARY
-          </Heading>
-        </>
+        <div className="rm-head">
+          <button type="button" data-back className={DC_BTN} onClick={onBack}>
+            {backLabel.toUpperCase()}
+          </button>
+        </div>
       )}
-      <div className="px-4">
-      <p ref={counter} tabIndex={-1} data-filed-counter className="mt-3 font-mono text-[11px] tracking-widest text-dc-go outline-none">
+      <div className="rm-body">
+      {!bare && (
+        <Heading ref={title} tabIndex={-1} className="rm-h outline-none">
+          FIELD LIBRARY
+        </Heading>
+      )}
+      <p ref={counter} tabIndex={-1} data-filed-counter className="tt-label tt-go outline-none">
         FILED {progress.count} / {progress.total}
       </p>
-      <p className="mt-2 text-[13px] leading-snug text-dc-muted">
+      <p className="tt-note">
         The public reading behind every threat in this game, each entry checked against the live page. Everything here
         is open to read. An entry is stamped FILED once you meet a threat it covers; the general reading is stamped once
         you finish a game.
@@ -126,19 +123,19 @@ export default function FieldLibrary({
       {/* The legal caution for the whole list, not one shelf (R6 question 5):
           a hands-on interception walkthrough sits on the third shelf too. UI
           text, so the approved entries and their hashes are not touched. */}
-      <p data-library-caution className="mt-2 text-xs text-alert-amber">
+      <p data-library-caution className="rm-warn">
         Practice only on equipment you own or are authorized to test. Listening to other people’s satellite traffic
         can be illegal where you live.
       </p>
       {threat && (
-        <div data-library-filter={threat.id} className="mt-4 border-l-4 border-dc-go bg-dc-go/10 px-3 py-2">
-          <p className={LABEL}>LEARN MORE</p>
-          <p className="mt-1 text-sm font-bold text-dc-ink">{threat.name.split(' (')[0]}</p>
+        <div data-library-filter={threat.id} className="rm-card rm-go">
+          <p className="tt-label">LEARN MORE</p>
+          <p className="rm-name">{threat.name.split(' (')[0]}</p>
           {/* The move's own technique, linked, ahead of the readings (R6
               question 14: LEARN MORE named a technique and linked only the
               framework's home page). */}
           {threat.techniqueRefs[0] && (
-            <a data-library-technique href={threat.techniqueRefs[0].url} target="_blank" rel="noopener noreferrer" className="mt-1 block text-xs text-dc-friendly underline">
+            <a data-library-technique href={threat.techniqueRefs[0].url} target="_blank" rel="noopener noreferrer" className="rm-a dc-technique">
               {techniqueLabel(threat.techniqueRefs[0])}, {threat.techniqueRefs[0].name}
               <span aria-hidden="true">{'\u00a0'}↗</span>
               <span className="dc-offscreen"> (opens in a new tab)</span>
@@ -146,7 +143,7 @@ export default function FieldLibrary({
           )}
           <button
             type="button"
-            className={`${DC_BTN} mt-2`}
+            className={DC_BTN}
             onClick={() => {
               ;(title.current ?? counter.current)?.focus()
               setFilter(null)
@@ -157,20 +154,20 @@ export default function FieldLibrary({
         </div>
       )}
       {shelves.map((shelf) => (
-        <section key={shelf.name} data-shelf={shelf.name} className="mt-4 bg-dc-panel px-3 py-2.5">
-          <Sub className="font-mono text-[11px] tracking-widest text-dc-go">
+        <section key={shelf.name} data-shelf={shelf.name} className="rm-sec">
+          <Sub className="tt-label tt-go">
             {shelf.n}. {shelf.name.toUpperCase()}
           </Sub>
           {/* Shelf note, UI text rather than entry data, so the approved list
               and its hashes stand (QC gauntlet Q27). */}
           {shelf.name === HANDS_ON && (
-            <p data-shelf-note className="mt-2 text-xs text-alert-amber">
+            <p data-shelf-note className="rm-warn">
               Practice only on equipment you own or are authorized to test. Listening to other people’s satellite
               traffic can be illegal where you live.
             </p>
           )}
           {/* role="list": Safari drops list semantics from an unstyled list. */}
-          <ul role="list">
+          <ul role="list" className="rm-grid">
             {shelf.entries.map((entry) => (
               <Entry key={entry.url} entry={entry} filed={progress.filed(entry)} note={threat ? pairNote(entry, threat.id) : undefined} />
             ))}

@@ -190,7 +190,11 @@ const AUDIT = `(() => {
     if (r.width < 1 || r.height < 1 || getComputedStyle(e).visibility === 'hidden') continue
     const name = (e.getAttribute('aria-label') || e.textContent || '').trim()
     if (!name) bad.push('unnamed button ' + e.className)
-    if (r.width < 43.5 || r.height < 43.5) bad.push('small target ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' "' + name.slice(0, 30) + '"')
+    // A signature's mark on a phone is drawn at 34px and touched at 44: its
+    // own area reaches past its rim (v2.0 R4, game3d.css), and that reach
+    // is counted here.
+    const reach = e.matches('.t3-contact') ? Math.max(0, -parseFloat(getComputedStyle(e, '::after').top) || 0) : 0
+    if (r.width + reach * 2 < 43.5 || r.height + reach * 2 < 43.5) bad.push('small target ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' "' + name.slice(0, 30) + '"')
     const card = e.closest('.t3-card'); const scroller = e.closest('.t3-tray, .t3-sigs, .t3-debrief, .t3-room') || (card && card.scrollHeight > card.clientHeight + 2 && !e.matches('[data-t3-hold], [data-t3-continue], [data-t3-file], [data-t3-next], [data-t3-response], [data-t3-call]') ? card : null)
     if (!e.disabled && !scroller && (r.left < -0.5 || r.right > innerWidth + 0.5 || r.top < -0.5 || r.bottom > innerHeight + 0.5) && !e.closest('.t3-tags')) bad.push('off screen "' + name.slice(0, 30) + '" ' + Math.round(r.left) + ',' + Math.round(r.top) + ' ' + Math.round(r.right) + ',' + Math.round(r.bottom))
   }
@@ -220,6 +224,24 @@ const AUDIT = `(() => {
     if (m && dock && (m.m42 > dock.top - 6 || m.m42 < 60)) bad.push('the target is not in view at ' + Math.round(m.m41) + ',' + Math.round(m.m42) + ' (dock top ' + Math.round(dock.top) + ')')
   }
   if (document.documentElement.scrollWidth > innerWidth + 1) bad.push('the page scrolls sideways')
+  // THE SIGNATURE MARKS KEEP CLEAR (v2.0 R4): while the watch plans, no mark
+  // stands on another mark or on COLDVEIL's name, and none is under the
+  // cards or off the side. (A mark may still touch a call sign on the
+  // shortest phone, where 7 call signs share 200px of sky.)
+  if (document.querySelector('.t3-root')?.dataset.t3Phase === 'plan' && dock) {
+    const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom] }
+    const over = (a, b) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]))
+    const shown = (e) => e.getBoundingClientRect().width > 1 && e.closest('.t3-tag')?.style.visibility !== 'hidden' && getComputedStyle(e.closest('.t3-contacts') ?? e).opacity !== '0'
+    const marks = [...document.querySelectorAll('.t3-contact')].filter(shown).map((e) => [e.dataset.t3Contact, box(e)])
+    const foe = document.querySelector('.t3-tag-foe span')
+    const name = foe && shown(foe) ? box(foe) : null
+    marks.forEach(([id, m], i) => {
+      for (const [other, n] of marks.slice(i + 1)) if (over(m, n) > 20) bad.push('the mark of ' + id + ' stands on the mark of ' + other)
+      if (name && over(m, name) > 20) bad.push('the mark of ' + id + " stands on COLDVEIL's name")
+      if (innerWidth < 1000 && m[3] > dock.top + 2) bad.push('the mark of ' + id + ' is under the cards')
+      if (m[0] < -1 || m[2] > innerWidth + 1) bad.push('the mark of ' + id + ' is off the side')
+    })
+  }
   // The tray shows whole pieces on a phone (v2.0 R3): at rest, none stands
   // half under BEGIN. A swipe or a page still on its way is not judged.
   const tray = document.querySelector('[data-t3-tray]')

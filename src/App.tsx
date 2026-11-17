@@ -53,7 +53,7 @@ const Scoreboard = lazy(() => import('./ui/Scoreboard'))
 const ScreenUnavailable = ({ onBack }: { onBack: () => void }) => (
   <main className="mx-auto max-w-[520px] px-4 py-10 font-mono text-sm">
     <p className="text-dc-warn">This screen could not load.</p>
-    <button type="button" className="mt-4 min-h-11 border-2 border-dc-line bg-dc-panel px-3 font-display text-[10px] text-dc-ink" onClick={onBack}>
+    <button type="button" className="tt-btn mt-4" onClick={onBack}>
       BACK TO TITLE
     </button>
   </main>
@@ -82,11 +82,9 @@ const SoundBoard = import.meta.env.DEV ? lazy(() => import('./audio/SoundBoard')
 
 type Screen = 'title' | 'game3d' | 'library' | 'scoreboard' | 'credits' | 'soundboard'
 
-// The terminal chrome frames the credits and the dev board only. The
-// screens R4 rebuilt (LIBRARY, the Dossier, the scoreboard) carry the
-// game's own bar instead.
+// The terminal chrome frames the dev board only (v2.0 R4: the credits wear
+// the game's bar, like the other reading rooms).
 const STATUS: Partial<Record<Screen, string>> = {
-  credits: 'REFERENCE',
   soundboard: 'DEV',
 }
 
@@ -95,9 +93,9 @@ const STATUS: Partial<Record<Screen, string>> = {
 // screen for a frame or two.
 function ScreenLoading() {
   return (
-    <main className="max-w-3xl mx-auto px-4 py-10 font-mono text-sm">
-      <p className="text-phosphor">&gt; LOADING_</p>
-      <p className="mt-2 text-ink-dim">Standby.</p>
+    <main className="mx-auto max-w-[520px] px-4 py-10 text-sm">
+      <p className="tt-label">LOADING</p>
+      <p className="tt-note mt-2">One moment.</p>
     </main>
   )
 }
@@ -191,7 +189,7 @@ function App() {
       <div className="min-h-screen flex flex-col">
         {/* Every screen is a document that scrolls the page; the game takes
             the viewport for itself (src/ui/three/game3d.css). Only the
-            credits and the dev board carry the terminal chrome. */}
+            dev board carries the terminal chrome. */}
         {chrome && (
           <Suspense fallback={null}>
             <TerminalChrome status={STATUS[screen] ?? 'REFERENCE'} />

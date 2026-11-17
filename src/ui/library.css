@@ -1,24 +1,44 @@
-/* The Field Library's own styles (v1.2 R5b). Imported by FieldLibrary
-   alone, so it rides in the library's chunk. Nothing here moves. */
+/* The Field Library's own styles (v1.2 R5b; in the game's look since v2.0
+   R4, with ./rooms.css). Imported by FieldLibrary alone, so it rides in
+   the library's chunk. Nothing here moves. */
 
-/* The FILED stamp: a small inked mark in the entry's top right corner. */
+/* The FILED stamp: the game's stamp, small, in the entry's top right
+   corner. It floats, so the title's lines stand clear of it in any font. */
 .dc-filed {
-  position: absolute;
-  top: 0.5rem;
-  right: 0;
-  padding: 2px 4px;
-  border: 2px solid var(--dc-go);
-  transform: rotate(-6deg);
-  line-height: 1;
+  float: right;
+  margin: 0 0 4px 10px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: var(--dc-go);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.14em;
 }
 
-/* An entry's title leaves the stamp its corner, and is a 44px target
-   (brief 4.7) without moving a line: the padding that makes it one is
-   taken back by the margin. */
+/* An entry's title is a 44px target (brief 4.7) without moving a line:
+   the padding that makes it one is taken back by the margin. */
 [data-library-entry] > a {
   display: block;
-  padding: 12px 4rem 12px 0;
+  padding: 12px 0;
   margin: -12px 0;
+  line-height: 1.35;
+  text-decoration: underline;
+  text-decoration-color: var(--tt-edge);
+  text-underline-offset: 3px;
+}
+[data-library-entry] > a > [aria-hidden] {
+  color: var(--dc-friendly);
+}
+
+/* LEARN MORE's technique: a line of its own, 44px to the finger. */
+.dc-technique {
+  display: block;
+  padding: 13px 0;
+  font-size: 13px;
+  line-height: 18px;
 }
 
 /* Words for assistive tech only: the marker says "new tab" to the eye. */

@@ -55,6 +55,12 @@ export const NO_PULSES = 'No pulses left tonight'
 export const scanHint = (tracks: number, sigs: number) =>
   tracks === 1 ? `${ADVERSARY} makes 1 move tonight: 1 of the ${sigs} signature${sigs === 1 ? '' : 's'} over the fleet.` : `${ADVERSARY} makes ${tracks} moves tonight, 1 from each track: ${sigs} signatures over the fleet.`
 export const UNKNOWN_LEAD = 'Unidentified signature'
+// On its own card the two words stand apart, the call sign between them,
+// so the title is one line on a phone and the card's buttons are whole
+// (v2.0 R4: on a 375 by 553 phone the two-line title pushed SCAN IT and
+// NAME IT ON SIGHT under the card's edge).
+export const UNKNOWN_EYEBROW = 'SIGNATURE'
+export const UNKNOWN_TITLE = 'Unidentified'
 export const unknownBody = (n: number) => (n > 1 ? `${ADVERSARY} is choosing between ${n} moves here, and plays 1 of them tonight. This is 1 of the ${n}.` : `${ADVERSARY} plays this move tonight.`)
 export const KNOW_THE_LOOK = 'Know the look? Name it and spend no pulse. A wrong name ends naming for tonight.'
 // THE NAME ON SIGHT (v2.0 R3): an unidentified signature named from its look.

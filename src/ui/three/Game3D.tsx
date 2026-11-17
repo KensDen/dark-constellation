@@ -339,6 +339,14 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const over = (a: Box, b: Box) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]))
     const out = (a: Box) => (Math.max(0, 4 - a[0]) + Math.max(0, a[2] - (right - 4)) + Math.max(0, top - a[1]) + Math.max(0, a[3] - floor)) * 60
     const bodies = list.map((a): Box => [a.x - 26, a.y - 26, a.x + 26, a.y + 26])
+    // COLDVEIL's ship and its name are in the picture too (v2.0 R4): a
+    // mark that stood on them hid who the night is against.
+    const foe = at.current.get('coldveil')
+    if (foe?.on) {
+      bodies.push([foe.x - 24, foe.y - 24, foe.x + 24, foe.y + 24])
+      const name = tags.current.get('coldveil')?.querySelector('span')?.getBoundingClientRect()
+      if (name && name.width > 0) bodies.push([name.left - 2, name.top - 2, name.right + 2, name.bottom + 2])
+    }
     const taken: Box[] = []
     // A label on another asset costs most, on another label less.
     const cost = (box: Box, self: number, onLabel = 1) => out(box) + bodies.reduce((n, b, i) => (i === self ? n : n + over(box, b) * 3), 0) + taken.reduce((n, b) => n + over(box, b) * onLabel, 0)
@@ -405,6 +413,12 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         [-w / 2, down + 50],
         [70, -h / 2],
         [-70 - w, -h / 2],
+        // On the asset's own shoulders (v2.0 R4): a phone's mark is small
+        // enough to stand against its asset, where it is plainly its own.
+        [16, -h - 12],
+        [-w - 16, -h - 12],
+        [16, 12],
+        [-w - 16, 12],
       ]
       const boxAt = ([dx, dy]: [number, number]): Box => [a.x + dx, a.y + dy, a.x + dx + w, a.y + dy + h]
       // The spot it has keeps it unless another is clearly better, so the
@@ -682,12 +696,20 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     if (leaderRef.current && !anchorId) leaderRef.current.style.opacity = '0'
   }, [anchorId, wide])
 
+  // THE CAMERA STANDS STILL WHILE THE WATCH PLANS (v2.0 R4). Through R3 a
+  // card opened on a signature or an asset turned and closed the camera on
+  // it, and closing the card turned it back: every label and every mark
+  // moved under the player's eye on each tap, and on a wide screen the
+  // closer frame put SG-R1 under the card (both of R3's reviewers). The
+  // plan keeps the one frame of the whole theater; what is in hand is
+  // ringed where it stands and tied to its card by the line. The camera
+  // still follows a strike in the night, where the move is the subject.
   useEffect(() => {
     const t = world.current
     if (!t || phase !== 'plan') return
-    t.setFocus(anchorId)
+    t.setFocus(null)
     t.setSignature('preview', selContact ? selContact.id : null, selContact?.targetId, 0.75)
-  }, [phase, anchorId, selContact, failed])
+  }, [phase, selContact, failed])
 
   // The theater frames itself in what the chrome leaves clear.
   useLayoutEffect(() => {
@@ -1658,7 +1680,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
                 aria-label={label}
                 aria-pressed={sel?.kind === 'asset' && sel.id === a.id}
                 disabled={!can}
-                className={`t3-asset${sel?.kind === 'asset' && sel.id === a.id ? ' is-on' : ''}${lit ? ' is-drop' : ''}${drag?.over === a.id ? ' is-over' : ''}${on.some((x) => x.known && x.exposed > 0 && x.favor !== 'unlikely') ? ' is-aimed' : ''}${
+                className={`t3-asset${(sel?.kind === 'asset' && sel.id === a.id) || (phase === 'plan' && anchorId === a.id) ? ' is-on' : ''}${lit ? ' is-drop' : ''}${drag?.over === a.id ? ' is-over' : ''}${on.some((x) => x.known && x.exposed > 0 && x.favor !== 'unlikely') ? ' is-aimed' : ''}${
                   isTarget && stage.at === 'choose' && isolateChoice ? ' is-isolate' : ''
                 }${lost ? ' is-lost' : ''}`}
                 onPointerDown={(e) => assetDown(e, a.id)}
