@@ -367,7 +367,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     }
     const taken: Box[] = []
     // A label on another asset costs most, on another label less.
-    const cost = (box: Box, self: number, onLabel = 1) => out(box) + bodies.reduce((n, b, i) => (i === self ? n : n + over(box, b) * 3), 0) + taken.reduce((n, b) => n + over(box, b) * onLabel, 0) + named.reduce((n, b) => n + (over(box, b) > 0 ? 400 + over(box, b) * 8 : 0), 0)
+    const cost = (box: Box, self: number, onLabel = 1) => out(box) + bodies.reduce((n, b, i) => (i === self ? n : n + over(box, b) * 3), 0) + taken.reduce((n, b) => n + over(box, b) * onLabel, 0) + named.reduce((n, b) => n + (over(box, b) > 0 ? 3000 + over(box, b) * 40 : 0), 0)
     const signs: { flip: boolean; h: number }[] = []
     list.forEach((a, i) => {
       const sign = a.el.querySelector<HTMLElement>('.t3-sign')
