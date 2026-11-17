@@ -190,6 +190,9 @@ export default function Title(p: TitleProps) {
             {p.staleSave && (
               <div role="status" data-stale-save className="tt-card tt-warn">
                 <p>{STALE_SAVE_MESSAGE}.</p>
+                {/* Why, and what is not lost (v2.0 R4): the only save this
+                    version refuses is a game begun on the pixel board. */}
+                <p className="tt-note">It was begun on the pixel board, which the 3D game has replaced. Your scores and your Dossier are kept.</p>
                 <button type="button" onClick={p.onPlay} className="tt-btn">
                   START A NEW OPERATION
                 </button>
