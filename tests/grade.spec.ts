@@ -157,8 +157,8 @@ describe('the grade is calibrated (brief 7.2)', () => {
   // as tests/sweep.spec.ts drives them, and every win graded on its final
   // score plus its defense bonus, at each difficulty with its own bands.
   // S should be roughly the top 5 percent of wins and A roughly the next
-  // 20. Measured when the bands were set (v2.0 R4): on STANDARD 739 wins,
-  // S 6.0 percent and A 22.6; on EASY 1,018 wins, A the top 26.8.
+  // 20. Measured when the bands were set (v2.0 R4): on STANDARD 731 wins,
+  // S 6.0 percent and A 20.7; on EASY 1,012 wins, A the top 26.6.
   //
   // Why the sweep's lines, and not scripts: the lines are the model of
   // players (prepared, a beginner, buy everything, random legal, nothing),

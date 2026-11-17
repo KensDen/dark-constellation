@@ -50,7 +50,9 @@ class Backdrop extends World {
     this.setShot(this.view)
     // On a wide hero the words stand at the left, so the globe stands
     // right; on a phone a nudge that way keeps COLDVEIL off the edge.
-    this.want.look.x -= lerp(0.12, 0.75, wide)
+    // (0.75 through R3 on a wide hero: a satellite stood on the wordmark's
+    // last letters.)
+    this.want.look.x -= lerp(0.12, 1.05, wide)
   }
 
   protected step(dt: number, real: number): void {

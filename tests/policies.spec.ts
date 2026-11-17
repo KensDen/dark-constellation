@@ -90,13 +90,16 @@ describe('the sweep lines do what their comments say', () => {
       expect(actions.scans, where).toEqual(drawnTonight(state).slice(0, scanPulses(state)))
       // Inside WORST CASE: its orders never take the reading under 0. A
       // night can open under 0 with nothing ordered since v2.0 R4 (the
-      // guard holds back tomorrow's worst, not every night's:
+      // guard holds back what tomorrow is likely to need, not every night's worst:
       // src/engine/worstCase.ts); there it orders nothing that costs.
       nights += 1
       if (worstCase(state, { ...actions, buyAssets: [], buyCounters: [] }).value >= 0) expect(worstCase(state, actions).value, `${where}: WORST CASE`).toBeGreaterThanOrEqual(0)
       else {
+        // It orders nothing, or a piece that itself brings the reading back
+        // to 0 or more (a defense lowers the bills tomorrow is likely to
+        // leave, so an order can lift WORST CASE).
         cornered += 1
-        expect(orderCost(state, actions), `${where}: ordered on a night already at risk`).toBe(0)
+        if (orderCost(state, actions) > 0) expect(worstCase(state, actions).value, `${where}: ordered on a night already at risk`).toBeGreaterThanOrEqual(0)
       }
       const bought = newDefenses(state, actions)
       expect(bought.length, where).toBeLessThanOrEqual(NEW_DEFENSES_PER_NIGHT)

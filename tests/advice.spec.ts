@@ -3,7 +3,7 @@
 //      advice never raises AT STAKE (src/ui/three/gameModel.ts, spotAdvice
 //      and fixNext).
 //   5. WORST CASE warns only when the risk is real: it counts the moves
-//      COLDVEIL can take, and holds back tomorrow's worst and no further
+//      COLDVEIL can take, and holds back what tomorrow is likely to need
 //      (src/engine/worstCase.ts).
 // Held over the nights the sweep's own Prepared and Novice lines reach, so
 // the boards are ones a game arrives at, with posts standing and COLDVEIL
@@ -164,19 +164,21 @@ describe('ruling 5: WORST CASE warns only when the risk is real', () => {
       expect(wc.later, where).toBe(heldForLater(state, counters))
       if (last) expect(wc.later, `${where}: held back on the last night`).toBe(0)
       else {
-        let bills = 0
-        for (const ids of movesOpen(state, state.turn + 1, counters)) {
-          bills += Math.max(
-            ...ids.map((id) => {
-              const ev = eventById(state.scenario, id)
-              return ev.effect.special === 'debrisStrike' ? wc.later : repairBill(ev, Math.max(0, ev.baseSeverity + (ev.effect.special === 'chainExploit' ? 1 : 0) - mitigationOf(ev, counters)), state.difficulty)
-            }),
-          )
+        // Tomorrow at its average: on each track the mean bill of the moves
+        // COLDVEIL can take, plus upkeep, less the funding before it (a
+        // debris night's own figure aside).
+        const tomorrow = movesOpen(state, state.turn + 1, counters)
+        if (!tomorrow.flat().some((id) => eventDef(state, id).effect.special === 'debrisStrike')) {
+          let bills = 0
+          for (const ids of tomorrow) {
+            bills +=
+              ids.reduce((n, id) => {
+                const ev = eventById(state.scenario, id)
+                return n + repairBill(ev, Math.max(0, ev.baseSeverity + (ev.effect.special === 'chainExploit' ? 1 : 0) - mitigationOf(ev, counters)), state.difficulty)
+              }, 0) / ids.length
+          }
+          expect(wc.later, where).toBe(Math.max(0, Math.ceil(bills + counters.length * state.scenario.upkeepPerDefense - state.scenario.incomePerTurn)))
         }
-        // No more than tomorrow's worst bills and upkeep less its funding
-        // (a debris night's own figure aside).
-        if (!movesOpen(state, state.turn + 1, counters).flat().some((id) => eventDef(state, id).effect.special === 'debrisStrike'))
-          expect(wc.later, where).toBe(Math.max(0, bills + counters.length * state.scenario.upkeepPerDefense - state.scenario.incomePerTurn))
       }
       expect(wc.value, where).toBe(state.credits - orderCost(state, actions) - wc.repairs - wc.upkeep - wc.later)
     }

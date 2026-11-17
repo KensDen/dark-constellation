@@ -20,11 +20,11 @@ import { THREAT_EVENT_COUNT } from '../../content'
 import { RESPONSE_TEXT } from '../../content/responseText'
 import { CONDITION_CUES, MOMENT_CUES, outcomeSound, strikeSound } from '../../cues'
 import { planFor } from '../../engine/campaign'
-import { holdTemplate, holdTonight } from '../../engine/holds'
-import { DIFFICULTIES, answersLeft, answersOf } from '../../engine/rules'
+import { holdTemplate, holdTonight, resolveHold } from '../../engine/holds'
+import { answersLeft, answersOf } from '../../engine/rules'
 import { defenseBonus } from '../../engine/learning'
 import { maiScore } from '../../engine/scoring'
-import type { AssetKind, CountermeasureId, DebrisChoice, GameState, HoldCall, TimingGrade } from '../../engine/types'
+import type { AssetKind, CountermeasureId, DebrisChoice, GameState, HoldCall, ResolvedEvent, TimingGrade } from '../../engine/types'
 import { LocalDailyLedger, LocalScoreSink, LocalStorageStore, addRunTime, beginRun, dossier, fileCard, recordMet, recordNamed, runKey, type DailyOp, type DailyStanding, type RestoredGame } from '../../persistence'
 import { callSigns, cartCallSigns } from '../board/board'
 import { shortName } from '../board/boardModel'
@@ -196,6 +196,21 @@ export interface Game3DProps {
   onExit: () => void
 }
 
+// How long a result stands before its button answers (420 through R3). The
+// button takes the place the TAP button had, and a tap a moment late for
+// the ring pressed it: the round's phone reviewer skipped a result card so.
+const RESULT_GUARD_MS = 650
+
+// Which asset a live condition's pill stands on: the one its move struck,
+// while that asset carries it, and otherwise the first that does.
+function homesOf(game: GameState, conds: ReturnType<typeof conditionsOn>, tonight: readonly ResolvedEvent[] = []): Map<string, string> {
+  const home = new Map<string, string>()
+  const events = [...tonight, ...[...game.history].reverse().flatMap((r) => r.events)]
+  for (const ev of events) if (ev.condition && ev.targetAssetId && !home.has(ev.eventId) && (conds.get(ev.targetAssetId) ?? []).some((c) => c.eventId === ev.eventId)) home.set(ev.eventId, ev.targetAssetId)
+  for (const a of game.assets) for (const c of conds.get(a.id) ?? []) if (!home.has(c.eventId)) home.set(c.eventId, a.id)
+  return home
+}
+
 export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) {
   const reduced = useReducedMotion()
   const visible = usePageVisible()
@@ -342,14 +357,17 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     // COLDVEIL's ship and its name are in the picture too (v2.0 R4): a
     // mark that stood on them hid who the night is against.
     const foe = at.current.get('coldveil')
+    // Its name is held clearest of all: a few pixels of a mark on it cost
+    // more than any spot's distance from its asset.
+    const named: Box[] = []
     if (foe?.on) {
       bodies.push([foe.x - 24, foe.y - 24, foe.x + 24, foe.y + 24])
       const name = tags.current.get('coldveil')?.querySelector('span')?.getBoundingClientRect()
-      if (name && name.width > 0) bodies.push([name.left - 2, name.top - 2, name.right + 2, name.bottom + 2])
+      if (name && name.width > 0) named.push([name.left - 4, name.top - 3, name.right + 4, name.bottom + 3])
     }
     const taken: Box[] = []
     // A label on another asset costs most, on another label less.
-    const cost = (box: Box, self: number, onLabel = 1) => out(box) + bodies.reduce((n, b, i) => (i === self ? n : n + over(box, b) * 3), 0) + taken.reduce((n, b) => n + over(box, b) * onLabel, 0)
+    const cost = (box: Box, self: number, onLabel = 1) => out(box) + bodies.reduce((n, b, i) => (i === self ? n : n + over(box, b) * 3), 0) + taken.reduce((n, b) => n + over(box, b) * onLabel, 0) + named.reduce((n, b) => n + (over(box, b) > 0 ? 400 + over(box, b) * 8 : 0), 0)
     const signs: { flip: boolean; h: number }[] = []
     list.forEach((a, i) => {
       const sign = a.el.querySelector<HTMLElement>('.t3-sign')
@@ -388,6 +406,10 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       }
     })
     chipAt.current.clear()
+    // One asset's marks never stand on another's (v2.0 R4): any overlap
+    // costs more than the farthest spot.
+    const marked: Box[] = []
+    const onMarks = (box: Box) => marked.reduce((n, b) => n + (over(box, b) > 0 ? 500 + over(box, b) * 10 : 0), 0)
     list.forEach((a, i) => {
       const chips = a.el.querySelector<HTMLElement>('.t3-contacts')
       if (!chips) return
@@ -425,9 +447,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       // labels do not hop as the camera drifts.
       const held = Number(chips.dataset.spot ?? 0)
       let best = held
-      let bestCost = cost(boxAt(spots[held] ?? spots[0]), i, 5) - 260
+      let bestCost = cost(boxAt(spots[held] ?? spots[0]), i, 5) + onMarks(boxAt(spots[held] ?? spots[0])) - 260
       spots.forEach((spot, k) => {
-        const c = cost(boxAt(spot), i, 5) + k * 14
+        const c = cost(boxAt(spot), i, 5) + onMarks(boxAt(spot)) + k * 14
         if (c < bestCost) {
           best = k
           bestCost = c
@@ -440,6 +462,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       const dx = Math.round(Math.max(8, Math.min(right - 8 - w, a.x + sx)) - a.x)
       const dy = Math.round(Math.max(top + 2, Math.min(floor - 4 - h, a.y + sy)) - a.y)
       taken.push([a.x + dx, a.y + dy, a.x + dx + w, a.y + dy + h])
+      marked.push([a.x + dx - 2, a.y + dy - 2, a.x + dx + w + 2, a.y + dy + h + 2])
       chipAt.current.set(a.key, { dx, dy, w, h })
       const mark = `${dx},${dy}`
       chips.dataset.spot = String(best)
@@ -607,9 +630,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const t = world.current
     if (!t || phase === 'replay') return
     const conds = conditionsOn(board)
-  const condHome = new Map<string, string>()
-  for (const a of game.assets) for (const c of conds.get(a.id) ?? []) if (!condHome.has(c.eventId)) condHome.set(c.eventId, a.id)
-    const lingering = new Set<string>()
+    const condHome = homesOf(board, conds, now?.night.record.events ?? last?.night.record.events)
     t.clearSignatures('cond:')
     for (const a of board.assets) {
       if (a.integrity <= 0) t.setLost(a.id, true)
@@ -620,10 +641,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       const on = conds.get(a.id) ?? []
       t.setJammed(a.id, on.some((c) => JAMS.has(c.eventId)))
       // A condition that is not a jam lingers as its signature, on the
-      // first asset it sits on.
+      // asset its pill stands on.
       for (const c of on) {
-        if (JAMS.has(c.eventId) || lingering.has(c.eventId)) continue
-        lingering.add(c.eventId)
+        if (JAMS.has(c.eventId) || condHome.get(c.eventId) !== a.id) continue
         t.setSignature(`cond:${c.eventId}`, c.eventId, a.id, 0.4)
       }
     }
@@ -1219,7 +1239,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     if (stage.at === 'result' || stage.at === 'held') resultAt.current = performance.now()
   }, [stage])
   const onward = (collect: boolean) => {
-    if (phase !== 'night' || stage.at !== 'result' || filed || !now || performance.now() - resultAt.current < 420) return
+    if (phase !== 'night' || stage.at !== 'result' || filed || !now || performance.now() - resultAt.current < RESULT_GUARD_MS) return
     const i = stage.i
     // The word the last move ended on goes with it.
     setFloaters([])
@@ -1539,8 +1559,10 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const selPiece = sel?.kind === 'piece' ? kit.find((p) => p.cm.id === sel.id) : undefined
   const contactsOn = (id: string) => (deciding ? contacts.filter((c) => c.targetId === id) : [])
   const conds = conditionsOn(board)
-  const condHome = new Map<string, string>()
-  for (const a of game.assets) for (const c of conds.get(a.id) ?? []) if (!condHome.has(c.eventId)) condHome.set(c.eventId, a.id)
+  // A condition's pill stands on the asset its move struck (v2.0 R4: both
+  // of the round's reviewers saw uplink jamming hit SG-R1 and JAMMED
+  // appear on SG-1).
+  const condHome = homesOf(board, conds, now?.night.record.events ?? last?.night.record.events)
   const ownedName = orders.defense ? PIECE[orders.defense] : null
   const dragOk = drag ? new Set(board.assets.filter((a) => dropOk(drag, a.id)).map((a) => a.id)) : null
   const armed = selPiece && !selPiece.blocked && !selPiece.ordered ? new Set(board.assets.filter((a) => a.integrity > 0 && selPiece.domain.includes(a.kind)).map((a) => a.id)) : null
@@ -1990,7 +2012,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             seconds={holdLeft}
             total={HOLD_CLOCK_S[game.difficulty]}
             hint={guide === 'hold' ? c3.GUIDE.hold : undefined}
-            stake={Math.round(game.scenario.holdStake * DIFFICULTIES[game.difficulty].damage * 10) / 10}
+            // What the wrong call would take, asked of the engine (v2.0 R4: the
+            // card said "about 2.3" and the result "2.2").
+            stake={resolveHold({ ...game, meters: { ...game.meters } }, holdPlan, holdPlan.compromised ? 'override' : 'stand').cost}
             first={primary}
             onCall={callHold}
           />
@@ -2003,7 +2027,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             entry={game.history.filter((r) => r.hold).length + 1}
             first={primary}
             onContinue={() => {
-              if (performance.now() - resultAt.current < 420) return
+              if (performance.now() - resultAt.current < RESULT_GUARD_MS) return
               setStage({ at: 'launch', i: 0 })
             }}
           />
@@ -2054,6 +2078,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             signs={signs}
             assist={assist}
             saved={tapSaved}
+            placed={orders.defense && !game.counters.includes(orders.defense) ? orders.defense : null}
             fresh={!filed && step.kind !== 'opportunity' && !dossier().has(step.def.id)}
             filed={filed}
             open={openCard}

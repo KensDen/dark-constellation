@@ -390,8 +390,13 @@ export function fixNext(after: GameState, through: readonly ThreatEvent[]): Fix 
 // helped" against a move COLDVEIL would simply have left for a worse one
 // was the R3 reviewers' complaint; the result names the switch instead.
 // `board` is the night's board (its turn and its defenses as ordered).
-export function dodgeOf(board: GameState, def: ThreatEvent, id: CountermeasureId): ThreatEvent | undefined {
-  const counters = [...board.counters.filter((c) => c !== id), id]
+// `placed` is the defense set down tonight, when one was: only 1 new
+// defense goes down a night, so the piece could only have been there IN
+// ITS PLACE, and that is the night the line describes. (The round's
+// reviewers: the planning numbers said PNT auth over Anti-jam, the hit
+// said "what would have helped: Anti-jam".)
+export function dodgeOf(board: GameState, def: ThreatEvent, id: CountermeasureId, placed?: CountermeasureId | null): ThreatEvent | undefined {
+  const counters = [...board.counters.filter((c) => c !== id && c !== placed), id]
   const read = adversaryPicks(board, counters).find((r) => r.candidates.some((c) => c.id === def.id))
   if (!read || read.fixed || read.least.includes(def.id)) return undefined
   const denied = gnssDenied(board.conditions, board.scenario)

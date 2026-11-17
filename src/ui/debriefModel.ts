@@ -15,6 +15,7 @@ import { bonusOf, gradeOf, gradedScore, hitsTaken, type Grade } from '../engine/
 import { kindLabel, newGame, resolveTurn } from '../engine/reducer'
 import { turnRng } from '../engine/rng'
 import type { CountermeasureId, GameState, TurnActions } from '../engine/types'
+import { worstCase } from '../engine/worstCase'
 import { shortName } from './board/boardModel'
 
 const one = (n: number) => Math.round(n * 10) / 10
@@ -184,6 +185,28 @@ export function replay(state: GameState, orders: TurnActions[]): GameState | nul
   return s
 }
 
+// A CHANGE WORTH SAYING (v2.0 R4): the game played again with one change
+// is only advice if the player could have taken it and been glad. It must
+// not end with the budget under 0 (the round's phone reviewer was told to
+// place a piece on night 6 "for 93.3, not 88.6, still under the win line
+// of 70": the replay had gone insolvent on a score above the line), must
+// not turn a game that was won into one that was lost, and the changed
+// night's orders must read 0 or more on WORST CASE, as the game itself
+// would have marked them risky otherwise (both of the round's reviewers
+// were warned off the very piece the debrief then named).
+function worthSaying(state: GameState, played: GameState, orders: TurnActions[], changedTurn?: number): boolean {
+  if (played.lossReason === 'insolvency') return false
+  if (state.status === 'won' && played.status !== 'won') return false
+  if (changedTurn === undefined) return true
+  let s = newGame(state.scenario, state.seed, state.difficulty, state.posture)
+  try {
+    for (let t = 0; s.status === 'playing' && s.turn < changedTurn; t += 1) s = resolveTurn(s, orders[t] ?? { buyAssets: [], buyCounters: [] }, turnRng(s.seed, s.turn))
+  } catch {
+    return false
+  }
+  return s.status !== 'playing' || s.turn !== changedTurn || worstCase(s, orders[changedTurn - 1]).value >= 0
+}
+
 // The best single answer the night offered and this game did not take:
 // each move that got through and had a response, played again with that
 // response, every order and every other answer the same.
@@ -202,6 +225,7 @@ function bestAnswer(state: GameState, orders: TurnActions[], was: number): Extra
         const taken = played?.history[t]?.events[i]?.response
         // An answer the pool could not meet is ridden out by the engine.
         if (!played || taken?.id !== r.id) continue
+        if (!worthSaying(state, played, changed)) continue
         const final = played.history[played.history.length - 1].maiScore
         if (final <= was || (best && final <= best.final)) continue
         best = { kind: 'answer', turn: rec.turn, move: ev.eventId, response: r.id, was, final, won: played.status === 'won' }
@@ -255,7 +279,7 @@ function defenseEarlier(state: GameState, missed: CountermeasureId[]): NextTime 
         }
       }
       const played = replay(state, changed)
-      if (!played) continue
+      if (!played || !worthSaying(state, played, changed, turn)) continue
       const final = played.history[played.history.length - 1].maiScore
       if (final <= was || (best && final <= best.final)) continue
       best = {

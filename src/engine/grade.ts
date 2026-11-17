@@ -51,18 +51,18 @@ export type Grade = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
 //
 // RECALIBRATED AGAIN IN v2.0 R4, by the same method, after the numbers
 // were re-tuned (src/content/scenarios/firstLight.ts: 15 meter damage a
-// point, 7 recovery and 7 funding a night). On R3's bands S took 10.3
+// point, 7 recovery and 7 funding a night, 3.5 points for a wrong call). On R3's bands S took 10.3
 // percent of the gated lines' wins on STANDARD.
-//   STANDARD, 739 wins (Prepared 436, Novice 214, Buy everything 88,
+//   STANDARD, 731 wins (Prepared 436, Novice 206, Buy everything 88,
 //   Random legal 1): graded score at the 95th percentile 92.4, at the 75th
-//   87.3, at the 25th 78.5. S at 92.0 is 6.0 percent of wins and A at 87.3
-//   the next 22.6 (the scores bunch: 87.4 gives 16.6); B is 78.5, with
-//   23.5 percent of the wins under it.
-//   EASY, 1,018 wins (Prepared 500, Novice 404, Buy everything 107, Random
+//   88.1, at the 25th 78.8. S at 92.0 is 6.0 percent of wins and A at 88.0
+//   the next 20.7 (the scores bunch: 88.2 gives 17.3, 87.4 gives 21.1); B
+//   is 78.5, with 22.6 percent of the wins under it.
+//   EASY, 1,012 wins (Prepared 500, Novice 398, Buy everything 107, Random
 //   legal 7): at the 95th percentile 93.6, at the 75th 90.6, at the 20th
-//   80.6. A at 90.6 is the top 26.8 percent of wins; B is 80.6, a little
+//   80.6. A at 90.6 is the top 26.6 percent of wins; B is 80.6, a little
 //   under the 25th percentile (81.4) for the reason R3 gave: the gate's
-//   Novice is graded B on 211 of its 404 EASY wins and C on 175. The 93.6
+//   Novice is graded B on 208 of its 398 EASY wins and C on 176. The 93.6
 //   is where S would start, were it earned there.
 //
 // AND S IS NOT EARNED ON EASY AT ALL (TOP_GRADE). (R3's figures follow.) The bands alone did not
@@ -74,7 +74,7 @@ export type Grade = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
 // was S makes A the top quarter of EASY's wins; S is STANDARD's, and the debrief says so. A
 // first win moves PLAY to STANDARD in any case.
 export const GRADE_BANDS = {
-  standard: { S: 92, A: 87.3, B: 78.5 },
+  standard: { S: 92, A: 88, B: 78.5 },
   easy: { S: 93.6, A: 90.6, B: 80.6 },
 } as const satisfies Record<Difficulty, { S: number; A: number; B: number }>
 export const TOP_GRADE: Record<Difficulty, Grade> = { standard: 'S', easy: 'A' }

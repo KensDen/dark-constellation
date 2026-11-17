@@ -158,12 +158,12 @@ describe('determinism', () => {
     // 112140af the v1.6 R2 move; 96e819db the v1.7 R1 move (see the
     // header); 10a75489 the v2.0 R1 move: mission funding 20 to 14 with
     // the scan in place of the paid brief; 566d288d the v2.0 R3
-    // move, one rule set (see the header); fa95dad0 is the v2.0 R4 move:
-    // 15 meter damage a point, 7 recovery and 7 funding a night, 3 points
+    // move, one rule set (see the header); 0c74b125 is the v2.0 R4 move:
+    // 15 meter damage a point, 7 recovery and 7 funding a night, 3.5 points
     // for a wrong call, after the guard was loosened (Ken's rulings of 15
-    // November 2026), regenerated once.
+    // November 2026), regenerated at the round's end.
     expect(createHash('sha1').update(readFileSync(SNAPSHOT_PATH, 'utf8')).digest('hex'), 'the committed snapshot file changed').toBe(
-      'fa95dad0923d2b32736ee04b928de85b0c3d2806',
+      '0c74b125e0b2c4ed45560516610964f9a818c514',
     )
   })
 

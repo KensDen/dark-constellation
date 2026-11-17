@@ -32,8 +32,8 @@ const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 // and the WORST CASE guard loosened (v2.0 R4) the numbers were re-tuned to
 // land there. MEASURED at the numbers the scenario carries (15 meter
 // damage a point, 7 recovery a night, 3 answers, funding 7, a starting
-// budget of 80, 3 points for a wrong call): Prepared 87.2, Novice 42.8,
-// Nothing 0.0 on STANDARD; Prepared 100.0 and Novice 80.8 on EASY; the
+// budget of 80, 3.5 points for a wrong call): Prepared 87.2, Novice 41.2,
+// Nothing 0.0 on STANDARD; Prepared 100.0 and Novice 79.6 on EASY; the
 // Expert 98.4 and 100.0. src/content/scenarios/firstLight.ts has the
 // settings measured beside it. UNDER R3's GUARD AND NUMBERS (13, 5, 6 and
 // 2): Prepared 85.8, Novice 40.2, Prepared 92.0 and Novice 84.2 on EASY.
@@ -171,7 +171,7 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     // signature a night. Knowing them is worth real points to every kind of
     // player. Guessing is held to a gain of 5 points at most. MEASURED
     // (v2.0 R4): it moved Prepared by +4.0 on STANDARD and 0.0 on EASY,
-    // where it wins every game already, and the Novice by +1.2 and +1.8
+    // where it wins every game already, and the Novice by +1.8 and +1.6
     // (in R3: +3.6 and +1.2, -6.2 and -1.8). A third of a signature a night is too little
     // knowledge to move a line one way: what it changes is which piece a
     // line happens to order, and over 500 seeds that reads as a few points

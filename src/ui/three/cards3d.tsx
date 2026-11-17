@@ -10,6 +10,7 @@ import { answersLeft, answersOf } from '../../engine/rules'
 import { maiScore } from '../../engine/scoring'
 import type { Asset, AssetKind, CountermeasureId, DebrisChoice, GameState, HoldCall, HoldTemplate, ResolvedHold } from '../../engine/types'
 import { COVERAGE_PER_KIND } from '../../engine/scoring'
+import { callSigns } from '../board/board'
 import { shortName, stopVerb, stoppedByLine } from '../board/boardModel'
 import { kindLabels, techniqueLabel } from '../labels'
 import { opportunityLines, scoreRows, type callTerms } from '../night/closeModel'
@@ -371,7 +372,7 @@ export function ContactCard({
         {contact.debris ? c3.DEBRIS_NOTE : `Strength ${contact.strength}. ${contact.favor === 'unlikely' ? (contact.exposed === 0 ? c3.FAVOR_STOPPED : c3.FAVOR.unlikely) : `${c3.FAVOR[contact.favor]} ${c3.aboutLoss(contact.loss)}`}`}
       </p>
       {answers.map((a) => {
-        const lockedBy = !a.ordered && !a.owned && locked ? ` · ${c3.replaces(locked)}` : ''
+        const lockedBy = !a.ordered && !a.owned && locked ? ` · ${c3.replaces(locked).replace(/\.$/, '')}` : ''
         const line = a.owned ? c3.OWNED : a.ordered ? `${c3.PLACED} · tap to take it back` : `${verbWord(a.verb)} it${a.then ? `, ${a.then}` : ', every night'}${lockedBy}${a.risky ? `. ${c3.RISKY}` : ''}`
         return (
           <button
@@ -430,6 +431,13 @@ export function PieceCard({ piece, targets, postCost, locked, upkeep, placedOn, 
         </>
       ) : piece.blocked ? null : (
         <>
+          {/* No spot is called best when every one costs the post (v2.0 R4): what it gives up is said first, over the spots. */}
+          {(postCost || locked) && (
+            <p className="t3-hint t3-warn" data-t3-postcost={postCost ? '' : undefined}>
+              {locked ? `${c3.replaces(locked)} ` : ''}
+              {postCost}
+            </p>
+          )}
           <div className="t3-row t3-wrap">
             {targets.slice(0, 4).map((t) => (
               <button key={t.id} type="button" data-t3-place={t.id} data-best={t.best || undefined} className={`t3-btn${t.best ? ' t3-primary' : ''}`} onClick={() => onPlace(t.id)}>
@@ -438,11 +446,7 @@ export function PieceCard({ piece, targets, postCost, locked, upkeep, placedOn, 
               </button>
             ))}
           </div>
-          {/* No spot is called best when every one costs the post (v2.0 R4): what it gives up, in place of the general note. */}
-          <p className={`t3-hint${postCost ? ' t3-warn' : ''}`} data-t3-postcost={postCost ? '' : undefined}>
-            {postCost ?? c3.PLACE_NOTE}
-            {locked ? ` ${c3.replaces(locked)}` : ''}
-          </p>
+          {!postCost && <p className="t3-hint">{c3.PLACE_NOTE}</p>}
         </>
       )}
     </div>
@@ -500,7 +504,7 @@ export function FleetCard({ fleet, signs, onToggle, onClose }: { fleet: FleetPie
               <span>{f.price} CR</span>
             </span>
             <span className={`t3-choice-sub ${f.risky ? 't3-warn' : 't3-ok'}`}>
-              {f.ordered ? `${c3.ORDERED} · ${(signs[f.kind] ?? '').replace(/-/g, '\u2011')} ${c3.arrivesIn(f.eta)}` : f.fits ? `${c3.coverageOf(COVERAGE_PER_KIND[f.kind])} · ${c3.arrivesIn(f.eta)}${f.risky ? `. ${c3.RISKY}` : ''}` : 'Not enough budget tonight'}
+              {f.ordered ? `${c3.ORDERED} · ${(signs[f.kind] ?? '').replace(/-/g, '\u2011')} ${c3.arrivesIn(f.eta)} · tap to cancel` : f.fits ? `${c3.coverageOf(COVERAGE_PER_KIND[f.kind])} · ${c3.arrivesIn(f.eta)}${f.risky ? `. ${c3.RISKY}` : ''}` : 'Not enough budget tonight'}
             </span>
           </button>
         ))}
@@ -801,8 +805,11 @@ export function ResultCard({
   could,
   assist,
   saved,
+  placed,
   onContinue,
 }: {
+  // The defense set down tonight, when one was.
+  placed?: CountermeasureId | null
   // The score the tap kept on this move, measured against no tap.
   saved?: number
   step: NightStep
@@ -823,7 +830,8 @@ export function ResultCard({
   const next = last ? c3.SEE_DAWN : c3.NEXT_STRIKE
   if (step.kind === 'opportunity') {
     const turns = def.benefit?.briefTurns
-    const lines = opportunityLines(step, signs).map((l) => (turns && l === copy.briefFreeLine(turns) ? c3.alliedLine(Math.min(turns, step.before.scenario.totalTurns - step.before.turn)) : nightly(l)))
+    // Tonight's own order is not in the fleet's call signs until the night closes.
+    const lines = opportunityLines(step, new Map([...callSigns(step.after), ...signs])).map((l) => (turns && l === copy.briefFreeLine(turns) ? c3.alliedLine(Math.min(turns, step.before.scenario.totalTurns - step.before.turn)) : nightly(l)))
     return (
       <div className="t3-card" key={`res-${step.index}`} data-t3-card="windfall">
         <p className="t3-eyebrow t3-ok">{c3.GOOD_NEWS}</p>
@@ -887,10 +895,10 @@ export function ResultCard({
   // Had the piece been in service COLDVEIL might have left this move for
   // another (v2.0 R4): then it is not what would have helped tonight, and
   // the line says what it does and what COLDVEIL would have done.
-  const dodge = missing && !ev.response && !held ? dodgeOf(step.before, def, missing.id) : undefined
+  const dodge = missing && !ev.response && !held ? dodgeOf(step.before, def, missing.id, placed) : undefined
   const helped = missing
     ? dodge
-      ? c3.wouldSwitch(piece, missing.cost, stopVerb(missing.id, def) === 'stops' ? 'stops' : 'blunts', shortName(def), shortName(dodge))
+      ? c3.wouldSwitch(piece, missing.cost, stopVerb(missing.id, def) === 'stops' ? 'stops' : 'blunts', shortName(def), shortName(dodge), placed ? PIECE[placed] : undefined)
       : joined(ev.response ? copy.lastingAnswer(piece, missing.cost) : held ? copy.finishedIt(piece, missing.cost) : copy.wouldHaveHelped(piece, missing.cost))
     : ''
   const stops = missing && !held && !dodge ? ` It ${stopVerb(missing.id, def) === 'stops' ? 'stops' : 'blunts'} ${shortName(def)} every night.` : ''

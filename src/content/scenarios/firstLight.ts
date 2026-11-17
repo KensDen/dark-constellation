@@ -51,15 +51,20 @@ export const FIRST_LIGHT: Scenario = {
   // reads the board stronger: with R3's numbers under them, Prepared won
   // 94.6 percent on STANDARD and the Novice 50.2 (88.2 and 40.6 with the
   // advice alone). The numbers now: 15 meter damage a point, 7 recovery a
-  // night (9 with the IR retainer), 7 funding a night, 3 points for a
-  // wrong call. Prepared 87.2, Novice 42.8, the Expert 98.4 on STANDARD;
-  // 100.0, 80.8 and 100.0 on EASY. Settings measured beside it, Prepared
+  // night (9 with the IR retainer), 7 funding a night, 3.5 points for a
+  // wrong call. Prepared 87.2, Novice 41.2, the Expert 98.4 on STANDARD;
+  // 100.0, 79.6 and 100.0 on EASY. Settings measured beside it, Prepared
   // and Novice on STANDARD: 14 damage, 5 recovery, 7 funding and 2 for a
   // wrong call, 86.8 and 39.0, but always overriding a hold then wins 83.8,
   // too near reading it (the tie-break must count for 5 points); the same
   // with 3 for a wrong call, 86.8 and 35.4; 15, 6, 7 and 3, 85.6 and 35.0;
-  // 14.5, 6, 7 and 3, 86.4 and 37.2. This is the whole-number setting
-  // nearest both bands with the tie-break still counting.
+  // 14.5, 6, 7 and 3, 86.4 and 37.2; 15, 7, 7 and 3, 87.2 and 43.4, with
+  // letting every block stand at 82.4, a hair inside 5 points of reading
+  // it, which is why a wrong call is 3.5 and not 3. This is the setting
+  // nearest both bands with the tie-break still counting. (The settings
+  // beside it were measured with tomorrow held at its worst; the guard
+  // has since read tomorrow at its average, which moved Prepared not at
+  // all and the Novice by under a point.)
   //
   // METER DAMAGE AND RECOVERY, SET TOGETHER BY THE SWEEP (v2.0 R2, 500
   // seeds a line): through R3, 13 meter damage a point of strength, and 5
@@ -75,10 +80,10 @@ export const FIRST_LIGHT: Scenario = {
   recovery: { base: 7, withIrRetainer: 9 },
   meterDamage: 15,
   // THE WATCH (v2.0 R2): 3 answers for the whole operation; 3 holds a
-  // game, and 3 points of score for a wrong call on one (2 through R3).
+  // game, and 3.5 points of score for a wrong call on one (2 through R3).
   answers: 3,
   holdCount: 3,
-  holdStake: 3,
+  holdStake: 3.5,
   starterAssets: [{ kind: 'sat' }, { kind: 'sat' }, { kind: 'rpoSat' }, { kind: 'drone' }, { kind: 'drone' }, { kind: 'groundStation' }],
   // Brief 6.2. Turn 1's two moves are both strength 2, on different layers
   // with different defenses, so a hit lands on turn 1 unless the player

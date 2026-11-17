@@ -701,9 +701,10 @@ async function run(b, base, view, plan, log, shots, table) {
         fail(`night ${nightNo}: step ${i + 1} never showed its result`)
         return false
       }
-      // A result takes no tap for 0.42 s after it arrives (the game's own
-      // guard), so a quick run waits that long before it taps on.
-      await sleep(quick ? 500 : 600)
+      // A result takes no tap for 0.65 s after it arrives (the game's own
+      // guard, 0.42 through R3), so a quick run waits that long before it
+      // taps on.
+      await sleep(quick ? 720 : 780)
       const verdict = await b.evaluate(`document.querySelector('[data-t3-verdict]')?.dataset.t3Verdict ?? 'windfall'`)
       const tapline = await b.evaluate(`(document.querySelector('[data-t3-tapline]')?.textContent ?? '').trim()`)
       if (tapline.startsWith('PERFECT')) stats.perfect += 1

@@ -190,7 +190,7 @@ export const RIDE_IT_OUT = 'Ride it out'
 export const FREE = 'FREE'
 export const crFace = (n: number) => `${n} CR`
 export const scoreChange = (d: number) => (d < -0.05 ? `score ${d.toFixed(1)}` : 'no loss')
-export const EFFECT_WORD = { block: 'Blocks it', halve: 'Half damage', ride: 'Full hit' } as const
+export const EFFECT_WORD = { block: 'Blocks it', halve: 'Half damage', ride: 'It lands' } as const
 // The repair bill the answer leaves is part of what it costs, so it is on
 // the button with the score (v1.7 R1's fresh eyes: FREE hid a 12 CR bill).
 export const effectLine = (effect: keyof typeof EFFECT_WORD, d: number, repair = 0) => `${EFFECT_WORD[effect]}: ${scoreChange(d)}${repair > 0 ? `, repair ${repair} CR` : ''}`

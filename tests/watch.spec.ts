@@ -567,11 +567,11 @@ describe('a signature named on sight is identified, and costs no pulse (v2.0 R3)
 // field but those two, and every state between. The sweep's table
 // (tests/sweep.spec.ts) also reproduces R2's to the decimal.
 //
-// REGENERATED ONCE IN v2.0 R4, for the numbers (Ken's rulings of 15
+// REGENERATED IN v2.0 R4, for the numbers (Ken's rulings of 15
 // November 2026): the placement advice counts the post it gives up, WORST
-// CASE holds back tomorrow's worst and no further, and the scenario's
-// numbers were re-tuned to the bands (15 meter damage a point, 7 recovery
-// and 7 funding a night, 3 points for a wrong call).
+// CASE holds back what tomorrow is likely to need and no further, and the
+// scenario's numbers were re-tuned to the bands (15 meter damage a point,
+// 7 recovery and 7 funding a night, 3.5 points for a wrong call).
 import { createHash } from 'node:crypto'
 
 describe('the rules replay to a pinned log (v2.0 R2)', () => {
@@ -581,7 +581,7 @@ describe('the rules replay to a pinned log (v2.0 R2)', () => {
     const idle = play(game(4041), line('nothing').policy, () => null).at(-1)!
     const actual = { prepared: hash(prepared), idle: hash(idle) }
     if (process.env.UPDATE_SNAPSHOTS) process.stderr.write(`\nrules snapshot: ${JSON.stringify(actual)}\n`)
-    expect(actual).toEqual({ prepared: '1175125fed9ff24a4d8e66d0d4fbe3ef9a6c0210205e4044e2ad3869323e6f49', idle: 'bd1d81f2e6400aa0d9be9e950afc065144aa800bc71b88b50c1d1e84f614af73' })
+    expect(actual).toEqual({ prepared: 'ebcf15d3b3beb917fb1222040918e5cf94c7759dc2816dadb2152e1cecbdc81e', idle: 'f47da29b26b866cbe055e173aa8015f87f369aa520e34c7929a960de3a2e008a' })
     expect(hash(play(game(20261114), line('prepared').policy, sensible).at(-1)!)).toBe(actual.prepared)
   })
 })

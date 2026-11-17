@@ -2232,6 +2232,15 @@ html.t3-on body {
 .t3-stakes .t3-lens {
   min-width: 60px;
 }
+/* On a phone under 400px wide the row's figures are a size down, so a
+   two-figure shortfall ("12 CR short") keeps inside its cell (v2.0 R4: it
+   ran into the answers beside it). */
+@media (max-width: 400px) {
+  .t3-root:not(.t3-wide) .t3-stakes b {
+    font-size: 14px;
+    letter-spacing: -0.01em;
+  }
+}
 /* The answers, compact on a phone: riding it out is one line. */
 .t3-root:not(.t3-wide) .t3-respond {
   max-height: min(56vh, 470px);
