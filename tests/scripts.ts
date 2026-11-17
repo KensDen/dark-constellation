@@ -74,8 +74,8 @@ export const TOP_INTEL_SCRIPT: Record<number, TurnActions> = Object.fromEntries(
 )
 
 // A SCRIPT AS A LINE THE ENGINE WILL TAKE (v2.0 R3). The scripts above are
-// written orders, and the game's budget (80 CR and 6 a night since v2.0
-// R2) does not always meet them: resolveTurn refuses orders it cannot.
+// written orders, and the game's budget (80 CR and 7 a night since v2.0
+// R4) does not always meet them: resolveTurn refuses orders it cannot.
 // This plays a script's night with whatever the budget cannot meet left
 // out, assets first and then the defense, the engine being the judge, so a
 // scripted line reaches an end on every seed.

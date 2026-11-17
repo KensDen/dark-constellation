@@ -122,6 +122,13 @@ export const POST_HERE = 'WATCH POST: strikes here are 1 weaker'
 export const postLine = (sign: string) => `The watch post is on ${sign}: any strike there is 1 weaker.`
 export const postMoves = (from: string, to: string) => `The watch post moves from ${from} to ${to}.`
 export const BEST_SPOT = 'BEST SPOT'
+// The piece cannot sit where the post is, and the post is holding down the
+// night's costliest move: no spot is called best, and the card says what
+// the piece gives up (v2.0 R4).
+export const postCost = (sign: string, before: number, after: number) => `Placing it moves the watch post off ${sign}: AT STAKE goes from ${upTo(before)} to ${upTo(after)} tonight.`
+export const postCostShort = (sign: string) => `moves the post off ${sign}: more at stake tonight`
+export const fixCostsPost = (move: string, piece: string, sign: string) => `${move} got through. ${piece} answers it, but placing it tomorrow would move the watch post off ${sign} and raise AT STAKE. Keep an answer for a move like it.`
+export const wouldSwitch = (piece: string, price: number, verb: string, move: string, other: string) => `${piece}, ${price} CR, ${verb} ${move} every night. Tonight COLDVEIL would have switched to ${other}.`
 export const spotWhy = (sign: string, n: number) => (n > 0 ? `Most is aimed at ${sign} tonight.` : `Nothing is aimed where it can sit: ${sign} is as good as any.`)
 export const postTook = (n: number) => `Watch post -${n}`
 export const cantAfford = (need: number) => `Needs ${need} CR more`
@@ -152,13 +159,23 @@ export const NO_ANSWERS = 'NO ANSWERS LEFT'
 export const ALSO_TONIGHT = 'ALSO TONIGHT'
 export const SIGNATURES = 'TONIGHT'
 export const signaturesOver = (n: number) => `${n} signature${n === 1 ? '' : 's'} tonight. Tap one.`
-export const worstNote = (n: number) => (n < 0 ? 'A bad night would break the budget.' : 'The budget survives a bad night.')
+export const worstNote = (n: number) => (n < 0 ? 'Tonight and tomorrow at their worst would break the budget.' : 'The budget survives tonight and tomorrow at their worst.')
 export const BEGIN = 'BEGIN'
 export const BEGIN_LONG = 'Begin the night'
 export const BEGIN_AT_RISK = 'BEGIN AT RISK'
-export const RISKY = 'Risky: a bad night would break the budget'
-export const riskLine = (worst: number) =>
-  `WORST CASE: ${-worst} CR short. That is the budget after tonight's worst repairs and upkeep, with what the nights ahead could need held back. A budget under 0 at dawn ends the operation. Take an order back, or tap BEGIN again.`
+export const RISKY = 'Risky: tonight and tomorrow at their worst would break the budget'
+// BEGIN on a night that could break the budget (v2.0 R4: said as the two
+// things it can be, and with what the player can do about it). `dawn` is
+// the budget after tonight's worst repairs and upkeep; `later` is what
+// tomorrow night's worst could need of it; `ordered` is whether tonight's
+// orders cost anything, so "take an order back" is never said to a player
+// with nothing to take back.
+export const riskLine = (dawn: number, later: number, ordered: boolean) => {
+  const fix = ordered ? 'Take an order back, or tap BEGIN again.' : 'Nothing is ordered: a move you answer leaves no repair bill. Tap BEGIN again.'
+  return dawn < 0
+    ? `WORST CASE: ${-dawn} CR short at dawn. Tonight's worst repairs and upkeep would take the budget under 0, and that ends the operation. ${fix}`
+    : `WORST CASE: ${later - dawn} CR short tomorrow. Tonight's worst leaves ${dawn} CR and tomorrow night's could need ${later}. A budget under 0 at dawn ends the operation. ${fix}`
+}
 // A night begun with no new defense, asked about once (v2.0 R3).
 export const BARE_LINE = 'No defense placed tonight, and you have 1 to place. Tap BEGIN again to go without.'
 export const cannotSit = (piece: string, sign: string) => `${piece} cannot sit on ${sign}. Its card lists where it can.`
@@ -296,7 +313,7 @@ export const wordsFor = (n: { coverageMin: number; coverageBonus: number; harden
   ['LIKELY, POSSIBLE, NOT FAVORED', `What ${ADVERSARY} does with a move on a track: it plays the one your defenses take the least off.`],
   ['WATCH POST', `The asset your newest defense sits on. Any strike there lands ${n.harden} point weaker.`],
   ['AT STAKE', 'The most score tonight could take, if the worst move on each track landed as things stand.'],
-  ['WORST CASE', 'The budget after the worst night tonight could be. A budget under 0 at dawn ends the operation.'],
+  ['WORST CASE', 'The budget after tonight at its worst, with what tomorrow night at its worst could need held back. A budget under 0 at dawn ends the operation.'],
   ['UPKEEP, RECOVERY', 'Upkeep is what each defense costs every night. Recovery is what each meter gets back at dawn.'],
   ['COVERAGE', `The fleet's share of the score. At ${n.coverageMin} or more it also pays ${n.coverageBonus} CR at dawn.`],
   ['SCORE', `Mission assurance, 0 to 100: coverage, links, data and sensors together. Under ${n.collapse} ends the operation.`],

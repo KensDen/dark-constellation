@@ -78,27 +78,32 @@ battery run (`tests/sweep.spec.ts`). On STANDARD:
 
 | line | wins |
 |---|---|
-| Prepared: scans, places the defense that answers the move COLDVEIL favors on the recommended spot, answers each move that would land while it has an answer, reads every hold right | 85.8% |
-| Novice: scans the first 2 signatures, places a piece the tray lights for one of them, answers 2 moves in 3, calls 2 holds in 3 right | 40.2% |
+| Prepared: scans, places the defense that answers the move COLDVEIL favors on the recommended spot, answers each move that would land while it has an answer, reads every hold right | 87.2% |
+| Novice: scans the first 2 signatures, places a piece the tray lights for one of them, answers 2 moves in 3, calls 2 holds in 3 right | 42.8% |
 | Nothing: no orders, no answers, no calls | 0% |
 
 Reported beside them, and held to no band: the Expert, who is Prepared saving the 3 answers for
-moves of 2 points or more, wins 96.6%. That is skill rewarded, and the gate holds every fixed
+moves of 2 points or more, wins 98.4%. That is skill rewarded, and the gate holds every fixed
 line under it.
 
 No line that does less than Prepared wins more often than Prepared: not a line that places 2 or 3
 defenses and banks the rest, not a drone a night with no defense, not one written order of
 defenses, not answers with no orders. Prepared overriding every hold, and Prepared letting every
-block stand, each win about 10 points less than Prepared reading the evidence. Prepared placing
-its pieces at random wins about 30 points less. A perfect timed tap on every strike lifts the
-Novice by about 7 points. Naming every signature on sight lifts Prepared by about 3 points and
-the Novice by about 10. Guessing at names (right 1 time in 4, until the first miss ends it) is
-held to a gain of 5 points at most, and measures as a few points either side of none.
+block stand, each win about 6 points less than Prepared reading the evidence. Prepared placing
+its pieces at random wins about 40 points less. A perfect timed tap on every strike lifts the
+Novice by about 8 points. Naming every signature on sight lifts Prepared by about 13 points and
+the Novice by about 5. Guessing at names (right 1 time in 4, until the first miss ends it) is
+held to a gain of 5 points at most, and measures as 1 to 4.
+
+One line reported beside them wins more than any of these: Prepared who also orders a drone a
+night wins all 500. Since v2.0 R4 WORST CASE holds back tomorrow's worst night and no further,
+so the budget it used to keep in reserve is free to grow the fleet, and coverage is 30% of the
+score.
 
 **Grades** run S to F. A win is graded on its final score plus a defense bonus, against bands set
 from the same sweep so that S is about the top 5 percent of wins and A the next 20, at each
-difficulty: on STANDARD, S from 90.6, A from 86.6, B from 77.5; on EASY, where hits do less and
-scores run higher, A from 88.9 and B from 80. A is the top grade on EASY: S is earned on
+difficulty: on STANDARD, S from 92.0, A from 87.3, B from 78.5; on EASY, where hits do less and
+scores run higher, A from 90.6 and B from 80.6. A is the top grade on EASY: S is earned on
 STANDARD. A loss that lasted all 6 nights is a D, and one that ended early an F.
 
 ## Daily Op, the Dossier and the reading

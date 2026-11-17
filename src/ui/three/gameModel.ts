@@ -283,34 +283,120 @@ export function withSight(orders: Orders, contact: Contact, named: string): Orde
   return { ...orders, missed: [...(orders.missed ?? []), contact.id] }
 }
 
-// WHERE TONIGHT'S PIECE DOES MOST: the asset it can sit on with the most
-// strength aimed at it tonight, read as the board shows it with the piece
-// ordered (COLDVEIL has already moved off what the piece covers). A move
-// COLDVEIL favors counts whole, one of several it may play its share, one
-// the scan has not named a guess. The recommended spot on the piece's
-// card, and the sweep's placement.
-export function spotFor(state: GameState, orders: Orders, id: CountermeasureId): string | undefined {
+// WHERE TONIGHT'S PIECE DOES MOST, COUNTING THE POST IT GIVES UP (v2.0 R4,
+// Ken's ruling of 15 November 2026: the advice never raises AT STAKE).
+// The asset the newest defense sits on is the watch's post (rules.ts,
+// postOf), so setting tonight's piece down moves the post, and whatever it
+// was blunting where it stood comes back at full strength. Through R3 the
+// recommended spot was the asset with the most aimed at it and never looked
+// at what the move left behind: a first-time player placed the lit piece on
+// its BEST SPOT and watched AT STAKE go from -10.2 to -14.9.
+//
+// Each asset the piece can sit on is now read as the board would stand with
+// the post there: AT STAKE as the plan card shows it, and what the post
+// would save of the moves COLDVEIL can take (one it favors counts whole,
+// one of several its share, one it has turned from nothing, one the scan
+// has not named a guess). The recommended spot is the one that saves most
+// AMONG THOSE THAT LEAVE AT STAKE NO WORSE than it stands with no new piece
+// tonight. Where no such spot exists (the piece cannot sit where the post
+// is, and the post is holding down the night's costliest move), nothing is
+// called BEST: `raises` is set, `best` is the spot that costs least, and
+// the card says what the piece gives up. The piece's card, a tap on the
+// piece, and the sweep's placement all read this.
+export interface SpotAdvice {
+  best: string | undefined
+  // AT STAKE with no new piece tonight, and with this one on `best`.
+  before: number
+  after: number
+  // Every spot leaves AT STAKE worse than no new piece: the post is lost.
+  raises: boolean
+  // The post as it stands with no new piece, when placing would move it.
+  gives: string | undefined
+}
+// What the post is worth against a signature the scan has not named: a
+// guess at a point of strength on one meter, in score.
+const UNNAMED_SAVE = 3
+export const atStakeOf = (contacts: readonly Contact[]): number => {
+  const bySlot = new Map<number, number>()
+  for (const c of contacts) bySlot.set(c.slot, Math.min(bySlot.get(c.slot) ?? 0, c.loss))
+  return tenth([...bySlot.values()].reduce((n, v) => n + v, 0))
+}
+export function spotAdvice(state: GameState, orders: Orders, id: CountermeasureId): SpotAdvice {
   const domain = domainOf(state, id)
-  const contacts = contactsFor(state, { ...orders, defense: id, place: null })
-  const value = new Map<string, number>()
-  for (const c of contacts) {
-    if (c.debris || !c.targetId) continue
-    const peers = contacts.filter((x) => x.slot === c.slot)
-    const open = Math.min(1, Math.max(0, c.strength - c.mitigation))
-    const v = c.known ? (c.favor === 'unlikely' ? 0 : c.favor === 'either' ? open / Math.max(1, peers.filter((x) => x.favor === 'either').length) : open) : 0.6 / peers.length
-    value.set(c.targetId, (value.get(c.targetId) ?? 0) + v)
+  const bare = { ...orders, defense: null, place: null }
+  const before = atStakeOf(contactsFor(state, bare))
+  const stands = postNow(state, bare)
+  // The board with the piece ordered and the post nowhere: COLDVEIL has
+  // already moved off what the piece covers.
+  const open = contactsFor(state, { ...orders, defense: id, place: null })
+  // A signature as it reads with the post on an asset.
+  const posted = (c: Contact, post: string): Contact => {
+    if (c.debris || c.targetId !== post) return c
+    const hardened = Math.min(HARDEN, Math.max(0, c.strength - c.mitigation))
+    const exposed = Math.max(0, c.strength - c.mitigation - hardened)
+    return { ...c, hardened, exposed, loss: estimateLoss(state, c.def, exposed, assetById(state, post)) }
   }
-  let best: string | undefined
-  let bestV = -Infinity
+  const share = (c: Contact) => {
+    const peers = open.filter((x) => x.slot === c.slot)
+    if (!c.known) return 0.6 / peers.length
+    return c.favor === 'unlikely' ? 0 : c.favor === 'either' ? 1 / Math.max(1, peers.filter((x) => x.favor === 'either').length) : 1
+  }
+  let best: { id: string; atStake: number; saves: number; ok: boolean } | undefined
   for (const a of state.assets) {
     if (a.integrity <= 0 || !domain.includes(a.kind)) continue
-    const v = (value.get(a.id) ?? 0) + COVERAGE_PER_KIND[a.kind] / 1000
-    if (v > bestV) {
-      bestV = v
-      best = a.id
-    }
+    const board = open.map((c) => posted(c, a.id))
+    const atStake = atStakeOf(board)
+    let saves = COVERAGE_PER_KIND[a.kind] / 1000
+    board.forEach((c, i) => {
+      if (c.hardened > 0) saves += share(c) * (c.known ? c.loss - open[i].loss : UNNAMED_SAVE)
+    })
+    const ok = atStake >= before - 0.05
+    const better = !best || (ok !== best.ok ? ok : ok ? saves > best.saves + 1e-9 || (Math.abs(saves - best.saves) <= 1e-9 && atStake > best.atStake) : atStake > best.atStake || (atStake === best.atStake && saves > best.saves + 1e-9))
+    if (better) best = { id: a.id, atStake, saves, ok }
   }
-  return best
+  return { best: best?.id, before, after: best?.atStake ?? before, raises: !!best && !best.ok, gives: best && stands && stands !== best.id ? stands : undefined }
+}
+export const spotFor = (state: GameState, orders: Orders, id: CountermeasureId): string | undefined => spotAdvice(state, orders, id).best
+
+// FIX NEXT, AT DAWN (v2.0 R4, the same ruling): the piece that answers the
+// costliest move that got through tonight, unless setting it down tomorrow
+// would raise tomorrow's AT STAKE by pulling the post off what it is
+// holding. Then the next costliest move's piece is tried, and when every
+// one would cost the post, none is advised: `gives` names the asset the
+// post would leave, and the card says to keep an answer instead.
+// `through` is tonight's moves that landed, costliest first; `after` is the
+// state the next night opens on.
+export interface Fix {
+  def: ThreatEvent
+  cm: Countermeasure | null
+  gives?: string
+}
+export function fixNext(after: GameState, through: readonly ThreatEvent[]): Fix | null {
+  let costly: Fix | null = null
+  for (const def of through) {
+    const id = def.counters.find((c) => !after.counters.includes(c))
+    if (!id) continue
+    const cm = defenseDef(after, id)
+    const advice = after.status === 'playing' ? spotAdvice(after, NO_ORDERS, id) : null
+    if (!advice?.raises) return { def, cm }
+    costly ??= { def, cm, gives: advice.gives ?? postOf(after) }
+  }
+  return costly ?? (through.length ? { def: through[0], cm: null } : null)
+}
+
+// WHAT COLDVEIL WOULD HAVE DONE INSTEAD (v2.0 R4): the move it would have
+// switched to on a track tonight had a defense been in service, when that
+// move would still have landed. A result that says a piece "would have
+// helped" against a move COLDVEIL would simply have left for a worse one
+// was the R3 reviewers' complaint; the result names the switch instead.
+// `board` is the night's board (its turn and its defenses as ordered).
+export function dodgeOf(board: GameState, def: ThreatEvent, id: CountermeasureId): ThreatEvent | undefined {
+  const counters = [...board.counters.filter((c) => c !== id), id]
+  const read = adversaryPicks(board, counters).find((r) => r.candidates.some((c) => c.id === def.id))
+  if (!read || read.fixed || read.least.includes(def.id)) return undefined
+  const denied = gnssDenied(board.conditions, board.scenario)
+  const other = read.least.map((x) => eventDef(board, x)).find((e) => e.baseSeverity + chainBonusOf(e, denied) - mitigationOf(e, counters) > 0)
+  return other
 }
 
 // ---------------------------------------------------------------- the kit
@@ -377,13 +463,15 @@ export interface Stakes {
   atStake: number
   worst: number
   remaining: number
+  // WORST CASE in its two parts (v2.0 R4): the budget at dawn after
+  // tonight's worst, and what tomorrow night's worst could need of it.
+  dawn: number
+  later: number
 }
 export function stakesFor(state: GameState, orders: Orders, contacts: readonly Contact[], score: number): Stakes {
-  const bySlot = new Map<number, number>()
-  for (const c of contacts) bySlot.set(c.slot, Math.min(bySlot.get(c.slot) ?? 0, c.loss))
-  const atStake = tenth([...bySlot.values()].reduce((n, v) => n + v, 0))
+  const atStake = atStakeOf(contacts)
   const wc = worstCase(state, actionsOf(orders))
-  return { score, line: state.scenario.winThreshold, atStake, worst: wc.value, remaining: wc.remaining }
+  return { score, line: state.scenario.winThreshold, atStake, worst: wc.value, remaining: wc.remaining, dawn: wc.remaining - wc.repairs - wc.upkeep, later: wc.later }
 }
 
 // --------------------------------------------------------------- the night

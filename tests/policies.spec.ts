@@ -15,7 +15,7 @@ import { planFor } from '../src/engine/campaign'
 import { holdTonight, rightCall } from '../src/engine/holds'
 import { newGame } from '../src/engine/reducer'
 import { playNight } from '../src/engine/responses'
-import { NEW_DEFENSES_PER_NIGHT, countersAfter, domainOf, eventById, newDefenses, scanPulses } from '../src/engine/rules'
+import { NEW_DEFENSES_PER_NIGHT, countersAfter, domainOf, eventById, newDefenses, orderCost, scanPulses } from '../src/engine/rules'
 import type { GameState, TurnActions } from '../src/engine/types'
 import { worstCase } from '../src/engine/worstCase'
 import { spotFor } from '../src/ui/three/gameModel'
@@ -84,9 +84,20 @@ describe('the sweep lines do what their comments say', () => {
     let holds = 0
     let right = 0
     let lit = 0
+    let nights = 0
+    let cornered = 0
     for (const { state, actions, after, where } of decisions(line('novice'))) {
       expect(actions.scans, where).toEqual(drawnTonight(state).slice(0, scanPulses(state)))
-      expect(worstCase(state, actions).value, `${where}: WORST CASE`).toBeGreaterThanOrEqual(0)
+      // Inside WORST CASE: its orders never take the reading under 0. A
+      // night can open under 0 with nothing ordered since v2.0 R4 (the
+      // guard holds back tomorrow's worst, not every night's:
+      // src/engine/worstCase.ts); there it orders nothing that costs.
+      nights += 1
+      if (worstCase(state, { ...actions, buyAssets: [], buyCounters: [] }).value >= 0) expect(worstCase(state, actions).value, `${where}: WORST CASE`).toBeGreaterThanOrEqual(0)
+      else {
+        cornered += 1
+        expect(orderCost(state, actions), `${where}: ordered on a night already at risk`).toBe(0)
+      }
       const bought = newDefenses(state, actions)
       expect(bought.length, where).toBeLessThanOrEqual(NEW_DEFENSES_PER_NIGHT)
       // A piece the tray lit: it answers a move the scan named.
@@ -101,6 +112,8 @@ describe('the sweep lines do what their comments say', () => {
     expect(right / holds, 'holds called right').toBeGreaterThan(0.58)
     expect(right / holds).toBeLessThan(0.75)
     expect(lit, 'it never placed a piece the tray lit').toBeGreaterThan(SEEDS)
+    // Rare: under 1 night in 50 opens at risk for a line that obeys the guard.
+    expect(cornered / nights, 'nights that opened under 0').toBeLessThan(0.02)
   })
 
   it('the lines that name on sight name only what the scan did not, and the guesser stops at its first wrong name', () => {

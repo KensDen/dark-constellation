@@ -60,7 +60,7 @@
 //
 // AND IN v2.0 R3, FOR ONE RULE SET (Ken's ruling of 15 November 2026: the
 // pixel board is retired). Every game plays the 3D game's rules: the
-// budget opens at the scenario's 80 CR with 6 a night, a hit costs the
+// budget opens at the scenario's 80 CR with its funding a night, a hit costs the
 // scenario's meter damage, the answers are a pool for the operation and
 // cost no credits, a night can open on a hold, and the paid brief, the
 // room and the cost of an answer are gone from the record. WIN_SCRIPT with
@@ -157,11 +157,13 @@ describe('determinism', () => {
     // 6b move; ab375fc0 the v1.4.0 move; b5017102 the v1.6 R1 move;
     // 112140af the v1.6 R2 move; 96e819db the v1.7 R1 move (see the
     // header); 10a75489 the v2.0 R1 move: mission funding 20 to 14 with
-    // the scan in place of the paid brief; 566d288d is the v2.0 R3
-    // move, one rule set (see the header), regenerated once, at the
-    // round's end.
+    // the scan in place of the paid brief; 566d288d the v2.0 R3
+    // move, one rule set (see the header); fa95dad0 is the v2.0 R4 move:
+    // 15 meter damage a point, 7 recovery and 7 funding a night, 3 points
+    // for a wrong call, after the guard was loosened (Ken's rulings of 15
+    // November 2026), regenerated once.
     expect(createHash('sha1').update(readFileSync(SNAPSHOT_PATH, 'utf8')).digest('hex'), 'the committed snapshot file changed').toBe(
-      '566d288dbc04159a98b80ec1cb0c342f8f7b2664',
+      'fa95dad0923d2b32736ee04b928de85b0c3d2806',
     )
   })
 
@@ -447,7 +449,7 @@ describe('the v1.3 rules (brief 6.1)', () => {
     const toTurn4 = (seed: number, buy: TurnActions['buyCounters'] = []) => {
       let s = newGame(DEFAULT_SCENARIO, seed)
       s = step(s, a({ buyCounters: buy }))
-      while (s.turn < debrisTurnOf(seed)) s = step(s)
+      while (s.status === 'playing' && s.turn < debrisTurnOf(seed)) s = step(s)
       return s
     }
     const s = toTurn4(9)
@@ -465,7 +467,11 @@ describe('the v1.3 rules (brief 6.1)', () => {
     let lost = 0
     let kept = 0
     for (let seed = 1; seed <= 80; seed += 1) {
-      const held = step(toTurn4(seed)).history.at(-1)!.events.find((e) => e.eventId === 'debris-conjunction')!
+      // A watch that orders nothing can collapse before the debris night
+      // at 15 meter damage a point (v2.0 R4): those seeds have no call.
+      const night = toTurn4(seed)
+      if (night.status !== 'playing') continue
+      const held = step(night).history.at(-1)!.events.find((e) => e.eventId === 'debris-conjunction')!
       expect(held.debris!.choice).toBe('hold')
       if (held.debris!.lost) {
         lost += 1

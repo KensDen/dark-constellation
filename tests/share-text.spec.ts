@@ -82,8 +82,8 @@
 //
 // v2.0 R3 (Ken's ruling of 15 November 2026: the pixel board is retired,
 // and every game plays the 3D game's rules): the share text's form did not
-// change; the games did. The budget opens at 80 CR with 6 a night, a hit
-// costs 13 a point on the meters, the answers are a pool of 3 for the
+// change; the games did. The budget opens at 80 CR with 6 a night (7 since
+// v2.0 R4), a hit costs 13 a point on the meters (15 since R4), the answers are a pool of 3 for the
 // operation and cost no credits, and a night can open on a hold.
 // WIN_SCRIPT no longer wins either pinned seed, answered by `sensible` on
 // the Daily seed (62.3) or by WIN_RESPONSES on 20260712 (58.4), so the
@@ -152,8 +152,8 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: op.daily!.n, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade A · won T6 · score 82.5, win line 70',
-        '\u{1F7E9}\u{1F7E9}\u{1F7E9}\u{1F7E5}\u{1F7E8}\u{1F7E8}',
+        'Grade B · won T6 · score 82.5, win line 70',
+        '\u{1F7E9}\u{1F7E9}\u{1F7E9}\u{1F7E5}\u{1F7E8}\u{1F7E9}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
     )
@@ -168,7 +168,7 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: 1, official: false })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1 (practice)',
-        'Grade F · lost T6 · score 22.7, win line 70',
+        'Grade F · lost T6 · score 23.6, win line 70',
         '\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -186,7 +186,7 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: 1, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade F · lost T4 · budget below zero · score 54.8, win line 70',
+        'Grade F · lost T4 · budget below zero · score 51.8, win line 70',
         '\u{1F7E8}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -244,7 +244,7 @@ describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
     expect(shareText(end)).toBe(
       [
         'DARK CONSTELLATION · Practice · Standard',
-        'Grade B · won T6 · score 81.9, win line 70',
+        'Grade B · won T6 · score 82.3, win line 70',
         '\u{1F7E9}\u{1F7E9}\u{1F7E9}\u{1F7E5}\u{1F7E8}\u{1F7E9}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),
@@ -257,7 +257,7 @@ describe('free play takes the four-line shape (v1.3 R4, M37)', () => {
     expect(shareText(end)).toBe(
       [
         'DARK CONSTELLATION · Practice · Easy',
-        'Grade D · lost T6 · score 36.0, win line 70',
+        'Grade F · lost T6 · score 33.2, win line 70',
         '\u{1F7E5}\u{1F7E8}\u{1F7E5}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),

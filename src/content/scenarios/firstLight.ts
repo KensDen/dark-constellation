@@ -24,14 +24,16 @@ export const FIRST_LIGHT: Scenario = {
   totalTurns: 6,
   // THE BUDGET (v2.0 R2). The answers are a pool that costs no credits
   // (src/engine/rules.ts, answersOf), so credits buy defenses and assets
-  // and pay the bills: 80 to start and 6 a night. Funding below 6 is a
-  // cliff, not a dial: at 4 the WORST CASE guard stops every line from
-  // buying and Prepared falls to 45 percent (src/engine/worstCase.ts,
-  // heldForLater). Through v1.7, with a paid intel brief and answers
-  // bought a point at a time, it was 100 and 20; the pixel board's numbers
-  // are in the history of main.
+  // and pay the bills: 80 to start and 7 a night (6 through v2.0 R3).
+  // The budget is not a smooth dial: a credit a night either way moves
+  // Prepared by several points in either direction, because what it
+  // changes is whether the last nights' orders fit inside WORST CASE
+  // (src/engine/worstCase.ts). 85 to start with 6 a night plays the same
+  // as 80 with 7. Through v1.7, with a paid intel brief and answers bought
+  // a point at a time, it was 100 and 20; the pixel board's numbers are in
+  // the history of main.
   startCredits: 80,
-  incomePerTurn: 6,
+  incomePerTurn: 7,
   slaBonus: { coverageMin: 60, credits: 10 },
   winThreshold: 70,
   collapseThreshold: 35,
@@ -43,25 +45,40 @@ export const FIRST_LIGHT: Scenario = {
     groundStation: 25,
   },
   upkeepPerDefense: 2,
+  // RE-TUNED IN v2.0 R4 (Ken's rulings of 15 November 2026: fix the
+  // watch-post advice, loosen the WORST CASE guard, then bring the bands
+  // back to where Round 2 put them). The two fixes made every line that
+  // reads the board stronger: with R3's numbers under them, Prepared won
+  // 94.6 percent on STANDARD and the Novice 50.2 (88.2 and 40.6 with the
+  // advice alone). The numbers now: 15 meter damage a point, 7 recovery a
+  // night (9 with the IR retainer), 7 funding a night, 3 points for a
+  // wrong call. Prepared 87.2, Novice 42.8, the Expert 98.4 on STANDARD;
+  // 100.0, 80.8 and 100.0 on EASY. Settings measured beside it, Prepared
+  // and Novice on STANDARD: 14 damage, 5 recovery, 7 funding and 2 for a
+  // wrong call, 86.8 and 39.0, but always overriding a hold then wins 83.8,
+  // too near reading it (the tie-break must count for 5 points); the same
+  // with 3 for a wrong call, 86.8 and 35.4; 15, 6, 7 and 3, 85.6 and 35.0;
+  // 14.5, 6, 7 and 3, 86.4 and 37.2. This is the whole-number setting
+  // nearest both bands with the tie-break still counting.
+  //
   // METER DAMAGE AND RECOVERY, SET TOGETHER BY THE SWEEP (v2.0 R2, 500
-  // seeds a line; Ken's ruling of 15 November 2026 keeps them): 13 meter
-  // damage a point of strength, and 5 recovery a night on every meter (7
-  // with the IR retainer). Damage is up from v1.7's 9 because nothing is
+  // seeds a line): through R3, 13 meter damage a point of strength, and 5
+  // recovery a night on every meter (7 with the IR retainer). Damage is up from v1.7's 9 because nothing is
   // bought off any more: an unanswered strength 3 move that hits 2 meters
   // can take 15 points of score or more, which is what makes 3 answers a
-  // real budget. Measured on STANDARD, Prepared and Novice: at 12 and 4,
+  // real budget. Measured under R2's guard on STANDARD, Prepared and Novice: at 12 and 4,
   // 89.8 and 41.4 percent; at 13 and 5, 85.8 and 40.2; at 12 and 3, 78.6
   // and 32.8; at 13 and 4, 75.8 and 32.0; at 14 and 4, 72.8 and 26.2. A
   // Prepared line that plays its orders well and a beginner are about 46
   // points of win rate apart at every setting; this is the one nearest both
   // bands.
-  recovery: { base: 5, withIrRetainer: 7 },
-  meterDamage: 13,
+  recovery: { base: 7, withIrRetainer: 9 },
+  meterDamage: 15,
   // THE WATCH (v2.0 R2): 3 answers for the whole operation; 3 holds a
-  // game, and 2 points of score for a wrong call on one.
+  // game, and 3 points of score for a wrong call on one (2 through R3).
   answers: 3,
   holdCount: 3,
-  holdStake: 2,
+  holdStake: 3,
   starterAssets: [{ kind: 'sat' }, { kind: 'sat' }, { kind: 'rpoSat' }, { kind: 'drone' }, { kind: 'drone' }, { kind: 'groundStation' }],
   // Brief 6.2. Turn 1's two moves are both strength 2, on different layers
   // with different defenses, so a hit lands on turn 1 unless the player

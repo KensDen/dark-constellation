@@ -92,7 +92,7 @@ describe('the grade', () => {
       [(seed) => randomPolicy(seed), ride],
     ]
     const cases: [GameState, Ending][] = []
-    for (let seed = 1; seed <= 40 && cases.length < 3; seed += 1) {
+    for (let seed = 1; seed <= 200 && cases.length < 3; seed += 1) {
       for (const [line, respond] of lines) {
         const end = play(seed, line(seed), respond)
         const how: Ending = end.status === 'won' ? 'won' : end.lossReason!
@@ -157,8 +157,8 @@ describe('the grade is calibrated (brief 7.2)', () => {
   // as tests/sweep.spec.ts drives them, and every win graded on its final
   // score plus its defense bonus, at each difficulty with its own bands.
   // S should be roughly the top 5 percent of wins and A roughly the next
-  // 20. Measured when the bands were set (v2.0 R3): on STANDARD 669 wins,
-  // S 5.8 percent and A 20.2; on EASY 945 wins, S 5.7 and A 20.8.
+  // 20. Measured when the bands were set (v2.0 R4): on STANDARD 739 wins,
+  // S 6.0 percent and A 22.6; on EASY 1,018 wins, A the top 26.8.
   //
   // Why the sweep's lines, and not scripts: the lines are the model of
   // players (prepared, a beginner, buy everything, random legal, nothing),

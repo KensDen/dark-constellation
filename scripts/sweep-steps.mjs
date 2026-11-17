@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 // The numbers FIRST LIGHT carries (src/content/scenarios/firstLight.ts and
 // src/engine/rules.ts); the spec proves each step is live on the engine.
-const R0 = { meter: 13, asset: 12, bills: 1, upkeep: 2, funding: 6, recovery: 5 }
+const R0 = { meter: 15, asset: 12, bills: 1, upkeep: 2, funding: 7, recovery: 7 }
 const KNOWN = new Set(Object.keys(R0))
 const given = JSON.parse(process.argv[2] ?? '{}')
 for (const [key, value] of Object.entries(given)) {

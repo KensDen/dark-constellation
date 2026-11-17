@@ -54,7 +54,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyProfile> = {
 export const scaled = (amount: number, difficulty: Difficulty): number => Math.round(amount * DIFFICULTIES[difficulty].damage)
 
 // Per point of strength that gets through, before the difficulty. What a
-// point does to the meters is the scenario's (Scenario.meterDamage, 13 in
+// point does to the meters is the scenario's (Scenario.meterDamage, 15 in
 // FIRST LIGHT: src/content/scenarios/firstLight.ts has what it was measured
 // at); what it does to its target is this.
 export const ASSET_DAMAGE_PER_SEVERITY = 12
@@ -123,9 +123,9 @@ export const exposedOf = (ev: Pick<ResolvedEvent, 'baseSeverity' | 'chainBonus' 
 // rate by about 10 points at most. At 25 and 12.5, under R1's rules, it
 // took Novice from 47 percent of games to 82 on STANDARD: the reflex was
 // worth more than the orders. At 5 and 2.5, under the rules as they are
-// (v2.0 R2): Novice 40.2 percent with no taps, 44.0 at the Assist rate and
-// 47.6 with a perfect tap on every move (7.4 points), and Prepared 85.8 to
-// 90.4. Damage is whole numbers, so the steps are coarse.
+// (v2.0 R4): Novice 42.8 percent with no taps, 45.6 at the Assist rate and
+// 50.6 with a perfect tap on every move (7.8 points), and Prepared 87.2 to
+// 89.4. Damage is whole numbers, so the steps are coarse.
 // tests/sweep.spec.ts holds the bound and prints both rates.
 export const TIMING_BONUS: Record<TimingGrade, number> = { 1: 0.025, 2: 0.05 }
 export const timingShare = (grade: TimingGrade | 0 | null | undefined): number => 1 - (grade ? TIMING_BONUS[grade] : 0)
@@ -317,7 +317,9 @@ export function domainOf(scenario: Scenario, id: CountermeasureId): AssetKind[] 
 // what the fleet fields, not where the watch stands, so the post never
 // moves its choice: the piece's kind turns COLDVEIL off one move, and its
 // place blunts whatever comes at that asset instead. WORST CASE ignores
-// the post, so it can only be too careful.
+// the post, so it can only be too careful. THE POST IS GIVEN UP WHEN THE
+// NEXT PIECE GOES DOWN ELSEWHERE, and the game's advice counts that
+// (v2.0 R4: src/ui/three/gameModel.ts, spotAdvice).
 //
 // ONE POST, NOT ONE A DEFENSE. Measured over 500 seeds a line with every
 // placed defense hardening its asset for good: Prepared, who places 5,

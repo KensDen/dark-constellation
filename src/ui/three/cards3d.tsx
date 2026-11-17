@@ -16,7 +16,7 @@ import { opportunityLines, scoreRows, type callTerms } from '../night/closeModel
 import * as copy from '../night/nightCopy'
 import { defensesFor, exposedOf, type Night, type NightStep } from '../night/nightModel'
 import * as c3 from './copy3d'
-import { PIECE, blockedBy, tapLine, verdictOf, type Choice, type Contact, type FleetPiece, type KitPiece, type Stakes, type Verdict } from './gameModel'
+import { PIECE, blockedBy, dodgeOf, fixNext, tapLine, verdictOf, type Choice, type Contact, type FleetPiece, type KitPiece, type Stakes, type Verdict } from './gameModel'
 import { GestureMark, MechanismGlyph, SignatureGlyph } from './glyphs'
 
 export const VERDICT_WORD: Record<Verdict, string> = { blocked: 'BLOCKED', halved: 'HALVED', partial: 'PARTIAL', hit: 'HIT' }
@@ -399,7 +399,7 @@ export function ContactCard({
 
 // A PIECE IN HAND: the defense by its formal name, what it answers
 // tonight, and where it can go.
-export function PieceCard({ piece, targets, locked, upkeep, placedOn, onPlace, onRemove, onClose }: { piece: KitPiece; targets: { id: string; sign: string; best?: boolean }[]; locked: string | null; upkeep: number; placedOn?: string; onPlace: (assetId: string) => void; onRemove: () => void; onClose: () => void }) {
+export function PieceCard({ piece, targets, postCost, locked, upkeep, placedOn, onPlace, onRemove, onClose }: { piece: KitPiece; targets: { id: string; sign: string; best?: boolean }[]; postCost?: string; locked: string | null; upkeep: number; placedOn?: string; onPlace: (assetId: string) => void; onRemove: () => void; onClose: () => void }) {
   const { cm } = piece
   return (
     <div className="t3-card" key={`p-${cm.id}`} data-t3-card="piece">
@@ -438,8 +438,9 @@ export function PieceCard({ piece, targets, locked, upkeep, placedOn, onPlace, o
               </button>
             ))}
           </div>
-          <p className="t3-hint">
-            {c3.PLACE_NOTE}
+          {/* No spot is called best when every one costs the post (v2.0 R4): what it gives up, in place of the general note. */}
+          <p className={`t3-hint${postCost ? ' t3-warn' : ''}`} data-t3-postcost={postCost ? '' : undefined}>
+            {postCost ?? c3.PLACE_NOTE}
             {locked ? ` ${c3.replaces(locked)}` : ''}
           </p>
         </>
@@ -883,8 +884,16 @@ export function ResultCard({
   const officer = copy.officerFor(step, sign || undefined)
   // The piece by the name on its piece; the formal name is on its card.
   const piece = missing ? PIECE[missing.id] : ''
-  const helped = missing ? joined(ev.response ? copy.lastingAnswer(piece, missing.cost) : held ? copy.finishedIt(piece, missing.cost) : copy.wouldHaveHelped(piece, missing.cost)) : ''
-  const stops = missing && !held ? ` It ${stopVerb(missing.id, def) === 'stops' ? 'stops' : 'blunts'} ${shortName(def)} every night.` : ''
+  // Had the piece been in service COLDVEIL might have left this move for
+  // another (v2.0 R4): then it is not what would have helped tonight, and
+  // the line says what it does and what COLDVEIL would have done.
+  const dodge = missing && !ev.response && !held ? dodgeOf(step.before, def, missing.id) : undefined
+  const helped = missing
+    ? dodge
+      ? c3.wouldSwitch(piece, missing.cost, stopVerb(missing.id, def) === 'stops' ? 'stops' : 'blunts', shortName(def), shortName(dodge))
+      : joined(ev.response ? copy.lastingAnswer(piece, missing.cost) : held ? copy.finishedIt(piece, missing.cost) : copy.wouldHaveHelped(piece, missing.cost))
+    : ''
+  const stops = missing && !held && !dodge ? ` It ${stopVerb(missing.id, def) === 'stops' ? 'stops' : 'blunts'} ${shortName(def)} every night.` : ''
   const byDefense = verdict === 'blocked' && blockedBy(ev) === 'defense' && held
   // Stopped with no defense that answers it and no answer: the post did it.
   const byPost = verdict === 'blocked' && !ev.response && !held && !!ev.hardened
@@ -1048,9 +1057,19 @@ export function DawnCard({
   const halved = threats.filter((s) => s.ev.response?.effect === 'halve').length
   const partial = threats.filter((s) => verdictOf(s.ev) === 'partial').length
   const l = rec.ledger
-  const worst = threats.filter((s) => s.ev.effectiveSeverity > 0).sort((a, b) => a.scoreAfter - a.scoreBefore - (b.scoreAfter - b.scoreBefore))[0]
-  const missing = worst ? defensesFor(worst.def, after.counters, after.scenario).missing : undefined
-  const fix = !worst ? copy.NOTHING_THROUGH : missing ? joined(copy.fixDefense(PIECE[missing.id], missing.cost, shortName(worst.def), stopVerb(missing.id, worst.def) === 'stops' ? 'stops' : 'blunts')) : `${shortName(worst.def)} got through. Keep an answer for a move like it.`
+  // FIX NEXT (gameModel.ts, fixNext): the piece for the costliest move that
+  // got through, unless placing it tomorrow would cost the watch post.
+  const through = threats.filter((s) => s.ev.effectiveSeverity > 0).sort((a, b) => a.scoreAfter - a.scoreBefore - (b.scoreAfter - b.scoreBefore))
+  const worst = through[0]
+  const advice = fixNext(after, through.map((s) => s.def))
+  const clean = !!advice?.cm && !advice.gives
+  const fix = !advice
+    ? copy.NOTHING_THROUGH
+    : advice.cm && advice.gives
+      ? c3.fixCostsPost(shortName(advice.def), PIECE[advice.cm.id], signs.get(advice.gives) ?? advice.gives)
+      : advice.cm
+        ? joined(copy.fixDefense(PIECE[advice.cm.id], advice.cm.cost, shortName(advice.def), stopVerb(advice.cm.id, advice.def) === 'stops' ? 'stops' : 'blunts'))
+        : `${shortName(advice.def)} got through. Keep an answer for a move like it.`
   const hold = rec.hold
   const parts = [
     l.ordered ? `Orders -${l.ordered}` : '',
@@ -1098,7 +1117,7 @@ export function DawnCard({
       )}
       {!over && (
         <p className="t3-helped">
-          {worst ? <span className="t3-warn">{copy.FIX_LABEL} </span> : null}
+          {worst && clean ? <span className="t3-warn">{copy.FIX_LABEL} </span> : null}
           {fix}
         </p>
       )}

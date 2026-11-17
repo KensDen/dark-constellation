@@ -59,7 +59,9 @@ import {
   scanState,
   sightChoices,
   sightOpen,
+  spotAdvice,
   spotFor,
+  atStakeOf,
   stakesFor,
   verdictOf,
   withResponse,
@@ -864,7 +866,13 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     // COLDVEIL reacts to what is placed: say so when a track's favor moves.
     const moved = after.find((c) => c.favor === 'likely' && before.find((b) => b.id === c.id)?.favor !== 'likely' && before.some((b) => b.slot === c.slot && b.favor === 'likely'))
     const sign = signs.get(where ?? '') ?? 'the fleet'
-    setNote(`${moved ? `${ADVERSARY_NAME} switches to ${moved.known ? shortName(moved.def) : 'an unidentified move'}. ` : ''}${where ? c3.postLine(sign) : ''}`)
+    // The post it gave up (v2.0 R4): said when the piece left AT STAKE
+    // worse than the night stood without it.
+    const bare = { ...orders, defense: null, place: null }
+    const stood = postNow(game, bare)
+    const [was, now] = [atStakeOf(contactsFor(game, bare)), atStakeOf(after)]
+    const gave = stood && stood !== where && now < was - 0.05 ? ` ${c3.postCost(signs.get(stood) ?? stood, was, now)}` : ''
+    setNote(`${moved ? `${ADVERSARY_NAME} switches to ${moved.known ? shortName(moved.def) : 'an unidentified move'}. ` : ''}${where ? c3.postLine(sign) : ''}${gave}`)
     setSay(c3.placedSay(cm.name, sign))
     if (guide === 'place' || guide === 'scan') setGuide('begin')
   }
@@ -887,7 +895,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       // closed, so the warning is never behind the panel that caused it.
       setSel(null)
       play('denied-buzz')
-      setSay(c3.riskLine(stakes.worst))
+      setSay(c3.riskLine(stakes.dawn, stakes.later, !!orders.defense || orders.assets.length > 0))
       return
     }
     // A night begun with no new defense while one could be placed is asked
@@ -1527,6 +1535,11 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         const dodge = after.find((x) => x.slot === c.slot && x.id !== c.id && (x.favor === 'likely' || x.favor === 'either') && x.exposed > 0)
         if (self && self.favor === 'unlikely' && dodge) then = `then COLDVEIL switches to ${dodge.known ? shortName(dodge.def) : 'an unidentified move'}`
       }
+      // And what it costs where the post has to move for it (v2.0 R4).
+      if (!then && !a.owned && !a.ordered) {
+        const advice = spotAdvice(game, orders, a.cm.id)
+        if (advice.raises && advice.gives) then = c3.postCostShort(signs.get(advice.gives) ?? advice.gives)
+      }
       return { id: a.cm.id, name: a.cm.name, cost: a.cm.cost, verb: a.verb, owned: a.owned, ordered: a.ordered, blocked: piece?.blocked ?? null, risky: !!piece?.risky && !a.ordered, then }
     })
 
@@ -1791,7 +1804,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             summary={c3.orderLine(ownedName, orders.assets.length, orders.scans.length)}
             intro={contacts.every((c) => c.known) && contacts.some((c) => !c.fixed) && orders.scans.length === 0 ? `${intro} ${c3.ALLIED_FEED}` : intro}
             note={note}
-            risk={atRisk && stakes.worst < 0 ? c3.riskLine(stakes.worst) : bare ? c3.BARE_LINE : undefined}
+            risk={atRisk && stakes.worst < 0 ? c3.riskLine(stakes.dawn, stakes.later, !!orders.defense || orders.assets.length > 0) : bare ? c3.BARE_LINE : undefined}
             contacts={contacts}
             signs={signs}
             stakes={stakes}
@@ -1879,12 +1892,18 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           <PieceCard
             piece={selPiece}
             targets={(() => {
-              // The best spot first (gameModel.ts, spotFor), then the rest.
-              const best = spotFor(game, orders, selPiece.cm.id)
+              // The recommended spot first (gameModel.ts, spotAdvice), then
+              // the rest. It is called BEST only where it leaves AT STAKE
+              // no worse than the night stands without the piece.
+              const advice = spotAdvice(game, orders, selPiece.cm.id)
               return [...game.assets]
                 .filter((a) => a.integrity > 0 && selPiece.domain.includes(a.kind))
-                .sort((a, b) => Number(b.id === best) - Number(a.id === best))
-                .map((a) => ({ id: a.id, sign: signs.get(a.id) ?? a.id, best: a.id === best }))
+                .sort((a, b) => Number(b.id === advice.best) - Number(a.id === advice.best))
+                .map((a) => ({ id: a.id, sign: signs.get(a.id) ?? a.id, best: a.id === advice.best && !advice.raises }))
+            })()}
+            postCost={(() => {
+              const advice = selPiece.blocked || selPiece.ordered ? null : spotAdvice(game, orders, selPiece.cm.id)
+              return advice?.raises && advice.gives ? c3.postCost(signs.get(advice.gives) ?? advice.gives, advice.before, advice.after) : undefined
             })()}
             placedOn={selPiece.ordered && orders.place ? signs.get(orders.place) : undefined}
             locked={orders.defense && orders.defense !== selPiece.cm.id ? PIECE[orders.defense] : null}
@@ -1915,7 +1934,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             />
             {atRisk && stakes && stakes.worst < 0 && (
               <p className="t3-sr" role="alert" data-t3-risk>
-                {c3.riskLine(stakes.worst)}
+                {c3.riskLine(stakes.dawn, stakes.later, !!orders.defense || orders.assets.length > 0)}
               </p>
             )}
             {bare && (

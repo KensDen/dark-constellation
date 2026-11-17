@@ -25,20 +25,21 @@ import { GRADES, SEEDS, median, playPolicy, type PolicyRun } from './sweep-run'
 const pct = (n: number, of: number) => (100 * n) / of
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 
-// The bands, in percent of games won, inclusive. KEN'S RULING OF 15
-// NOVEMBER 2026: keep Round 2's numbers, Prepared about 86 percent and
-// Novice about 40, and the beginner of tests/policies.ts is the right
-// picture of a beginner. MEASURED at the numbers the scenario carries (13
-// meter damage a point, 5 recovery a night, 3 answers, funding 6, a
-// starting budget of 80, 2 points for a wrong call): Prepared 85.8,
-// Novice 40.2, Nothing 0.0 on STANDARD; Prepared 92.0 and Novice 84.2 on
-// EASY. The points either side: 12 damage with 4 recovery, Prepared 89.8
-// and Novice 41.4; 13 with 4, 75.8 and 32.0; 12 with 3, 78.6 and 32.8.
-// Funding under 6 is a cliff (at 4 the WORST CASE guard stops every line
-// buying, and Prepared wins 45). A Prepared line that plays its orders
-// well and a beginner are about 46 points apart at every setting
-// measured, so the two bands cannot both be met to the point: this is
-// the setting nearest both.
+// The bands, in percent of games won, inclusive. KEN'S RULINGS OF 15
+// NOVEMBER 2026: the bands stay where Round 2 put them, Prepared about 86
+// percent and Novice about 40, the beginner of tests/policies.ts is the
+// right picture of a beginner, and after the watch-post advice was fixed
+// and the WORST CASE guard loosened (v2.0 R4) the numbers were re-tuned to
+// land there. MEASURED at the numbers the scenario carries (15 meter
+// damage a point, 7 recovery a night, 3 answers, funding 7, a starting
+// budget of 80, 3 points for a wrong call): Prepared 87.2, Novice 42.8,
+// Nothing 0.0 on STANDARD; Prepared 100.0 and Novice 80.8 on EASY; the
+// Expert 98.4 and 100.0. src/content/scenarios/firstLight.ts has the
+// settings measured beside it. UNDER R3's GUARD AND NUMBERS (13, 5, 6 and
+// 2): Prepared 85.8, Novice 40.2, Prepared 92.0 and Novice 84.2 on EASY.
+// A Prepared line that plays its orders well and a beginner are about 45
+// points apart at every setting measured, so the two bands cannot both
+// be met to the point: this is the whole-number setting nearest both.
 const TARGETS: { name: string; difficulty: Difficulty; label: string; min: number; max: number }[] = [
   { name: 'prepared', difficulty: 'standard', label: 'Prepared', min: 75, max: 90 },
   { name: 'prepared', difficulty: 'easy', label: 'Prepared on EASY', min: 90, max: 100 },
@@ -168,9 +169,10 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     // The game offers 4 names and the first wrong one ends naming for the
     // night, so a line that knows none of them names about a third of a
     // signature a night. Knowing them is worth real points to every kind of
-    // player. Guessing is held to a gain of 5 points at most. MEASURED: it
-    // moved Prepared by +3.6 on STANDARD and +1.2 on EASY, and the Novice
-    // by -6.2 and -1.8. A third of a signature a night is too little
+    // player. Guessing is held to a gain of 5 points at most. MEASURED
+    // (v2.0 R4): it moved Prepared by +4.0 on STANDARD and 0.0 on EASY,
+    // where it wins every game already, and the Novice by +1.2 and +1.8
+    // (in R3: +3.6 and +1.2, -6.2 and -1.8). A third of a signature a night is too little
     // knowledge to move a line one way: what it changes is which piece a
     // line happens to order, and over 500 seeds that reads as a few points
     // either side.
@@ -182,7 +184,10 @@ describe('the sweep gate (v1.3 brief 7)', () => {
       ] as const) {
         const [b, s, g] = [rate(base, difficulty), rate(sight, difficulty), rate(guess, difficulty)]
         lines.push(`| ${base} | ${difficulty.toUpperCase()} | ${b.toFixed(1)}% | ${s.toFixed(1)}% | ${(s - b).toFixed(1)} | ${g.toFixed(1)}% | ${(g - b).toFixed(1)} |`)
-        expect(s, `${difficulty}: ${base} who names every signature wins ${s.toFixed(1)} percent, against ${b.toFixed(1)}`).toBeGreaterThan(b)
+        // More, or as many where the line already wins every game (Prepared
+        // on EASY has since v2.0 R4): nothing is above all 500.
+        if (b < 100) expect(s, `${difficulty}: ${base} who names every signature wins ${s.toFixed(1)} percent, against ${b.toFixed(1)}`).toBeGreaterThan(b)
+        else expect(s, `${difficulty}: ${base} who names every signature wins ${s.toFixed(1)} percent, against ${b.toFixed(1)}`).toBe(100)
         expect(g - b, `${difficulty}: ${base} guessing at signatures gains ${(g - b).toFixed(1)} points`).toBeLessThanOrEqual(5)
       }
     }

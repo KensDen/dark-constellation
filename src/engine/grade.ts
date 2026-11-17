@@ -22,7 +22,7 @@ export type Grade = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
 // line. tests/grade.spec.ts re-runs the sweep and holds S and A to their
 // shares on both difficulties.
 //
-// RECALIBRATED IN v2.0 R3 (Ken's ruling of 15 November 2026: to Round 2's
+// RECALIBRATED IN v2.0 R3, FIGURES AS THEY WERE THEN (Ken's ruling of 15 November 2026: to Round 2's
 // economy, and a careful first game on EASY should not earn an S). The
 // bands R2 shipped were v1.7's (88, 85.5 and 77.5), set when an answer was
 // bought with credits. Under R2's rules (the answers a pool, 13 meter
@@ -49,17 +49,33 @@ export type Grade = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
 // Novice would take S on 0.2 percent of its EASY wins and Prepared on 11.5; on
 // STANDARD, Novice on 0.5 and Prepared on 8.9.
 //
-// AND S IS NOT EARNED ON EASY AT ALL (TOP_GRADE). The bands alone did not
+// RECALIBRATED AGAIN IN v2.0 R4, by the same method, after the numbers
+// were re-tuned (src/content/scenarios/firstLight.ts: 15 meter damage a
+// point, 7 recovery and 7 funding a night). On R3's bands S took 10.3
+// percent of the gated lines' wins on STANDARD.
+//   STANDARD, 739 wins (Prepared 436, Novice 214, Buy everything 88,
+//   Random legal 1): graded score at the 95th percentile 92.4, at the 75th
+//   87.3, at the 25th 78.5. S at 92.0 is 6.0 percent of wins and A at 87.3
+//   the next 22.6 (the scores bunch: 87.4 gives 16.6); B is 78.5, with
+//   23.5 percent of the wins under it.
+//   EASY, 1,018 wins (Prepared 500, Novice 404, Buy everything 107, Random
+//   legal 7): at the 95th percentile 93.6, at the 75th 90.6, at the 20th
+//   80.6. A at 90.6 is the top 26.8 percent of wins; B is 80.6, a little
+//   under the 25th percentile (81.4) for the reason R3 gave: the gate's
+//   Novice is graded B on 211 of its 404 EASY wins and C on 175. The 93.6
+//   is where S would start, were it earned there.
+//
+// AND S IS NOT EARNED ON EASY AT ALL (TOP_GRADE). (R3's figures follow.) The bands alone did not
 // keep the ruling: the round's own fresh-eyes reviewer, a careful first
 // game on EASY at a desktop, won at 89.1 with a bonus of 4.0 and took S at
 // 93.1, and the Expert line took S on half its EASY wins. A band high
 // enough to stop that would be out of reach of any game. So EASY's best
-// grade is A, from the same 88.9, which with what was S makes A the top
-// quarter of EASY's wins; S is STANDARD's, and the debrief says so. A
+// grade is A, from the same band (88.9 then, 90.6 now), which with what
+// was S makes A the top quarter of EASY's wins; S is STANDARD's, and the debrief says so. A
 // first win moves PLAY to STANDARD in any case.
 export const GRADE_BANDS = {
-  standard: { S: 90.6, A: 86.6, B: 77.5 },
-  easy: { S: 92.6, A: 88.9, B: 80 },
+  standard: { S: 92, A: 87.3, B: 78.5 },
+  easy: { S: 93.6, A: 90.6, B: 80.6 },
 } as const satisfies Record<Difficulty, { S: number; A: number; B: number }>
 export const TOP_GRADE: Record<Difficulty, Grade> = { standard: 'S', easy: 'A' }
 
