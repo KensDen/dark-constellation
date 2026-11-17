@@ -442,25 +442,38 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         [16, 12],
         [-w - 16, 12],
       ]
-      const boxAt = ([dx, dy]: [number, number]): Box => [a.x + dx, a.y + dy, a.x + dx + w, a.y + dy + h]
+      // Each spot is judged where the block would really stand: slid back
+      // onto the screen, under the top bar and over the cards, so a
+      // signature is never cut by an edge or hidden under the card it
+      // belongs to. (Through the first cut of R4 a spot was judged where it
+      // was asked for and slid afterwards, and the slide could put it on
+      // another asset's marks.) A slide costs a little, so a spot that
+      // needs none is taken first.
+      const boxAt = ([sx, sy]: [number, number]): Box => {
+        const x = Math.max(8, Math.min(right - 8 - w, a.x + sx))
+        const y = Math.max(top + 2, Math.min(floor - 4 - h, a.y + sy))
+        return [x, y, x + w, y + h]
+      }
+      const slid = ([sx, sy]: [number, number], box: Box) => (Math.abs(box[0] - (a.x + sx)) + Math.abs(box[1] - (a.y + sy))) * 3
+      const judge = (spot: [number, number]) => {
+        const box = boxAt(spot)
+        return cost(box, i, 5) + onMarks(box) + slid(spot, box)
+      }
       // The spot it has keeps it unless another is clearly better, so the
       // labels do not hop as the camera drifts.
       const held = Number(chips.dataset.spot ?? 0)
       let best = held
-      let bestCost = cost(boxAt(spots[held] ?? spots[0]), i, 5) + onMarks(boxAt(spots[held] ?? spots[0])) - 260
+      let bestCost = judge(spots[held] ?? spots[0]) - 260
       spots.forEach((spot, k) => {
-        const c = cost(boxAt(spot), i, 5) + onMarks(boxAt(spot)) + k * 14
+        const c = judge(spot) + k * 14
         if (c < bestCost) {
           best = k
           bestCost = c
         }
       })
-      // Wherever it stands, the whole block stays on the screen, under the
-      // top bar and over the cards: a signature is never cut by an edge or
-      // hidden under the card it belongs to.
-      const [sx, sy] = spots[best] ?? spots[0]
-      const dx = Math.round(Math.max(8, Math.min(right - 8 - w, a.x + sx)) - a.x)
-      const dy = Math.round(Math.max(top + 2, Math.min(floor - 4 - h, a.y + sy)) - a.y)
+      const stands = boxAt(spots[best] ?? spots[0])
+      const dx = Math.round(stands[0] - a.x)
+      const dy = Math.round(stands[1] - a.y)
       taken.push([a.x + dx, a.y + dy, a.x + dx + w, a.y + dy + h])
       marked.push([a.x + dx - 2, a.y + dy - 2, a.x + dx + w + 2, a.y + dy + h + 2])
       chipAt.current.set(a.key, { dx, dy, w, h })
