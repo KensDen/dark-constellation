@@ -123,6 +123,11 @@ export default function Title(p: TitleProps) {
   // first: the new campaign takes the autosave.
   const [confirmDaily, setConfirmDaily] = useState(false)
   const daily = () => (p.resumeTurn !== null && !confirmDaily ? setConfirmDaily(true) : p.onDaily())
+  // PLAY asks first too (v2.0 R5): with an operation in progress it began
+  // a new one at a tap and the night in progress was gone (the R4 phone
+  // review). CONTINUE stands over it, so a second tap is the answer.
+  const [confirmPlay, setConfirmPlay] = useState(false)
+  const play = () => (p.resumeTurn !== null && !confirmPlay ? setConfirmPlay(true) : p.onPlay())
 
   return (
     <main data-title>
@@ -209,7 +214,7 @@ export default function Title(p: TitleProps) {
             {/* The game's primary button, as PLAY AGAIN is on its debrief:
                 the main way on looks the same wherever it is, and it is the
                 largest thing on the desktop's menu (v1.5 R2's review). */}
-            <button type="button" data-play onClick={p.onPlay}>
+            <button type="button" data-play onClick={play}>
               <span>PLAY</span>
               {/* The mode PLAY will start (Ken's R1 phone pass, item 12): the
                   difficulty is changed in SYSTEM only. */}
@@ -217,6 +222,19 @@ export default function Title(p: TitleProps) {
                 {DIFFICULTIES[p.difficulty].label.toUpperCase()}
               </span>
             </button>
+            {confirmPlay && p.resumeTurn !== null && (
+              <div role="group" aria-label="Replace the operation in progress" data-confirm-play className="tt-card tt-warn">
+                <p>A new operation replaces the one in progress, on night {p.resumeTurn}.</p>
+                <div className="tt-row">
+                  <button type="button" onClick={p.onPlay} className="tt-btn tt-warn">
+                    START NEW
+                  </button>
+                  <button type="button" onClick={() => setConfirmPlay(false)} className="tt-btn">
+                    KEEP IT
+                  </button>
+                </div>
+              </div>
+            )}
             {moved && (
               <p data-moved-to-standard className="tt-go">
                 {MOVED_TO_STANDARD}

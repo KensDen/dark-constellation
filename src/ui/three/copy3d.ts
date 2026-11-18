@@ -27,7 +27,10 @@ export const openingCount = (n: number, of: number) => `Briefing ${n} of ${of}`
 export const GUIDE = {
   scan: 'SCAN: tap a signature below to identify it.',
   place: 'PLACE: 1 new defense a night. Tap one that answers it, or drag it onto an asset.',
-  begin: 'Ready. BEGIN when your orders are set.',
+  // The one rule the night turns on, said where it first matters (v2.0
+  // R5: through R4 it was only in HOW TO PLAY on the title, and that
+  // round's desktop player met "COLDVEIL switches" with no rule behind it).
+  begin: `Ready. ${ADVERSARY} reads your defenses and takes the move you cover least. BEGIN when your orders are set.`,
   respond: 'ANSWER: you have 3 for all 6 nights. Spend 1 here, or let it ride.',
   tap: 'TAP as the ring closes on the target for a bonus.',
   done: 'That is the whole watch: scan, place, answer. The words on the cards are explained in the menu, under THE WORDS.',
@@ -148,7 +151,8 @@ export const nothingKnown = 'Answers nothing you have identified tonight.'
 export const upkeepNote = (n: number) => `${n} CR a night to keep.`
 export const arrivesIn = (n: number) => `arrives in ${n} night${n === 1 ? '' : 's'}`
 export const ORDERED = 'ORDERED'
-export const fleetLead = 'More assets cover more ground. Coverage is 30% of the score.'
+// One line on a phone, so the card's first row of orders is whole.
+export const fleetLead = 'More fleet, more coverage: 30% of the score.'
 export const coverageOf = (n: number) => `+${n} coverage`
 
 // THE STAKES.

@@ -304,7 +304,38 @@ body:has([data-title]) .crt-overlay {
   align-items: flex-end;
   overflow: hidden;
   min-height: clamp(220px, 44dvh, 360px);
-  background: radial-gradient(circle var(--tt-globe, 34vw) at var(--tt-at, 58% 71%), #0a1c38, #060f1f 62%, #1d4f8f 79%, rgba(90, 169, 255, 0.28) 81%, transparent);
+  background:
+    radial-gradient(circle var(--tt-globe, 34vw) at var(--tt-at, 58% 71%), #0a1c38, #060f1f 62%, #1d4f8f 79%, rgba(90, 169, 255, 0.28) 81%, transparent),
+    radial-gradient(1.4px 1.4px at 9% 16%, #cfe0ff 45%, transparent 55%),
+    radial-gradient(1px 1px at 22% 38%, #9fb6e0 45%, transparent 55%),
+    radial-gradient(1.2px 1.2px at 36% 9%, #cfe0ff 45%, transparent 55%),
+    radial-gradient(1px 1px at 51% 22%, #9fb6e0 45%, transparent 55%),
+    radial-gradient(1.4px 1.4px at 67% 7%, #cfe0ff 45%, transparent 55%),
+    radial-gradient(1px 1px at 83% 19%, #9fb6e0 45%, transparent 55%),
+    radial-gradient(1.2px 1.2px at 93% 41%, #cfe0ff 45%, transparent 55%),
+    radial-gradient(1px 1px at 14% 57%, #9fb6e0 45%, transparent 55%);
+}
+/* FIRST LIGHT (v2.0 R5). Through R4 the hero's first frame was the limb
+   alone, still, for the half second to 2 seconds the world takes to
+   arrive, and both of that round's reviewers read it as a title that had
+   loaded late. The still is a picture of its own now, and it moves from
+   the first paint: stars in the sky above (in the hero's own background),
+   and the day's first light coming up along the globe's upper limb, then
+   breathing. The world fades in over a scene that was already under way.
+   Under Reduce Motion the light stands lit and still. Once the world is
+   on, the light is put out: nothing animates under a canvas that hides it. */
+[data-key-art]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle var(--tt-globe, 34vw) at var(--tt-at, 58% 71%), transparent 73%, rgba(140, 200, 255, 0.85) 80%, rgba(120, 190, 255, 0.2) 87%, transparent 98%);
+  -webkit-mask-image: linear-gradient(150deg, #000 calc(var(--tt-lit, 50%) - 16%), transparent calc(var(--tt-lit, 50%) + 16%));
+  mask-image: linear-gradient(150deg, #000 calc(var(--tt-lit, 50%) - 16%), transparent calc(var(--tt-lit, 50%) + 16%));
+}
+[data-key-art]:has(.tt-world[data-on])::before {
+  animation: none;
+  opacity: 0;
 }
 /* The scrim the words stand on, and the hero's foot fading into the page. */
 [data-key-art]::after {
@@ -608,6 +639,7 @@ textarea.tt-field {
   [data-key-art] {
     --tt-globe: 21vw;
     --tt-at: 68% 100%;
+    --tt-lit: 74%;
     min-height: 360px;
   }
   /* The words stand at the foot of the left here, so the scrim does too,
@@ -668,6 +700,11 @@ textarea.tt-field {
   .tt-world {
     transition: opacity 0.9s;
   }
+  [data-key-art]::before {
+    animation:
+      tt-dawn 1.5s ease-out both,
+      tt-breathe 4.6s 1.5s ease-in-out 8 alternate;
+  }
   .tt-btn,
   .tt-card,
   [data-play] {
@@ -675,5 +712,15 @@ textarea.tt-field {
   }
   :is(.tt-btn, button.tt-card, [data-play]):active {
     transform: scale(0.97);
+  }
+}
+@keyframes tt-dawn {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes tt-breathe {
+  to {
+    opacity: 0.45;
   }
 }

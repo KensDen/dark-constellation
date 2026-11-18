@@ -483,6 +483,23 @@ html.t3-on body {
 .t3-hook {
   color: #c4cfdc;
 }
+/* A call sign is one word: it never breaks at its hyphen (v2.0 R5: a card's
+   header read "STOPPED · SG- / R1 · / NEW" on a phone). */
+.t3-nb {
+  white-space: nowrap;
+}
+/* THE ACT FIRST ON A PHONE (v2.0 R5). The planning cards keep one height
+   so the theater does not move, and a piece's formal name, its blurb and
+   what it answers took all of it: PLACE ON stood half under the card's
+   foot, and TAKE IT BACK with it (the R4 phone review). The blurb and the
+   note on the post go after the buttons there, a scroll away, and a long
+   formal name is set a size smaller. The reading order is the page's own. */
+.t3-root:not(.t3-wide) [data-t3-card='piece'] > :is(.t3-hook, .t3-hint:not(.t3-warn)) {
+  order: 1;
+}
+.t3-root:not(.t3-wide) [data-t3-card='piece'] .t3-title {
+  font-size: 18px;
+}
 .t3-foot {
   font-size: 12px;
   text-align: center;
@@ -2295,6 +2312,18 @@ html.t3-on body {
 @media (max-height: 620px) {
   .t3-root:not(.t3-wide)[data-t3-phase='plan'] .t3-dock > .t3-card {
     height: 176px;
+  }
+  /* Only the call signs that matter tonight (v2.0 R5; Game3D.tsx says
+     which): 7 of them and the night's marks do not fit a sky 200 points
+     tall. A quiet asset's call sign comes back at a tap, or with a piece
+     in hand that could sit on it. */
+  .t3-root:not(.t3-wide) .t3-tag[data-quiet] .t3-sign {
+    display: none;
+  }
+  /* A placed piece's card: TAKE IT BACK whole, and where the post now
+     stands after it (the plan card says it too). */
+  .t3-root:not(.t3-wide) [data-t3-card='piece'] > .t3-fav.t3-ok {
+    order: 1;
   }
   .t3-root:not(.t3-wide) .t3-plan .t3-lead,
   .t3-root:not(.t3-wide) .t3-plan .t3-note {

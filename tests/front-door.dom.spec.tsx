@@ -151,8 +151,19 @@ describe('GUARD R1 (a): the first-visit flow', () => {
     leaveGame()
     expect(onTitle()).toBe(true)
 
-    // And again, on a fresh seed.
+    // And again, on a fresh seed. An operation is in progress now, so PLAY
+    // asks first (v2.0 R5: it used to begin a new one at a tap, and the
+    // night in progress was gone): KEEP IT leaves it, START NEW replaces it.
     click(container.querySelector('[data-play]')!)
+    await settleGame()
+    expect(inGame(), 'PLAY replaced an operation in progress without asking').toBe(false)
+    const ask = () => container.querySelector('[data-confirm-play]')
+    expect(ask()!.textContent).toContain('A new operation replaces the one in progress, on night 1.')
+    click([...ask()!.querySelectorAll('button')].find((b) => b.textContent === 'KEEP IT')!)
+    expect(ask()).toBeNull()
+    expect(autosave()!.state.seed, 'KEEP IT did not keep it').toBe(saved!.state.seed)
+    click(container.querySelector('[data-play]')!)
+    click([...ask()!.querySelectorAll('button')].find((b) => b.textContent === 'START NEW')!)
     await settleGame()
     expect(inGame()).toBe(true)
     expect(autosave()!.state.seed, 'two PLAYs drew the same seed').not.toBe(saved!.state.seed)

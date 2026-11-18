@@ -363,7 +363,7 @@ export function ContactCard({
         <SignatureGlyph id={contact.id} size={48} className="t3-glyph-big" />
         <div className="t3-grow">
           <p className="t3-eyebrow">
-            <span className={tone}>{contact.debris ? c3.FAVOR_TAG.confirmed : contact.exposed === 0 ? 'STOPPED' : c3.FAVOR_TAG[contact.favor]}</span> · {sign}
+            <span className={tone}>{contact.debris ? c3.FAVOR_TAG.confirmed : contact.exposed === 0 ? 'STOPPED' : c3.FAVOR_TAG[contact.favor]}</span> · <span className="t3-nb">{sign}</span>
             {contact.hardened > 0 ? ` · ${c3.postTook(contact.hardened)}` : ''}
             {filed ? '' : ' · NEW'}
           </p>
@@ -575,7 +575,9 @@ export function ChoiceCard({
       <div className="t3-head">
         <SignatureGlyph id={def.id} size={40} className="t3-glyph-big" />
         <div className="t3-grow">
-          <p className="t3-eyebrow t3-bad">INCOMING · {sign}</p>
+          <p className="t3-eyebrow t3-bad">
+            INCOMING · <span className="t3-nb">{sign}</span>
+          </p>
           <h2 className="t3-title" aria-label={`${shortName(def)}, strength ${strength}`}>
             {c3.TAG[def.id] ?? shortName(def)} <i className="t3-bad">{dots(strength)}</i>
           </h2>

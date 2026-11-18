@@ -369,14 +369,28 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     // A label on another asset costs most, on another label less.
     const cost = (box: Box, self: number, onLabel = 1) => out(box) + bodies.reduce((n, b, i) => (i === self ? n : n + over(box, b) * 3), 0) + taken.reduce((n, b) => n + over(box, b) * onLabel, 0) + named.reduce((n, b) => n + (over(box, b) > 0 ? 3000 + over(box, b) * 40 : 0), 0)
     const signs: { flip: boolean; h: number }[] = []
-    list.forEach((a, i) => {
+    // Where each call sign stands, by its place in `list`, so a later pass
+    // can weigh one against all the others and not only those before it.
+    const signBox: (Box | null)[] = []
+    const NOWHERE: Box = [-9999, -9999, -9999, -9999]
+    const place = (a: (typeof list)[number], i: number, again: boolean) => {
       const sign = a.el.querySelector<HTMLElement>('.t3-sign')
+      // A quiet asset on the shortest phone shows no call sign (v2.0 R5):
+      // it takes no room, and nothing is kept clear of it.
+      if (!sign || sign.offsetWidth === 0) {
+        signBox[i] = null
+        if (!again) {
+          taken.push(NOWHERE)
+          signs.push({ flip: false, h: 0 })
+        }
+        return
+      }
       // A little air around each call sign, so two that only touch count
       // as on each other; and a call sign on another label costs 4 times
       // its area, so a small overlap is enough to send it to a clear side
       // (through R2 a drone's sign could rest against a satellite's).
-      const w = Math.max(60, sign?.offsetWidth ?? 70) + 14
-      const h = Math.max(22, sign?.offsetHeight ?? 26) + 4
+      const w = Math.max(60, sign.offsetWidth) + 14
+      const h = Math.max(22, sign.offsetHeight) + 4
       // Under the asset, over it, or to either side of it.
       const spots: [string, Box, number][] = [
         ['', [a.x - w / 2, a.y + 20, a.x + w / 2, a.y + 20 + h], 0],
@@ -387,6 +401,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       // It stays where it is unless another side is clearly better.
       const was = a.el.dataset.flip ?? ''
       let best = spots.find((sp) => sp[0] === was) ?? spots[0]
+      // On the second pass its own box is not in its way.
+      if (again) taken[i] = NOWHERE
       let bestCost = cost(best[1], i, 4) - 60
       for (const sp of spots) {
         const c = cost(sp[1], i, 4) + sp[2]
@@ -395,8 +411,10 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           bestCost = c
         }
       }
-      taken.push(best[1])
-      signs.push({ flip: best[0] === '1', h: best[0] === 'l' || best[0] === 'r' ? 0 : h })
+      if (again) taken[i] = best[1]
+      else taken.push(best[1])
+      signBox[i] = best[1]
+      signs[i] = { flip: best[0] === '1', h: best[0] === 'l' || best[0] === 'r' ? 0 : h }
       if (was !== best[0]) a.el.dataset.flip = best[0]
       // A label that would cross a screen edge is slid back onto the screen.
       const nudge = Math.round(best[1][0] < 4 ? 4 - best[1][0] : best[1][2] > right - 4 ? right - 4 - best[1][2] : 0)
@@ -404,15 +422,23 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         a.el.dataset.nudge = String(nudge)
         a.el.style.setProperty('--t3-nudge', `${nudge}px`)
       }
-    })
+    }
+    list.forEach((a, i) => place(a, i, false))
+    // A SECOND PASS (v2.0 R5): the first sets each call sign down against
+    // the ones before it only, lowest on the screen first, so an early one
+    // could take the side a later one had no other way out of. Each is
+    // weighed once more against all the others where they now stand.
+    list.forEach((a, i) => place(a, i, true))
     chipAt.current.clear()
     // One asset's marks never stand on another's (v2.0 R4): any overlap
-    // costs more than the farthest spot.
-    const marked: Box[] = []
+    // costs more than the farthest spot. Where each block stands, by its
+    // asset's place in `list`.
+    const marked: (Box | null)[] = list.map(() => null)
+    const chosen: number[] = []
     // (500 at first: the bot met a night where a 3-mark block still took
     // the spot over its asset and stood on its neighbour's mark.)
-    const onMarks = (box: Box) => marked.reduce((n, b) => n + (over(box, b) > 0 ? 4000 + over(box, b) * 40 : 0), 0)
-    list.forEach((a, i) => {
+    const onMarks = (box: Box, self: number) => marked.reduce((n, b, k) => n + (b && k !== self && over(box, b) > 0 ? 4000 + over(box, b) * 40 : 0), 0)
+    const setDown = (a: (typeof list)[number], i: number, again: boolean) => {
       const chips = a.el.querySelector<HTMLElement>('.t3-contacts')
       if (!chips) return
       const w = chips.offsetWidth
@@ -464,15 +490,20 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         return [x, y, x + w, y + h]
       }
       const slid = ([sx, sy]: [number, number], box: Box) => (Math.abs(box[0] - (a.x + sx)) + Math.abs(box[1] - (a.y + sy))) * 3
+      // A mark on a call sign, its own asset's or another's, hides a name:
+      // it costs 20 times its area (5 through R4, when a mark took the
+      // spot on its own asset's POST badge on 1 night in 8 of the shortest
+      // phone's, as the cheapest thing left).
       const judge = (spot: [number, number]) => {
         const box = boxAt(spot)
-        return cost(box, i, 5) + onMarks(box) + slid(spot, box)
+        return cost(box, i, 20) + onMarks(box, i) + slid(spot, box)
       }
       // The spot it has keeps it unless another is clearly better, so the
       // labels do not hop as the camera drifts.
-      const held = Number(chips.dataset.spot ?? 0)
-      let best = held
-      let bestCost = judge(spots[held] ?? spots[0]) - 260
+      // The second pass starts from the first's choice, and leaves it only
+      // for a spot that is clear of more.
+      let best = again ? (chosen[i] ?? 0) : Number(chips.dataset.spot ?? 0)
+      let bestCost = judge(spots[best] ?? spots[0]) - (again ? 120 : 260)
       spots.forEach((spot, k) => {
         const c = judge(spot) + k * 14
         if (c < bestCost) {
@@ -480,19 +511,24 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           bestCost = c
         }
       })
+      chosen[i] = best
       const stands = boxAt(spots[best] ?? spots[0])
       const dx = Math.round(stands[0] - a.x)
       const dy = Math.round(stands[1] - a.y)
-      taken.push([a.x + dx, a.y + dy, a.x + dx + w, a.y + dy + h])
-      marked.push([a.x + dx - 2, a.y + dy - 2, a.x + dx + w + 2, a.y + dy + h + 2])
+      marked[i] = [a.x + dx - 2, a.y + dy - 2, a.x + dx + w + 2, a.y + dy + h + 2]
       chipAt.current.set(a.key, { dx, dy, w, h })
+      if (!again) return
       const mark = `${dx},${dy}`
       chips.dataset.spot = String(best)
       if (chips.dataset.at !== mark) {
         chips.dataset.at = mark
         chips.style.transform = `translate(${dx}px, ${dy}px)`
       }
-    })
+    }
+    // Twice, as the call signs are (v2.0 R5): a block set down early is
+    // weighed again against the blocks set down after it.
+    list.forEach((a, i) => setDown(a, i, false))
+    list.forEach((a, i) => setDown(a, i, true))
   }, [])
 
   useEffect(() => {
@@ -1716,8 +1752,20 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           const label = `${sign}, ${kindLabels[a.kind]}, ${lost ? 'lost' : `integrity ${asset.integrity}%`}${post === a.id ? `. ${c3.POST_HERE}` : ''}${cond.length ? `. ${cond.map((c) => c.name).join(', ')}` : ''}${on.length ? `. ${on.length} signature${on.length === 1 ? '' : 's'} over it` : ''}${
             armed?.has(a.id) && selPiece ? `. Place ${selPiece.cm.name} here` : isTarget && stage.at === 'choose' && isolateChoice ? '. Tap to isolate it' : ''
           }`
+          // ON THE SHORTEST PHONE, ONLY THE CALL SIGNS THAT MATTER TONIGHT
+          // (v2.0 R5). Its sky is 200 points tall, and 7 call signs with
+          // the night's marks did not fit it: 1 planning screen in 5 had a
+          // mark or a call sign touching another call sign. While the
+          // watch plans there, an asset with nothing aimed at it, no post,
+          // no condition and no damage is quiet: its call sign shows when
+          // it is tapped, or when a piece in hand could sit on it. And with
+          // a piece in hand the call signs shown are the ones it can sit
+          // on, and no others: the question on the screen is where
+          // (game3d.css, a short screen).
+          const mine = (sel?.kind === 'asset' && sel.id === a.id) || anchorId === a.id || drag?.over === a.id
+          const quiet = phase === 'plan' && !lit && !mine && (!!(dragOk || armed) || (on.length === 0 && post !== a.id && cond.length === 0 && !hurt))
           return (
-            <div key={a.id} ref={tagRef(a.id)} className="t3-tag" data-asset="1">
+            <div key={a.id} ref={tagRef(a.id)} className="t3-tag" data-asset="1" data-quiet={quiet || undefined}>
               <button
                 type="button"
                 data-t3-asset={a.id}
