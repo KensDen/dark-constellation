@@ -972,7 +972,11 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const stood = postNow(game, bare)
     const [was, now] = [atStakeOf(contactsFor(game, bare)), atStakeOf(after)]
     const gave = stood && stood !== where && now < was - 0.05 ? ` ${c3.postCost(signs.get(stood) ?? stood, was, now)}` : ''
-    setNote(`${moved ? `${ADVERSARY_NAME} switches to ${moved.known ? shortName(moved.def) : 'an unidentified move'}. ` : ''}${where ? c3.postLine(sign) : ''}${gave}`)
+    // And what it does to WORST CASE where the tile now reads short with
+    // no mark (v2.0 R5): said first, with its odds.
+    const reads = stakesFor(game, next, after, 0)
+    const tight = !reads.risky && reads.worst < 0 ? `${c3.tightSay(reads.worst, reads.tonight)} ` : ''
+    setNote(`${tight}${moved ? `${ADVERSARY_NAME} switches to ${moved.known ? shortName(moved.def) : 'an unidentified move'}. ` : ''}${where ? c3.postLine(sign) : ''}${gave}`)
     setSay(c3.placedSay(cm.name, sign))
     if (guide === 'place' || guide === 'scan') setGuide('begin')
   }
@@ -1644,7 +1648,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         const advice = spotAdvice(game, orders, a.cm.id)
         if (advice.raises && advice.gives) then = c3.postCostShort(signs.get(advice.gives) ?? advice.gives)
       }
-      return { id: a.cm.id, name: a.cm.name, cost: a.cm.cost, verb: a.verb, owned: a.owned, ordered: a.ordered, blocked: piece?.blocked ?? null, risky: !!piece?.risky && !a.ordered, odds: piece?.odds ?? 0, soon: !!piece?.soon, then }
+      return { id: a.cm.id, name: a.cm.name, cost: a.cm.cost, verb: a.verb, owned: a.owned, ordered: a.ordered, blocked: piece?.blocked ?? null, risky: !!piece?.risky && !a.ordered, odds: piece?.odds ?? 0, soon: !!piece?.soon, worst: piece?.worst ?? 0, tonight: piece?.tonight ?? 0, then }
     })
 
   const assetTap = (id: string) => {

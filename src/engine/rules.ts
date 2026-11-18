@@ -123,9 +123,9 @@ export const exposedOf = (ev: Pick<ResolvedEvent, 'baseSeverity' | 'chainBonus' 
 // rate by about 10 points at most. At 25 and 12.5, under R1's rules, it
 // took Novice from 47 percent of games to 82 on STANDARD: the reflex was
 // worth more than the orders. At 5 and 2.5, under the rules as they are
-// (v2.0 R4): Novice 41.2 percent with no taps, 44.2 at the Assist rate and
-// 48.8 with a perfect tap on every move (7.6 points), and Prepared 87.2 to
-// 89.4. Damage is whole numbers, so the steps are coarse.
+// (v2.0 R5): Novice 39.4 percent with no taps, 41.8 at the Assist rate and
+// 46.6 with a perfect tap on every move (7.2 points), and Prepared 86.2 to
+// 88.4. Damage is whole numbers, so the steps are coarse.
 // tests/sweep.spec.ts holds the bound and prints both rates.
 export const TIMING_BONUS: Record<TimingGrade, number> = { 1: 0.025, 2: 0.05 }
 export const timingShare = (grade: TimingGrade | 0 | null | undefined): number => 1 - (grade ? TIMING_BONUS[grade] : 0)

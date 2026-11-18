@@ -121,12 +121,12 @@ export function PlanCard({
         </p>
         {/* Red only when the mark is up; short with no mark is possible,
             not likely, and reads amber (v2.0 R5). */}
-        <p title={c3.worstNote(stakes.worst, stakes.risky)} data-t3-worst-state={stakes.risky ? 'risky' : stakes.worst < 0 ? 'short' : 'clear'}>
+        <p title={c3.worstNote(stakes.worst, stakes.risky, stakes.tonight)} data-t3-worst-state={stakes.risky ? 'risky' : stakes.worst < 0 ? 'short' : 'clear'}>
           <span>{c3.WORST}</span>
           <b className={stakes.risky ? 't3-bad' : stakes.worst < 0 ? 't3-warn' : ''} aria-label={c3.worstFace(stakes.worst)}>
             {c3.worstTile(stakes.worst)}
           </b>
-          <span className="t3-sr">{c3.worstNote(stakes.worst, stakes.risky)}</span>
+          <span className="t3-sr">{c3.worstNote(stakes.worst, stakes.risky, stakes.tonight)}</span>
         </p>
         {answersOf > 0 && (
           <p data-t3-answers={answers} aria-label={c3.answersLeft(answers, answersOf)}>
@@ -250,6 +250,10 @@ export interface AnswerView {
   risky: boolean
   odds: number
   soon: boolean
+  // What the tile would read with it, and the chance tonight breaks the
+  // budget: under 0 with no mark is said in words, not marked.
+  worst: number
+  tonight: number
   // What COLDVEIL does once it is placed, when it moves.
   then: string
 }
@@ -380,13 +384,15 @@ export function ContactCard({
       </p>
       {answers.map((a) => {
         const lockedBy = !a.ordered && !a.owned && locked ? ` · ${c3.replaces(locked).replace(/\.$/, '')}` : ''
-        const line = a.owned ? c3.OWNED : a.ordered ? `${c3.PLACED} · tap to take it back` : `${verbWord(a.verb)} it${a.then ? `, ${a.then}` : ', every night'}${lockedBy}${a.risky ? `. ${c3.riskyBy(a.odds, a.soon)}` : ''}`
+        const tight = !a.risky && !a.owned && !a.ordered && !a.blocked && a.worst < 0
+        const line = a.owned ? c3.OWNED : a.ordered ? `${c3.PLACED} · tap to take it back` : `${verbWord(a.verb)} it${a.then ? `, ${a.then}` : ', every night'}${lockedBy}${a.risky ? `. ${c3.riskyBy(a.odds, a.soon)}` : tight ? `. ${c3.tightBy(a.worst, a.tonight).replace(/\.$/, '')}` : ''}`
         return (
           <button
             key={a.id}
             type="button"
             data-t3-order={a.id}
             data-risky={a.risky || undefined}
+            data-tight={tight || undefined}
             aria-pressed={a.ordered}
             disabled={a.owned || (a.blocked === 'budget' && !a.ordered)}
             aria-label={`${a.name}. ${a.cost} CR. ${line}.`}
@@ -397,7 +403,7 @@ export function ContactCard({
               <b>{PIECE[a.id]}</b>
               <span>{a.owned ? '' : `${a.cost} CR`}</span>
             </span>
-            <span className={`t3-choice-sub ${a.then || a.risky ? 't3-warn' : 't3-ok'}`}>{a.blocked === 'budget' && !a.ordered ? 'Not enough budget tonight' : line}</span>
+            <span className={`t3-choice-sub ${a.then || a.risky || tight ? 't3-warn' : 't3-ok'}`}>{a.blocked === 'budget' && !a.ordered ? 'Not enough budget tonight' : line}</span>
           </button>
         )
       })}
@@ -431,7 +437,7 @@ export function PieceCard({ piece, targets, postCost, locked, upkeep, placedOn, 
       {piece.risky && !piece.ordered && <p className="t3-note">{c3.riskyBy(piece.odds, piece.soon)}.</p>}
       {!piece.risky && !piece.ordered && !piece.blocked && piece.worst < 0 && (
         <p className="t3-note" data-t3-tight>
-          {c3.tightBy(piece.worst)}
+          {c3.tightBy(piece.worst, piece.tonight)}
         </p>
       )}
       {piece.ordered ? (

@@ -421,8 +421,10 @@ export interface KitPiece {
   soon: boolean
   // What the tile would read with it placed: under 0 with no mark is a
   // night whose very worst breaks the budget, possible and not likely.
-  // The piece's card says so quietly; the tray does not mark it.
+  // The piece's card says so, with the chance tonight breaks it
+  // (`tonight`); the tray does not mark it.
   worst: number
+  tonight: number
   // The identified signatures tonight it answers, and what it does to each.
   answers: { contact: Contact; verb: Answer['verb'] }[]
   domain: AssetKind[]
@@ -443,7 +445,7 @@ export function kitFor(state: GameState, orders: Orders, contacts: readonly Cont
     // piece, and otherwise on the spot its card recommends, since the post
     // takes a point off a strike there and the odds count it.
     const wc = blocked ? null : worstCase(state, actionsOf({ ...orders, defense: cm.id, place: orders.defense === cm.id ? orders.place : (spotFor(state, orders, cm.id) ?? null) }))
-    return { cm, blocked, ordered: orders.defense === cm.id, risky: !!wc?.risky, odds: wc?.odds ?? 0, soon: (wc?.tonight ?? 0) > RISK_BAR, worst: !wc ? 0 : wc.dawn < 0 ? wc.dawn : wc.morning, answers, domain: domainOf(state, cm.id) }
+    return { cm, blocked, ordered: orders.defense === cm.id, risky: !!wc?.risky, odds: wc?.odds ?? 0, soon: (wc?.tonight ?? 0) > RISK_BAR, worst: !wc ? 0 : wc.dawn < 0 ? wc.dawn : wc.morning, tonight: wc?.tonight ?? 0, answers, domain: domainOf(state, cm.id) }
   })
   // In the catalog's own order, every night: a tray that reshuffled itself
   // after each scan could not be learned (the round's fresh-eyes review).
@@ -491,11 +493,14 @@ export interface Stakes {
   risky: boolean
   odds: number
   soon: boolean
+  // The chance tonight's close breaks the budget: what a tile that reads
+  // short with no mark says beside "possible, not likely".
+  tonight: number
 }
 export function stakesFor(state: GameState, orders: Orders, contacts: readonly Contact[], score: number): Stakes {
   const atStake = atStakeOf(contacts)
   const wc = worstCase(state, actionsOf(orders))
-  return { score, line: state.scenario.winThreshold, atStake, remaining: wc.remaining, worst: wc.dawn < 0 ? wc.dawn : wc.morning, risky: wc.risky, odds: wc.risky && wc.tonight > RISK_BAR ? wc.tonight : wc.odds, soon: wc.tonight > RISK_BAR }
+  return { score, line: state.scenario.winThreshold, atStake, remaining: wc.remaining, worst: wc.dawn < 0 ? wc.dawn : wc.morning, risky: wc.risky, odds: wc.risky && wc.tonight > RISK_BAR ? wc.tonight : wc.odds, soon: wc.tonight > RISK_BAR, tonight: wc.tonight }
 }
 
 // --------------------------------------------------------------- the night

@@ -170,16 +170,19 @@ export const NO_ANSWERS = 'NO ANSWERS LEFT'
 export const ALSO_TONIGHT = 'ALSO TONIGHT'
 export const SIGNATURES = 'TONIGHT'
 export const signaturesOver = (n: number) => `${n} signature${n === 1 ? '' : 's'} tonight. Tap one.`
+// A chance under the mark's bar, in tenths: what "possible, not likely"
+// comes to. Under 1 in 20 the worst case needs every call to go wrong.
+export const fewInTen = (chance: number) => (chance < 0.05 ? 'under 1 in 10' : `about ${Math.min(5, Math.max(1, Math.round(chance * 10)))} in 10`)
 // WORST CASE, for the tile's tooltip and a screen reader: the three things
 // it can say (v2.0 R5).
-export const worstNote = (n: number, risky: boolean) =>
+export const worstNote = (n: number, risky: boolean, tonight = 0) =>
   n >= 0
     ? risky
       ? 'The budget survives tonight at its worst, but tomorrow night is likely to break it.'
       : 'The budget tomorrow morning if tonight goes as badly as it can, funding included.'
     : risky
       ? 'The budget is likely to break. A budget under 0 at dawn ends the operation.'
-      : 'Tonight at its very worst would break the budget. It is possible, not likely.'
+      : `Tonight at its very worst would break the budget, and that ends the operation. It is possible, not likely: ${fewInTen(tonight)}.`
 export const BEGIN = 'BEGIN'
 export const BEGIN_LONG = 'Begin the night'
 export const BEGIN_AT_RISK = 'BEGIN AT RISK'
@@ -198,9 +201,14 @@ export const riskyBy = (odds: number, soon: boolean) => {
   const when = soon ? 'tonight' : 'by tomorrow night'
   return odds > SURE ? `Risky: with it the budget is all but certain to break ${when}` : `Risky: with it the budget is likely to break ${when}, ${inTen(odds)}`
 }
-// A piece that would leave the tile short with no mark: said on its card,
-// quietly, and never on the tray.
-export const tightBy = (worst: number) => `With it WORST CASE reads ${worstFace(worst)}: possible, not likely.`
+// A piece that would leave the tile short with no mark (v2.0 R5): no mark
+// on the tray and no second BEGIN, because 2 times in 3 nothing comes of
+// it, but it is said, with its odds, wherever the piece is chosen: on its
+// card, on the signature's card, and by the watch officer once it is set
+// down. (The bot's careful Daily Op player ended an operation on such a
+// night, 10 CR short on the tile in amber, before these lines were there.)
+export const tightBy = (worst: number, tonight: number) => `With it WORST CASE reads ${worstFace(worst)}: possible, not likely (${fewInTen(tonight)}).`
+export const tightSay = (worst: number, tonight: number) => `WORST CASE now reads ${worstFace(worst)}: possible, not likely (${fewInTen(tonight)}).`
 // BEGIN on a night that is likely to break the budget, said with what the
 // player can do about it. It opens on the tile's own figure, so one screen
 // never shows two. `worst` is that figure (under 0 when tonight's worst

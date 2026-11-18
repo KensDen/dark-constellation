@@ -47,9 +47,9 @@ export const FIRST_LIGHT: Scenario = {
   // CR as before, and still reaches the coverage bonus), so every line
   // that orders that one drone plays exactly as it did, and each drone
   // after it costs 10 more. MEASURED on STANDARD, 500 seeds a line, under
-  // R5's guard: Prepared 86.2, Novice 41.2, the Expert 98.4; Prepared with
-  // a drone a night as well 28.4 (it spends what its defenses need); the
-  // same line keeping tomorrow's likely bills in hand 80.2, and 92.6 with
+  // R5's guard: Prepared 86.2, Novice 39.4, the Expert 98.4; Prepared with
+  // a drone a night as well 26.6 (it spends what its defenses need); the
+  // same line keeping tomorrow's likely bills in hand 80.0, and 92.6 with
   // the Expert's answers. PRICES MEASURED BESIDE IT, each with the opening
   // budget moved by the same amount, the careful drone line and the same
   // with the Expert's answers: 15, 93.2 and 97.0; 20, 98.6 and 99.6, over
@@ -67,6 +67,12 @@ export const FIRST_LIGHT: Scenario = {
     groundStation: 25,
   },
   upkeepPerDefense: 2,
+  // RE-TUNED IN v2.0 R5 (Ken's rulings of 17 November 2026): the opening
+  // budget 90 and a drone 25 (the fleet, above), and 4 points for a wrong
+  // call (the watch, below). Meter damage, recovery and funding are R4's.
+  // Prepared 86.2, Novice 39.4, the Expert 98.4 on STANDARD; 100.0, 79.2
+  // and 100.0 on EASY.
+  //
   // RE-TUNED IN v2.0 R4 (Ken's rulings of 15 November 2026: fix the
   // watch-post advice, loosen the WORST CASE guard, then bring the bands
   // back to where Round 2 put them). The two fixes made every line that

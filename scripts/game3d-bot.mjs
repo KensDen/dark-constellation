@@ -226,8 +226,11 @@ const AUDIT = `(() => {
   if (document.documentElement.scrollWidth > innerWidth + 1) bad.push('the page scrolls sideways')
   // THE SIGNATURE MARKS KEEP CLEAR (v2.0 R4): while the watch plans, no mark
   // stands on another mark or on COLDVEIL's name, and none is under the
-  // cards or off the side. (A mark may still touch a call sign on the
-  // shortest phone, where 7 call signs share 200px of sky.)
+  // cards or off the side. AND THE CALL SIGNS (v2.0 R5): no mark stands on
+  // a call sign, its own asset's or another's, and no call sign on another.
+  // Through R4 that was let be on the shortest phone, where 7 call signs
+  // shared 200px of sky and 1 planning screen in 5 had one touching; there
+  // only the call signs that matter tonight are shown now.
   if (document.querySelector('.t3-root')?.dataset.t3Phase === 'plan' && dock) {
     const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom] }
     const over = (a, b) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]))
@@ -235,6 +238,11 @@ const AUDIT = `(() => {
     const marks = [...document.querySelectorAll('.t3-contact')].filter(shown).map((e) => [e.dataset.t3Contact, box(e)])
     const foe = document.querySelector('.t3-tag-foe span')
     const name = foe && shown(foe) ? box(foe) : null
+    const signs = [...document.querySelectorAll('.t3-tag[data-asset] .t3-sign')].filter(shown).map((e) => [e.closest('.t3-tag').querySelector('[data-t3-asset]')?.dataset.t3Sign ?? '?', box(e)])
+    signs.forEach(([sign, s], i) => {
+      for (const [other, t] of signs.slice(i + 1)) if (over(s, t) > 60) bad.push('the call sign ' + sign + ' stands on the call sign ' + other)
+      for (const [id, m] of marks) if (over(m, s) > 40) bad.push('the mark of ' + id + ' stands on the call sign ' + sign)
+    })
     marks.forEach(([id, m], i) => {
       for (const [other, n] of marks.slice(i + 1)) if (over(m, n) > 20) bad.push('the mark of ' + id + ' stands on the mark of ' + other)
       if (name && over(m, name) > 20) bad.push('the mark of ' + id + " stands on COLDVEIL's name")
@@ -298,7 +306,9 @@ async function run(b, base, view, plan, log, shots, table) {
     let bad = await b.evaluate(AUDIT)
     // The camera eases for about half a second after a card opens or grows:
     // a target is judged where the frame settles, not on the way there.
-    if (bad.some((x) => x.startsWith('the target is not in view'))) {
+    // And the labels are set down again every few frames as it does: one
+    // caught on another mid-move is judged where they settle.
+    if (bad.some((x) => x.startsWith('the target is not in view') || x.includes('the call sign'))) {
       await sleep(900)
       bad = await b.evaluate(AUDIT)
     }
@@ -487,8 +497,12 @@ async function run(b, base, view, plan, log, shots, table) {
         await sleep(120)
         await tap(b, `[data-t3-sig="${c.id}"]`)
         await sleep(quick ? 150 : 450)
-        // A careful player leaves a piece that would put WORST CASE below 0.
-        const piece = await b.evaluate(`document.querySelector('[data-t3-order]:not(:disabled):not([data-risky])[aria-pressed="false"]')?.dataset.t3Order ?? null`)
+        // A careful player leaves a piece that would put WORST CASE below 0:
+        // one marked risky, and since v2.0 R5 one whose card says the tile
+        // would read short with no mark (possible, not likely). Through R4
+        // the two were one mark; the careful Daily Op player read only the
+        // mark, placed a piece 10 CR short on night 6, and the worst came.
+        const piece = await b.evaluate(`document.querySelector('[data-t3-order]:not(:disabled):not([data-risky]):not([data-tight])[aria-pressed="false"]')?.dataset.t3Order ?? null`)
         if (!piece) {
           await tap(b, '[data-t3-close]')
           continue

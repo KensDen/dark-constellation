@@ -12,7 +12,7 @@ strikes, and make the call when your own automated defense stops one of your own
 Play it: https://kensden.github.io/dark-constellation/ (the released v1.6 game, until v2.0
 merges)
 
-Status: **v2.0, Round 3, in work on the `v2.0/r3` branch** (15 November 2026). This README
+Status: **v2.0, Round 5, in work on the `v2.0/r5` branch** (17 November 2026). This README
 describes the game on this branch, which is the 3D game and nothing else: the pixel board it
 grew from is retired here, with its screens and its rule set out of the tree. That game is kept
 as it was released on `main`, and as it stood on the `v1.7/r1` and `exp/3d-slice` branches.
@@ -38,8 +38,9 @@ fall under 35, or let the budget go below zero at a dawn, and the operation ends
   1 point weaker. The piece's card recommends a spot.
 - **Order assets**, if the budget allows. More fleet covers more ground, and coverage is 30
   percent of the score.
-- **WORST CASE** says what the budget reads after the worst night tonight could be. BEGIN asks
-  twice when that is below zero.
+- **WORST CASE** says what the budget would read tomorrow morning if tonight goes as badly as it
+  can, with funding and the coverage bonus in. An order is marked risky, and BEGIN asks twice, only
+  when a broken budget is more likely than not by tomorrow night.
 
 **The night.**
 
@@ -78,8 +79,8 @@ battery run (`tests/sweep.spec.ts`). On STANDARD:
 
 | line | wins |
 |---|---|
-| Prepared: scans, places the defense that answers the move COLDVEIL favors on the recommended spot, answers each move that would land while it has an answer, reads every hold right | 87.2% |
-| Novice: scans the first 2 signatures, places a piece the tray lights for one of them, answers 2 moves in 3, calls 2 holds in 3 right | 41.2% |
+| Prepared: scans, places the defense that answers the move COLDVEIL favors on the recommended spot, answers each move that would land while it has an answer, reads every hold right | 86.2% |
+| Novice: scans the first 2 signatures, places a piece the tray lights for one of them, answers 2 moves in 3, calls 2 holds in 3 right | 39.4% |
 | Nothing: no orders, no answers, no calls | 0% |
 
 Reported beside them, and held to no band: the Expert, who is Prepared saving the 3 answers for
@@ -89,16 +90,18 @@ line under it.
 No line that does less than Prepared wins more often than Prepared: not a line that places 2 or 3
 defenses and banks the rest, not a drone a night with no defense, not one written order of
 defenses, not answers with no orders. Prepared overriding every hold, and Prepared letting every
-block stand, each win about 7 points less than Prepared reading the evidence. Prepared placing
+block stand, each win about 6 points less than Prepared reading the evidence. Prepared placing
 its pieces at random wins about 44 points less. A perfect timed tap on every strike lifts the
-Novice by about 8 points. Naming every signature on sight lifts Prepared by about 13 points and
-the Novice by about 9. Guessing at names (right 1 time in 4, until the first miss ends it) is
-held to a gain of 5 points at most, and measures as 1 to 4.
+Novice by about 7 points. Naming every signature on sight lifts Prepared by about 14 points and
+the Novice by about 11. Guessing at names (right 1 time in 4, until the first miss ends it) is
+held to a gain of 5 points at most, and measures as 0 to 4.
 
-One line reported beside them wins more than any of these: Prepared who also orders a drone a
-night wins all 500. Since v2.0 R4 WORST CASE holds back what tomorrow is likely to need and no more,
-so the budget it used to keep in reserve is free to grow the fleet, and coverage is 30% of the
-score.
+The fleet is not a bank. Through Round 4 Prepared who also ordered a drone a night won all 500: a
+drone was 15 CR for 2.7 points of score, with no upkeep. A drone is 25 CR now and the opening
+budget 90, so the first drone, the one the first night teaches, leaves what it always left and
+each one after it costs 10 more. Prepared with a drone a night as well now wins 26.6%, because
+it spends what its defenses need; the same line keeping tomorrow's likely bills in hand wins
+80.0%, and 92.6% with the Expert's answers. The gate holds every one of them under the Expert.
 
 **Grades** run S to F. A win is graded on its final score plus a defense bonus, against bands set
 from the same sweep so that S is about the top 5 percent of wins and A the next 20, at each

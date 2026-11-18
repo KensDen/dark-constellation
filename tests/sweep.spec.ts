@@ -25,21 +25,24 @@ import { GRADES, SEEDS, median, playPolicy, type PolicyRun } from './sweep-run'
 const pct = (n: number, of: number) => (100 * n) / of
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 
-// The bands, in percent of games won, inclusive. KEN'S RULINGS OF 15
+// The bands, in percent of games won, inclusive. KEN'S RULINGS OF 15 AND 17
 // NOVEMBER 2026: the bands stay where Round 2 put them, Prepared about 86
 // percent and Novice about 40, the beginner of tests/policies.ts is the
-// right picture of a beginner, and after the watch-post advice was fixed
-// and the WORST CASE guard loosened (v2.0 R4) the numbers were re-tuned to
-// land there. MEASURED at the numbers the scenario carries (15 meter
+// right picture of a beginner, and after each round's changes to the
+// advice, the guard and the fleet the numbers are re-tuned to land there.
+// MEASURED at the numbers the scenario carries since v2.0 R5 (15 meter
 // damage a point, 7 recovery a night, 3 answers, funding 7, a starting
-// budget of 80, 3.5 points for a wrong call): Prepared 87.2, Novice 41.2,
-// Nothing 0.0 on STANDARD; Prepared 100.0 and Novice 79.6 on EASY; the
-// Expert 98.4 and 100.0. src/content/scenarios/firstLight.ts has the
-// settings measured beside it. UNDER R3's GUARD AND NUMBERS (13, 5, 6 and
-// 2): Prepared 85.8, Novice 40.2, Prepared 92.0 and Novice 84.2 on EASY.
-// A Prepared line that plays its orders well and a beginner are about 45
-// points apart at every setting measured, so the two bands cannot both
-// be met to the point: this is the whole-number setting nearest both.
+// budget of 90, a drone at 25 CR, 4 points for a wrong call): Prepared
+// 86.2, Novice 39.4, Nothing 0.0 on STANDARD; Prepared 100.0 and Novice
+// 79.2 on EASY; the Expert 98.4 and 100.0.
+// src/content/scenarios/firstLight.ts has the settings measured beside it.
+// UNDER R4's GUARD AND NUMBERS (80 to start, a drone at 15, 3.5 for a
+// wrong call): Prepared 87.2, Novice 41.2, Prepared 100.0 and Novice 79.6
+// on EASY. UNDER R3's (13, 5, 6 and 2): Prepared 85.8, Novice 40.2,
+// Prepared 92.0 and Novice 84.2 on EASY. A Prepared line that plays its
+// orders well and a beginner are about 45 points apart at every setting
+// measured, so the two bands cannot both be met to the point: this is the
+// whole-number setting nearest both.
 const TARGETS: { name: string; difficulty: Difficulty; label: string; min: number; max: number }[] = [
   { name: 'prepared', difficulty: 'standard', label: 'Prepared', min: 75, max: 90 },
   { name: 'prepared', difficulty: 'easy', label: 'Prepared on EASY', min: 90, max: 100 },
@@ -145,10 +148,13 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     // Under R4's guard, with a drone at 15 CR, the first of these won all
     // 500 on STANDARD. A drone is 25 CR now and the opening budget 90
     // (src/content/scenarios/firstLight.ts has the prices measured beside
-    // it). MEASURED: a drone a night as well, 28.4 percent on STANDARD and
-    // 77.0 on EASY; with tomorrow's likely bills kept in hand, 80.2 and
-    // 99.0, and with the Expert's answers 92.6 and 100.0; Prepared 86.2
-    // and the Expert 98.4.
+    // it). MEASURED: a drone a night as well, 26.6 percent on STANDARD and
+    // 77.8 on EASY (62.2 and 93.4 with the Expert's answers); with
+    // tomorrow's likely bills kept in hand, 80.0 and 94.0, and with the
+    // Expert's answers 92.6 and 99.0; Prepared 86.2 and 100.0, the Expert
+    // 98.4 and 100.0. REPORTED BESIDE THEM, the same bank in satellites
+    // (30 CR, 13 coverage, 2 nights out), bills kept in hand: 94.0 and
+    // 95.2, and with the Expert's answers 97.0 and 96.6.
     for (const difficulty of ['standard', 'easy'] as const) {
       const expert = run('expert', difficulty).wins
       for (const p of FLEET) {
@@ -193,9 +199,10 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     // night, so a line that knows none of them names about a third of a
     // signature a night. Knowing them is worth real points to every kind of
     // player. Guessing is held to a gain of 5 points at most. MEASURED
-    // (v2.0 R4): it moved Prepared by +4.0 on STANDARD and 0.0 on EASY,
-    // where it wins every game already, and the Novice by +1.8 and +1.6
-    // (in R3: +3.6 and +1.2, -6.2 and -1.8). A third of a signature a night is too little
+    // (v2.0 R5): it moved Prepared by +3.8 on STANDARD and 0.0 on EASY,
+    // where it wins every game already, and the Novice by -0.2 and +1.2
+    // (in R4: +4.0 and 0.0, +1.8 and +1.6; in R3: +3.6 and +1.2, -6.2 and
+    // -1.8). A third of a signature a night is too little
     // knowledge to move a line one way: what it changes is which piece a
     // line happens to order, and over 500 seeds that reads as a few points
     // either side.
