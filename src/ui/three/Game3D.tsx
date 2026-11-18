@@ -23,7 +23,7 @@ import { planFor } from '../../engine/campaign'
 import { holdTemplate, holdTonight, resolveHold } from '../../engine/holds'
 import { answersLeft, answersOf } from '../../engine/rules'
 import { defenseBonus } from '../../engine/learning'
-import { maiScore } from '../../engine/scoring'
+import { coverage, maiScore } from '../../engine/scoring'
 import type { AssetKind, CountermeasureId, DebrisChoice, GameState, HoldCall, ResolvedEvent, TimingGrade } from '../../engine/types'
 import { GAME_3D, LocalDailyLedger, LocalScoreSink, LocalStorageStore, addRunTime, beginRun, dossier, fileCard, recordMet, recordNamed, runKey, type DailyOp, type DailyStanding, type RestoredGame } from '../../persistence'
 import { callSigns, cartCallSigns } from '../board/board'
@@ -2034,7 +2034,13 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           />
         )}
         {deciding && sel?.kind === 'fleet' && (
-          <FleetCard fleet={fleet} signs={Object.fromEntries(orders.assets.map((k, i) => [k, cartSigns[i]])) as Partial<Record<AssetKind, string>>} onToggle={toggleAsset} onClose={() => setSel(null)} />
+          <FleetCard
+            fleet={fleet}
+            signs={Object.fromEntries(orders.assets.map((k, i) => [k, cartSigns[i]])) as Partial<Record<AssetKind, string>>}
+            short={coverage(game.assets) < game.scenario.slaBonus.coverageMin ? c3.fleetShort(coverage(game.assets), game.scenario.slaBonus.coverageMin, game.scenario.slaBonus.credits) : undefined}
+            onToggle={toggleAsset}
+            onClose={() => setSel(null)}
+          />
         )}
 
         {deciding && (

@@ -153,6 +153,15 @@ export const arrivesIn = (n: number) => `arrives in ${n} night${n === 1 ? '' : '
 export const ORDERED = 'ORDERED'
 // One line on a phone, so the card's first row of orders is whole.
 export const fleetLead = 'More fleet, more coverage: 30% of the score.'
+// THE COVERAGE BONUS, SAID WHERE IT IS MISSED (v2.0 R5). The starting fleet
+// covers 58 and the bonus line is 60: a player who never orders an asset
+// plays the whole operation 10 CR a dawn poorer, and through R4 nothing
+// said so outside THE WORDS (the bot's two players who order no asset were
+// its two weak games). The fleet's card leads with it while the fleet is
+// under the line, and the dawn's budget line says what was missed.
+const whole = (n: number) => String(Math.floor(n * 10) / 10)
+export const fleetShort = (now: number, min: number, credits: number) => `Coverage ${whole(now)}: at ${min} it pays ${credits} CR every dawn.`
+export const noBonus = (read: number, min: number) => `No coverage bonus (${whole(read)} of ${min})`
 export const coverageOf = (n: number) => `+${n} coverage`
 
 // THE STAKES.

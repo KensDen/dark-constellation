@@ -504,13 +504,15 @@ export function AssetCard({ asset, sign, contacts, conditions, modules, post, on
   )
 }
 
-export function FleetCard({ fleet, signs, onToggle, onClose }: { fleet: FleetPiece[]; signs: Partial<Record<AssetKind, string>>; onToggle: (kind: AssetKind) => void; onClose: () => void }) {
+export function FleetCard({ fleet, signs, short, onToggle, onClose }: { fleet: FleetPiece[]; signs: Partial<Record<AssetKind, string>>; short?: string; onToggle: (kind: AssetKind) => void; onClose: () => void }) {
   return (
     <div className="t3-card" key="fleet" data-t3-card="fleet">
       <div className="t3-head">
         <div className="t3-grow">
           <p className="t3-eyebrow">{c3.FLEET}</p>
-          <p className="t3-hook">{c3.fleetLead}</p>
+          <p className="t3-hook" data-t3-fleet-lead>
+            {short ?? c3.fleetLead}
+          </p>
         </div>
         <Close onClose={onClose} />
       </div>
@@ -1107,7 +1109,9 @@ export function DawnCard({
     l.repairs ? `Repairs -${l.repairs}` : '',
     l.upkeep ? `Upkeep -${l.upkeep}` : '',
     l.funding ? `Funding +${l.funding}` : '',
-    l.coverageBonus ? `Coverage bonus +${l.coverageBonus}` : '',
+    // Missed, it is said too (v2.0 R5): 10 CR a dawn is the first asset's
+    // whole case, and a ledger with no line for it taught nothing.
+    l.coverageBonus ? `Coverage bonus +${l.coverageBonus}` : l.insolvent ? '' : c3.noBonus(l.bonusCoverage, before.scenario.slaBonus.coverageMin),
   ].filter(Boolean)
   const arrivals = l.arrivals.map((id) => signs.get(id) ?? id)
   const ending = over ? (after.status === 'won' ? copy.ENDING.won : copy.ENDING[after.lossReason ?? 'belowThreshold']) : null

@@ -89,5 +89,7 @@ describe('one new defense a night (v1.4)', () => {
     }
     // Not vacuous: most nights of play order a defense.
     expect(ordered).toBeGreaterThan(nights / 3)
-  })
+    // 4,000 games: about 3 seconds on this Mac at rest, and 34 with the
+    // round's reviewers and the bot running beside it (v2.0 R5).
+  }, 120_000)
 })
