@@ -534,7 +534,9 @@ async function run(b, base, view, plan, log, shots, table) {
         await tap(b, `[data-t3-piece="${piece}"]`)
         await sleep(quick ? 150 : 450)
         if (night <= 2) await shot(`n${night}-piece`, 'a piece in hand: its formal name, what it answers tonight, and the best spot for it')
-        if (await tap(b, '[data-t3-place][data-best]')) stats.placed += 1
+        // The spot its card calls best, or the first where none is (no
+        // spot is called best when nothing is aimed where it can sit).
+        if ((await tap(b, '[data-t3-place][data-best]')) || (await tap(b, '[data-t3-place]'))) stats.placed += 1
         await sleep(quick ? 150 : 600)
       }
     }

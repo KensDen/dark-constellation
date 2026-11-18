@@ -361,13 +361,17 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     // more than any spot's distance from its asset.
     const named: Box[] = []
     if (foe?.on) {
-      bodies.push([foe.x - 24, foe.y - 24, foe.x + 24, foe.y + 24])
+      // The emblem too (v2.0 R5: a mark stood on it on the shortest phone).
+      named.push([foe.x - 22, foe.y - 22, foe.x + 22, foe.y + 22])
       const name = tags.current.get('coldveil')?.querySelector('span')?.getBoundingClientRect()
       if (name && name.width > 0) named.push([name.left - 4, name.top - 3, name.right + 4, name.bottom + 3])
     }
     const taken: Box[] = []
     // A label on another asset costs most, on another label less.
-    const cost = (box: Box, self: number, onLabel = 1) => out(box) + bodies.reduce((n, b, i) => (i === self ? n : n + over(box, b) * 3), 0) + taken.reduce((n, b) => n + over(box, b) * onLabel, 0) + named.reduce((n, b) => n + (over(box, b) > 0 ? 3000 + over(box, b) * 40 : 0), 0)
+    // (A label on another asset cost 3 times its area through R4. With the
+    // quiet call signs of the shortest phone a call sign could then stand
+    // on an unnamed neighbour and name it wrongly: 12 now.)
+    const cost = (box: Box, self: number, onLabel = 1) => out(box) + bodies.reduce((n, b, i) => (i === self ? n : n + over(box, b) * 12), 0) + taken.reduce((n, b) => n + over(box, b) * onLabel, 0) + named.reduce((n, b) => n + (over(box, b) > 0 ? 3000 + over(box, b) * 40 : 0), 0)
     const signs: { flip: boolean; h: number }[] = []
     // Where each call sign stands, by its place in `list`, so a later pass
     // can weigh one against all the others and not only those before it.
@@ -991,17 +995,19 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
 
   const begin = () => {
     if (!deciding) return
-    // A night that is likely to break the budget is begun on a second tap,
-    // with what it risks said first: insolvency ends the operation. Likely,
-    // not possible (v2.0 R5): a night whose very worst reads short on the
-    // tile, with no mark, begins at the first tap.
-    if (stakes && stakes.risky && !atRisk) {
+    // A night that could break the budget is begun on a second tap, with
+    // what it risks and how likely said first: insolvency ends the
+    // operation. (v2.0 R5's first cut asked only when the break was more
+    // likely than not, and the round's phone player lost a won game on a
+    // night that read short in amber and began at one tap: copy3d.ts,
+    // riskLine.)
+    if (stakes && stakes.asks && !atRisk) {
       setAtRisk(true)
       // The reason is on the plan card: whatever card was open over it is
       // closed, so the warning is never behind the panel that caused it.
       setSel(null)
       play('denied-buzz')
-      setSay(c3.riskLine(stakes.worst, stakes.odds, stakes.soon, !!orders.defense || orders.assets.length > 0))
+      setSay(c3.riskLine(stakes.worst, stakes.odds, stakes.soon, !!orders.defense || orders.assets.length > 0, stakes.tonight, answersLeft(game) > 0))
       return
     }
     // A night begun with no new defense while one could be placed is asked
@@ -1813,7 +1819,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
                       aria-pressed={sel?.kind === 'contact' && sel.id === c.id}
                       aria-label={
                         c.known
-                          ? `${shortName(c.def)}, strength ${c.strength}, over ${sign}. ${c.exposed === 0 ? 'Your shield stops it' : c3.FAVOR_TAG[c.favor]}.`
+                          ? `${shortName(c.def)}, strength ${c.strength}, over ${sign}. ${c.debris ? 'Confirmed, and not an attack' : c.exposed === 0 ? 'Your shield stops it' : c3.FAVOR_TAG[c.favor]}.`
                           : `Unidentified signature over ${sign}, track ${c.slot + 1}. Tap to scan it.`
                       }
                       className={`t3-contact${c.known ? ' is-known' : ''}${c.known && c.exposed === 0 ? ' is-held' : ''}${sel?.kind === 'contact' && sel.id === c.id ? ' is-on' : ''}${dwell === c.id ? ' is-dwell' : ''} t3-fav-${c.favor}`}
@@ -1924,7 +1930,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             summary={c3.orderLine(ownedName, orders.assets.length, orders.scans.length)}
             intro={contacts.every((c) => c.known) && contacts.some((c) => !c.fixed) && orders.scans.length === 0 ? `${intro} ${c3.ALLIED_FEED}` : intro}
             note={note}
-            risk={atRisk && stakes.risky ? c3.riskLine(stakes.worst, stakes.odds, stakes.soon, !!orders.defense || orders.assets.length > 0) : bare ? c3.BARE_LINE : undefined}
+            risk={atRisk && stakes.asks ? c3.riskLine(stakes.worst, stakes.odds, stakes.soon, !!orders.defense || orders.assets.length > 0, stakes.tonight, answersLeft(game) > 0) : bare ? c3.BARE_LINE : undefined}
             contacts={contacts}
             signs={signs}
             stakes={stakes}
@@ -2019,12 +2025,13 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
               return [...game.assets]
                 .filter((a) => a.integrity > 0 && selPiece.domain.includes(a.kind))
                 .sort((a, b) => Number(b.id === advice.best) - Number(a.id === advice.best))
-                .map((a) => ({ id: a.id, sign: signs.get(a.id) ?? a.id, best: a.id === advice.best && !advice.raises }))
+                .map((a) => ({ id: a.id, sign: signs.get(a.id) ?? a.id, best: a.id === advice.best && !advice.raises && !advice.even }))
             })()}
             postCost={(() => {
               const advice = selPiece.blocked || selPiece.ordered ? null : spotAdvice(game, orders, selPiece.cm.id)
               return advice?.raises && advice.gives ? c3.postCost(signs.get(advice.gives) ?? advice.gives, advice.before, advice.after) : undefined
             })()}
+            even={!selPiece.blocked && !selPiece.ordered && spotAdvice(game, orders, selPiece.cm.id).even}
             placedOn={selPiece.ordered && orders.place ? signs.get(orders.place) : undefined}
             locked={orders.defense && orders.defense !== selPiece.cm.id ? PIECE[orders.defense] : null}
             upkeep={game.scenario.upkeepPerDefense}
@@ -2058,9 +2065,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
               onFleet={() => setSel(sel?.kind === 'fleet' ? null : { kind: 'fleet' })}
               startDrag={(e, id, label) => startDrag(e, 'piece', id, label)}
             />
-            {atRisk && stakes && stakes.risky && (
+            {atRisk && stakes && stakes.asks && (
               <p className="t3-sr" role="alert" data-t3-risk>
-                {c3.riskLine(stakes.worst, stakes.odds, stakes.soon, !!orders.defense || orders.assets.length > 0)}
+                {c3.riskLine(stakes.worst, stakes.odds, stakes.soon, !!orders.defense || orders.assets.length > 0, stakes.tonight, answersLeft(game) > 0)}
               </p>
             )}
             {bare && (
@@ -2071,8 +2078,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             <span className="t3-sr" data-t3-order-line>
               {c3.orderLine(ownedName, orders.assets.length, orders.scans.length)}
             </span>
-            <button type="button" data-t3-begin data-t3-worst={stakes?.worst} data-t3-risky={stakes?.risky || undefined} aria-label={atRisk && stakes?.risky ? c3.BEGIN_AT_RISK : c3.BEGIN_LONG} className={`t3-btn t3-primary t3-begin${atRisk && stakes?.risky ? ' t3-risk' : ''}`} onClick={begin}>
-              {atRisk && stakes?.risky ? c3.BEGIN_AT_RISK : c3.BEGIN}
+            <button type="button" data-t3-begin data-t3-worst={stakes?.worst} data-t3-risky={stakes?.risky || undefined} aria-label={atRisk && stakes?.asks ? c3.BEGIN_AT_RISK : c3.BEGIN_LONG} className={`t3-btn t3-primary t3-begin${atRisk && stakes?.asks ? ' t3-risk' : ''}`} onClick={begin}>
+              {atRisk && stakes?.asks ? c3.BEGIN_AT_RISK : c3.BEGIN}
             </button>
           </div>
         )}

@@ -312,6 +312,12 @@ export interface SpotAdvice {
   raises: boolean
   // The post as it stands with no new piece, when placing would move it.
   gives: string | undefined
+  // Every spot it can sit on reads the same tonight: nothing is aimed
+  // where the piece can go, so no spot is called best (v2.0 R5: the
+  // round's desktop player was told BEST SPOT for a post that could weaken
+  // no strike, and the phone's that a piece chosen on one asset's card was
+  // "placed on" another with no reason given).
+  even: boolean
 }
 // What the post is worth against a signature the scan has not named: a
 // guess at a point of strength on one meter, in score.
@@ -342,6 +348,7 @@ export function spotAdvice(state: GameState, orders: Orders, id: CountermeasureI
     return c.favor === 'unlikely' ? 0 : c.favor === 'either' ? 1 / Math.max(1, peers.filter((x) => x.favor === 'either').length) : 1
   }
   let best: { id: string; atStake: number; saves: number; ok: boolean } | undefined
+  const reads: number[] = []
   for (const a of state.assets) {
     if (a.integrity <= 0 || !domain.includes(a.kind)) continue
     const board = open.map((c) => posted(c, a.id))
@@ -350,11 +357,12 @@ export function spotAdvice(state: GameState, orders: Orders, id: CountermeasureI
     board.forEach((c, i) => {
       if (c.hardened > 0) saves += share(c) * (c.known ? c.loss - open[i].loss : UNNAMED_SAVE)
     })
+    reads.push(Math.round((saves - COVERAGE_PER_KIND[a.kind] / 1000) * 1000) + atStake * 1e6)
     const ok = atStake >= before - 0.05
     const better = !best || (ok !== best.ok ? ok : ok ? saves > best.saves + 1e-9 || (Math.abs(saves - best.saves) <= 1e-9 && atStake > best.atStake) : atStake > best.atStake || (atStake === best.atStake && saves > best.saves + 1e-9))
     if (better) best = { id: a.id, atStake, saves, ok }
   }
-  return { best: best?.id, before, after: best?.atStake ?? before, raises: !!best && !best.ok, gives: best && stands && stands !== best.id ? stands : undefined }
+  return { best: best?.id, before, after: best?.atStake ?? before, raises: !!best && !best.ok, gives: best && stands && stands !== best.id ? stands : undefined, even: reads.length > 1 && reads.every((r) => Math.abs(r - reads[0]) < 0.5) }
 }
 export const spotFor = (state: GameState, orders: Orders, id: CountermeasureId): string | undefined => spotAdvice(state, orders, id).best
 
@@ -496,11 +504,14 @@ export interface Stakes {
   // The chance tonight's close breaks the budget: what a tile that reads
   // short with no mark says beside "possible, not likely".
   tonight: number
+  // BEGIN ASKS TWICE on this night: the mark is up, or the tile reads
+  // short, so that no operation ends at a dawn BEGIN did not ask about.
+  asks: boolean
 }
 export function stakesFor(state: GameState, orders: Orders, contacts: readonly Contact[], score: number): Stakes {
   const atStake = atStakeOf(contacts)
   const wc = worstCase(state, actionsOf(orders))
-  return { score, line: state.scenario.winThreshold, atStake, remaining: wc.remaining, worst: wc.dawn < 0 ? wc.dawn : wc.morning, risky: wc.risky, odds: wc.risky && wc.tonight > RISK_BAR ? wc.tonight : wc.odds, soon: wc.tonight > RISK_BAR, tonight: wc.tonight }
+  return { score, line: state.scenario.winThreshold, atStake, remaining: wc.remaining, worst: wc.dawn < 0 ? wc.dawn : wc.morning, risky: wc.risky, odds: wc.risky && wc.tonight > RISK_BAR ? wc.tonight : wc.odds, soon: wc.tonight > RISK_BAR, tonight: wc.tonight, asks: wc.risky || wc.dawn < 0 }
 }
 
 // --------------------------------------------------------------- the night

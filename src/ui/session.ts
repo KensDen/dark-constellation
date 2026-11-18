@@ -29,7 +29,7 @@ export function wonACampaign(): boolean {
 
 // The title's one word when PLAY has moved to STANDARD on a first win, and
 // the key that keeps it to once.
-export const MOVED_TO_STANDARD = 'First win on EASY: PLAY now starts on STANDARD. Change it in SYSTEM, at the foot of this screen.'
+export const MOVED_TO_STANDARD = 'First win on EASY: PLAY now starts on STANDARD. Change it in SYSTEM.'
 const MOVED_TOLD_KEY = 'dc-standard-told'
 export function movedToStandard(): boolean {
   try {

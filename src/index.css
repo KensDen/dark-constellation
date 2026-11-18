@@ -287,6 +287,13 @@ body:has([data-title]) .crt-overlay {
   height: env(safe-area-inset-top, 0px);
   background: #05060e;
 }
+/* NOT ENOUGH IN MOBILE SAFARI ON iOS 27 (v2.0 R5, tried in the simulator):
+   it reports no inset at the top and draws the scrolled page behind the
+   clock, above where a fixed element can paint, so this strip has no
+   height there and one given a height, or started above the top edge,
+   still does not cover it. The title would have to scroll inside a box of
+   its own, so that the page itself never moves. Listed in the round's
+   report; not done. */
 
 /* THE HERO. Its box is set here, in the first download, so the world
    lands in it and nothing moves: a share of the screen's height on a

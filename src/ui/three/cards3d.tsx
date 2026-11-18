@@ -79,6 +79,10 @@ export function PlanCard({
   lens: ReactNode
 }) {
   const [whole, setWhole] = useState(false)
+  // What a tile says at a tap: its explanation, in the officer's line,
+  // until the line is tapped or the night's own note changes.
+  const [tip, setTip] = useState('')
+  useEffect(() => setTip(''), [note, risk])
   return (
     <div className="t3-card t3-plan" data-t3-card="plan" data-t3-chunk={CHUNK_MARK}>
       <p className="t3-eyebrow">
@@ -88,8 +92,16 @@ export function PlanCard({
       {/* A line cut short to keep the card's height opens at a tap: cut
           lines that could not be opened were the phone reviewer's second
           complaint. */}
-      <p className={`${risk ? 't3-note t3-risknote' : note ? 't3-note' : 't3-lead'}${whole ? ' is-whole' : ''}`} role={risk ? 'alert' : undefined} data-t3-line onClick={() => setWhole((w) => !w)}>
-        {risk || note || intro}
+      <p
+        className={`${risk ? 't3-note t3-risknote' : tip || note ? 't3-note' : 't3-lead'}${whole || (tip && !risk) ? ' is-whole' : ''}`}
+        role={risk ? 'alert' : undefined}
+        data-t3-line
+        onClick={() => {
+          if (tip) setTip('')
+          else setWhole((w) => !w)
+        }}
+      >
+        {risk || tip || note || intro}
       </p>
       <div className="t3-sigs" role="group" aria-label={c3.signaturesOver(contacts.length)} data-t3-sigs>
         {contacts.map((c, i) => {
@@ -101,7 +113,7 @@ export function PlanCard({
               data-t3-sig={c.id}
               data-first={i > 0 && contacts[i - 1].slot !== c.slot ? '' : undefined}
               data-known={c.known}
-              aria-label={c.known ? `${shortName(c.def)}, strength ${c.strength}, over ${sign}. ${c.exposed === 0 ? 'Stopped' : c3.FAVOR_TAG[c.favor]}.` : `Unidentified signature over ${sign}. Tap to scan it.`}
+              aria-label={c.known ? `${shortName(c.def)}, strength ${c.strength}, over ${sign}. ${c.debris ? 'Confirmed, and not an attack' : c.exposed === 0 ? 'Stopped' : c3.FAVOR_TAG[c.favor]}.` : `Unidentified signature over ${sign}. Tap to scan it.`}
               className={`t3-sig${c.known ? ' is-known' : ''}${c.known && c.exposed === 0 ? ' is-held' : ''} t3-fav-${c.favor}`}
               onClick={() => onPick(c.id)}
             >
@@ -115,13 +127,21 @@ export function PlanCard({
         })}
       </div>
       <div className="t3-stakes" data-t3-stakes>
-        <p>
+        <p data-t3-tile="stake" onClick={() => setTip((t) => (t === c3.AT_STAKE_NOTE ? '' : c3.AT_STAKE_NOTE))}>
           <span>{c3.AT_STAKE}</span>
           <b className={stakes.atStake < -0.05 ? 't3-bad' : 't3-ok'}>{c3.upTo(stakes.atStake)}</b>
         </p>
         {/* Red only when the mark is up; short with no mark is possible,
             not likely, and reads amber (v2.0 R5). */}
-        <p title={c3.worstNote(stakes.worst, stakes.risky, stakes.tonight)} data-t3-worst-state={stakes.risky ? 'risky' : stakes.worst < 0 ? 'short' : 'clear'}>
+        <p
+          title={c3.worstNote(stakes.worst, stakes.risky, stakes.tonight)}
+          data-t3-tile="worst"
+          data-t3-worst-state={stakes.risky ? 'risky' : stakes.worst < 0 ? 'short' : 'clear'}
+          onClick={() => {
+            const says = `${c3.WORST}: ${c3.worstNote(stakes.worst, stakes.risky, stakes.tonight)}`
+            setTip((t) => (t === says ? '' : says))
+          }}
+        >
           <span>{c3.WORST}</span>
           <b className={stakes.risky ? 't3-bad' : stakes.worst < 0 ? 't3-warn' : ''} aria-label={c3.worstFace(stakes.worst)}>
             {c3.worstTile(stakes.worst)}
@@ -189,7 +209,7 @@ export function Tray({ kit, fleetOrdered, selected, reduced, onPick, onFleet, st
       {kit.map((p) => {
         const hot = isHot(p)
         const state = p.blocked === 'owned' ? c3.OWNED : p.ordered ? c3.PLACED : `${p.cm.cost} CR`
-        const does = p.answers.length ? p.answers.map((a) => `${verbWord(a.verb)} ${shortName(a.contact.def)}`).join('. ') : c3.nothingKnown
+        const does = (p.answers.length ? p.answers.map((a) => `${verbWord(a.verb)} ${shortName(a.contact.def)}`).join('. ') : c3.nothingKnown).replace(/\.$/, '')
         return (
           <button
             key={p.cm.id}
@@ -366,7 +386,8 @@ export function ContactCard({
       <div className="t3-head">
         <SignatureGlyph id={contact.id} size={48} className="t3-glyph-big" />
         <div className="t3-grow">
-          <p className="t3-eyebrow">
+          {/* One run of text, not a row of flex items (v2.0 R5: "Watch / post / -1 · / NEW", a word a line under the arrows). */}
+          <p className="t3-eyebrow t3-eyebrow-line">
             <span className={tone}>{contact.debris ? c3.FAVOR_TAG.confirmed : contact.exposed === 0 ? 'STOPPED' : c3.FAVOR_TAG[contact.favor]}</span> · <span className="t3-nb">{sign}</span>
             {contact.hardened > 0 ? ` · ${c3.postTook(contact.hardened)}` : ''}
             {filed ? '' : ' · NEW'}
@@ -413,7 +434,7 @@ export function ContactCard({
 
 // A PIECE IN HAND: the defense by its formal name, what it answers
 // tonight, and where it can go.
-export function PieceCard({ piece, targets, postCost, locked, upkeep, placedOn, onPlace, onRemove, onClose }: { piece: KitPiece; targets: { id: string; sign: string; best?: boolean }[]; postCost?: string; locked: string | null; upkeep: number; placedOn?: string; onPlace: (assetId: string) => void; onRemove: () => void; onClose: () => void }) {
+export function PieceCard({ piece, targets, postCost, even, locked, upkeep, placedOn, onPlace, onRemove, onClose }: { piece: KitPiece; targets: { id: string; sign: string; best?: boolean }[]; postCost?: string; even?: boolean; locked: string | null; upkeep: number; placedOn?: string; onPlace: (assetId: string) => void; onRemove: () => void; onClose: () => void }) {
   const { cm } = piece
   return (
     <div className="t3-card" key={`p-${cm.id}`} data-t3-card="piece">
@@ -434,7 +455,11 @@ export function PieceCard({ piece, targets, postCost, locked, upkeep, placedOn, 
           : c3.nothingKnown}
       </p>
       {piece.blocked === 'budget' && <p className="t3-note">Not enough budget tonight.</p>}
-      {piece.risky && !piece.ordered && <p className="t3-note">{c3.riskyBy(piece.odds, piece.soon)}.</p>}
+      {piece.risky && !piece.ordered && (
+        <p className="t3-note">
+          {c3.riskyBy(piece.odds, piece.soon)}. {c3.BEFORE_FUNDING}
+        </p>
+      )}
       {!piece.risky && !piece.ordered && !piece.blocked && piece.worst < 0 && (
         <p className="t3-note" data-t3-tight>
           {c3.tightBy(piece.worst, piece.tonight)}
@@ -464,7 +489,7 @@ export function PieceCard({ piece, targets, postCost, locked, upkeep, placedOn, 
               </button>
             ))}
           </div>
-          {!postCost && <p className="t3-hint">{c3.PLACE_NOTE}</p>}
+          {!postCost && <p className="t3-hint">{even ? c3.PLACE_EVEN : c3.PLACE_NOTE}</p>}
         </>
       )}
     </div>

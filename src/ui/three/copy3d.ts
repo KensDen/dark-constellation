@@ -15,7 +15,7 @@ export const OPENING: readonly { clock: string; line: string; threat?: true }[] 
   { clock: '21:00Z', line: `${CONSTELLATION} will be 9 smallsats. Tonight 2 are up, with 1 inspection bird.` },
   { clock: '21:04Z', line: `Under it, the ${SQUADRON} squadron flies flood relief over 3 counties. Every frame they shoot comes home through us.` },
   { clock: '21:09Z', line: `${ADVERSARY} is working the doors tonight: the uplink, the navigation signal, the people at the consoles.`, threat: true },
-  { clock: '21:12Z', line: 'You are the mission assurance architect. 6 nights. Finish night 6 at 70 or above, and learn how they work.' },
+  { clock: '21:12Z', line: 'You are the mission assurance architect. 6 nights. Finish night 6 at 70 or above with the budget at 0 or more, and learn how they work.' },
 ]
 export const OPENING_SPEAKER = 'WATCH OFFICER'
 export const OPENING_NEXT = 'CONTINUE'
@@ -125,10 +125,14 @@ export const PLACED = 'PLACED'
 export const TAKE_BACK = 'TAKE IT BACK'
 export const OWNED = 'IN SERVICE'
 export const PLACE_NOTE = 'It covers the whole fleet. Where it sits becomes the watch post: any strike on that asset is 1 weaker.'
+// Where no spot it can sit on has anything aimed at it tonight.
+export const PLACE_EVEN = 'It covers the whole fleet wherever it sits. Nothing is aimed where it can go tonight, so any spot serves as the watch post.'
 // THE WATCH POST (v2.0 R2).
 export const POST = 'POST'
 export const POST_HERE = 'WATCH POST: strikes here are 1 weaker'
-export const postLine = (sign: string) => `The watch post is on ${sign}: any strike there is 1 weaker.`
+// One line on the shortest phone (v2.0 R5: the line that explains the post
+// was the one line always cut there).
+export const postLine = (sign: string) => `Watch post on ${sign}: a strike there is 1 weaker.`
 export const postMoves = (from: string, to: string) => `The watch post moves from ${from} to ${to}.`
 export const BEST_SPOT = 'BEST SPOT'
 // The piece cannot sit where the post is, and the post is holding down the
@@ -168,6 +172,9 @@ export const coverageOf = (n: number) => `+${n} coverage`
 export const AT_STAKE = 'AT STAKE'
 export const upTo = (d: number) => (d < -0.05 ? d.toFixed(1) : '0')
 export const WORST = 'WORST CASE'
+// What a tile says at a tap (v2.0 R5: on a phone its explanation was a
+// tooltip nobody could open).
+export const AT_STAKE_NOTE = 'AT STAKE: the most score tonight could take, if the worst move on each track landed as things stand.'
 export const WORST_OK = 'budget left'
 export const WORST_BAD = 'budget breaks'
 // THE ANSWERS (v2.0 R2): a pool for the whole operation.
@@ -217,19 +224,37 @@ export const riskyBy = (odds: number, soon: boolean) => {
 // down. (The bot's careful Daily Op player ended an operation on such a
 // night, 10 CR short on the tile in amber, before these lines were there.)
 export const tightBy = (worst: number, tonight: number) => `With it WORST CASE reads ${worstFace(worst)}: possible, not likely (${fewInTen(tonight)}).`
-export const tightSay = (worst: number, tonight: number) => `WORST CASE now reads ${worstFace(worst)}: possible, not likely (${fewInTen(tonight)}).`
-// BEGIN on a night that is likely to break the budget, said with what the
-// player can do about it. It opens on the tile's own figure, so one screen
-// never shows two. `worst` is that figure (under 0 when tonight's worst
-// alone breaks the budget); `ordered` is whether tonight's orders cost
-// anything, so "take an order back" is never said to a player with
-// nothing to take back.
-export const riskLine = (worst: number, odds: number, soon: boolean, ordered: boolean) => {
-  const fix = ordered ? 'Take an order back, or tap BEGIN again.' : 'Nothing is ordered: a move you answer leaves no repair bill. Tap BEGIN again.'
+// One line on the shortest phone, where the officer's line is cut at one.
+export const tightSay = (worst: number, tonight: number) => `${-worst} CR short at worst: possible, ${fewInTen(tonight)}.`
+// BEGIN ON A NIGHT THAT COULD END THE OPERATION, said with what the player
+// can do about it. It opens on the tile's own figure, so one screen never
+// shows two. `worst` is that figure (under 0 when tonight's worst alone
+// breaks the budget); `ordered` is whether tonight's orders cost anything,
+// so "take an order back" is never said to a player with nothing to take
+// back, and `answers` whether the watch has one left.
+//
+// IT ASKS WHEREVER THE TILE READS SHORT, LIKELY OR NOT, AND SAYS WHICH
+// (v2.0 R5). The first cut asked only when the break was more likely than
+// not. The round's phone player then lost a game at 74.3, over the win
+// line, on a last night that read "3 CR short" in amber: BEGIN went
+// straight in, and "amber with no confirm" read as "probably fine". And
+// the Mobile Safari player met "2 CR short", was told nothing, and ended
+// 9 CR up: a warning with no odds is a false alarm when it does not come.
+// So the tray's mark stays for what is likely, and BEGIN asks once about
+// anything that can end the operation, with its odds and why the figure
+// is what it is (repairs and upkeep come out before funding arrives).
+export const riskLine = (worst: number, odds: number, soon: boolean, ordered: boolean, tonight = 0, answers = true) => {
+  const fix = ordered
+    ? 'Take an order back, or tap BEGIN again.'
+    : answers
+      ? 'Nothing is ordered: a move you answer leaves no repair bill. Tap BEGIN again.'
+      : 'Nothing is ordered and no answer is left: tap BEGIN again to take the odds.'
   const lead = `WORST CASE: ${worstFace(worst)}`
   const sure = odds > SURE
-  if (soon) return `${lead}, and it is ${sure ? 'all but certain' : `the likely case (${inTen(odds)})`}: tonight's repairs and upkeep would take the budget under 0 at dawn, and that ends the operation. ${fix}`
-  return `${lead}, and tomorrow night is ${sure ? 'all but certain' : 'likely'} to need more${sure ? '' : ` (${inTen(odds)})`}: a budget under 0 at dawn ends the operation. ${fix}`
+  const ends = 'A budget under 0 at dawn ends the operation, whatever the score.'
+  if (soon) return `${lead}, and it is ${sure ? 'all but certain' : `the likely case (${inTen(odds)})`}: tonight's repairs and upkeep come out before funding arrives. ${ends} ${fix}`
+  if (worst < 0 && odds <= 0.5) return `${lead}. It is possible, not likely (${fewInTen(tonight)}): tonight's repairs and upkeep come out before funding arrives. ${ends} ${fix}`
+  return `${lead}, and tomorrow night is ${sure ? 'all but certain' : 'likely'} to need more${sure ? '' : ` (${inTen(odds)})`}. ${ends} ${fix}`
 }
 // A night begun with no new defense, asked about once (v2.0 R3).
 export const BARE_LINE = 'No defense placed tonight, and you have 1 to place. Tap BEGIN again to go without.'
@@ -241,7 +266,9 @@ export const cannotSit = (piece: string, sign: string) => `${piece} cannot sit o
 export const worstFace = (n: number) => (n < 0 ? `${-n} CR short` : `${n} CR at dawn`)
 // On the tile itself, where a phone has room for 11 characters: the unit
 // is the BUDGET tile's, straight above it.
-export const worstTile = (n: number) => (n < 0 ? `${-n} CR short` : `${n} at dawn`)
+// (`83 at dawn` in the first cut: the round's Mobile Safari player could
+// not tell a score from a budget until the first dawn.)
+export const worstTile = (n: number) => (n < 0 ? `${-n} CR short` : `dawn ${n} CR`)
 export const orderLine = (defense: string | null, assets: number, scans: number) =>
   [defense ? `${defense} placed` : 'No new defense yet', assets ? `${assets} asset${assets === 1 ? '' : 's'} ordered` : '', `${scans} scanned`].filter(Boolean).join(' · ')
 
@@ -260,6 +287,10 @@ export const ANSWER_USED = 'ANSWER ALREADY USED'
 // A signature that moved when an order changed: COLDVEIL reads the fleet.
 export const REAIMED = 'COLDVEIL re-aims as your orders change: a signature moved.'
 export const RISK_MARK = 'Likely to break the budget'
+// The rule behind every "short" (v2.0 R5: the round's desktop player did
+// the dawn's sums, found the funding left out, and concluded the warning
+// was wrong; it is the rule, and nothing had said it).
+export const BEFORE_FUNDING = 'Repairs and upkeep come out before funding arrives, and a budget under 0 then ends the operation.'
 export const CHOOSE_UNLOCK = 'Change the look in SYSTEM, the menu at the top left.'
 export const WHAT_HAPPENED = 'WHAT HAPPENED'
 export const CONDITION_NOTE = 'It presses the score each night it stays.'
@@ -373,8 +404,8 @@ export const wordsFor = (n: { coverageMin: number; coverageBonus: number; harden
   ['LIKELY, POSSIBLE, NOT FAVORED', `What ${ADVERSARY} does with a move on a track: it plays the one your defenses take the least off.`],
   ['WATCH POST', `The asset your newest defense sits on. Any strike there lands ${n.harden} point weaker.`],
   ['AT STAKE', 'The most score tonight could take, if the worst move on each track landed as things stand.'],
-  ['WORST CASE', 'The budget tomorrow morning if tonight goes as badly as it can, with funding and the coverage bonus in. If it reads short, that night would end the operation: a budget under 0 at dawn does.'],
-  ['RISKY', 'Marked on an order, and asked about at BEGIN, only when a broken budget is more likely than not by tomorrow night.'],
+  ['WORST CASE', 'The budget tomorrow morning if tonight goes as badly as it can, with funding and the coverage bonus in. If it reads short, that night would end the operation: repairs and upkeep come out before funding arrives, and a budget under 0 at dawn ends it, whatever the score.'],
+  ['RISKY', 'Marked on an order only when a broken budget is more likely than not by tomorrow night. BEGIN asks twice on any night that could end the operation, and says how likely.'],
   ['UPKEEP, RECOVERY', 'Upkeep is what each defense costs every night. Recovery is what each meter gets back at dawn.'],
   ['COVERAGE', `The fleet's share of the score. At ${n.coverageMin} or more it also pays ${n.coverageBonus} CR at dawn.`],
   ['SCORE', `Mission assurance, 0 to 100: coverage, links, data and sensors together. Under ${n.collapse} ends the operation.`],

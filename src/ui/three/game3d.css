@@ -483,6 +483,13 @@ html.t3-on body {
 .t3-hook {
   color: #c4cfdc;
 }
+/* A header that is one run of text, wrapping as text does. */
+.t3-eyebrow-line {
+  display: block;
+}
+.t3-stakes p[data-t3-tile] {
+  cursor: pointer;
+}
 /* A call sign is one word: it never breaks at its hyphen (v2.0 R5: a card's
    header read "STOPPED · SG- / R1 · / NEW" on a phone). */
 .t3-nb {
