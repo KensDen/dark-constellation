@@ -368,10 +368,11 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     }
     const taken: Box[] = []
     // A label on another asset costs most, on another label less.
-    // (A label on another asset cost 3 times its area through R4. With the
-    // quiet call signs of the shortest phone a call sign could then stand
-    // on an unnamed neighbour and name it wrongly: 12 now.)
-    const cost = (box: Box, self: number, onLabel = 1) => out(box) + bodies.reduce((n, b, i) => (i === self ? n : n + over(box, b) * 12), 0) + taken.reduce((n, b) => n + over(box, b) * onLabel, 0) + named.reduce((n, b) => n + (over(box, b) > 0 ? 3000 + over(box, b) * 40 : 0), 0)
+    // (A label on another asset costs 3 times its area. For a call sign it
+    // is 12 since v2.0 R5: with the quiet call signs of the shortest phone
+    // one could stand on an unnamed neighbour and name it wrongly. A mark
+    // keeps 3: at 12 the marks left the assets for the call signs.)
+    const cost = (box: Box, self: number, onLabel = 1, onBody = 3) => out(box) + bodies.reduce((n, b, i) => (i === self ? n : n + over(box, b) * onBody), 0) + taken.reduce((n, b) => n + over(box, b) * onLabel, 0) + named.reduce((n, b) => n + (over(box, b) > 0 ? 3000 + over(box, b) * 40 : 0), 0)
     const signs: { flip: boolean; h: number }[] = []
     // Where each call sign stands, by its place in `list`, so a later pass
     // can weigh one against all the others and not only those before it.
@@ -390,9 +391,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         return
       }
       // A little air around each call sign, so two that only touch count
-      // as on each other; and a call sign on another label costs 4 times
-      // its area, so a small overlap is enough to send it to a clear side
-      // (through R2 a drone's sign could rest against a satellite's).
+      // as on each other; and a call sign on another label costs 16 times
+      // its area (4 through R4), more than one on another asset costs, so
+      // of two bad sides it takes the one that hides no name.
       const w = Math.max(60, sign.offsetWidth) + 14
       const h = Math.max(22, sign.offsetHeight) + 4
       // Under the asset, over it, or to either side of it.
@@ -407,9 +408,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       let best = spots.find((sp) => sp[0] === was) ?? spots[0]
       // On the second pass its own box is not in its way.
       if (again) taken[i] = NOWHERE
-      let bestCost = cost(best[1], i, 4) - 60
+      let bestCost = cost(best[1], i, 16, 12) - 60
       for (const sp of spots) {
-        const c = cost(sp[1], i, 4) + sp[2]
+        const c = cost(sp[1], i, 16, 12) + sp[2]
         if (c < bestCost) {
           best = sp
           bestCost = c
