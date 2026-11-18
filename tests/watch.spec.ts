@@ -572,6 +572,10 @@ describe('a signature named on sight is identified, and costs no pulse (v2.0 R3)
 // CASE holds back what tomorrow is likely to need and no further, and the
 // scenario's numbers were re-tuned to the bands (15 meter damage a point,
 // 7 recovery and 7 funding a night, 3.5 points for a wrong call).
+//
+// REGENERATED IN v2.0 R5, for the numbers (Ken's rulings of 17 November
+// 2026): a drone at 25 CR with 90 to start, 4 points for a wrong call,
+// and WORST CASE's mark reading the odds.
 import { createHash } from 'node:crypto'
 
 describe('the rules replay to a pinned log (v2.0 R2)', () => {
@@ -581,7 +585,7 @@ describe('the rules replay to a pinned log (v2.0 R2)', () => {
     const idle = play(game(4041), line('nothing').policy, () => null).at(-1)!
     const actual = { prepared: hash(prepared), idle: hash(idle) }
     if (process.env.UPDATE_SNAPSHOTS) process.stderr.write(`\nrules snapshot: ${JSON.stringify(actual)}\n`)
-    expect(actual).toEqual({ prepared: 'ebcf15d3b3beb917fb1222040918e5cf94c7759dc2816dadb2152e1cecbdc81e', idle: 'f47da29b26b866cbe055e173aa8015f87f369aa520e34c7929a960de3a2e008a' })
+    expect(actual).toEqual({ prepared: 'c47a5c027341ab8500689153ef17830ed555de87612cb76f54dc5877374e0a1c', idle: '56f3e4c94542b82a369b72a53e8101aa5fdc0ef7640d0d83ebede716c991126a' })
     expect(hash(play(game(20261114), line('prepared').policy, sensible).at(-1)!)).toBe(actual.prepared)
   })
 })

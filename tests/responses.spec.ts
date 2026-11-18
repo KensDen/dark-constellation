@@ -15,8 +15,9 @@
 //     pool empty, is ridden out without a throw.
 //   - responseOptions (what the card shows) and resolveTurn (what happens)
 //     agree on every offer.
-//   - heldForLater and worstCase: a turn that read WORST CASE 0 or more
-//     does not close insolvent, whatever was answered.
+//   - worstCase: a turn that read WORST CASE 0 or more does not close
+//     insolvent, whatever was answered; and its figures hang together
+//     (the dawn and the morning, the odds and the mark: v2.0 R5).
 //   - What never offers a response: the debris call, an opportunity, a
 //     move the defenses stop.
 //   - openChoice, answered and playNight, as src/engine/responses.ts
@@ -32,11 +33,11 @@
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
-import { ASSET_DAMAGE_PER_SEVERITY, DIFFICULTIES, RESPONSE_DAMAGE_SHARE, answersLeft, countersAfter, exposedOf, meterDamageOf, newGame, resolveTurn, scaled } from '../src/engine/reducer'
+import { ASSET_DAMAGE_PER_SEVERITY, DIFFICULTIES, RESPONSE_DAMAGE_SHARE, answersLeft, exposedOf, meterDamageOf, newGame, resolveTurn, scaled } from '../src/engine/reducer'
 import { answered, openChoice, playNight, responseOptions, type Offer, type Responder } from '../src/engine/responses'
 import { turnRng } from '../src/engine/rng'
 import type { Difficulty, GameState, ResolvedEvent, ThreatEvent, TurnActions } from '../src/engine/types'
-import { heldForLater, worstCase } from '../src/engine/worstCase'
+import { RISK_BAR, worstCase, type WorstCase } from '../src/engine/worstCase'
 import { POLICIES, careless, ride, sensible } from './policies'
 import { NO_OP, WIN_SCRIPT, affordable, scripted } from './scripts'
 import { WIN_GAME, WIN_GAME_SEED, playWritten } from './written-games'
@@ -399,6 +400,27 @@ interface Found {
   offering: string[]
   lastTurns: number
 }
+// WORST CASE's figures hang together (v2.0 R5): the dawn is the budget
+// less the orders, the worst repairs and the upkeep; the morning is the
+// dawn with the funding in, and the coverage bonus or not, or the dawn
+// itself when that is under 0; tonight's odds are within the odds by
+// tomorrow night; the mark is up exactly when those pass the bar; the one
+// figure a line reads is the dawn, and under 0 whenever the mark is up;
+// and nothing is read for a tomorrow the last night does not have.
+function figures(state: GameState, w: WorstCase): string[] {
+  const out: string[] = []
+  const { incomePerTurn: funding, slaBonus } = state.scenario
+  if (w.dawn !== w.remaining - w.repairs - w.upkeep) out.push('the dawn does not sum')
+  if (w.dawn < 0 ? w.morning !== w.dawn : ![funding, funding + slaBonus.credits].includes(w.morning - w.dawn)) out.push(`the morning reads ${w.morning} on a dawn of ${w.dawn}`)
+  if (!(w.tonight >= 0 && w.tonight <= w.odds + 1e-9 && w.odds <= 1 + 1e-9)) out.push(`odds ${w.tonight} tonight and ${w.odds} by tomorrow`)
+  if (w.dawn >= 0 && w.tonight !== 0) out.push(`tonight cannot break a dawn of ${w.dawn}, and its odds read ${w.tonight}`)
+  if (w.risky !== w.odds > RISK_BAR) out.push('the mark is not the odds')
+  if (w.value !== (w.risky ? Math.min(-1, w.dawn) : w.dawn)) out.push(`the figure a line reads is ${w.value}`)
+  if (w.later < 0) out.push(`tomorrow needs ${w.later}`)
+  if (state.turn === state.scenario.totalTurns && (w.later !== 0 || w.odds !== w.tonight)) out.push('a tomorrow read on the last night')
+  return out
+}
+
 let found: Found | null = null
 function sweep(): Found {
   if (found) return found
@@ -419,16 +441,10 @@ function sweep(): Found {
             const where = `${name}, ${how}, ${difficulty}, seed ${seed}, turn ${state.turn}`
             const actions = policy(state)
             const read = worstCase(state, actions)
-            // heldForLater and the worst case's sum.
-            const later = heldForLater(state, countersAfter(state, actions))
-            out.later.push(later)
-            if (later < 0) out.held.push(`${where}: held ${later}`)
-            if (read.later !== later) out.held.push(`${where}: WORST CASE holds ${read.later}, heldForLater says ${later}`)
-            if (read.value !== read.remaining - read.repairs - read.upkeep - read.later) out.held.push(`${where}: WORST CASE does not sum`)
-            if (state.turn === DEFAULT_SCENARIO.totalTurns) {
-              out.lastTurns += 1
-              if (later !== 0) out.held.push(`${where}: ${later} held on the last turn`)
-            }
+            // The worst case's figures, each against the others.
+            out.later.push(read.later)
+            for (const wrong of figures(state, read)) out.held.push(`${where}: ${wrong}`)
+            if (state.turn === DEFAULT_SCENARIO.totalTurns) out.lastTurns += 1
             // The night, each offer checked as it is made.
             const before = state
             let answers: (string | null)[] = []
@@ -584,29 +600,23 @@ describe('responseOptions says what resolveTurn then does', () => {
   })
 })
 
-describe('what is held for the nights ahead', () => {
-  it('is never negative, is 0 on the last turn, and is the figure WORST CASE subtracts', () => {
+describe("WORST CASE's figures", () => {
+  it('hang together on every night of the sweep: the dawn, the morning, the odds and the mark', () => {
     const s = sweep()
     expect(s.later.length).toBe(s.turns)
     expect(s.lastTurns, 'the sweep reached no last turn').toBeGreaterThan(500)
     expect(s.held.slice(0, 5).join('\n')).toBe('')
-    // Not vacuous: on some turns something is held, and on some nothing.
-    expect(s.later.filter((n) => n > 0).length, 'nothing was ever held').toBeGreaterThan(100)
+    // Not vacuous: tomorrow needs something on most nights, and nothing on the last.
+    expect(s.later.filter((n) => n > 0).length, 'tomorrow never needed anything').toBeGreaterThan(100)
     expect(s.later.filter((n) => n === 0).length).toBeGreaterThan(100)
   }, 120_000)
 
-  it('sums to WORST CASE: remaining less repairs, upkeep and what is held', () => {
+  it('hang together under a written order too', () => {
     for (const difficulty of DIFFS) {
       for (let seed = 1; seed <= 20; seed += 1) {
         let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
         while (state.status === 'playing') {
-          for (const actions of [NO_OP, WIN_SCRIPT[state.turn] ?? NO_OP]) {
-            const w = worstCase(state, actions)
-            expect(w.value).toBe(w.remaining - w.repairs - w.upkeep - w.later)
-            expect(w.later).toBe(heldForLater(state, countersAfter(state, actions)))
-            expect(w.later).toBeGreaterThanOrEqual(0)
-            if (state.turn === DEFAULT_SCENARIO.totalTurns) expect(w.later).toBe(0)
-          }
+          for (const actions of [NO_OP, WIN_SCRIPT[state.turn] ?? NO_OP]) expect(figures(state, worstCase(state, actions)), `${difficulty} seed ${seed} night ${state.turn}`).toEqual([])
           state = step(state)
         }
       }

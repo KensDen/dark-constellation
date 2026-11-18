@@ -1,15 +1,23 @@
 // THE SCOREBOARD (R4; split by mode in v1.3 Round 4, M38), from SYSTEM.
 // Two halves: the Daily Op's official runs, newest first, one a date, from
 // the daily ledger; and the best ten practice runs (PLAY), from the score
-// sink. Every row shows its grade, read through src/engine/grade.ts, never
-// stored (src/persistence/DailyLedger.ts says why).
+// sink. Every row of the 3D game shows its grade, read through
+// src/engine/grade.ts, never stored (src/persistence/DailyLedger.ts says
+// why).
+//
+// A RUN FROM THE PIXEL BOARD KEEPS ITS SCORE AND HAS NO GRADE (v2.0 R5,
+// Ken's ruling of 17 November 2026). Scores there ran about 10 points
+// lower, so the 3D game's bands read a returning player's best S as B.
+// An entry without the 3D game's stamp (src/persistence/ScoreSink.ts) is
+// marked PIXEL where the grade would stand, and a line under the two
+// halves says why. It is never regraded.
 //
 // Reads through the ScoreSink and DailyLedger interfaces, so a remote
 // leaderboard would drop in unchanged. Clearing empties the practice half
 // only: the Daily Op's record is the streak, and is kept.
 
 import { useMemo, useState } from 'react'
-import { LocalDailyLedger, LocalScoreSink, type ScoreEntry } from '../persistence'
+import { LocalDailyLedger, LocalScoreSink, fromPixelGame, type ScoreEntry } from '../persistence'
 import { DIFFICULTIES } from '../engine/rules'
 import { gradeFor, type Grade } from '../engine/grade'
 import { DC_BTN } from './buttons'
@@ -48,6 +56,15 @@ const ROW = 'rm-row'
 const HALF = 'rm-card'
 const HEAD = 'tt-label'
 const RESULT = (won: boolean) => (won ? <b className="tt-go">HELD</b> : <b className="rm-bad">LOST</b>)
+// Where a grade stands: the grade, or the mark of a run from the pixel board.
+const GRADE = (grade: Grade | null) =>
+  grade ? (
+    <b data-grade>{grade}</b>
+  ) : (
+    <span data-pixel className="rm-pixel" aria-label="Pixel game, not graded">
+      PIXEL
+    </span>
+  )
 
 export default function Scoreboard({ onBack }: { onBack: () => void }) {
   const [nonce, setNonce] = useState(0)
@@ -65,6 +82,7 @@ export default function Scoreboard({ onBack }: { onBack: () => void }) {
       .filter((e) => !daily.has(`${e.seed}@${e.recordedAt}`))
       .slice(0, 10)
   }, [nonce])
+  const pixel = dailies.some(({ result }) => fromPixelGame(result)) || practice.some(fromPixelGame)
 
   return (
     <main data-scoreboard className="rm">
@@ -91,11 +109,11 @@ export default function Scoreboard({ onBack }: { onBack: () => void }) {
           ) : (
             <ol>
               {dailies.map(({ dateKey, result }) => {
-                const grade = gradeFor({ status: result.outcome, lossReason: result.lossReason, finalMai: result.mai, bonus: result.bonus })
+                const grade = fromPixelGame(result) ? null : gradeFor({ status: result.outcome, lossReason: result.lossReason, finalMai: result.mai, bonus: result.bonus })
                 return (
                   <li key={dateKey} data-daily-row={result.n} className={ROW}>
                     <span>#{result.n}</span>
-                    <b data-grade>{grade}</b>
+                    {GRADE(grade)}
                     {RESULT(result.outcome === 'won')}
                     <span className="rm-meta">{dayOf(fromKey(dateKey))}</span>
                     <span>{result.mai.toFixed(1)}</span>
@@ -119,7 +137,7 @@ export default function Scoreboard({ onBack }: { onBack: () => void }) {
               {practice.map((e, i) => (
                 <li key={`${e.recordedAt}-${i}`} data-practice-row={i + 1} className={ROW}>
                   <span className="tt-off">{i + 1}</span>
-                  <b data-grade>{entryGrade(e)}</b>
+                  {GRADE(fromPixelGame(e) ? null : entryGrade(e))}
                   {RESULT(e.outcome === 'won')}
                   <span className="rm-meta truncate">
                     {modeLabel(e.difficulty)} · {dayOf(new Date(e.recordedAt))}
@@ -133,6 +151,11 @@ export default function Scoreboard({ onBack }: { onBack: () => void }) {
         <p className="rm-meta">
           Grades read the final mission assurance score and the defense bonus. Practice runs rank wins first, then the score.
         </p>
+        {pixel && (
+          <p data-pixel-note className="rm-meta">
+            PIXEL marks a run from the pixel game, before the game went 3D. Its score is kept as it was and is not graded: the two games score differently.
+          </p>
+        )}
         {/* Clearing is the one act here that cannot be undone: last, quiet,
             and asked about first (fresh-eyes review). */}
         {practice.length > 0 &&

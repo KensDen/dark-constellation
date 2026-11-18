@@ -12,6 +12,7 @@
 
 import type { GameState } from '../engine/types'
 import type { DailyOp } from './codec'
+import type { GAME_3D } from './ScoreSink'
 
 // What an official run was. The grade is not stored: it is derived from
 // the outcome, the loss reason, the score and the defense bonus
@@ -26,6 +27,9 @@ export interface DailyResult {
   mai: number
   bonus?: number
   turns: number
+  // The game it was played in: absent on a pixel-board result, which is
+  // shown with its score and no grade (src/persistence/ScoreSink.ts).
+  game?: typeof GAME_3D
   recordedAt: string // ISO, presentation only
 }
 

@@ -17,7 +17,7 @@ export {
   type SavePhase,
 } from './codec'
 export { LocalStorageStore, type SaveStore, type SaveMeta, type RestoredGame } from './SaveStore'
-export { LocalScoreSink, type ScoreSink, type ScoreEntry } from './ScoreSink'
+export { GAME_3D, LocalScoreSink, fromPixelGame, type ScoreSink, type ScoreEntry } from './ScoreSink'
 export { LocalDailyLedger, type DailyLedger, type DailyResult, type DailyStanding } from './DailyLedger'
 export { knownThreats, metEvents, namedEvents, recordMet, recordNamed } from './metEvents'
 export { dossier, fileCard } from './dossier'

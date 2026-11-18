@@ -2,9 +2,10 @@
 //   4. BEST SPOT and FIX NEXT count the watch post they give up, so the
 //      advice never raises AT STAKE (src/ui/three/gameModel.ts, spotAdvice
 //      and fixNext).
-//   5. WORST CASE warns only when the risk is real: it counts the moves
-//      COLDVEIL can take, and holds back what tomorrow is likely to need
-//      (src/engine/worstCase.ts).
+//   5. WORST CASE warns only when the risk is real. Since v2.0 R5 (Ken's
+//      ruling of 17 November 2026) its figure is the morning's, with the
+//      funding and the coverage bonus in, and its mark is raised when a
+//      broken budget is more likely than not (src/engine/worstCase.ts).
 // Held over the nights the sweep's own Prepared and Novice lines reach, so
 // the boards are ones a game arrives at, with posts standing and COLDVEIL
 // already turned from what is covered.
@@ -13,12 +14,13 @@ import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import { adversaryPicks } from '../src/engine/adversary'
-import { newGame } from '../src/engine/reducer'
+import { planFor } from '../src/engine/campaign'
+import { newGame, resolveTurn } from '../src/engine/reducer'
 import { playNight } from '../src/engine/responses'
-import { domainOf, eventById, mitigationOf, orderCost, postOf, repairBill } from '../src/engine/rules'
+import { domainOf, mitigationOf, orderCost, postOf } from '../src/engine/rules'
 import type { GameState, TurnActions } from '../src/engine/types'
-import { heldForLater, movesOpen, worstCase } from '../src/engine/worstCase'
-import { NO_ORDERS, atStakeOf, contactsFor, dodgeOf, eventDef, fixNext, spotAdvice, type Orders } from '../src/ui/three/gameModel'
+import { movesOpen, worstCase } from '../src/engine/worstCase'
+import { NO_ORDERS, atStakeOf, contactsFor, dodgeOf, eventDef, fixNext, spotAdvice, spotFor, type Orders } from '../src/ui/three/gameModel'
 import { nightOf } from '../src/ui/night/nightModel'
 import { WATCH } from './policies'
 
@@ -148,52 +150,175 @@ describe('ruling 4: the advice counts the watch post it gives up', () => {
   })
 })
 
-describe('ruling 5: WORST CASE warns only when the risk is real', () => {
-  it('counts the moves COLDVEIL can take tonight, and holds back tomorrow and no further', () => {
-    let turned = 0
-    for (const { state, actions, where } of nights()) {
-      const wc = worstCase(state, actions)
-      const counters = [...state.counters, ...actions.buyCounters.filter((c) => !state.counters.includes(c))]
-      // Tonight: every move the engine's own pick can be drawn from.
-      const open = movesOpen(state, state.turn, counters)
-      const picks = adversaryPicks(state, counters)
-      expect(open, where).toEqual(picks.map((r) => r.least))
-      if (picks.some((r) => r.least.length < r.candidates.length)) turned += 1
-      // The nights after tomorrow are not held for.
-      const last = state.turn >= state.scenario.totalTurns
-      expect(wc.later, where).toBe(heldForLater(state, counters))
-      if (last) expect(wc.later, `${where}: held back on the last night`).toBe(0)
-      else {
-        // Tomorrow at its average: on each track the mean bill of the moves
-        // COLDVEIL can take, plus upkeep, less the funding before it (a
-        // debris night's own figure aside).
-        const tomorrow = movesOpen(state, state.turn + 1, counters)
-        if (!tomorrow.flat().some((id) => eventDef(state, id).effect.special === 'debrisStrike')) {
-          let bills = 0
-          for (const ids of tomorrow) {
-            bills +=
-              ids.reduce((n, id) => {
-                const ev = eventById(state.scenario, id)
-                return n + repairBill(ev, Math.max(0, ev.baseSeverity + (ev.effect.special === 'chainExploit' ? 1 : 0) - mitigationOf(ev, counters)), state.difficulty)
-              }, 0) / ids.length
-          }
-          expect(wc.later, where).toBe(Math.max(0, Math.ceil(bills + counters.length * state.scenario.upkeepPerDefense - state.scenario.incomePerTurn)))
+describe("WORST CASE (v2.0 R5, Ken's ruling of 17 November 2026): the morning's figure, and a mark that is right more often than not", () => {
+  // Every way tonight can go, through the engine itself: a deck that plays
+  // the chosen move on each track and deals no opportunity, and a debris
+  // roll that loses the satellite or does not. No answer is spent.
+  const everyWay = (state: GameState, actions: TurnActions) => {
+    const counters = [...state.counters, ...actions.buyCounters.filter((c) => !state.counters.includes(c))]
+    const open = movesOpen(state, state.turn, counters)
+    const debris = open.flat().some((id) => eventDef(state, id).effect.special === 'debrisStrike')
+    const out: { dawn: number; morning: number; post: boolean }[] = []
+    const walk = (picks: number[]) => {
+      if (picks.length < open.length) {
+        for (let i = 0; i < open[picks.length].length; i += 1) walk([...picks, i])
+        return
+      }
+      for (const call of debris ? (['burn', 'hold'] as const) : ([undefined] as const)) {
+        for (const lose of debris && call === 'hold' ? [true, false] : [false]) {
+          let at = 0
+          const drawn = open.map((ids, k) => (ids.length > 1 || !(planFor(state, state.turn)!.slots[k].fixed) ? picks[k] : -1)).filter((i) => i >= 0)
+          const deck = { next: () => 0.999, int: () => drawn[at++] ?? 0, pick: <T,>(items: readonly T[]) => items[0], chance: () => false }
+          const rng = { next: () => 0, int: () => 0, pick: <T,>(items: readonly T[]) => items[0], chance: () => lose }
+          const after = resolveTurn(state, { ...actions, ...(call ? { debris: call } : {}), responses: [] }, rng, deck)
+          const { ledger, events } = after.history.at(-1)!
+          expect(events.filter((e) => !e.debris).map((e) => e.eventId), 'the forced deck did not play the chosen moves').toEqual(open.map((ids, k) => ids[picks[k]]).filter((id) => eventDef(state, id).effect.special !== 'debrisStrike'))
+          out.push({ dawn: ledger.after - ledger.funding - ledger.coverageBonus, morning: ledger.after, post: events.some((e) => (e.hardened ?? 0) > 0) })
         }
       }
-      expect(wc.value, where).toBe(state.credits - orderCost(state, actions) - wc.repairs - wc.upkeep - wc.later)
     }
-    expect(turned, 'COLDVEIL never turned from a move, so the reading went untested').toBeGreaterThan(100)
-  })
+    walk([])
+    return out
+  }
 
-  it('does not call a first piece dangerous on a full budget: the R3 reviewer was warned off an 8 CR piece with 62 CR in the bank', () => {
+  // The lines' own orders keep the night safe, so each night is also read
+  // with more ordered than it can bear: every asset the budget still
+  // covers, dearest first.
+  const overspent = (state: GameState, actions: TurnActions): TurnActions => {
+    let a = actions
+    for (const kind of ['rpoSat', 'sat', 'groundStation', 'drone'] as const) {
+      const more = { ...a, buyAssets: [...a.buyAssets, { kind }] }
+      if (state.credits - orderCost(state, more) >= 0) a = more
+    }
+    return a
+  }
+  function* readings(seeds: number) {
+    for (const night of nights(seeds)) {
+      yield night
+      const more = overspent(night.state, night.actions)
+      if (more !== night.actions) yield { ...night, actions: more, where: `${night.where}, overspent` }
+    }
+  }
+
+  it("the tile's figure is the engine's own worst night: the budget at the solvency check, and tomorrow morning's with the funding and the coverage bonus in", () => {
+    let nightsRead = 0
+    let exact = 0
+    let bonusLost = 0
+    let short = 0
+    for (const { state, actions, where } of readings(40)) {
+      const wc = worstCase(state, actions)
+      const ways = everyWay(state, actions)
+      const dawn = Math.min(...ways.map((w) => w.dawn))
+      const morning = Math.min(...ways.map((w) => w.morning))
+      nightsRead += 1
+      // Never rosier than any night the engine can play, and the
+      // engine's own worst to the credit, the post's point counted.
+      expect(wc.dawn, `${where}: the dawn`).toBe(dawn)
+      expect(wc.morning, `${where}: the morning`).toBe(morning)
+      if (ways.some((w) => w.post)) exact += 1
+      if (wc.dawn >= 0 && wc.morning - wc.dawn === state.scenario.incomePerTurn) bonusLost += 1
+      if (wc.dawn < 0) short += 1
+    }
+    expect(nightsRead).toBeGreaterThan(1500)
+    expect(exact, 'the post never took a point off a strike in a night read').toBeGreaterThan(300)
+    // Not vacuous: nights whose worst costs the coverage bonus, and nights that read short.
+    expect(bonusLost, 'no worst night ever lost the coverage bonus').toBeGreaterThan(10)
+    expect(short, 'no night ever read short').toBeGreaterThan(5)
+  }, 120_000)
+
+  it('the odds are the nights the engine can play: with no answer left, the chance tonight breaks the budget is the share of them that close insolvent', () => {
+    let read = 0
+    let some = 0
+    for (const { state, actions, where } of readings(60)) {
+      if (state.scenario.answers - (state.answersUsed ?? 0) > 0) continue
+      const open = movesOpen(state, state.turn, [...state.counters, ...actions.buyCounters.filter((c) => !state.counters.includes(c))])
+      if (open.flat().some((id) => eventDef(state, id).effect.special === 'debrisStrike')) continue
+      const ways = everyWay(state, actions)
+      const wc = worstCase(state, actions)
+      // Each way is as likely as the next: COLDVEIL draws evenly on each track.
+      const share = ways.filter((w) => w.dawn < 0).length / ways.length
+      expect(wc.tonight, where).toBeCloseTo(share, 9)
+      read += 1
+      if (share > 0) some += 1
+    }
+    expect(read).toBeGreaterThan(80)
+    expect(some, 'no night read could break the budget').toBeGreaterThan(3)
+  }, 120_000)
+
+  it('does not mark a first piece, or read short, on an opening budget: the R3 reviewer was warned off an 8 CR piece with 62 CR in the bank', () => {
     for (const difficulty of ['standard', 'easy'] as const) {
       for (let seed = 1; seed <= 60; seed += 1) {
         const state = newGame(DEFAULT_SCENARIO, seed, difficulty)
         for (const cm of state.scenario.countermeasures) {
-          const wc = worstCase(state, { buyAssets: [], buyCounters: [cm.id] })
-          expect(wc.value, `${difficulty} seed ${seed}: ${cm.id} at ${cm.cost} CR on ${state.credits} CR reads ${wc.value}`).toBeGreaterThanOrEqual(0)
+          const wc = worstCase(state, { buyAssets: [{ kind: 'drone' }], buyCounters: [cm.id] })
+          expect(wc.risky, `${difficulty} seed ${seed}: ${cm.id} at ${cm.cost} CR with a drone on ${state.credits} CR is marked`).toBe(false)
+          expect(wc.dawn, `${difficulty} seed ${seed}: ${cm.id} reads ${wc.dawn}`).toBeGreaterThanOrEqual(0)
         }
       }
     }
   })
+
+  // THE MEASUREMENT THE RULING ASKS FOR, over Prepared's 500 games: every
+  // piece the budget could buy on every night, each mark ignored once (the
+  // piece placed where its card recommends) and the game then played on
+  // inside the guard. MEASURED (v2.0 R5, a drone at 25 CR, 90 to start):
+  //   STANDARD: 25,500 pieces, 77 marked (0.3 percent) on 52 nights of
+  //   3,000 (1 in 58); all 77 ignored ended insolvent. 184 more (0.7
+  //   percent) read short on the tile with no mark, and bought anyway 60
+  //   of them ended insolvent (1 in 3).
+  //   EASY: none marked, and none read short.
+  // The history of the rule, and what it measured at each step, is at the
+  // head of src/engine/worstCase.ts.
+  it('A MARK IS RIGHT MORE OFTEN THAN NOT: of the marks Prepared could ignore on STANDARD, more than half end with the budget broken', () => {
+    const line = WATCH.find((l) => l.name === 'prepared')!
+    const rows: string[] = []
+    for (const difficulty of ['standard', 'easy'] as const) {
+      let pieces = 0, marked = 0, nightsPlayed = 0, nightsMarked = 0, broke = 0, tight = 0, tightBroke = 0
+      for (let seed = 1; seed <= 500; seed += 1) {
+        let state = newGame(DEFAULT_SCENARIO, seed, difficulty)
+        while (state.status === 'playing') {
+          const actions = line.policy(state)
+          nightsPlayed += 1
+          const base: TurnActions = { ...actions, buyCounters: [], placeOn: undefined }
+          const free = state.credits - orderCost(state, base)
+          let any = false
+          for (const cm of state.scenario.countermeasures) {
+            if (state.counters.includes(cm.id) || cm.cost > free) continue
+            pieces += 1
+            const where = spotFor(state, ordersOf(base), cm.id)
+            const order: TurnActions = { ...base, buyCounters: [cm.id], ...(where ? { placeOn: { [cm.id]: where } } : {}) }
+            const wc = worstCase(state, order)
+            if (!wc.risky && wc.dawn >= 0) continue
+            let s = playNight(state, order, line.respond)
+            while (s.status === 'playing') s = playNight(s, line.policy(s), line.respond)
+            const insolvent = s.lossReason === 'insolvency'
+            if (!wc.risky) {
+              // Short on the tile, and not marked: possible, not likely.
+              tight += 1
+              if (insolvent) tightBroke += 1
+              continue
+            }
+            marked += 1
+            any = true
+            if (insolvent) broke += 1
+          }
+          if (any) nightsMarked += 1
+          state = playNight(state, actions, line.respond)
+        }
+      }
+      rows.push(`| ${difficulty.toUpperCase()} | ${pieces} | ${marked} (${((100 * marked) / pieces).toFixed(1)}%) | ${nightsMarked} of ${nightsPlayed}${nightsMarked ? ` (1 in ${Math.round(nightsPlayed / nightsMarked)})` : ''} | ${marked ? `${broke} of ${marked} (${((100 * broke) / marked).toFixed(1)}%)` : 'none to ignore'} | ${tight} (${((100 * tight) / pieces).toFixed(1)}%) | ${tight ? `${tightBroke} of ${tight} (${((100 * tightBroke) / tight).toFixed(1)}%)` : 'none'} |`)
+      if (difficulty === 'standard') {
+        expect(marked, 'nothing was ever marked, so the mark went untested').toBeGreaterThan(30)
+        expect(broke / marked, `${broke} of ${marked} marks ignored ended insolvent`).toBeGreaterThan(0.5)
+        // And it is quiet: under 2 pieces in 100.
+        expect(marked / pieces).toBeLessThan(0.02)
+        // A piece that reads short with no mark is the other half of it:
+        // possible, and less likely than not.
+        expect(tight, 'no piece ever read short without a mark').toBeGreaterThan(30)
+        expect(tightBroke / tight, `${tightBroke} of ${tight} pieces that read short with no mark ended insolvent`).toBeLessThan(0.5)
+      }
+    }
+    if (process.env.SWEEP)
+      process.stderr.write(['\nWORST CASE over Prepared\'s 500 games, each mark ignored once:', '| difficulty | pieces the budget could buy | marked risky | nights with a mark | ignored, then insolvent | read short on the tile with no mark | bought anyway, then insolvent |', '|---|---|---|---|---|---|---|', ...rows, ''].join('\n') + '\n')
+  }, 120_000)
 })

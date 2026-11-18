@@ -37,7 +37,7 @@ import {
 } from '../../engine/rules'
 import { COVERAGE_PER_KIND } from '../../engine/scoring'
 import type { Asset, AssetKind, Countermeasure, CountermeasureId, DebrisChoice, GameState, HoldCall, ResolvedEvent, ThreatEvent, TimingGrade, TurnActions } from '../../engine/types'
-import { worstCase } from '../../engine/worstCase'
+import { RISK_BAR, worstCase } from '../../engine/worstCase'
 import { stopVerb } from '../board/boardModel'
 import { nightOf, type Night, type NightStep } from '../night/nightModel'
 
@@ -411,13 +411,18 @@ export interface KitPiece {
   // Why it cannot be placed tonight, when it cannot.
   blocked: 'owned' | 'budget' | null
   ordered: boolean
-  // Placing it tonight would leave WORST CASE below 0: a night that went
-  // as badly as it can would break the budget.
-  risky: boolean
-  // How far under 0 WORST CASE would read with it (v2.0 R4): a piece can
-  // be risky at a price the figure on screen seems to cover, because it
+  // THE MARK (v2.0 R5): with it placed tonight, a broken budget is more
+  // likely than not by tomorrow night's close (src/engine/worstCase.ts).
+  // `odds` is that chance, and `soon` whether tonight alone is the likely
+  // break. A piece can be risky at a price the tile seems to cover: it
   // adds upkeep and can turn COLDVEIL to a costlier move.
-  short: number
+  risky: boolean
+  odds: number
+  soon: boolean
+  // What the tile would read with it placed: under 0 with no mark is a
+  // night whose very worst breaks the budget, possible and not likely.
+  // The piece's card says so quietly; the tray does not mark it.
+  worst: number
   // The identified signatures tonight it answers, and what it does to each.
   answers: { contact: Contact; verb: Answer['verb'] }[]
   domain: AssetKind[]
@@ -434,8 +439,11 @@ export function kitFor(state: GameState, orders: Orders, contacts: readonly Cont
     const owned = state.counters.includes(cm.id)
     const answers = contacts.filter((c) => c.known && c.def.counters.includes(cm.id)).map((c) => ({ contact: c, verb: stopVerb(cm.id, c.def) }))
     const blocked = owned ? ('owned' as const) : cm.cost > free ? ('budget' as const) : null
-    const reads = blocked ? 0 : worstCase(state, actionsOf({ ...orders, defense: cm.id })).value
-    return { cm, blocked, ordered: orders.defense === cm.id, risky: reads < 0, short: Math.max(0, -reads), answers, domain: domainOf(state, cm.id) }
+    // Read where it would stand: where it is placed if it is tonight's
+    // piece, and otherwise on the spot its card recommends, since the post
+    // takes a point off a strike there and the odds count it.
+    const wc = blocked ? null : worstCase(state, actionsOf({ ...orders, defense: cm.id, place: orders.defense === cm.id ? orders.place : (spotFor(state, orders, cm.id) ?? null) }))
+    return { cm, blocked, ordered: orders.defense === cm.id, risky: !!wc?.risky, odds: wc?.odds ?? 0, soon: (wc?.tonight ?? 0) > RISK_BAR, worst: !wc ? 0 : wc.dawn < 0 ? wc.dawn : wc.morning, answers, domain: domainOf(state, cm.id) }
   })
   // In the catalog's own order, every night: a tray that reshuffled itself
   // after each scan could not be learned (the round's fresh-eyes review).
@@ -450,7 +458,8 @@ export interface FleetPiece {
   ordered: boolean
   fits: boolean
   risky: boolean
-  short: number
+  odds: number
+  soon: boolean
 }
 const FLEET_ORDER: AssetKind[] = ['drone', 'groundStation', 'sat', 'rpoSat']
 export function fleetFor(state: GameState, orders: Orders): FleetPiece[] {
@@ -458,30 +467,35 @@ export function fleetFor(state: GameState, orders: Orders): FleetPiece[] {
     const ordered = orders.assets.includes(kind)
     const price = state.scenario.prices[kind]
     const fits = ordered || price <= remaining(state, orders)
-    const reads = fits && !ordered ? worstCase(state, actionsOf({ ...orders, assets: [...orders.assets, kind] })).value : 0
-    return { kind, price, eta: DEPLOY_TURNS[kind], ordered, fits, risky: reads < 0, short: Math.max(0, -reads) }
+    const wc = fits && !ordered ? worstCase(state, actionsOf({ ...orders, assets: [...orders.assets, kind] })) : null
+    return { kind, price, eta: DEPLOY_TURNS[kind], ordered, fits, risky: !!wc?.risky, odds: wc?.odds ?? 0, soon: (wc?.tonight ?? 0) > RISK_BAR }
   })
 }
 
 // THE STAKES, said before the night so a point of score has a face: what
 // tonight could take at most (each track's costliest move as the defenses
-// stand, the unidentified ones counted), and what the budget reads if the
-// night goes as badly as it can (the engine's WORST CASE).
+// stand, the unidentified ones counted), and what the budget reads
+// tomorrow morning if the night goes as badly as it can (the engine's
+// WORST CASE).
 export interface Stakes {
   score: number
   line: number
   atStake: number
-  worst: number
   remaining: number
-  // WORST CASE in its two parts (v2.0 R4): the budget at dawn after
-  // tonight's worst, and what tomorrow night's worst could need of it.
-  dawn: number
-  later: number
+  // WORST CASE as the tile shows it (v2.0 R5): tomorrow morning's budget
+  // on the worst night, funding and the coverage bonus in; under 0, how
+  // far short tonight's worst repairs and upkeep would leave it.
+  worst: number
+  // THE MARK: a broken budget is more likely than not by tomorrow night's
+  // close (`odds`), and whether tonight alone is the likely break (`soon`).
+  risky: boolean
+  odds: number
+  soon: boolean
 }
 export function stakesFor(state: GameState, orders: Orders, contacts: readonly Contact[], score: number): Stakes {
   const atStake = atStakeOf(contacts)
   const wc = worstCase(state, actionsOf(orders))
-  return { score, line: state.scenario.winThreshold, atStake, worst: wc.value, remaining: wc.remaining, dawn: wc.remaining - wc.repairs - wc.upkeep, later: wc.later }
+  return { score, line: state.scenario.winThreshold, atStake, remaining: wc.remaining, worst: wc.dawn < 0 ? wc.dawn : wc.morning, risky: wc.risky, odds: wc.risky && wc.tonight > RISK_BAR ? wc.tonight : wc.odds, soon: wc.tonight > RISK_BAR }
 }
 
 // --------------------------------------------------------------- the night

@@ -186,7 +186,7 @@ describe('GUARD R5 (d): the Daily Op share text for a fixed seed, date and scrip
     expect(shareText(end, { n: 1, official: true })).toBe(
       [
         'DARK CONSTELLATION · Daily Op #1',
-        'Grade F · lost T4 · budget below zero · score 51.2, win line 70',
+        'Grade F · lost T4 · budget below zero · score 50.8, win line 70',
         '\u{1F7E8}\u{1F7E5}\u{1F7E5}\u{1F7E5}',
         'https://kensden.github.io/dark-constellation',
       ].join('\n'),

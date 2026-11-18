@@ -24,24 +24,46 @@ export const FIRST_LIGHT: Scenario = {
   totalTurns: 6,
   // THE BUDGET (v2.0 R2). The answers are a pool that costs no credits
   // (src/engine/rules.ts, answersOf), so credits buy defenses and assets
-  // and pay the bills: 80 to start and 7 a night (6 through v2.0 R3).
-  // The budget is not a smooth dial: a credit a night either way moves
-  // Prepared by several points in either direction, because what it
-  // changes is whether the last nights' orders fit inside WORST CASE
-  // (src/engine/worstCase.ts). 85 to start with 6 a night plays the same
-  // as 80 with 7. Through v1.7, with a paid intel brief and answers bought
-  // a point at a time, it was 100 and 20; the pixel board's numbers are in
-  // the history of main.
-  startCredits: 80,
+  // and pay the bills: 90 to start (80 through v2.0 R4; see the fleet,
+  // below) and 7 a night (6 through v2.0 R3). The budget is not a smooth
+  // dial: a credit a night either way moves Prepared by several points in
+  // either direction, because what it changes is whether the last nights'
+  // orders fit inside WORST CASE (src/engine/worstCase.ts). Through v1.7,
+  // with a paid intel brief and answers bought a point at a time, it was
+  // 100 and 20; the pixel board's numbers are in the history of main.
+  startCredits: 90,
   incomePerTurn: 7,
   slaBonus: { coverageMin: 60, credits: 10 },
   winThreshold: 70,
   collapseThreshold: 35,
   maiWeights: { coverage: 0.3, linkAvailability: 0.25, dataIntegrity: 0.2, sensorIntegrity: 0.25 },
+  // THE FLEET: A DRONE COSTS 25 (v2.0 R5, Ken's ruling of 17 November
+  // 2026: drones cost more or cover less, so that Prepared plus a drone a
+  // night no longer wins all 500). At 15 a drone was 2.7 points of score
+  // for the price of a defense and a half, with no upkeep: under R4's
+  // guard Prepared with a drone a night as well won every game on
+  // STANDARD. At 25, with the opening budget raised by the same 10, the
+  // first night is what it was (the drone FIRST ORDERS teaches leaves 65
+  // CR as before, and still reaches the coverage bonus), so every line
+  // that orders that one drone plays exactly as it did, and each drone
+  // after it costs 10 more. MEASURED on STANDARD, 500 seeds a line, under
+  // R5's guard: Prepared 86.2, Novice 41.2, the Expert 98.4; Prepared with
+  // a drone a night as well 28.4 (it spends what its defenses need); the
+  // same line keeping tomorrow's likely bills in hand 80.2, and 92.6 with
+  // the Expert's answers. PRICES MEASURED BESIDE IT, each with the opening
+  // budget moved by the same amount, the careful drone line and the same
+  // with the Expert's answers: 15, 93.2 and 97.0; 20, 98.6 and 99.6, over
+  // the Expert; 22, 91.6 and 98.8; 23, 87.2 and 96.0; 24 to 30, never
+  // more than a point over Prepared and never over the Expert. 25 is in
+  // the middle of that flat stretch. The price alone, with 80 to start,
+  // took Prepared to 33.8 percent: the first drone is in every line.
+  // Covering less was the other lever: at 7 coverage a drone (9 now) the
+  // starting fleet reads 54, not 58, and Prepared won 56.4.
+  // tests/sweep.spec.ts holds the drone lines under the Expert.
   prices: {
     sat: 30,
     rpoSat: 35,
-    drone: 15,
+    drone: 25,
     groundStation: 25,
   },
   upkeepPerDefense: 2,
@@ -80,10 +102,16 @@ export const FIRST_LIGHT: Scenario = {
   recovery: { base: 7, withIrRetainer: 9 },
   meterDamage: 15,
   // THE WATCH (v2.0 R2): 3 answers for the whole operation; 3 holds a
-  // game, and 3.5 points of score for a wrong call on one (2 through R3).
+  // game, and 4 points of score for a wrong call on one (2 through R3,
+  // 3.5 in R4). 4 SINCE v2.0 R5: under R5's guard the lines that call
+  // every hold one way buy a little more freely, and at 3.5 always
+  // overriding won 81.6 percent against Prepared's 86.2, inside the 5
+  // points the tie-break ruling asks for. At 4, always overriding wins
+  // 80.2 and never overriding 80.0, and the Novice, who calls 1 hold in 3
+  // wrong, 39.4 (41.2 at 3.5); at 4.5, 79.0, 78.6 and 37.2.
   answers: 3,
   holdCount: 3,
-  holdStake: 3.5,
+  holdStake: 4,
   starterAssets: [{ kind: 'sat' }, { kind: 'sat' }, { kind: 'rpoSat' }, { kind: 'drone' }, { kind: 'drone' }, { kind: 'groundStation' }],
   // Brief 6.2. Turn 1's two moves are both strength 2, on different layers
   // with different defenses, so a hit lands on turn 1 unless the player

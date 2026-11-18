@@ -22,8 +22,18 @@ export interface ScoreEntry {
   difficulty?: Difficulty | 'expert'
   // The defense bonus (v1.3 brief 6.8); absent before v1.3 Round 0.
   bonus?: number
+  // THE GAME IT WAS PLAYED IN (v2.0 R5, Ken's ruling of 17 November 2026).
+  // The 3D game stamps every finish. An entry without the stamp is from
+  // the pixel board (v1.2 to v1.7), whose scores ran about 10 points lower
+  // under other rules: it keeps its score, is shown with no grade, and is
+  // never regraded on the 3D game's bands (fromPixelGame, below).
+  game?: typeof GAME_3D
   recordedAt: string // ISO, presentation only
 }
+
+export const GAME_3D = '3d' as const
+// Whether a stored run, practice or Daily Op, was played on the pixel board.
+export const fromPixelGame = (run: { game?: string }): boolean => run.game !== GAME_3D
 
 export interface ScoreSink {
   record(entry: ScoreEntry): void

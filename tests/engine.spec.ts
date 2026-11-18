@@ -161,9 +161,11 @@ describe('determinism', () => {
     // move, one rule set (see the header); 0c74b125 is the v2.0 R4 move:
     // 15 meter damage a point, 7 recovery and 7 funding a night, 3.5 points
     // for a wrong call, after the guard was loosened (Ken's rulings of 15
-    // November 2026), regenerated at the round's end.
+    // November 2026), regenerated at the round's end; a505699d is the v2.0
+    // R5 move: a drone at 25 CR with 90 to start, and 4 points for a wrong
+    // call (Ken's rulings of 17 November 2026).
     expect(createHash('sha1').update(readFileSync(SNAPSHOT_PATH, 'utf8')).digest('hex'), 'the committed snapshot file changed').toBe(
-      '0c74b125e0b2c4ed45560516610964f9a818c514',
+      'a505699d8844a2da52783086e07657d65e0d1478',
     )
   })
 

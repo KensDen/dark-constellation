@@ -19,7 +19,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import type { Difficulty } from '../src/engine/types'
-import { FIXED, FIXED_SAVING, WATCH, WATCH_REPORTED, type WatchLine } from './policies'
+import { FIXED, FIXED_SAVING, FLEET, WATCH, WATCH_REPORTED, type WatchLine } from './policies'
 import { GRADES, SEEDS, median, playPolicy, type PolicyRun } from './sweep-run'
 
 const pct = (n: number, of: number) => (100 * n) / of
@@ -53,7 +53,7 @@ describe('the sweep gate (v1.3 brief 7)', () => {
   const runs = new Map<string, PolicyRun>()
   const run = (name: string, difficulty: Difficulty) => runs.get(`${name}:${difficulty}`)!
   const rate = (name: string, difficulty: Difficulty) => pct(run(name, difficulty).wins, SEEDS)
-  const ALL: readonly WatchLine[] = [...WATCH, ...FIXED, ...FIXED_SAVING, ...WATCH_REPORTED]
+  const ALL: readonly WatchLine[] = [...WATCH, ...FIXED, ...FIXED_SAVING, ...FLEET, ...WATCH_REPORTED]
 
   beforeAll(() => {
     for (const difficulty of ['standard', 'easy'] as const) {
@@ -74,6 +74,7 @@ describe('the sweep gate (v1.3 brief 7)', () => {
       group(WATCH, '')
       group(FIXED, ', fixed line')
       group(FIXED_SAVING, ', fixed line with the Expert\'s answers')
+      group(FLEET, ', fleet line held under the Expert')
       group(WATCH_REPORTED, ', reported')
     }
     process.stderr.write(
@@ -138,6 +139,28 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     }
     // Not vacuous: the thrifty lines play whole games and win some on EASY.
     expect(run('thrifty', 'easy').wins).toBeGreaterThan(0)
+  })
+
+  it('THE FLEET IS NOT A BANK: Prepared with a drone a night as well wins less than every game, and no drone line wins more often than the Expert (Ken, 17 November 2026)', () => {
+    // Under R4's guard, with a drone at 15 CR, the first of these won all
+    // 500 on STANDARD. A drone is 25 CR now and the opening budget 90
+    // (src/content/scenarios/firstLight.ts has the prices measured beside
+    // it). MEASURED: a drone a night as well, 28.4 percent on STANDARD and
+    // 77.0 on EASY; with tomorrow's likely bills kept in hand, 80.2 and
+    // 99.0, and with the Expert's answers 92.6 and 100.0; Prepared 86.2
+    // and the Expert 98.4.
+    for (const difficulty of ['standard', 'easy'] as const) {
+      const expert = run('expert', difficulty).wins
+      for (const p of FLEET) {
+        const wins = run(p.name, difficulty).wins
+        expect(wins, `${difficulty}: ${p.label} won ${pct(wins, SEEDS).toFixed(1)} percent, the Expert ${pct(expert, SEEDS).toFixed(1)}`).toBeLessThanOrEqual(expert)
+      }
+    }
+    for (const p of FLEET) expect(run(p.name, 'standard').wins, `${p.label} won every game on STANDARD`).toBeLessThan(SEEDS)
+    // Not vacuous: the lines order drones (they end with less in the bank
+    // than Prepared does) and still win games.
+    expect(median(run('dronesKept', 'standard').creditsLeft)).toBeLessThan(median(run('prepared', 'standard').creditsLeft))
+    expect(run('dronesKept', 'standard').wins).toBeGreaterThan(SEEDS / 2)
   })
 
   it('THE TIE-BREAK COUNTS: always overriding and never overriding each win clearly less than reading the evidence (Ken, 14 November 2026)', () => {

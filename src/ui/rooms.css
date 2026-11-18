@@ -194,6 +194,16 @@ body:has(.rm) .crt-overlay {
   border-top: 1px solid var(--tt-edge);
   font-size: 13px;
 }
+/* A run from the pixel game: its mark stands where a grade would, and a
+   list that holds one gives the column room for it on every row, so the
+   rows still line up (v2.0 R5). */
+ol:has(.rm-pixel) > .rm-row {
+  grid-template-columns: 2rem 2.6rem 2.75rem minmax(0, 1fr) auto;
+}
+.rm-pixel {
+  font: 700 12px var(--font-mono);
+  color: var(--tt-dim);
+}
 .rm-row > :last-child {
   font: 700 13px var(--font-mono);
   font-variant-numeric: tabular-nums;

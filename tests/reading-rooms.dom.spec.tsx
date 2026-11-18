@@ -269,17 +269,17 @@ describe('the scoreboard, split by mode (M38)', () => {
     localStorage.setItem(
       'dc-daily',
       JSON.stringify({
-        '20261021': { n: 26, seed: 11, outcome: 'won', mai: 78.1, bonus: 1.5, turns: 6, recordedAt: '2026-10-21T15:00:00.000Z' },
-        '20261022': { n: 27, seed: 12, outcome: 'lost', lossReason: 'belowThreshold', mai: 64.3, turns: 6, recordedAt: '2026-10-22T13:00:00.000Z' },
+        '20261021': { n: 26, seed: 11, outcome: 'won', mai: 78.1, bonus: 1.5, turns: 6, game: '3d', recordedAt: '2026-10-21T15:00:00.000Z' },
+        '20261022': { n: 27, seed: 12, outcome: 'lost', lossReason: 'belowThreshold', mai: 64.3, turns: 6, game: '3d', recordedAt: '2026-10-22T13:00:00.000Z' },
       }),
     )
     localStorage.setItem(
       'dc-scores',
       JSON.stringify([
         // A Daily Op posted here before R4: its official copy is in the ledger.
-        { outcome: 'won', mai: 78.1, seed: 11, turnsSurvived: 6, totalTurns: 6, scenarioId: 'first-light', difficulty: 'standard', bonus: 1.5, recordedAt: '2026-10-21T15:00:00.000Z' },
-        { outcome: 'won', mai: 82.4, seed: 5, turnsSurvived: 6, totalTurns: 6, scenarioId: 'first-light', difficulty: 'standard', bonus: 2, recordedAt: '2026-10-20T15:00:00.000Z' },
-        { outcome: 'lost', lossReason: 'insolvency', mai: 71, seed: 6, turnsSurvived: 4, totalTurns: 6, scenarioId: 'first-light', difficulty: 'easy', recordedAt: '2026-10-19T15:00:00.000Z' },
+        { outcome: 'won', mai: 78.1, seed: 11, turnsSurvived: 6, totalTurns: 6, scenarioId: 'first-light', difficulty: 'standard', bonus: 1.5, game: '3d', recordedAt: '2026-10-21T15:00:00.000Z' },
+        { outcome: 'won', mai: 82.4, seed: 5, turnsSurvived: 6, totalTurns: 6, scenarioId: 'first-light', difficulty: 'standard', bonus: 2, game: '3d', recordedAt: '2026-10-20T15:00:00.000Z' },
+        { outcome: 'lost', lossReason: 'insolvency', mai: 71, seed: 6, turnsSurvived: 4, totalTurns: 6, scenarioId: 'first-light', difficulty: 'easy', game: '3d', recordedAt: '2026-10-19T15:00:00.000Z' },
       ]),
     )
     loadPage()
@@ -306,8 +306,50 @@ describe('the scoreboard, split by mode (M38)', () => {
     click(q('[data-clear-practice]')!)
     expect(qa('[data-practice-row]')).toHaveLength(0)
     expect(qa('[data-daily-row]')).toHaveLength(2)
+    // Every run here is the 3D game's: nothing is marked, and nothing is said about the pixel game.
+    expect(q('[data-pixel]')).toBeNull()
+    expect(q('[data-pixel-note]')).toBeNull()
+  })
+
+  it('shows a run from the pixel game with its score and no grade, marked, and never regrades it (Ken, 17 November 2026)', async () => {
+    // What main's own code (v1.6.2) wrote: no stamp of the game. On the 3D
+    // game's bands the 80.1 on EASY, an S there, would read B.
+    localStorage.setItem(
+      'dc-daily',
+      JSON.stringify({
+        '20261028': { n: 32, seed: 102, outcome: 'won', mai: 75.6, bonus: 1.5, turns: 6, recordedAt: '2026-10-28T21:00:00.000Z' },
+        '20261117': { n: 52, seed: 12, outcome: 'won', mai: 90.2, bonus: 2, turns: 6, game: '3d', recordedAt: '2026-11-17T13:00:00.000Z' },
+      }),
+    )
+    localStorage.setItem(
+      'dc-scores',
+      JSON.stringify([
+        { outcome: 'won', mai: 80.1, seed: 3, turnsSurvived: 6, totalTurns: 6, scenarioId: 'first-light', difficulty: 'easy', bonus: 3, recordedAt: '2026-10-09T20:15:00.000Z' },
+        { outcome: 'lost', lossReason: 'belowThreshold', mai: 66.2, seed: 4, turnsSurvived: 6, totalTurns: 6, scenarioId: 'first-light', difficulty: 'standard', recordedAt: '2026-10-11T20:15:00.000Z' },
+        { outcome: 'won', mai: 86.4, seed: 5, turnsSurvived: 6, totalTurns: 6, scenarioId: 'first-light', difficulty: 'standard', bonus: 2, game: '3d', recordedAt: '2026-11-17T15:00:00.000Z' },
+      ]),
+    )
+    loadPage()
+    click(q('[data-title-system]')!)
+    click(q('[data-system-control="scoreboard"]')!)
+    await settle()
+    const rows = [...qa('[data-board="daily"] [data-daily-row]'), ...qa('[data-board="practice"] [data-practice-row]')]
+    const read = rows.map((r) => ({ grade: r.querySelector('[data-grade]')?.textContent ?? null, pixel: !!r.querySelector('[data-pixel]'), score: r.lastElementChild!.textContent }))
+    expect(read).toEqual([
+      // The Daily Op half, newest first: the 3D game's, then the pixel game's.
+      { grade: gradeFor({ status: 'won', finalMai: 90.2, bonus: 2 }), pixel: false, score: '90.2' },
+      { grade: null, pixel: true, score: '75.6' },
+      // Practice: wins by score, then the loss. The 3D game's run is graded as now.
+      { grade: gradeFor({ status: 'won', finalMai: 86.4, bonus: 2 }), pixel: false, score: '86.4' },
+      { grade: null, pixel: true, score: '80.1' },
+      { grade: null, pixel: true, score: '66.2' },
+    ])
+    expect(q('[data-pixel-note]')!.textContent).toMatch(/pixel game.*not graded/)
+    // The mark is words to a screen reader too.
+    expect(q('[data-pixel]')!.getAttribute('aria-label')).toBe('Pixel game, not graded')
   })
 })
+
 
 describe("the title's Daily read-back (M32)", () => {
   it('reads DONE, the grade and the streak once today is in, with the countdown, and neither before', async () => {
@@ -318,7 +360,7 @@ describe("the title's Daily read-back (M32)", () => {
       'dc-daily',
       JSON.stringify({
         '20261021': { n: 26, seed: 11, outcome: 'won', mai: 78.1, turns: 6, recordedAt: '2026-10-21T15:00:00.000Z' },
-        '20261022': { n: 27, seed: 12, outcome: 'won', mai: 76, bonus: 0, turns: 6, recordedAt: '2026-10-22T09:00:00.000Z' },
+        '20261022': { n: 27, seed: 12, outcome: 'won', mai: 76, bonus: 0, turns: 6, game: '3d', recordedAt: '2026-10-22T09:00:00.000Z' },
       }),
     )
     loadPage()

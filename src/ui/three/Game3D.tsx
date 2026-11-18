@@ -25,7 +25,7 @@ import { answersLeft, answersOf } from '../../engine/rules'
 import { defenseBonus } from '../../engine/learning'
 import { maiScore } from '../../engine/scoring'
 import type { AssetKind, CountermeasureId, DebrisChoice, GameState, HoldCall, ResolvedEvent, TimingGrade } from '../../engine/types'
-import { LocalDailyLedger, LocalScoreSink, LocalStorageStore, addRunTime, beginRun, dossier, fileCard, recordMet, recordNamed, runKey, type DailyOp, type DailyStanding, type RestoredGame } from '../../persistence'
+import { GAME_3D, LocalDailyLedger, LocalScoreSink, LocalStorageStore, addRunTime, beginRun, dossier, fileCard, recordMet, recordNamed, runKey, type DailyOp, type DailyStanding, type RestoredGame } from '../../persistence'
 import { callSigns, cartCallSigns } from '../board/board'
 import { shortName } from '../board/boardModel'
 import { useCountUp, usePageVisible, useReducedMotion } from '../cues/motion'
@@ -268,8 +268,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   }, [])
   // The hold's clock, in seconds left; null when there is none.
   const [holdLeft, setHoldLeft] = useState<number | null>(null)
-  // BEGIN asked once more on a night whose WORST CASE is below 0, and on
-  // one begun with no new defense while one could be placed.
+  // BEGIN asked once more on a night marked risky (likely to break the
+  // budget), and on one begun with no new defense while one could be placed.
   const [atRisk, setAtRisk] = useState(false)
   const [bare, setBare] = useState(false)
   const [guide, setGuide] = useState<GuideStep>(() => (mode === 'play' && !readPrefs().guideSeen && start.state.status === 'playing' && start.state.history.length === 0 ? 'scan' : null))
@@ -805,8 +805,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const recordedAt = new Date().toISOString()
     const bonus = defenseBonus(after.bestStreak, after.saved)
     if (!daily)
-      scoreSink.record({ outcome: after.status as 'won' | 'lost', lossReason: after.lossReason, mai: lastRec?.maiScore ?? 0, seed: after.seed, turnsSurvived: after.history.length, totalTurns: after.scenario.totalTurns, scenarioId: after.scenario.id, difficulty: after.difficulty, bonus, recordedAt })
-    else setStanding(dailyLedger.claim(daily, { n: daily.n, seed: after.seed, outcome: after.status as 'won' | 'lost', lossReason: after.lossReason, mai: lastRec?.maiScore ?? 0, bonus, turns: after.history.length, recordedAt }))
+      scoreSink.record({ outcome: after.status as 'won' | 'lost', lossReason: after.lossReason, mai: lastRec?.maiScore ?? 0, seed: after.seed, turnsSurvived: after.history.length, totalTurns: after.scenario.totalTurns, scenarioId: after.scenario.id, difficulty: after.difficulty, bonus, game: GAME_3D, recordedAt })
+    else setStanding(dailyLedger.claim(daily, { n: daily.n, seed: after.seed, outcome: after.status as 'won' | 'lost', lossReason: after.lossReason, mai: lastRec?.maiScore ?? 0, bonus, turns: after.history.length, game: GAME_3D, recordedAt }))
     setEarned(recordFinish(after, dossier().size))
   }
 
@@ -951,21 +951,23 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
 
   const begin = () => {
     if (!deciding) return
-    // A night that could break the budget is begun on a second tap, with
-    // what it risks said first: insolvency ends the operation.
-    if (stakes && stakes.worst < 0 && !atRisk) {
+    // A night that is likely to break the budget is begun on a second tap,
+    // with what it risks said first: insolvency ends the operation. Likely,
+    // not possible (v2.0 R5): a night whose very worst reads short on the
+    // tile, with no mark, begins at the first tap.
+    if (stakes && stakes.risky && !atRisk) {
       setAtRisk(true)
       // The reason is on the plan card: whatever card was open over it is
       // closed, so the warning is never behind the panel that caused it.
       setSel(null)
       play('denied-buzz')
-      setSay(c3.riskLine(stakes.dawn, stakes.later, !!orders.defense || orders.assets.length > 0))
+      setSay(c3.riskLine(stakes.worst, stakes.odds, stakes.soon, !!orders.defense || orders.assets.length > 0))
       return
     }
     // A night begun with no new defense while one could be placed is asked
     // about once: BEGIN stands beside the tray, and a slip of the thumb
     // there started a night with nothing placed (the R3 phone review).
-    if (!bare && !atRisk && !orders.defense && stakes && stakes.atStake < -0.05 && kit.some((p) => !p.blocked && !p.risky)) {
+    if (!bare && !atRisk && !orders.defense && stakes && stakes.atStake < -0.05 && kit.some((p) => !p.blocked && !p.risky && p.worst >= 0)) {
       setBare(true)
       setSel(null)
       play('soft-tick')
@@ -1606,7 +1608,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         const advice = spotAdvice(game, orders, a.cm.id)
         if (advice.raises && advice.gives) then = c3.postCostShort(signs.get(advice.gives) ?? advice.gives)
       }
-      return { id: a.cm.id, name: a.cm.name, cost: a.cm.cost, verb: a.verb, owned: a.owned, ordered: a.ordered, blocked: piece?.blocked ?? null, risky: !!piece?.risky && !a.ordered, short: piece?.short ?? 0, then }
+      return { id: a.cm.id, name: a.cm.name, cost: a.cm.cost, verb: a.verb, owned: a.owned, ordered: a.ordered, blocked: piece?.blocked ?? null, risky: !!piece?.risky && !a.ordered, odds: piece?.odds ?? 0, soon: !!piece?.soon, then }
     })
 
   const assetTap = (id: string) => {
@@ -1870,7 +1872,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             summary={c3.orderLine(ownedName, orders.assets.length, orders.scans.length)}
             intro={contacts.every((c) => c.known) && contacts.some((c) => !c.fixed) && orders.scans.length === 0 ? `${intro} ${c3.ALLIED_FEED}` : intro}
             note={note}
-            risk={atRisk && stakes.worst < 0 ? c3.riskLine(stakes.dawn, stakes.later, !!orders.defense || orders.assets.length > 0) : bare ? c3.BARE_LINE : undefined}
+            risk={atRisk && stakes.risky ? c3.riskLine(stakes.worst, stakes.odds, stakes.soon, !!orders.defense || orders.assets.length > 0) : bare ? c3.BARE_LINE : undefined}
             contacts={contacts}
             signs={signs}
             stakes={stakes}
@@ -1998,9 +2000,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
               onFleet={() => setSel(sel?.kind === 'fleet' ? null : { kind: 'fleet' })}
               startDrag={(e, id, label) => startDrag(e, 'piece', id, label)}
             />
-            {atRisk && stakes && stakes.worst < 0 && (
+            {atRisk && stakes && stakes.risky && (
               <p className="t3-sr" role="alert" data-t3-risk>
-                {c3.riskLine(stakes.dawn, stakes.later, !!orders.defense || orders.assets.length > 0)}
+                {c3.riskLine(stakes.worst, stakes.odds, stakes.soon, !!orders.defense || orders.assets.length > 0)}
               </p>
             )}
             {bare && (
@@ -2011,8 +2013,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             <span className="t3-sr" data-t3-order-line>
               {c3.orderLine(ownedName, orders.assets.length, orders.scans.length)}
             </span>
-            <button type="button" data-t3-begin data-t3-worst={stakes?.worst} aria-label={atRisk && stakes && stakes.worst < 0 ? c3.BEGIN_AT_RISK : c3.BEGIN_LONG} className={`t3-btn t3-primary t3-begin${atRisk && stakes && stakes.worst < 0 ? ' t3-risk' : ''}`} onClick={begin}>
-              {atRisk && stakes && stakes.worst < 0 ? c3.BEGIN_AT_RISK : c3.BEGIN}
+            <button type="button" data-t3-begin data-t3-worst={stakes?.worst} data-t3-risky={stakes?.risky || undefined} aria-label={atRisk && stakes?.risky ? c3.BEGIN_AT_RISK : c3.BEGIN_LONG} className={`t3-btn t3-primary t3-begin${atRisk && stakes?.risky ? ' t3-risk' : ''}`} onClick={begin}>
+              {atRisk && stakes?.risky ? c3.BEGIN_AT_RISK : c3.BEGIN}
             </button>
           </div>
         )}

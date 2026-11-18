@@ -20,7 +20,9 @@
 //     the next one listed) of the move COLDVEIL will take, while that move
 //     is not already blocked and WORST CASE stays at 0 or more. It burns
 //     on the debris night when the fuel keeps WORST CASE at 0 or more, and
-//     holds otherwise.
+//     holds otherwise. "WORST CASE at 0 or more" is both of its readings
+//     since v2.0 R5 (src/engine/worstCase.ts): the tile's figure is not
+//     short, and the order is not marked risky.
 //   - THE BEGINNER (the gate's Novice): see `beginner` below.
 //   - BUY EVERYTHING: the priciest defense it can afford each night, the
 //     IR retainer among them, and nothing else. It burns on the debris
@@ -38,7 +40,7 @@ import type { Responder } from '../src/engine/responses'
 import { mulberry32, type Rng } from '../src/engine/rng'
 import { chainBonusOf, countersAfter, defenseOpen, domainOf, eventById, gnssDenied, mitigationOf, newDefenses, orderCost, scanPulses } from '../src/engine/rules'
 import type { AssetKind, CountermeasureId, GameState, HoldCall, TurnActions } from '../src/engine/types'
-import { worstCase } from '../src/engine/worstCase'
+import { worstCase, type WorstCase } from '../src/engine/worstCase'
 import { spotFor } from '../src/ui/three/gameModel'
 import { WIN_SCRIPT } from './scripts'
 
@@ -74,7 +76,30 @@ const streamFor = (state: GameState, salt: number): Rng =>
   mulberry32((Math.imul(state.seed ^ salt, 2654435761) ^ Math.imul(state.turn + 1, 40503)) >>> 0)
 
 const fits = (state: GameState, actions: TurnActions) => state.credits - orderCost(state, actions) >= 0
-const safe = (state: GameState, actions: TurnActions) => fits(state, actions) && worstCase(state, actions).value >= 0
+// A CAREFUL LINE'S READING OF WORST CASE (`safe`): the budget covers the
+// order, the tile's figure is 0 or more, and the order is not marked
+// (WorstCase.value, src/engine/worstCase.ts).
+//
+// A line may keep more in hand than the game asks (keeping, below): a rule
+// of its own, read on top of WORST CASE by every order the line weighs.
+export type Reserve = (state: GameState, actions: TurnActions, wc: WorstCase) => boolean
+let reserve: Reserve | null = null
+const safe = (state: GameState, actions: TurnActions) => {
+  if (!fits(state, actions)) return false
+  const wc = worstCase(state, actions)
+  return wc.value >= 0 && (!reserve || reserve(state, actions, wc))
+}
+export const keeping =
+  (policy: Policy, rule: Reserve): Policy =>
+  (state) => {
+    const before = reserve
+    reserve = rule
+    try {
+      return policy(state)
+    } finally {
+      reserve = before
+    }
+  }
 const withCounter = (actions: TurnActions, id: CountermeasureId): TurnActions => ({ ...actions, buyCounters: [...actions.buyCounters, id] })
 const withAsset = (actions: TurnActions, kind: AssetKind): TurnActions => ({ ...actions, buyAssets: [...actions.buyAssets, { kind }] })
 const debrisTonight = (state: GameState) =>
@@ -340,14 +365,25 @@ export const thrifty =
     return debrisTonight(state) ? { ...actions, debris: safe(state, actions) ? 'burn' : 'hold' } : actions
   }
 
-// A line with a drone ordered on top each night through `until`, while
-// WORST CASE stays at 0 or more: the fleet as a place to bank credits.
-export const withDrones =
-  (base: Policy, until: number): Policy =>
+// A line with an asset of one kind ordered on top each night from `from`
+// through `until`, while WORST CASE stays at 0 or more and nothing is
+// marked: the fleet as a place to bank credits. withDrones is the drone a
+// night the sweep has always played.
+export const withAssets =
+  (base: Policy, kind: AssetKind, from: number, until: number): Policy =>
   (state) => {
     const a = base(state)
-    return state.turn <= until && !a.buyAssets.some((b) => b.kind === 'drone') && safe(state, withAsset(a, 'drone')) ? withAsset(a, 'drone') : a
+    return state.turn >= from && state.turn <= until && !a.buyAssets.some((b) => b.kind === kind) && safe(state, withAsset(a, kind)) ? withAsset(a, kind) : a
   }
+export const withDrones = (base: Policy, until: number): Policy => withAssets(base, 'drone', 1, until)
+
+// TOMORROW'S LIKELY BILLS KEPT IN HAND: what the R4 guard held back for
+// every line, and since R5 (the mark reads the odds, and holds nothing
+// back until tomorrow is more likely than not to break the budget) the
+// habit of a player who is more careful than the game asks. Tonight's
+// worst may not leave less than tomorrow's average bills and upkeep, less
+// the funding that arrives before them.
+export const tomorrowKept: Reserve = (state, _actions, wc) => wc.dawn - Math.max(0, wc.later - state.scenario.incomePerTurn) >= 0
 
 export interface WatchLine {
   name: string
@@ -393,6 +429,21 @@ export const FIXED_SAVING: readonly WatchLine[] = [
   { name: 'dronesOnlySaver', label: 'No defenses, a drone a night, saving its answers', policy: onWatch(withDrones(nothing, 5), atSpot, reads), respond: saver },
   { name: 'scriptSaver', label: 'Prepared script, saving its answers', policy: onWatch((state) => WIN_SCRIPT[state.turn] ?? NO_ORDERS, atSpot, reads), respond: saver },
 ]
+// THE FLEET AS A BANK, HELD UNDER THE EXPERT (Ken's ruling of 17 November
+// 2026). Under R4's guard and a drone at 15 CR, Prepared with a drone a
+// night as well won all 500 on STANDARD: credits turned into coverage at
+// 2.7 points of score a drone, with no upkeep. The first of these is that
+// line as R4 played it. Under R5's guard it spends what its defenses need
+// (nothing is held back for tomorrow until tomorrow is likely to break the
+// budget), so the lines after it are the ones that test the price: the
+// same orders with tomorrow's likely bills kept in hand, through every
+// night, answering as Prepared does and as the Expert does.
+export const FLEET: readonly WatchLine[] = [
+  { name: 'preparedDrones', label: 'Prepared, a drone a night as well', policy: onWatch(withDrones(prepared, 4), atSpot, reads), respond: sensible },
+  { name: 'preparedDronesSaver', label: 'Prepared, a drone a night as well, saving its answers', policy: onWatch(withDrones(prepared, 4), atSpot, reads), respond: saver },
+  { name: 'dronesKept', label: 'Prepared, a drone a night, tomorrow\'s likely bills kept in hand', policy: onWatch(keeping(withDrones(prepared, 6), tomorrowKept), atSpot, reads), respond: sensible },
+  { name: 'dronesKeptSaver', label: 'Prepared, a drone a night, tomorrow\'s bills kept, saving its answers', policy: onWatch(keeping(withDrones(prepared, 6), tomorrowKept), atSpot, reads), respond: saver },
+]
 // Reported beside them, held to no band.
 export const WATCH_REPORTED: readonly WatchLine[] = [
   { name: 'expert', label: 'Expert (Prepared, saving answers for moves of 2 or more)', policy: onWatch(prepared, atSpot, reads), respond: saver },
@@ -403,7 +454,12 @@ export const WATCH_REPORTED: readonly WatchLine[] = [
   { name: 'expertSight', label: 'Expert, naming every signature on sight', policy: onWatch(preparedSight, atSpot, reads), respond: saver },
   { name: 'noviceSight', label: 'Novice, naming every signature on sight', policy: onWatch(beginnerLine('all'), atSpot, shaky(2 / 3)), respond: careless },
   { name: 'noviceGuess', label: 'Novice, guessing names until one is wrong (right 1 in 4)', policy: onWatch(beginnerLine('guess'), atSpot, shaky(2 / 3)), respond: careless },
-  { name: 'preparedDrones', label: 'Prepared, a drone a night as well', policy: onWatch(withDrones(prepared, 4), atSpot, reads), respond: sensible },
+  // The same bank in satellites (30 CR, 13 coverage, 2 nights out): what
+  // the fleet is worth to a player who keeps a reserve. Reported, and the
+  // round's report has the ruling it may need.
+  { name: 'satsKept', label: 'Prepared, a satellite a night, tomorrow\'s likely bills kept in hand', policy: onWatch(keeping(withAssets(prepared, 'sat', 1, 6), tomorrowKept), atSpot, reads), respond: sensible },
+  { name: 'satsKeptSaver', label: 'Prepared, a satellite a night, tomorrow\'s bills kept, saving its answers', policy: onWatch(keeping(withAssets(prepared, 'sat', 1, 6), tomorrowKept), atSpot, reads), respond: saver },
+  { name: 'preparedKept', label: 'Prepared, tomorrow\'s likely bills kept in hand (R4\'s guard as a habit)', policy: onWatch(keeping(prepared, tomorrowKept), atSpot, reads), respond: sensible },
   { name: 'noviceReads', label: 'Novice, reading every hold right', policy: onWatch(beginner, atSpot, reads), respond: careless },
   { name: 'noviceR1', label: 'The R1 Novice (a defense at random each night)', policy: onWatch(novice, atRandom, shaky(2 / 3)), respond: careless },
   { name: 'noviceAssist', label: 'Novice, Assist rate on every move', policy: onWatch(beginner, atSpot, shaky(2 / 3)), respond: careless, timing: 1 },

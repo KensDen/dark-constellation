@@ -263,15 +263,16 @@ describe('a game through the model is the engine’s game, and replays to itself
   })
 })
 
-describe('the guard on the one way to lose by accident (v2.0 R1)', () => {
-  it('marks as risky exactly the pieces and assets that would put WORST CASE below 0', () => {
+describe('the guard on the one way to lose by accident (v2.0 R1; the mark reads the odds since v2.0 R5)', () => {
+  it('marks as risky exactly the pieces whose night, placed where their card recommends, is likely to break the budget, and never one that only reads short', () => {
     let risky = 0
-    let safe = 0
+    let short = 0
+    let clear = 0
     for (const seed of SEEDS) {
       // Every night of a game that spends freely (a piece a night, and a
-      // satellite on night 1), so some orders are risky.
+      // satellite on the first 2), so some orders are risky.
       let state = fresh(seed)
-      for (let turn = 1; turn <= 5 && state.status === 'playing'; turn += 1) {
+      for (let turn = 1; turn <= 6 && state.status === 'playing'; turn += 1) {
         const contacts = contactsFor(state, NO_ORDERS)
         const kit = kitFor(state, NO_ORDERS, contacts)
         for (const p of kit) {
@@ -279,21 +280,28 @@ describe('the guard on the one way to lose by accident (v2.0 R1)', () => {
             expect(p.risky, `${p.cm.id} is blocked and risky at once`).toBe(false)
             continue
           }
-          const worst = stakesFor(state, { ...NO_ORDERS, defense: p.cm.id }, contacts, 0).worst
-          expect(p.risky, `seed ${seed} turn ${state.turn}: ${p.cm.id} at WORST CASE ${worst}`).toBe(worst < 0)
-          if (p.risky) risky += 1
-          else safe += 1
+          // What the plan card then shows with the piece set down there.
+          const placed = stakesFor(state, { ...NO_ORDERS, defense: p.cm.id, place: spotFor(state, NO_ORDERS, p.cm.id) ?? null }, contacts, 0)
+          const where = `seed ${seed} turn ${state.turn}: ${p.cm.id} at WORST CASE ${placed.worst}`
+          expect(p.risky, where).toBe(placed.risky)
+          expect(p.worst, where).toBe(placed.worst)
+          if (p.risky) {
+            risky += 1
+            expect(p.odds, where).toBeGreaterThan(0.5)
+          } else if (p.worst < 0) short += 1
+          else clear += 1
         }
         try {
-          state = resolveTurn(state, actionsOf({ ...NO_ORDERS, defense: kit.find((p) => !p.blocked)?.cm.id ?? null, assets: turn === 1 ? ['sat'] : [] }), turnRng(state.seed, state.turn))
+          state = resolveTurn(state, actionsOf({ ...NO_ORDERS, defense: kit.find((p) => !p.blocked)?.cm.id ?? null, assets: turn <= 2 ? ['sat'] : [] }), turnRng(state.seed, state.turn))
         } catch {
           break
         }
       }
     }
-    // Not vacuous either way.
+    // Not vacuous any of the three ways.
     expect(risky).toBeGreaterThan(5)
-    expect(safe).toBeGreaterThan(5)
+    expect(short).toBeGreaterThan(5)
+    expect(clear).toBeGreaterThan(5)
   })
 })
 

@@ -317,8 +317,11 @@ describe('the title starts the Daily Op (v1.3 R1)', () => {
     expect(ledger()).toEqual({})
     // It is a practice run, on the device's difficulty (EASY, a first
     // device's, R2), and the scoreboard's practice half has it.
-    const scores = JSON.parse(localStorage.getItem('dc-scores') ?? '[]') as { seed: number; difficulty: string }[]
+    const scores = JSON.parse(localStorage.getItem('dc-scores') ?? '[]') as { seed: number; difficulty: string; game?: string }[]
     expect(scores.map((e) => [e.seed, e.difficulty])).toEqual([[dailySeed(new Date()), 'easy']])
+    // Stamped as the 3D game's, so the scoreboard grades it (v2.0 R5: an
+    // entry without the stamp is the pixel game's and is shown ungraded).
+    expect(scores.map((e) => e.game)).toEqual(['3d'])
   })
 })
 
@@ -455,6 +458,8 @@ describe("the Daily Op and the night's answers (v1.7 R1)", () => {
     expect(official.outcome).toBe(answered.status)
     expect(official.mai).toBe(last.maiScore)
     expect(official.turns).toBe(answered.history.length)
+    // Stamped as the 3D game's (v2.0 R5).
+    expect((official as { game?: string }).game).toBe('3d')
 
     // Again on the same date, an hour on, with the same answers: the
     // Dossier and the device's records have moved, and the result may not
