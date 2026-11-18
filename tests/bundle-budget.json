@@ -135,5 +135,15 @@
   "v20r4RoomsChunkGzipBytes": 10557,
   "v20r4GameCssGzipBytes": 8140,
   "v20r4RoomsCssGzipBytes": 3017,
-  "v20r4ReadingRoomsCssGzipBytes": 1254
+  "v20r4ReadingRoomsCssGzipBytes": 1254,
+  "v20r5Note": "v2.0 Round 5 (17 November 2026, Ken's rulings of the same day: INITIAL under 155,000, the three.js chunk at or under 138,000, the stylesheet cap unchanged). Measured on the round's final build. No ceiling moved. three.js is byte for byte what it was. INITIAL grew 362 from Round 4: 297 of it the first download's stylesheet (the title's still, with its stars and first light). The cards chunk is the one that binds: the guard that reads every way a night can go is about 1,200 bytes of rules that chunk carries, and with the round's wording it stood at 32,108, over its 32,000. The bound was kept. The rule's sentence is written once and shared, one glossary line and one tile's tap came out, and it has 118 left. The runner's gzip has differed from this Mac's by up to 65 bytes, so a round that adds words to a card takes some out. The game's stylesheet grew 91 (the quiet call signs of the shortest phone, the act first on a phone's piece card) and has 1,769 of its 10,000 left.",
+  "v20r5InitialGzipBytes": 122840,
+  "v20r5InitialCssGzipBytes": 6134,
+  "v20r5ThreeChunkGzipBytes": 136570,
+  "v20r5TheaterChunkGzipBytes": 18150,
+  "v20r5GameChunkGzipBytes": 17438,
+  "v20r5CardsChunkGzipBytes": 31882,
+  "v20r5RoomsChunkGzipBytes": 10551,
+  "v20r5GameCssGzipBytes": 8231,
+  "v20r5RoomsCssGzipBytes": 3017
 }
