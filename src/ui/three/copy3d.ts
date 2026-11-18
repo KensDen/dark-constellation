@@ -30,7 +30,7 @@ export const GUIDE = {
   // The one rule the night turns on, said where it first matters (v2.0
   // R5: through R4 it was only in HOW TO PLAY on the title, and that
   // round's desktop player met "COLDVEIL switches" with no rule behind it).
-  begin: `Ready. ${ADVERSARY} reads your defenses and takes the move you cover least. BEGIN when your orders are set.`,
+  begin: `Ready. ${ADVERSARY} takes the move you cover least. BEGIN when your orders are set.`,
   respond: 'ANSWER: you have 3 for all 6 nights. Spend 1 here, or let it ride.',
   tap: 'TAP as the ring closes on the target for a bonus.',
   done: 'That is the whole watch: scan, place, answer. The words on the cards are explained in the menu, under THE WORDS.',
@@ -126,7 +126,7 @@ export const TAKE_BACK = 'TAKE IT BACK'
 export const OWNED = 'IN SERVICE'
 export const PLACE_NOTE = 'It covers the whole fleet. Where it sits becomes the watch post: any strike on that asset is 1 weaker.'
 // Where no spot it can sit on has anything aimed at it tonight.
-export const PLACE_EVEN = 'It covers the whole fleet wherever it sits. Nothing is aimed where it can go tonight, so any spot serves as the watch post.'
+export const PLACE_EVEN = 'It covers the whole fleet. Nothing is aimed where it can sit tonight, so any spot serves.'
 // THE WATCH POST (v2.0 R2).
 export const POST = 'POST'
 export const POST_HERE = 'WATCH POST: strikes here are 1 weaker'
@@ -172,9 +172,6 @@ export const coverageOf = (n: number) => `+${n} coverage`
 export const AT_STAKE = 'AT STAKE'
 export const upTo = (d: number) => (d < -0.05 ? d.toFixed(1) : '0')
 export const WORST = 'WORST CASE'
-// What a tile says at a tap (v2.0 R5: on a phone its explanation was a
-// tooltip nobody could open).
-export const AT_STAKE_NOTE = 'AT STAKE: the most score tonight could take, if the worst move on each track landed as things stand.'
 export const WORST_OK = 'budget left'
 export const WORST_BAD = 'budget breaks'
 // THE ANSWERS (v2.0 R2): a pool for the whole operation.
@@ -186,6 +183,10 @@ export const NO_ANSWERS = 'NO ANSWERS LEFT'
 export const ALSO_TONIGHT = 'ALSO TONIGHT'
 export const SIGNATURES = 'TONIGHT'
 export const signaturesOver = (n: number) => `${n} signature${n === 1 ? '' : 's'} tonight. Tap one.`
+// The rule behind every "short" (v2.0 R5: the round's desktop player did
+// the dawn's sums, found the funding left out, and concluded the warning
+// was wrong; it is the rule, and nothing had said it).
+export const BEFORE_FUNDING = 'Repairs and upkeep come out before funding arrives, and a budget under 0 then ends the operation, whatever the score.'
 // A chance under the mark's bar, in tenths: what "possible, not likely"
 // comes to. Under 1 in 20 the worst case needs every call to go wrong.
 export const fewInTen = (chance: number) => (chance < 0.05 ? 'under 1 in 10' : `about ${Math.min(5, Math.max(1, Math.round(chance * 10)))} in 10`)
@@ -194,11 +195,9 @@ export const fewInTen = (chance: number) => (chance < 0.05 ? 'under 1 in 10' : `
 export const worstNote = (n: number, risky: boolean, tonight = 0) =>
   n >= 0
     ? risky
-      ? 'The budget survives tonight at its worst, but tomorrow night is likely to break it.'
+      ? 'Tonight is safe at its worst. Tomorrow night is likely to break the budget.'
       : 'The budget tomorrow morning if tonight goes as badly as it can, funding included.'
-    : risky
-      ? 'The budget is likely to break. A budget under 0 at dawn ends the operation.'
-      : `Tonight at its very worst would break the budget, and that ends the operation. It is possible, not likely: ${fewInTen(tonight)}.`
+    : `Tonight at its worst would break the budget: ${risky ? 'likely' : `possible, not likely (${fewInTen(tonight)})`}. ${BEFORE_FUNDING}`
 export const BEGIN = 'BEGIN'
 export const BEGIN_LONG = 'Begin the night'
 export const BEGIN_AT_RISK = 'BEGIN AT RISK'
@@ -206,7 +205,6 @@ export const BEGIN_AT_RISK = 'BEGIN AT RISK'
 // right more often than not). It is raised only when a broken budget is
 // more likely than not by tomorrow night's close, and it says how likely.
 // Said without "tomorrow" where there is none.
-export const RISKY = 'Risky: likely to break the budget'
 // How likely, in tenths. The mark is raised above 5 in 10, so it never
 // reads less than 6; past 19 in 20 it is said as what it is.
 const SURE = 0.95
@@ -248,13 +246,14 @@ export const riskLine = (worst: number, odds: number, soon: boolean, ordered: bo
     ? 'Take an order back, or tap BEGIN again.'
     : answers
       ? 'Nothing is ordered: a move you answer leaves no repair bill. Tap BEGIN again.'
-      : 'Nothing is ordered and no answer is left: tap BEGIN again to take the odds.'
-  const lead = `WORST CASE: ${worstFace(worst)}`
+      : 'Nothing is ordered: tap BEGIN again to take the odds.'
   const sure = odds > SURE
-  const ends = 'A budget under 0 at dawn ends the operation, whatever the score.'
-  if (soon) return `${lead}, and it is ${sure ? 'all but certain' : `the likely case (${inTen(odds)})`}: tonight's repairs and upkeep come out before funding arrives. ${ends} ${fix}`
-  if (worst < 0 && odds <= 0.5) return `${lead}. It is possible, not likely (${fewInTen(tonight)}): tonight's repairs and upkeep come out before funding arrives. ${ends} ${fix}`
-  return `${lead}, and tomorrow night is ${sure ? 'all but certain' : 'likely'} to need more${sure ? '' : ` (${inTen(odds)})`}. ${ends} ${fix}`
+  const how = soon
+    ? `, and it is ${sure ? 'all but certain' : `the likely case (${inTen(odds)})`}.`
+    : worst < 0 && odds <= 0.5
+      ? `: possible, not likely (${fewInTen(tonight)}).`
+      : `, and tomorrow night is ${sure ? 'all but certain' : 'likely'} to need more${sure ? '' : ` (${inTen(odds)})`}.`
+  return `WORST CASE: ${worstFace(worst)}${how} ${BEFORE_FUNDING} ${fix}`
 }
 // A night begun with no new defense, asked about once (v2.0 R3).
 export const BARE_LINE = 'No defense placed tonight, and you have 1 to place. Tap BEGIN again to go without.'
@@ -287,10 +286,6 @@ export const ANSWER_USED = 'ANSWER ALREADY USED'
 // A signature that moved when an order changed: COLDVEIL reads the fleet.
 export const REAIMED = 'COLDVEIL re-aims as your orders change: a signature moved.'
 export const RISK_MARK = 'Likely to break the budget'
-// The rule behind every "short" (v2.0 R5: the round's desktop player did
-// the dawn's sums, found the funding left out, and concluded the warning
-// was wrong; it is the rule, and nothing had said it).
-export const BEFORE_FUNDING = 'Repairs and upkeep come out before funding arrives, and a budget under 0 then ends the operation.'
 export const CHOOSE_UNLOCK = 'Change the look in SYSTEM, the menu at the top left.'
 export const WHAT_HAPPENED = 'WHAT HAPPENED'
 export const CONDITION_NOTE = 'It presses the score each night it stays.'
@@ -404,8 +399,7 @@ export const wordsFor = (n: { coverageMin: number; coverageBonus: number; harden
   ['LIKELY, POSSIBLE, NOT FAVORED', `What ${ADVERSARY} does with a move on a track: it plays the one your defenses take the least off.`],
   ['WATCH POST', `The asset your newest defense sits on. Any strike there lands ${n.harden} point weaker.`],
   ['AT STAKE', 'The most score tonight could take, if the worst move on each track landed as things stand.'],
-  ['WORST CASE', 'The budget tomorrow morning if tonight goes as badly as it can, with funding and the coverage bonus in. If it reads short, that night would end the operation: repairs and upkeep come out before funding arrives, and a budget under 0 at dawn ends it, whatever the score.'],
-  ['RISKY', 'Marked on an order only when a broken budget is more likely than not by tomorrow night. BEGIN asks twice on any night that could end the operation, and says how likely.'],
+  ['WORST CASE', `The budget tomorrow morning if tonight goes as badly as it can, with funding and the coverage bonus in. ${BEFORE_FUNDING}`],
   ['UPKEEP, RECOVERY', 'Upkeep is what each defense costs every night. Recovery is what each meter gets back at dawn.'],
   ['COVERAGE', `The fleet's share of the score. At ${n.coverageMin} or more it also pays ${n.coverageBonus} CR at dawn.`],
   ['SCORE', `Mission assurance, 0 to 100: coverage, links, data and sensors together. Under ${n.collapse} ends the operation.`],

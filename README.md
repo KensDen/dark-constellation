@@ -39,8 +39,10 @@ fall under 35, or let the budget go below zero at a dawn, and the operation ends
 - **Order assets**, if the budget allows. More fleet covers more ground, and coverage is 30
   percent of the score.
 - **WORST CASE** says what the budget would read tomorrow morning if tonight goes as badly as it
-  can, with funding and the coverage bonus in. An order is marked risky, and BEGIN asks twice, only
-  when a broken budget is more likely than not by tomorrow night.
+  can, with funding and the coverage bonus in. Repairs and upkeep come out before funding arrives,
+  and a budget under 0 then ends the operation, whatever the score. An order is marked risky only
+  when that is more likely than not by tomorrow night; BEGIN asks twice on any night that could
+  end the operation, and says how likely.
 
 **The night.**
 

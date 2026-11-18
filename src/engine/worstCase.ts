@@ -21,7 +21,7 @@
 //   500 seeds of every line on both difficulties. Under 0, the tile says
 //   how far short, and the operation would end there.
 //
-//   THE MARK (a piece marked risky, BEGIN AT RISK): `risky`, raised when a
+//   THE MARK (a piece marked risky in the tray): `risky`, raised when a
 //   broken budget is MORE LIKELY THAN NOT by the close of tomorrow night
 //   with nothing more ordered (`odds` above one half). Tonight and
 //   tomorrow are each played every way they can go: COLDVEIL draws evenly
@@ -63,19 +63,28 @@
 //     finishes solvent in none; on EASY in 4, and in none.
 //     tests/advice.spec.ts holds the mark to more than half and prints
 //     the table.
-// WHAT THE TIGHTENING COSTS. A night can read short on the tile with no
-// mark raised: the worst case is possible there, and not likely. Over the
-// same games 184 pieces (0.7 percent) read so, and bought anyway 60 of
-// them ended insolvent, 1 in 3. The tile says it, in amber; BEGIN does not
-// ask twice. A player who watches only the marks can end an operation on
-// such a night: of the free spender's 26 insolvent games on STANDARD, 6
-// came with no mark ever raised (none did under the first rule). The
-// sweep's careful lines (tests/policies.ts, `safe`) read both, the tile at
-// 0 or more and no mark, and none goes insolvent on a night the tile
-// cleared. And nothing is held back for tomorrow until tomorrow is more
-// likely than not to break the budget, so a line that spends to the edge
-// every night (a drone a night while nothing is marked) now can: 46 games
-// of 500.
+// WHAT THE TIGHTENING COSTS, AND WHAT BEGIN DOES ABOUT IT. A night can read
+// short on the tile with no mark raised: the worst case is possible there,
+// and not likely. Over the same games 184 pieces (0.7 percent) read so,
+// and bought anyway 60 of them ended insolvent, 1 in 3. The tray does not
+// mark such a piece; its card, the signature's card and the watch officer
+// say "possible, not likely" with the odds. In this round's first cut
+// BEGIN did not ask twice there either, and its phone-size first-time
+// player lost a game at 74.3, over the win line, on a last night that read
+// 3 CR short in amber: of the free spender's 26 insolvent games on
+// STANDARD, 6 came with nothing ever asked. So BEGIN asks twice on any
+// night whose tile reads short, as well as on a marked one, and says how
+// likely and why (src/ui/three/copy3d.ts, riskLine). Measured for the
+// free spender: asked on nights 4 to 6 in 40 games of 500 on STANDARD,
+// and solvent anyway in 14 of them (the budget broke that night or the
+// next after 26 of 40 asks); on EASY asked in 9 games, and solvent in 5;
+// and no game of either ends insolvent without having been asked.
+// The sweep's careful lines (tests/policies.ts, `safe`) read both, the
+// tile at 0 or more and no mark, and none goes insolvent on a night the
+// tile cleared. And nothing is held back for tomorrow until tomorrow is
+// more likely than not to break the budget, so a line that spends to the
+// edge every night (a drone a night while nothing is marked) now can: 47
+// games of 500.
 //
 // One function; the plan card, the sweep's lines and the battery all call
 // it (brief 6.4).

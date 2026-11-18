@@ -127,7 +127,7 @@ export function PlanCard({
         })}
       </div>
       <div className="t3-stakes" data-t3-stakes>
-        <p data-t3-tile="stake" onClick={() => setTip((t) => (t === c3.AT_STAKE_NOTE ? '' : c3.AT_STAKE_NOTE))}>
+        <p>
           <span>{c3.AT_STAKE}</span>
           <b className={stakes.atStake < -0.05 ? 't3-bad' : 't3-ok'}>{c3.upTo(stakes.atStake)}</b>
         </p>
@@ -137,10 +137,7 @@ export function PlanCard({
           title={c3.worstNote(stakes.worst, stakes.risky, stakes.tonight)}
           data-t3-tile="worst"
           data-t3-worst-state={stakes.risky ? 'risky' : stakes.worst < 0 ? 'short' : 'clear'}
-          onClick={() => {
-            const says = `${c3.WORST}: ${c3.worstNote(stakes.worst, stakes.risky, stakes.tonight)}`
-            setTip((t) => (t === says ? '' : says))
-          }}
+          onClick={() => setTip(`${c3.WORST}: ${c3.worstNote(stakes.worst, stakes.risky, stakes.tonight)}`)}
         >
           <span>{c3.WORST}</span>
           <b className={stakes.risky ? 't3-bad' : stakes.worst < 0 ? 't3-warn' : ''} aria-label={c3.worstFace(stakes.worst)}>
@@ -217,7 +214,7 @@ export function Tray({ kit, fleetOrdered, selected, reduced, onPick, onFleet, st
             data-t3-piece={p.cm.id}
             data-state={p.blocked ?? (p.ordered ? 'ordered' : 'free')}
             aria-pressed={selected === p.cm.id}
-            aria-label={`${p.cm.name}. ${state}. ${does}.${p.blocked === 'budget' ? ' Not enough budget tonight.' : ''}${p.risky && !p.ordered ? ` ${c3.RISKY}.` : ''}`}
+            aria-label={`${p.cm.name}. ${state}. ${does}.${p.blocked === 'budget' ? ' Not enough budget tonight.' : ''}${p.risky && !p.ordered ? ` ${c3.RISK_MARK}.` : ''}`}
             data-risky={p.risky || undefined}
             className={`t3-piece${p.ordered ? ' is-ordered' : ''}${p.blocked ? ` is-${p.blocked}` : ''}${hot ? ' is-hot' : ''}${p.risky && !p.ordered ? ' is-risky' : ''}${selected === p.cm.id ? ' is-on' : ''}`}
             onPointerDown={p.blocked ? undefined : (e) => startDrag(e, p.cm.id, PIECE[p.cm.id])}
