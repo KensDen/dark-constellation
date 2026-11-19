@@ -94,7 +94,7 @@ export function PlanCard({
   // and the order they are taken in. R5's desktop player did the dawn's
   // sums with the funding in and concluded "short" was wrong.
   const sum = stakes.worst < 0 ? c3.shortSum(stakes.have, stakes.repairs + stakes.upkeep) : stakes.risky ? c3.LATER_SUM : ''
-  const why = c3.worstNote(stakes.worst, stakes.risky, stakes.tonight, stakes.have, stakes.repairs, stakes.upkeep)
+  const why = c3.worstNote(stakes.worst, stakes.risky, stakes.tonight, stakes.have, stakes.repairs, stakes.upkeep, stakes.soon)
   return (
     <div className="t3-card t3-plan" data-t3-card="plan" data-t3-chunk={CHUNK_MARK}>
       <p className="t3-eyebrow">
@@ -278,6 +278,9 @@ export interface AnswerView {
   risky: boolean
   odds: number
   soon: boolean
+  have: number
+  repairs: number
+  upkeep: number
   // What the tile would read with it, and the chance tonight breaks the
   // budget: under 0 with no mark is said in words, not marked.
   worst: number
@@ -406,11 +409,14 @@ export function ContactCard({
       <p className="t3-hook">{copy.HOOK[def.id] ?? def.name}.</p>
       <p className="t3-fav" data-t3-favor>
         {contact.debris ? c3.DEBRIS_NOTE : `Strength ${contact.strength}. ${contact.favor === 'unlikely' ? (contact.exposed === 0 ? c3.FAVOR_STOPPED : c3.FAVOR.unlikely) : `${c3.FAVOR[contact.favor]} ${c3.aboutLoss(contact.loss)}`}`}
+        {/* Said before the night, where the orders are still open (v2.0 R6:
+            the round's desktop player learned it on night 6, after BEGIN). */}
+        {!contact.debris && contact.exposed > 0 && def.responses?.length && !def.responses.some((r) => r.effect === 'block') ? ` ${c3.NO_BLOCK}` : ''}
       </p>
       {answers.map((a) => {
         const lockedBy = !a.ordered && !a.owned && locked ? ` · ${c3.replaces(locked).replace(/\.$/, '')}` : ''
         const tight = !a.risky && !a.owned && !a.ordered && !a.blocked && a.worst < 0
-        const line = a.owned ? c3.OWNED : a.ordered ? `${c3.PLACED} · tap to take it back` : `${verbWord(a.verb)} it${a.then ? `, ${a.then}` : ', every night'}${lockedBy}${a.risky ? `. ${c3.riskyBy(a.odds, a.soon)}` : tight ? `. ${c3.tightBy(a.worst, a.tonight).replace(/\.$/, '')}` : ''}`
+        const line = a.owned ? c3.OWNED : a.ordered ? `${c3.PLACED} · tap to take it back` : `${verbWord(a.verb)} it${a.then ? `, ${a.then}` : ', every night'}${lockedBy}${a.risky ? `. ${c3.riskyBy(a)}` : tight ? `. ${c3.tightBy(a).replace(/\.$/, '')}` : ''}`
         return (
           <button
             key={a.id}
@@ -463,12 +469,12 @@ export function PieceCard({ piece, targets, postCost, postFrom, even, locked, up
       {piece.blocked === 'budget' && <p className="t3-note">Not enough budget tonight.</p>}
       {piece.risky && !piece.ordered && (
         <p className="t3-note">
-          {c3.riskyBy(piece.odds, piece.soon)}. {c3.BEFORE_FUNDING}
+          {c3.riskyBy(piece)}. {c3.ENDS}
         </p>
       )}
       {!piece.risky && !piece.ordered && !piece.blocked && piece.worst < 0 && (
         <p className="t3-note" data-t3-tight>
-          {c3.tightBy(piece.worst, piece.tonight)}
+          {c3.tightBy(piece)}
         </p>
       )}
       {piece.ordered ? (
@@ -554,8 +560,8 @@ export function FleetCard({ fleet, signs, short, onToggle, onClose }: { fleet: F
               <b>{kindLabels[f.kind]}</b>
               <span>{f.price} CR</span>
             </span>
-            <span className={`t3-choice-sub ${f.risky ? 't3-warn' : 't3-ok'}`}>
-              {f.ordered ? `${c3.ORDERED} · ${(signs[f.kind] ?? '').replace(/-/g, '\u2011')} ${c3.arrivesIn(f.eta)} · tap to cancel` : f.fits ? `${c3.coverageOf(COVERAGE_PER_KIND[f.kind])} · ${c3.arrivesIn(f.eta)}${f.risky ? `. ${c3.riskyBy(f.odds, f.soon)}` : ''}` : 'Not enough budget tonight'}
+            <span className={`t3-choice-sub ${f.risky || (f.fits && !f.ordered && f.worst < 0) ? 't3-warn' : 't3-ok'}`}>
+              {f.ordered ? `${c3.ORDERED} · ${(signs[f.kind] ?? '').replace(/-/g, '\u2011')} ${c3.arrivesIn(f.eta)} · tap to cancel` : f.fits ? `${c3.coverageOf(COVERAGE_PER_KIND[f.kind])} · ${c3.arrivesIn(f.eta)}${f.risky ? `. ${c3.riskyBy(f)}` : f.worst < 0 ? `. ${c3.tightBy(f).replace(/\.$/, '')}` : ''}` : 'Not enough budget tonight'}
             </span>
           </button>
         ))}
@@ -811,7 +817,7 @@ export function HoldResultCard({ hold, template, sign, entry, first, onContinue 
 
 // THE DEBRIS CALL, in the world: burn the satellite off the crossing
 // orbit, or hold and take the odds.
-export function CallCard({ turn, terms, first, onCall }: { turn: number; terms: ReturnType<typeof callTerms>; first: RefObject<HTMLButtonElement | null>; onCall: (choice: DebrisChoice) => void }) {
+export function CallCard({ turn, terms, burnRisk, first, onCall }: { turn: number; terms: ReturnType<typeof callTerms>; burnRisk?: string; first: RefObject<HTMLButtonElement | null>; onCall: (choice: DebrisChoice) => void }) {
   return (
     <div className="t3-card" key="call" data-t3-card="call">
       <div className="t3-head">
@@ -822,6 +828,11 @@ export function CallCard({ turn, terms, first, onCall }: { turn: number; terms: 
         </div>
       </div>
       <p className="t3-hook">{joined(copy.oddsLine(terms.ssa, terms.chance))}</p>
+      {burnRisk && (
+        <p className="t3-note" data-t3-burn-risk>
+          {burnRisk}
+        </p>
+      )}
       <div className="t3-choices" role="group" aria-label={copy.CHOOSE}>
         <button ref={first} type="button" data-t3-call="burn" className="t3-choice t3-block" onClick={() => onCall('burn')}>
           <span className="t3-choice-top">
@@ -1123,12 +1134,17 @@ export function DawnCard({
   const halved = threats.filter((s) => s.ev.response?.effect === 'halve').length
   const partial = threats.filter((s) => verdictOf(s.ev) === 'partial').length
   const l = rec.ledger
+  // A night that lost a satellite to the debris, or the operation to its
+  // bills, is not called clean or quiet (v2.0 R6: "A CLEAN NIGHT" in green
+  // stood over MISSION LOST for the round's Mobile Safari player).
+  const rough = after.status === 'lost' || night.steps.some((s) => s.ev.debris?.lost)
+  const clean = threats.length > 0 && stopped === threats.length && !rough
   // FIX NEXT (gameModel.ts, fixNext): the piece for the costliest move that
   // got through, unless placing it tomorrow would cost the watch post.
   const through = threats.filter((s) => s.ev.effectiveSeverity > 0).sort((a, b) => a.scoreAfter - a.scoreBefore - (b.scoreAfter - b.scoreBefore))
   const worst = through[0]
   const advice = fixNext(after, through.map((s) => s.def))
-  const clean = !!advice?.cm && !advice.gives
+  const fixed = !!advice?.cm && !advice.gives
   const fix = !advice
     ? copy.NOTHING_THROUGH
     : advice.cm && advice.gives
@@ -1149,13 +1165,17 @@ export function DawnCard({
     // whole case, and a ledger with no line for it taught nothing.
     l.coverageBonus ? `Coverage bonus +${l.coverageBonus}` : l.insolvent ? '' : c3.noBonus(l.bonusCoverage, before.scenario.slaBonus.coverageMin),
   ].filter(Boolean)
-  const parts = `${bills.join(' · ')}${bills.length ? ` = ${l.after - l.funding - l.coverageBonus} CR` : ''}${l.insolvent ? ': under 0 before funding' : `${bills.length ? ', then ' : ''}${arrives.join(' · ')}`}`
+  // The budget the bills left, which is the figure that must be 0 or more;
+  // and whether only a windfall kept it there.
+  const checked = l.after - l.funding - l.coverageBonus
+  const lucky = !l.insolvent && l.windfall > checked
+  const parts = `${bills.join(' · ')}${bills.length ? ` = ${checked} CR` : ''}${l.insolvent ? ': under 0 before funding' : `${bills.length ? ', then ' : ''}${arrives.join(' · ')}`}`
   const arrivals = l.arrivals.map((id) => signs.get(id) ?? id)
   const ending = over ? (after.status === 'won' ? copy.ENDING.won : copy.ENDING[after.lossReason ?? 'belowThreshold']) : null
   return (
     <div className="t3-card t3-dawn" key={`dawn-${rec.turn}`} data-t3-card="dawn">
-      <p className={`t3-eyebrow ${threats.length && stopped === threats.length ? 't3-ok' : 't3-warn'}`}>
-        {c3.dawnOf(rec.turn)} · {threats.length === 0 ? 'A QUIET NIGHT' : stopped === threats.length ? c3.CLEAN : c3.stoppedOf(stopped, threats.length, halved, partial)}
+      <p className={`t3-eyebrow ${clean ? 't3-ok' : 't3-warn'}`}>
+        {c3.dawnOf(rec.turn)} · {clean ? c3.CLEAN : threats.length === 0 && !rough ? 'A QUIET NIGHT' : c3.stoppedOf(stopped, threats.length, halved, partial)}
       </p>
       {ending && (
         <p className={`t3-ending ${after.status === 'won' ? 't3-ok' : 't3-bad'}`} data-t3-ending>
@@ -1187,16 +1207,16 @@ export function DawnCard({
       )}
       {!over && (
         <p className="t3-helped">
-          {worst && clean ? <span className="t3-warn">{copy.FIX_LABEL} </span> : null}
+          {worst && fixed ? <span className="t3-warn">{copy.FIX_LABEL} </span> : null}
           {fix}
         </p>
       )}
       {/* A night BEGIN asked about and that came through: said, with the
           figure the ask was about beside the one the night left, so the
           next ask is read as what it is, a chance and not a forecast. */}
-      {asked !== undefined && !l.insolvent && l.repairs < asked && (
+      {asked !== undefined && (l.insolvent || lucky || l.repairs + l.fuel < asked) && (
         <p className="t3-tagsline" data-t3-asked>
-          <span className="t3-ok">{c3.askedAndHeld(l.repairs, asked)}</span>
+          <span className={l.insolvent || lucky ? 't3-warn' : 't3-ok'}>{l.insolvent ? c3.ASKED_AND_BROKE : lucky ? c3.askedAndLucky(l.windfall, l.windfall - checked) : c3.askedAndHeld(l.repairs + l.fuel, asked, l.fuel > 0)}</span>
         </p>
       )}
       <p className="t3-ledger" data-t3-ledger>

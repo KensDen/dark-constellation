@@ -7,7 +7,7 @@
 // no em or en dashes.
 
 import { ADVERSARY, CONSTELLATION, SQUADRON } from '../../config'
-import { ENDS_IT, SURE, billsOf, fewInTen, inTen, upTo, worstFace } from './copy3d'
+import { ENDS_IT, SURE, billsOf, inTen, possibly, upTo, worstFace } from './copy3d'
 
 // THE OPENING: the briefing as a camera move over the theater, the watch
 // officer's four lines from the 3D title prototype (10 November 2026).
@@ -55,7 +55,11 @@ export const postMoves = (from: string, to: string) => `The watch post moves fro
 // down where its post is worth most, under another move (`under`). (It
 // can always sit on that asset: a defense sits on the layers its threats
 // strike, and the signature is one of them.)
-export const sitsElse = (piece: string, near: string, sign: string, under?: string) => `${piece} covers the whole fleet wherever it sits, so it sits where its post does most: ${sign}${under ? `, under ${under}` : ''}, not ${near}.`
+// Where it went comes first: a phone shows 2 lines of the watch officer's
+// line before a tap opens the rest, and the round's reviewers read "covers
+// the whole fleet wherever it sits,…" with the asset cut off.
+export const sitsElse = (piece: string, near: string, sign: string, under?: string) => `${piece} sits on ${sign}, not ${near}: it covers the whole fleet from any asset, and its post does most ${under ? `under ${under}` : 'there'}.`
+export const postMovesThere = (from: string) => `The watch post moves there from ${from}: a strike there is 1 weaker.`
 // The piece cannot sit where the post is, and the post is holding down the
 // night's costliest move: no spot is called best, and the card says what
 // the piece gives up (v2.0 R4).
@@ -87,14 +91,28 @@ export const postCostShort = (sign: string) => `moves the post off ${sign}: more
 // anything that can end the operation.
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
 const listOf = (names: readonly string[]) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0])
-export const riskLine = (r: { worst: number; odds: number; soon: boolean; tonight: number; have: number; repairs: number; upkeep: number }, by: readonly string[], ordered: boolean, answers: boolean) => {
+// WHAT THE WATCH CAN STILL DO ABOUT IT, AS A FIGURE (v2.0 R6). The round's
+// first cut ended the reason with "An answer cuts a move's repair bill."
+// Two of its three first-time players read that as a way out, began, and
+// lost the operation above the win line: one with upkeep alone over the
+// budget, where nothing in the night could help, and one against a move
+// whose answer only halves, answered and still 3 CR short. So the ask now
+// says what the bills come to with the answers spent (`eased`, with a hold
+// on the debris, which takes no answer), and whether that is enough.
+export const riskLine = (r: { worst: number; odds: number; soon: boolean; risky: boolean; tonight: number; have: number; repairs: number; upkeep: number; eased: number; debris: number }, by: readonly string[], ordered: boolean, answers: boolean) => {
   const sure = r.odds > SURE
-  const fix = `${answers ? "An answer cuts a move's repair bill. " : ''}${ordered ? 'Take an order back, or tap BEGIN again.' : 'Nothing is ordered: tap BEGIN again to take the odds.'}`
+  const fix = ordered ? 'Take an order back, or tap BEGIN again.' : 'Nothing is ordered: tap BEGIN again to take the odds.'
   if (r.worst >= 0) return `WORST CASE: ${worstFace(r.worst)}. Tonight holds, but tomorrow night's repairs and upkeep come out before its funding, and they are ${sure ? 'all but certain' : 'likely'} to take the budget under 0${sure ? '' : ` (${inTen(r.odds)})`}. That ends the operation, whatever the score. ${fix}`
-  const how = r.soon ? (sure ? 'That is all but certain.' : `That is the likely case (${inTen(r.odds)}).`) : `Possible, not likely (${fewInTen(r.tonight)}).`
+  const how = r.soon ? (sure ? 'That is all but certain.' : `That is the likely case (${inTen(r.odds)}).`) : `${cap(possibly(r.tonight))}${r.risky ? `, and ${sure ? 'all but certain' : 'likely'} by tomorrow night` : ''}.`
   const named = r.repairs > 0 && by.length > 0
   const bills = billsOf(r.repairs, r.upkeep)
-  return `WORST CASE: ${worstFace(r.worst)}. ${named ? `If ${listOf(by)} land${by.length > 1 || by[0].endsWith('moves') ? '' : 's'} unanswered, ${bills}` : cap(bills)} come${r.repairs ? '' : 's'} out of your ${r.have} CR before funding arrives, and ${ENDS_IT}. ${how} ${fix}`
+  const after = r.have - r.eased - r.upkeep
+  const out =
+    r.upkeep > r.have
+      ? ' Upkeep alone is more than you have: nothing in the night can save it.'
+      : (answers || r.debris > 0) && r.eased < r.repairs
+        ? ` ${answers ? 'With your answers spent' : 'With'}${r.debris ? `${answers ? ' and' : ''} a hold on the debris` : ''}, repairs come to ${r.debris ? 'at most ' : ''}${r.eased} CR: ${after < 0 ? `${-after} CR short still` : 'the budget holds'}.`
+        : ''
+  return `WORST CASE: ${worstFace(r.worst)}. ${named ? `If ${listOf(by)} land${by.length > 1 || by[0].endsWith('moves') ? '' : 's'} unanswered, ${bills}` : cap(bills)} come${r.repairs ? '' : 's'} out of your ${r.have} CR before funding arrives, and ${ENDS_IT}. ${how}${out} ${fix}`
 }
-
 export const cannotSit = (piece: string, sign: string) => `${piece} cannot sit on ${sign}. Its card lists where it can.`

@@ -275,6 +275,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   // The night BEGIN asked about and the player began: its number, and the
   // worst repairs the ask named. The dawn says how it came out.
   const [asked, setAsked] = useState<{ turn: number; repairs: number } | null>(null)
+  // What the night's bills could come to besides the debris, as the plan
+  // read them at BEGIN: the debris call weighs a burn against it.
+  const [bills, setBills] = useState<{ turn: number; others: number; upkeep: number } | null>(null)
   const [guide, setGuide] = useState<GuideStep>(() => (mode === 'play' && !readPrefs().guideSeen && start.state.status === 'playing' && start.state.history.length === 0 ? 'scan' : null))
   // Whether this game's finish has been recorded. True from the start for
   // a game that arrived finished: it was not played here.
@@ -327,6 +330,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const wideRef = useRef(wide)
   wideRef.current = wide
   const frameNo = useRef(0)
+  // Where the sky starts, as the labels' layout last measured it.
+  const skyTop = useRef(0)
   // Each asset's signatures are tied to it by a line, so a block of them
   // set aside from a crowded spot still reads as that asset's.
   const ties = useRef(new Map<string, SVGLineElement>())
@@ -360,7 +365,12 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       .sort((a, b) => b.y - a.y)
     const W = innerWidth
     const dock = dockRef.current?.getBoundingClientRect()
-    const top = topRef.current?.getBoundingClientRect().bottom ?? 0
+    // The sky starts under the top bar, and on a phone under the guide's
+    // line when it is up (v2.0 R6: on the first night, the night the post
+    // is first met, the POST tag and COLDVEIL's name stood behind it).
+    const coach = wideRef.current ? undefined : dockRef.current?.querySelector('.t3-coach')?.getBoundingClientRect()
+    const top = Math.max(topRef.current?.getBoundingClientRect().bottom ?? 0, coach?.bottom ?? 0)
+    skyTop.current = top
     const floor = dock && !wideRef.current ? dock.top : innerHeight
     const right = dock && wideRef.current ? dock.left : W
     const over = (a: Box, b: Box) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]))
@@ -601,10 +611,22 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           // wherever the camera has put its ship.
           if (key === 'coldveil') {
             x = Math.max(62, Math.min(innerWidth - 62, x))
-            y = Math.max(52, y)
+            // Its name hangs 26 under this point: it reads under the top
+            // bar, and under the guide's line when that is up.
+            y = Math.max(52, skyTop.current - 22, y)
           }
           // The incoming move's name rides its strike, and stays readable.
-          if (key === 'comet') x = Math.max(96, Math.min(innerWidth - 96, x))
+          if (key === 'comet') {
+            x = Math.max(96, Math.min(innerWidth - 96, x))
+            // As it crosses COLDVEIL's name the name is put away at once;
+            // the labels' layout, a few frames on, keeps it away for as
+            // long as the two would overlap and brings it back after.
+            const foe = at.current.get('coldveil')
+            if (on && foe?.on && Math.abs(x - foe.x) < 130 && y - foe.y > 38 && y - foe.y < 88) {
+              const name = tags.current.get('coldveil')?.firstElementChild as HTMLElement | null | undefined
+              if (name && name.style.opacity !== '0') name.style.opacity = '0'
+            }
+          }
           if (el) {
             el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`
             el.style.visibility = on ? 'visible' : 'hidden'
@@ -767,12 +789,13 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
 
   // The defenses, where they were set down: owned ones and tonight's.
   const post = postNow(game, orders)
+  const fielded = [...game.counters, ...(orders.defense && !game.counters.includes(orders.defense) ? [orders.defense] : [])]
   useEffect(() => {
     const t = world.current
     if (!t) return
     const counts = new Map<string, number>()
     const at2: Record<string, string | undefined> = { ...game.placed, ...(orders.defense && orders.place ? { [orders.defense]: orders.place } : {}) }
-    const ids = [...game.counters, ...(orders.defense && !game.counters.includes(orders.defense) ? [orders.defense] : [])]
+    const ids = fielded
     for (const id of ids) {
       const where = at2[id]
       if (where) counts.set(where, (counts.get(where) ?? 0) + 1)
@@ -1039,7 +1062,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const elsewhere = near && where && where !== near ? `${g3.sitsElse(PIECE[id], signs.get(near) ?? near, sign, under)} ` : ''
     // The post follows the newest defense: said as it moves (v2.0 R6: all
     // three of R5's players saw the POST tag jump with nothing said).
-    const post2 = !where ? '' : stood && stood !== where ? g3.postMoves(signs.get(stood) ?? stood, sign) : c3.postLine(sign)
+    const post2 = !where ? '' : stood && stood !== where ? (elsewhere ? g3.postMovesThere(signs.get(stood) ?? stood) : g3.postMoves(signs.get(stood) ?? stood, sign)) : c3.postLine(sign)
     // (What it does to WORST CASE is on the plan card's own line, with its
     // sum, wherever the tile reads short: cards3d.tsx, PlanCard.)
     setNote(`${moved ? `${ADVERSARY_NAME} switches to ${moved.known ? shortName(moved.def) : 'an unidentified move'}. ` : ''}${elsewhere}${post2}${gave}`)
@@ -1089,6 +1112,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     setBare(false)
     setAtRisk(false)
     setAsked(atRisk && stakes && stakes.worst < 0 ? { turn: game.turn, repairs: stakes.repairs } : null)
+    setBills(stakes ? { turn: game.turn, others: stakes.repairs - stakes.debris, upkeep: stakes.upkeep } : null)
     markNight({ run, turn: game.turn, orders, inputs: NO_INPUTS })
     setSel(null)
     setNote('')
@@ -1692,6 +1716,11 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       tapSaved = undefined
     }
   }
+  // The debris call: its terms, and whether a burn is more than the night's
+  // other bills can spare (as the plan read them at BEGIN).
+  const callAt = phase === 'night' && stage.at === 'call' && step ? callTerms(step.before, step.ev) : null
+  const burnLeft = callAt && step ? step.before.credits - callAt.fuel : 0
+  const burnRisk = callAt && bills?.turn === game.turn && burnLeft < bills.others + bills.upkeep ? c3.burnShort(burnLeft, bills.others + bills.upkeep, bills.others === 0) : undefined
   const selAsset = sel?.kind === 'asset' ? assetById(board, sel.id) : undefined
   const selPiece = sel?.kind === 'piece' ? kit.find((p) => p.cm.id === sel.id) : undefined
   // Where the piece in hand does most (gameModel.ts, spotAdvice).
@@ -1705,7 +1734,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const ownedName = orders.defense ? PIECE[orders.defense] : null
   const dragOk = drag ? new Set(board.assets.filter((a) => dropOk(drag, a.id)).map((a) => a.id)) : null
   const armed = selPiece && !selPiece.blocked && !selPiece.ordered ? new Set(board.assets.filter((a) => a.integrity > 0 && selPiece.domain.includes(a.kind)).map((a) => a.id)) : null
-  const modulesOn = (id: string) => [...game.counters, ...(orders.defense && !game.counters.includes(orders.defense) ? [orders.defense] : [])].filter((c) => (c === orders.defense ? orders.place : game.placed?.[c]) === id).map((c) => defenseDef(game, c).name)
+  const modulesOn = (id: string) => fielded.filter((c) => (c === orders.defense ? orders.place : game.placed?.[c]) === id).map((c) => defenseDef(game, c).name)
 
   // What a placed answer makes COLDVEIL do, for the card in hand.
   const answersFor = (c: Contact): AnswerView[] =>
@@ -1723,7 +1752,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         const advice = spotAdvice(game, orders, a.cm.id)
         if (advice.raises && advice.gives) then = g3.postCostShort(signs.get(advice.gives) ?? advice.gives)
       }
-      return { id: a.cm.id, name: a.cm.name, cost: a.cm.cost, verb: a.verb, owned: a.owned, ordered: a.ordered, blocked: piece?.blocked ?? null, risky: !!piece?.risky && !a.ordered, odds: piece?.odds ?? 0, soon: !!piece?.soon, worst: piece?.worst ?? 0, tonight: piece?.tonight ?? 0, then }
+      return { id: a.cm.id, name: a.cm.name, cost: a.cm.cost, verb: a.verb, owned: a.owned, ordered: a.ordered, blocked: piece?.blocked ?? null, risky: !!piece?.risky && !a.ordered, odds: piece?.odds ?? 0, soon: !!piece?.soon, have: piece?.have ?? 0, repairs: piece?.repairs ?? 0, upkeep: piece?.upkeep ?? 0, worst: piece?.worst ?? 0, tonight: piece?.tonight ?? 0, then }
     })
 
   const assetTap = (id: string) => {
@@ -1776,7 +1805,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       }
     >
       {fps !== null && (
-        <p data-t3-fps aria-hidden="true" style={{ position: 'absolute', top: 2, left: '50%', zIndex: 20, margin: 0, padding: '1px 8px', borderRadius: 8, transform: 'translateX(-50%)', font: '600 12px ui-monospace, Menlo, monospace', color: '#04110a', background: '#7cff9b', pointerEvents: 'none' }}>
+        <p data-t3-fps aria-hidden="true">
           {fps} fps{pf.lowPower ? ' · low power' : ''}
         </p>
       )}
@@ -2232,7 +2261,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             startDrag={(e, id, label) => startDrag(e, 'response', id, label)}
           />
         )}
-        {phase === 'night' && stage.at === 'call' && step && <CallCard turn={game.turn} terms={callTerms(step.before, step.ev)} first={primary} onCall={call} />}
+        {callAt && <CallCard turn={game.turn} terms={callAt} burnRisk={burnRisk} first={primary} onCall={call} />}
 
         {phase === 'night' && stage.at === 'result' && step && now && (
           <ResultCard

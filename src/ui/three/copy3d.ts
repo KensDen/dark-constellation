@@ -161,24 +161,31 @@ export const signaturesOver = (n: number) => `${n} signature${n === 1 ? '' : 's'
 // sum at a tap on the tile, and the same order in the dawn's own ledger
 // (cards3d.tsx, DawnCard).
 export const ENDS_IT = 'a budget under 0 ends the operation, whatever the score'
+export const ENDS = `A${ENDS_IT.slice(1)}.`
 export const BEFORE_FUNDING = `Repairs and upkeep come out before funding arrives, and ${ENDS_IT}.`
 // One line on the shortest phone. `have` is the budget tonight's orders
 // leave; `bills` the worst repairs and the upkeep together.
-export const shortSum = (have: number, bills: number) => `${have} CR must cover ${bills} CR of bills before funding arrives.`
-export const LATER_SUM = "Tomorrow night's bills are likely to break the budget before its funding arrives."
+export const shortSum = (have: number, bills: number) => `${have} CR must cover ${bills} CR of bills before funding.`
+export const LATER_SUM = "Tomorrow night's bills are likely to break the budget before its funding."
 // A chance under the mark's bar, in tenths: what "possible, not likely"
 // comes to. Under 1 in 20 the worst case needs every call to go wrong.
 export const fewInTen = (chance: number) => (chance < 0.05 ? 'under 1 in 10' : `about ${Math.min(5, Math.max(1, Math.round(chance * 10)))} in 10`)
+// The same with its words: at 5 in 10 it is an even chance, and "not
+// likely (about 5 in 10)" read as a contradiction (v2.0 R6's reviewers).
+export const possibly = (chance: number) => (chance >= 0.45 ? 'an even chance (about 5 in 10)' : `possible, not likely (${fewInTen(chance)})`)
 // The worst night's bills in words: "repairs (14 CR) and upkeep (8 CR)".
 export const billsOf = (repairs: number, upkeep: number) => [repairs ? `repairs (${repairs} CR)` : '', upkeep ? `upkeep (${upkeep} CR)` : ''].filter(Boolean).join(' and ')
 // WORST CASE, for the tile's tooltip, its tap and a screen reader: the
 // three things it can say (v2.0 R5), the short one with its sum (v2.0 R6).
-export const worstNote = (n: number, risky: boolean, tonight = 0, have = 0, repairs = 0, upkeep = 0) =>
+// `soon` is whether tonight alone is the likely break: a night marked for
+// tomorrow and only possible tonight says both (through the round's first
+// cut the tile said "likely" beside BEGIN's "under 1 in 10").
+export const worstNote = (n: number, risky: boolean, tonight = 0, have = 0, repairs = 0, upkeep = 0, soon = risky) =>
   n >= 0
     ? risky
       ? `Tonight is safe at its worst. ${LATER_SUM}`
       : 'The budget tomorrow morning if tonight goes as badly as it can, funding included.'
-    : `Tonight at its worst, ${billsOf(repairs, upkeep)} come out of ${have} CR before funding arrives: ${risky ? 'likely' : `possible, not likely (${fewInTen(tonight)})`}, and ${ENDS_IT}.`
+    : `Tonight at its worst, ${billsOf(repairs, upkeep)} come${repairs && upkeep ? '' : 's'} out of ${have} CR before funding arrives: ${soon ? 'likely' : possibly(tonight)}${risky && !soon ? ', and likely by tomorrow night' : ''}, and ${ENDS_IT}.`
 export const BEGIN = 'BEGIN'
 export const BEGIN_LONG = 'Begin the night'
 export const BEGIN_AT_RISK = 'BEGIN AT RISK'
@@ -192,9 +199,17 @@ export const SURE = 0.95
 export const inTen = (odds: number) => `about ${Math.min(9, Math.max(6, Math.round(odds * 10)))} in 10`
 // On a piece or a fleet order: what placing it would do. `soon` is whether
 // tonight alone is the likely break.
-export const riskyBy = (odds: number, soon: boolean) => {
-  const when = soon ? 'tonight' : 'by tomorrow night'
-  return odds > SURE ? `Risky: with it the budget is all but certain to break ${when}` : `Risky: with it the budget is likely to break ${when}, ${inTen(odds)}`
+// WITH ITS SUM WHERE TONIGHT IS THE BREAK (v2.0 R6). Through R5 it said
+// only "the budget is all but certain to break tonight", and the round's
+// desktop player, with WORST CASE reading "dawn 40 CR", could not see why
+// a 25 CR drone would break anything and ordered it to find out: it left
+// 2 CR for 4 CR of upkeep. The order now says what it would leave and what
+// that has to cover. "Up to" where part of the bills is a repair that may
+// not come.
+export const riskyBy = (r: { odds: number; soon: boolean; have: number; repairs: number; upkeep: number }) => {
+  const sure = r.odds > SURE
+  if (r.soon) return `Risky: leaves ${r.have} CR for ${r.repairs ? 'up to ' : ''}${r.repairs + r.upkeep} CR of bills before funding${sure ? '' : `, ${inTen(r.odds)}`}`
+  return sure ? 'Risky: with it the budget is all but certain to break by tomorrow night' : `Risky: with it the budget is likely to break by tomorrow night, ${inTen(r.odds)}`
 }
 // A piece that would leave the tile short with no mark (v2.0 R5): no mark
 // on the tray, because 2 times in 3 nothing comes of it, but it is said,
@@ -203,7 +218,7 @@ export const riskyBy = (odds: number, soon: boolean) => {
 // sum (shortSum). (The bot's careful Daily Op player ended an operation on
 // such a night, 10 CR short on the tile in amber, before these lines were
 // there.)
-export const tightBy = (worst: number, tonight: number) => `With it WORST CASE reads ${worstFace(worst)}: possible, not likely (${fewInTen(tonight)}).`
+export const tightBy = (r: { have: number; repairs: number; upkeep: number; tonight: number }) => `With it ${r.have} CR must cover ${r.repairs ? 'up to ' : ''}${r.repairs + r.upkeep} CR of bills before funding: ${possibly(r.tonight)}.`
 // A night begun with no new defense, asked about once (v2.0 R3).
 export const BARE_LINE = 'No defense placed tonight, and you have 1 to place. Tap BEGIN again to go without.'
 // WORST CASE on the plan card, said as what the budget would read at dawn
@@ -266,7 +281,18 @@ export const dawnOf = (n: number) => `DAWN · NIGHT ${n}`
 // 18 November 2026: a player who was asked and came through should still
 // trust the next ask). The dawn closes it: the worst was a chance, it did
 // not come, and here are the two figures.
-export const askedAndHeld = (repairs: number, worst: number) => `BEGIN asked about tonight. The worst did not come: repairs took ${repairs} CR, not ${worst}.`
+// `took` is the night's repairs and burn fuel together, as the ask counted
+// them. A night that held only because a windfall arrived says that, and
+// not that the worst stayed away (the round's phone player burned 10 CR,
+// repaired 6, and was 4 CR under 0 but for a 25 CR rider).
+export const askedAndHeld = (took: number, worst: number, fuel: boolean) => `BEGIN asked about tonight. The worst did not come: repairs${fuel ? ' and fuel' : ''} took ${took} CR, not ${worst}.`
+export const askedAndLucky = (windfall: number, short: number) => `BEGIN asked about tonight. A windfall of ${windfall} CR covered it: without it the bills left the budget ${short} CR short.`
+export const ASKED_AND_BROKE = 'BEGIN asked about tonight: these are the bills it named.'
+// THE DEBRIS CALL: a burn the night's other bills cannot spare (v2.0 R6:
+// two of the round's players met BURN at 10 CR on a night BEGIN had asked
+// about, with nothing on the card to say a burn would itself break the
+// budget).
+export const burnShort = (have: number, bills: number, sure: boolean) => `A burn leaves ${have} CR for ${sure ? '' : 'up to '}${bills} CR of bills before funding.`
 export const CLEAN = 'A CLEAN NIGHT'
 export const stoppedOf = (n: number, of: number, halved = 0, partial = 0) => `${n} OF ${of} STOPPED${halved ? ` · ${halved} HALVED` : ''}${partial ? ` · ${partial} PARTIAL` : ''}`
 // What the next grade takes, said under the grade (v2.0 R3): the round's

@@ -20,7 +20,9 @@ import {
   DEPLOY_TURNS,
   HARDEN,
   TIMING_BONUS,
+  RESPONSE_DAMAGE_SHARE,
   aimOf,
+  answersLeft,
   billAfter,
   briefFree,
   burnFuel,
@@ -460,6 +462,11 @@ export interface KitPiece {
   risky: boolean
   odds: number
   soon: boolean
+  // What it would leave in hand, and the worst night's repairs and the
+  // upkeep that would have to cover: a marked piece says its sum.
+  have: number
+  repairs: number
+  upkeep: number
   // What the tile would read with it placed: under 0 with no mark is a
   // night whose very worst breaks the budget, possible and not likely.
   // The piece's card says so, with the chance tonight breaks it
@@ -486,7 +493,7 @@ export function kitFor(state: GameState, orders: Orders, contacts: readonly Cont
     // piece, and otherwise on the spot its card recommends, since the post
     // takes a point off a strike there and the odds count it.
     const wc = blocked ? null : worstCase(state, actionsOf({ ...orders, defense: cm.id, place: orders.defense === cm.id ? orders.place : (spotFor(state, orders, cm.id) ?? null) }))
-    return { cm, blocked, ordered: orders.defense === cm.id, risky: !!wc?.risky, odds: wc?.odds ?? 0, soon: (wc?.tonight ?? 0) > RISK_BAR, worst: !wc ? 0 : wc.dawn < 0 ? wc.dawn : wc.morning, tonight: wc?.tonight ?? 0, answers, domain: domainOf(state, cm.id) }
+    return { cm, blocked, ordered: orders.defense === cm.id, risky: !!wc?.risky, odds: wc?.odds ?? 0, soon: (wc?.tonight ?? 0) > RISK_BAR, have: wc?.remaining ?? 0, repairs: wc?.repairs ?? 0, upkeep: wc?.upkeep ?? 0, worst: !wc ? 0 : wc.dawn < 0 ? wc.dawn : wc.morning, tonight: wc?.tonight ?? 0, answers, domain: domainOf(state, cm.id) }
   })
   // In the catalog's own order, every night: a tray that reshuffled itself
   // after each scan could not be learned (the round's fresh-eyes review).
@@ -503,6 +510,12 @@ export interface FleetPiece {
   risky: boolean
   odds: number
   soon: boolean
+  have: number
+  repairs: number
+  upkeep: number
+  // Under 0 with no mark: possible, not likely. The order says so.
+  worst: number
+  tonight: number
 }
 const FLEET_ORDER: AssetKind[] = ['drone', 'groundStation', 'sat', 'rpoSat']
 export function fleetFor(state: GameState, orders: Orders): FleetPiece[] {
@@ -511,7 +524,7 @@ export function fleetFor(state: GameState, orders: Orders): FleetPiece[] {
     const price = state.scenario.prices[kind]
     const fits = ordered || price <= remaining(state, orders)
     const wc = fits && !ordered ? worstCase(state, actionsOf({ ...orders, assets: [...orders.assets, kind] })) : null
-    return { kind, price, eta: DEPLOY_TURNS[kind], ordered, fits, risky: !!wc?.risky, odds: wc?.odds ?? 0, soon: (wc?.tonight ?? 0) > RISK_BAR }
+    return { kind, price, eta: DEPLOY_TURNS[kind], ordered, fits, risky: !!wc?.risky, odds: wc?.odds ?? 0, soon: (wc?.tonight ?? 0) > RISK_BAR, have: wc?.remaining ?? 0, repairs: wc?.repairs ?? 0, upkeep: wc?.upkeep ?? 0, worst: wc ? wc.dawn : 0, tonight: wc?.tonight ?? 0 }
   })
 }
 
@@ -549,6 +562,13 @@ export interface Stakes {
   repairs: number
   upkeep: number
   by: Contact[]
+  // The same repairs with the answers the watch holds spent on those
+  // moves, in order, and a hold on the debris (its loss review): what the
+  // night can still be brought down to. And the debris's share of
+  // `repairs` (the dearer of the burn's fuel and the review), 0 when there
+  // is none tonight.
+  eased: number
+  debris: number
 }
 // The repair bill a signature leaves if it lands unanswered as it stands;
 // for the debris, the dearer of the burn's fuel and the loss review.
@@ -563,7 +583,22 @@ export function stakesFor(state: GameState, orders: Orders, contacts: readonly C
     const dearest = open.reduce<Contact | undefined>((top, c) => (billOf(state, c) > (top ? billOf(state, top) : 0) ? c : top), undefined)
     if (dearest) by.push(dearest)
   }
-  return { score, line: state.scenario.winThreshold, atStake, remaining: wc.remaining, worst: wc.dawn < 0 ? wc.dawn : wc.morning, risky: wc.risky, odds: wc.risky && wc.tonight > RISK_BAR ? wc.tonight : wc.odds, soon: wc.tonight > RISK_BAR, tonight: wc.tonight, asks: wc.risky || wc.dawn < 0, have: wc.remaining, repairs: wc.repairs, upkeep: wc.upkeep, by }
+  let left = answersLeft(state)
+  let saved = 0
+  let debris = 0
+  for (const c of by) {
+    const full = billOf(state, c)
+    if (c.debris) {
+      debris = full
+      saved += full - lossReviewBill(c.def, state.difficulty)
+      continue
+    }
+    const first = left > 0 && c.exposed > 0 ? c.def.responses?.[0] : undefined
+    if (!first) continue
+    left -= 1
+    saved += full - billAfter(c.def, c.exposed, RESPONSE_DAMAGE_SHARE[first.effect], state.difficulty)
+  }
+  return { score, line: state.scenario.winThreshold, atStake, remaining: wc.remaining, worst: wc.dawn < 0 ? wc.dawn : wc.morning, risky: wc.risky, odds: wc.risky && wc.tonight > RISK_BAR ? wc.tonight : wc.odds, soon: wc.tonight > RISK_BAR, tonight: wc.tonight, asks: wc.risky || wc.dawn < 0, have: wc.remaining, repairs: wc.repairs, upkeep: wc.upkeep, by, eased: Math.max(0, wc.repairs - saved), debris }
 }
 
 // --------------------------------------------------------------- the night
