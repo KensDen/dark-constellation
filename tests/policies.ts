@@ -444,6 +444,16 @@ export const FLEET: readonly WatchLine[] = [
   { name: 'dronesKept', label: 'Prepared, a drone a night, tomorrow\'s likely bills kept in hand', policy: onWatch(keeping(withDrones(prepared, 6), tomorrowKept), atSpot, reads), respond: sensible },
   { name: 'dronesKeptSaver', label: 'Prepared, a drone a night, tomorrow\'s bills kept, saving its answers', policy: onWatch(keeping(withDrones(prepared, 6), tomorrowKept), atSpot, reads), respond: saver },
 ]
+// THE SAME BANK IN SATELLITES, HELD UNDER THE EXPERT (Ken's ruling of 18
+// November 2026). A satellite is 30 CR, covers 13 and is 2 nights out.
+// Prepared with a satellite a night, tomorrow's likely bills kept in hand,
+// wins more often than Prepared and less often than the Expert, so the
+// fleet stays a strategy that rewards skill and the price is not re-tuned.
+// R5 reported these two; from R6 the gate holds them under the Expert.
+export const SATELLITES: readonly WatchLine[] = [
+  { name: 'satsKept', label: 'Prepared, a satellite a night, tomorrow\'s likely bills kept in hand', policy: onWatch(keeping(withAssets(prepared, 'sat', 1, 6), tomorrowKept), atSpot, reads), respond: sensible },
+  { name: 'satsKeptSaver', label: 'Prepared, a satellite a night, tomorrow\'s bills kept, saving its answers', policy: onWatch(keeping(withAssets(prepared, 'sat', 1, 6), tomorrowKept), atSpot, reads), respond: saver },
+]
 // Reported beside them, held to no band.
 export const WATCH_REPORTED: readonly WatchLine[] = [
   { name: 'expert', label: 'Expert (Prepared, saving answers for moves of 2 or more)', policy: onWatch(prepared, atSpot, reads), respond: saver },
@@ -454,11 +464,6 @@ export const WATCH_REPORTED: readonly WatchLine[] = [
   { name: 'expertSight', label: 'Expert, naming every signature on sight', policy: onWatch(preparedSight, atSpot, reads), respond: saver },
   { name: 'noviceSight', label: 'Novice, naming every signature on sight', policy: onWatch(beginnerLine('all'), atSpot, shaky(2 / 3)), respond: careless },
   { name: 'noviceGuess', label: 'Novice, guessing names until one is wrong (right 1 in 4)', policy: onWatch(beginnerLine('guess'), atSpot, shaky(2 / 3)), respond: careless },
-  // The same bank in satellites (30 CR, 13 coverage, 2 nights out): what
-  // the fleet is worth to a player who keeps a reserve. Reported, and the
-  // round's report has the ruling it may need.
-  { name: 'satsKept', label: 'Prepared, a satellite a night, tomorrow\'s likely bills kept in hand', policy: onWatch(keeping(withAssets(prepared, 'sat', 1, 6), tomorrowKept), atSpot, reads), respond: sensible },
-  { name: 'satsKeptSaver', label: 'Prepared, a satellite a night, tomorrow\'s bills kept, saving its answers', policy: onWatch(keeping(withAssets(prepared, 'sat', 1, 6), tomorrowKept), atSpot, reads), respond: saver },
   { name: 'preparedKept', label: 'Prepared, tomorrow\'s likely bills kept in hand (R4\'s guard as a habit)', policy: onWatch(keeping(prepared, tomorrowKept), atSpot, reads), respond: sensible },
   { name: 'noviceReads', label: 'Novice, reading every hold right', policy: onWatch(beginner, atSpot, reads), respond: careless },
   { name: 'noviceR1', label: 'The R1 Novice (a defense at random each night)', policy: onWatch(novice, atRandom, shaky(2 / 3)), respond: careless },

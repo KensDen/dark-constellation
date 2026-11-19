@@ -1,0 +1,100 @@
+// THE BRIEFING, THE GUIDE, AND WHAT THE WATCH OFFICER SAYS AS THE PLAYER
+// ACTS (v2.0 R1 to R5; a module of their own since v2.0 R6). Only the game
+// says them: no card prints them and the rooms never do, so they ride in
+// the game's own chunk and not in the one the game, its cards and its
+// rooms share (src/ui/three/copy3d.ts has every other line, and the
+// figures' own words these lines are built from). House rules: numerals,
+// no em or en dashes.
+
+import { ADVERSARY, CONSTELLATION, SQUADRON } from '../../config'
+import { ENDS_IT, SURE, billsOf, fewInTen, inTen, upTo, worstFace } from './copy3d'
+
+// THE OPENING: the briefing as a camera move over the theater, the watch
+// officer's four lines from the 3D title prototype (10 November 2026).
+export const OPENING: readonly { clock: string; line: string; threat?: true }[] = [
+  { clock: '21:00Z', line: `${CONSTELLATION} will be 9 smallsats. Tonight 2 are up, with 1 inspection bird.` },
+  { clock: '21:04Z', line: `Under it, the ${SQUADRON} squadron flies flood relief over 3 counties. Every frame they shoot comes home through us.` },
+  { clock: '21:09Z', line: `${ADVERSARY} is working the doors tonight: the uplink, the navigation signal, the people at the consoles.`, threat: true },
+  { clock: '21:12Z', line: 'You are the mission assurance architect. 6 nights. Finish night 6 at 70 or above with the budget at 0 or more, and learn how they work.' },
+]
+export const OPENING_SPEAKER = 'WATCH OFFICER'
+export const OPENING_NEXT = 'CONTINUE'
+export const OPENING_GO = 'TAKE THE WATCH'
+export const OPENING_SKIP = 'SKIP'
+export const openingCount = (n: number, of: number) => `Briefing ${n} of ${of}`
+
+// THE GUIDE: the first night teaches by doing. One short line a step.
+export const GUIDE = {
+  scan: 'SCAN: tap a signature below to identify it.',
+  place: 'PLACE: 1 new defense a night. Tap one that answers it, or drag it onto an asset.',
+  // The one rule the night turns on, said where it first matters (v2.0
+  // R5: through R4 it was only in HOW TO PLAY on the title, and that
+  // round's desktop player met "COLDVEIL switches" with no rule behind it).
+  begin: `Ready. ${ADVERSARY} takes the move you cover least. BEGIN when your orders are set.`,
+  // What an answer is for, said where the first one is offered (v2.0 R6:
+  // the bot's first-time player spends its 3 on the first 3 moves that
+  // ask, whatever they cost, and that habit alone is 16 games in 100 on
+  // EASY: tests/policies.ts has the measurement beside the Novice).
+  respond: 'ANSWER: 3 for all 6 nights. Spend 1 where a hit costs most, or let it ride.',
+  tap: 'TAP as the ring closes on the target for a bonus.',
+  done: 'That is the whole watch: scan, place, answer. The words on the cards are explained in the menu, under THE WORDS.',
+  hold: 'YOUR CALL: read the 3 checks, then override the block or let it stand.',
+} as const
+export const GUIDE_SKIP = 'Skip guide'
+
+// ------------------------------------------- as the player acts
+
+// The post follows the newest defense, and the line says so as it moves.
+export const postMoves = (from: string, to: string) => `The watch post moves from ${from} to ${to} with your newest defense: a strike there is 1 weaker.`
+// A PIECE CHOSEN ON ONE ASSET'S CARD AND SET DOWN ON ANOTHER (v2.0 R6: two
+// of R5's players chose a defense on a signature's card and were told it
+// was "placed on" a different asset, with no reason). Chosen there, it
+// goes on that signature's asset whenever the post does as much there as
+// anywhere (gameModel.ts, spotAdvice, `near`). Where it does not, the
+// reason is said: the piece covers the fleet from any asset, so it is set
+// down where its post is worth most, under another move (`under`). (It
+// can always sit on that asset: a defense sits on the layers its threats
+// strike, and the signature is one of them.)
+export const sitsElse = (piece: string, near: string, sign: string, under?: string) => `${piece} covers the whole fleet wherever it sits, so it sits where its post does most: ${sign}${under ? `, under ${under}` : ''}, not ${near}.`
+// The piece cannot sit where the post is, and the post is holding down the
+// night's costliest move: no spot is called best, and the card says what
+// the piece gives up (v2.0 R4).
+export const postCost = (sign: string, before: number, after: number) => `Placing it moves the watch post off ${sign}: AT STAKE goes from ${upTo(before)} to ${upTo(after)} tonight.`
+export const postCostShort = (sign: string) => `moves the post off ${sign}: more at stake tonight`
+
+// BEGIN ON A NIGHT THAT COULD END THE OPERATION (v2.0 R5; Ken's ruling of
+// 18 November 2026: it keeps asking on any such night, and THE ASK CARRIES
+// ITS REASON IN PLAIN WORDS, so a player who was asked and came through
+// still trusts the next ask). It opens on the tile's own figure, so one
+// screen never shows two, and then says what would have to happen: which
+// moves would have to land unanswered (`by`: their names; an unidentified
+// one is said as that, the debris as the debris), what their repairs and the upkeep come to against
+// the budget in hand, that funding arrives after, and how likely it is. A
+// player who is asked, begins, and sees one of those moves stopped knows
+// why the worst did not come. It ends on what can be done: `ordered` is
+// whether tonight's orders cost anything, so "take an order back" is never
+// said to a player with nothing to take back, and `answers` whether the
+// watch has one left.
+//
+// IT ASKS WHEREVER THE TILE READS SHORT, LIKELY OR NOT, AND SAYS WHICH
+// (v2.0 R5). The first cut asked only when the break was more likely than
+// not. That round's phone player then lost a game at 74.3, over the win
+// line, on a last night that read "3 CR short" in amber: BEGIN went
+// straight in, and "amber with no confirm" read as "probably fine". And
+// the Mobile Safari player met "2 CR short", was told nothing, and ended
+// 9 CR up: a warning with no odds is a false alarm when it does not come.
+// So the tray's mark stays for what is likely, and BEGIN asks once about
+// anything that can end the operation.
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
+const listOf = (names: readonly string[]) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0])
+export const riskLine = (r: { worst: number; odds: number; soon: boolean; tonight: number; have: number; repairs: number; upkeep: number }, by: readonly string[], ordered: boolean, answers: boolean) => {
+  const sure = r.odds > SURE
+  const fix = `${answers ? "An answer cuts a move's repair bill. " : ''}${ordered ? 'Take an order back, or tap BEGIN again.' : 'Nothing is ordered: tap BEGIN again to take the odds.'}`
+  if (r.worst >= 0) return `WORST CASE: ${worstFace(r.worst)}. Tonight holds, but tomorrow night's repairs and upkeep come out before its funding, and they are ${sure ? 'all but certain' : 'likely'} to take the budget under 0${sure ? '' : ` (${inTen(r.odds)})`}. That ends the operation, whatever the score. ${fix}`
+  const how = r.soon ? (sure ? 'That is all but certain.' : `That is the likely case (${inTen(r.odds)}).`) : `Possible, not likely (${fewInTen(r.tonight)}).`
+  const named = r.repairs > 0 && by.length > 0
+  const bills = billsOf(r.repairs, r.upkeep)
+  return `WORST CASE: ${worstFace(r.worst)}. ${named ? `If ${listOf(by)} land${by.length > 1 || by[0].endsWith('moves') ? '' : 's'} unanswered, ${bills}` : cap(bills)} come${r.repairs ? '' : 's'} out of your ${r.have} CR before funding arrives, and ${ENDS_IT}. ${how} ${fix}`
+}
+
+export const cannotSit = (piece: string, sign: string) => `${piece} cannot sit on ${sign}. Its card lists where it can.`

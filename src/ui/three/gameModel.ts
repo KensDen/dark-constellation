@@ -11,8 +11,8 @@
 
 import { adversaryPicks } from '../../engine/adversary'
 import { planFor } from '../../engine/campaign'
-import { holdTonight, rightCall } from '../../engine/holds'
-import { newGame, resolveTurn } from '../../engine/reducer'
+import { holdTonight } from '../../engine/holds'
+import { resolveTurn } from '../../engine/reducer'
 import { answered, responseOptions, type ResponseOption } from '../../engine/responses'
 import { turnRng } from '../../engine/rng'
 import {
@@ -21,13 +21,16 @@ import {
   HARDEN,
   TIMING_BONUS,
   aimOf,
+  billAfter,
   briefFree,
+  burnFuel,
   chainBonusOf,
   countersAfter,
   debrisTarget,
   domainOf as domainKinds,
   exposedOf,
   gnssDenied,
+  lossReviewBill,
   meterDamageOf,
   mitigationOf,
   orderCost,
@@ -185,7 +188,19 @@ export function contactsFor(state: GameState, orders: Orders): Contact[] {
   const actions = actionsOf(orders)
   const counters = countersAfter(state, actions)
   const reads = adversaryPicks(state, counters)
-  const events = lastEvents(resolve(state, orders))
+  // WHAT ORDERS WOULD DO IS READ WHETHER OR NOT THEY CAN BE PAID FOR (v2.0
+  // R6). The engine refuses a night whose orders exceed the budget, as it
+  // should, and through R5 this reading asked it for exactly that: a
+  // signature's card reads each piece that answers it ("stops it, then
+  // COLDVEIL switches to"), and the dawn's FIX NEXT reads tomorrow's piece
+  // where it would stand, whatever either costs. With less in the budget
+  // than the piece's price the engine threw, nothing caught it, and the
+  // whole game left the screen: a signature's card opened with 5 CR in
+  // hand was a blank page. No reviewer and no bot player had been that
+  // poor on a night with a costly answer in view. The reading is given the
+  // credits the orders cost; nothing it returns is a figure in credits.
+  const cost = orderCost(state, actions)
+  const events = lastEvents(resolve(cost > state.credits ? { ...state, credits: cost } : state, orders))
   const denied = gnssDenied(state.conditions, state.scenario)
   const everything = allied(state)
   const post = postNow(state, orders)
@@ -318,6 +333,9 @@ export interface SpotAdvice {
   // no strike, and the phone's that a piece chosen on one asset's card was
   // "placed on" another with no reason given).
   even: boolean
+  // The move the post weakens most on `best`, when it is one the watch has
+  // identified: why the piece sits there and not somewhere else (v2.0 R6).
+  under: Contact | undefined
 }
 // What the post is worth against a signature the scan has not named: a
 // guess at a point of strength on one meter, in score.
@@ -327,7 +345,13 @@ export const atStakeOf = (contacts: readonly Contact[]): number => {
   for (const c of contacts) bySlot.set(c.slot, Math.min(bySlot.get(c.slot) ?? 0, c.loss))
   return tenth([...bySlot.values()].reduce((n, v) => n + v, 0))
 }
-export function spotAdvice(state: GameState, orders: Orders, id: CountermeasureId): SpotAdvice {
+// `near` is the asset of the signature whose card the piece was chosen on
+// (v2.0 R6): the piece goes there whenever the post does as much there as
+// on any other spot, to within a twentieth of a point of score, so a
+// defense chosen against a move sits under that move unless there is a
+// reason, and then the reason is said (copy3d.ts, sitsElse). The sweep's
+// lines place with no `near`, as they always have.
+export function spotAdvice(state: GameState, orders: Orders, id: CountermeasureId, near?: string): SpotAdvice {
   const domain = domainOf(state, id)
   const bare = { ...orders, defense: null, place: null }
   const before = atStakeOf(contactsFor(state, bare))
@@ -347,24 +371,33 @@ export function spotAdvice(state: GameState, orders: Orders, id: CountermeasureI
     if (!c.known) return 0.6 / peers.length
     return c.favor === 'unlikely' ? 0 : c.favor === 'either' ? 1 / Math.max(1, peers.filter((x) => x.favor === 'either').length) : 1
   }
-  let best: { id: string; atStake: number; saves: number; ok: boolean } | undefined
+  let best: { id: string; atStake: number; saves: number; ok: boolean; under?: Contact } | undefined
   const reads: number[] = []
   for (const a of state.assets) {
     if (a.integrity <= 0 || !domain.includes(a.kind)) continue
     const board = open.map((c) => posted(c, a.id))
     const atStake = atStakeOf(board)
     let saves = COVERAGE_PER_KIND[a.kind] / 1000
+    let under: Contact | undefined
+    let most = 0
     board.forEach((c, i) => {
-      if (c.hardened > 0) saves += share(c) * (c.known ? c.loss - open[i].loss : UNNAMED_SAVE)
+      if (c.hardened <= 0) return
+      const worth = share(c) * (c.known ? c.loss - open[i].loss : UNNAMED_SAVE)
+      saves += worth
+      if (c.known && worth > most) {
+        most = worth
+        under = c
+      }
     })
     reads.push(Math.round((saves - COVERAGE_PER_KIND[a.kind] / 1000) * 1000) + atStake * 1e6)
+    if (a.id === near) saves += 0.05
     const ok = atStake >= before - 0.05
     const better = !best || (ok !== best.ok ? ok : ok ? saves > best.saves + 1e-9 || (Math.abs(saves - best.saves) <= 1e-9 && atStake > best.atStake) : atStake > best.atStake || (atStake === best.atStake && saves > best.saves + 1e-9))
-    if (better) best = { id: a.id, atStake, saves, ok }
+    if (better) best = { id: a.id, atStake, saves, ok, under }
   }
-  return { best: best?.id, before, after: best?.atStake ?? before, raises: !!best && !best.ok, gives: best && stands && stands !== best.id ? stands : undefined, even: reads.length > 1 && reads.every((r) => Math.abs(r - reads[0]) < 0.5) }
+  return { best: best?.id, before, after: best?.atStake ?? before, raises: !!best && !best.ok, gives: best && stands && stands !== best.id ? stands : undefined, even: reads.length > 1 && reads.every((r) => Math.abs(r - reads[0]) < 0.5), under: best?.under }
 }
-export const spotFor = (state: GameState, orders: Orders, id: CountermeasureId): string | undefined => spotAdvice(state, orders, id).best
+export const spotFor = (state: GameState, orders: Orders, id: CountermeasureId, near?: string): string | undefined => spotAdvice(state, orders, id, near).best
 
 // FIX NEXT, AT DAWN (v2.0 R4, the same ruling): the piece that answers the
 // costliest move that got through tonight, unless setting it down tomorrow
@@ -507,11 +540,30 @@ export interface Stakes {
   // BEGIN ASKS TWICE on this night: the mark is up, or the tile reads
   // short, so that no operation ends at a dawn BEGIN did not ask about.
   asks: boolean
+  // THE SUM BEHIND THE FIGURE (v2.0 R6): the budget tonight's orders leave
+  // (`have`, which is `remaining`), and the worst night's repairs and the
+  // upkeep that come out of it before funding arrives. And the moves whose
+  // repairs those are, one a track: the costliest to repair of the moves
+  // COLDVEIL can take there (`by`). BEGIN's ask names them.
+  have: number
+  repairs: number
+  upkeep: number
+  by: Contact[]
 }
+// The repair bill a signature leaves if it lands unanswered as it stands;
+// for the debris, the dearer of the burn's fuel and the loss review.
+const billOf = (state: GameState, c: Contact): number =>
+  c.debris ? Math.max(burnFuel(state.counters.includes('ssaManeuver')), lossReviewBill(c.def, state.difficulty)) : billAfter(c.def, c.exposed, 1, state.difficulty)
 export function stakesFor(state: GameState, orders: Orders, contacts: readonly Contact[], score: number): Stakes {
   const atStake = atStakeOf(contacts)
   const wc = worstCase(state, actionsOf(orders))
-  return { score, line: state.scenario.winThreshold, atStake, remaining: wc.remaining, worst: wc.dawn < 0 ? wc.dawn : wc.morning, risky: wc.risky, odds: wc.risky && wc.tonight > RISK_BAR ? wc.tonight : wc.odds, soon: wc.tonight > RISK_BAR, tonight: wc.tonight, asks: wc.risky || wc.dawn < 0 }
+  const by: Contact[] = []
+  for (const slot of new Set(contacts.map((c) => c.slot))) {
+    const open = contacts.filter((c) => c.slot === slot && c.favor !== 'unlikely')
+    const dearest = open.reduce<Contact | undefined>((top, c) => (billOf(state, c) > (top ? billOf(state, top) : 0) ? c : top), undefined)
+    if (dearest) by.push(dearest)
+  }
+  return { score, line: state.scenario.winThreshold, atStake, remaining: wc.remaining, worst: wc.dawn < 0 ? wc.dawn : wc.morning, risky: wc.risky, odds: wc.risky && wc.tonight > RISK_BAR ? wc.tonight : wc.odds, soon: wc.tonight > RISK_BAR, tonight: wc.tonight, asks: wc.risky || wc.dawn < 0, have: wc.remaining, repairs: wc.repairs, upkeep: wc.upkeep, by }
 }
 
 // --------------------------------------------------------------- the night
@@ -629,115 +681,5 @@ export function conditionsOn(state: GameState): Map<string, { eventId: string; n
 
 export const chainArmed = (state: GameState): boolean => gnssDenied(state.conditions, state.scenario)
 export const chainTonight = (state: GameState): boolean => (planFor(state, state.turn)?.slots ?? []).some((s) => s.fixed === 'blackout-chain')
-
-// ------------------------------------------------------- the whole record
-
-// Each turn's inputs as the record has them, as the engine takes them:
-// read from the events' own fields, so a record replays to itself.
-export function inputsOf(state: GameState): TurnActions[] {
-  const kindOf = (id: string) => /^t\d+-([A-Za-z]+)-\d+$/.exec(id)?.[1] as AssetKind | undefined
-  return state.history.map((r, t) => {
-    const buyCounters = state.scenario.countermeasures.filter((c) => r.purchases.some((p) => p.startsWith(`${c.name} (`))).map((c) => c.id)
-    // The assets ordered that turn, by the ids the engine gave them.
-    const ids = new Set<string>()
-    for (const later of state.history.slice(t)) for (const id of later.ledger.arrivals) if (id.startsWith(`t${r.turn}-`)) ids.add(id)
-    for (const p of state.pipeline) if (p.id.startsWith(`t${r.turn}-`)) ids.add(p.id)
-    for (const a of state.assets) if (a.id.startsWith(`t${r.turn}-`)) ids.add(a.id)
-    const buyAssets = [...ids].sort((a, b) => Number(a.split('-').pop()) - Number(b.split('-').pop())).flatMap((id) => (kindOf(id) ? [{ kind: kindOf(id) as AssetKind }] : []))
-    const debris = r.events.find((e) => e.debris)?.debris?.choice
-    return {
-      buyAssets,
-      buyCounters,
-      ...(debris ? { debris } : {}),
-      responses: r.events.map((e) => e.response?.id ?? null),
-      timing: r.events.map((e) => e.timing ?? 0),
-      scans: r.scanned ?? [],
-      ...(r.sighted ? { sighted: r.sighted } : {}),
-      // Where that night's defense was set down, and the call on its hold.
-      placeOn: { ...state.placed },
-      tiebreak: r.hold && r.hold.call !== 'none' ? r.hold.call : null,
-    }
-  })
-}
-
-// The game played from its seed with these inputs: every state on the way,
-// the opening first. Stops where the engine refuses a turn.
-export function timeline(state: GameState, inputs: readonly TurnActions[]): GameState[] {
-  const out = [newGame(state.scenario, state.seed, state.difficulty, state.posture)]
-  try {
-    for (let t = 0; out[out.length - 1].status === 'playing' && t < state.scenario.totalTurns; t += 1) {
-      const s = out[out.length - 1]
-      out.push(resolveTurn(s, inputs[t] ?? { buyAssets: [], buyCounters: [], scans: [] }, turnRng(s.seed, s.turn)))
-    }
-  } catch {
-    // The run so far stands.
-  }
-  return out
-}
-
-// THE NIGHTS OF A RUN, for the after-action replay: each night as the
-// night's own model reads it, between the states either side.
-export function nightsOf(states: readonly GameState[]): Night[] {
-  const out: Night[] = []
-  for (let t = 1; t < states.length; t += 1) out.push(nightOf(states[t - 1], states[t]))
-  return out
-}
-
-// THE WATCH THAT HAS SEEN IT BEFORE: a careful line for the ghost run when
-// the debrief has no single change to show. Each night it places the
-// defense that answers the move COLDVEIL favors on the first track that
-// needs one, while WORST CASE stays at 0 or more, takes the strongest
-// answer the budget meets, and burns when the fuel is safe.
-function coachOrders(state: GameState): TurnActions {
-  let actions: TurnActions = { buyAssets: [], buyCounters: [], scans: [] }
-  const denied = gnssDenied(state.conditions, state.scenario)
-  for (const read of adversaryPicks(state, state.counters)) {
-    const def = eventDef(state, read.least[0])
-    if (def.effect.special === 'debrisStrike') continue
-    if (def.baseSeverity + chainBonusOf(def, denied) - mitigationOf(def, state.counters) <= 0) continue
-    const id = def.counters.find((c) => !state.counters.includes(c))
-    if (!id) continue
-    const where = spotFor(state, NO_ORDERS, id)
-    const next = { ...actions, buyCounters: [id], ...(where ? { placeOn: { [id]: where } } : {}) }
-    if (state.credits - orderCost(state, next) >= 0 && worstCase(state, next).value >= 0) {
-      actions = next
-      break
-    }
-  }
-  // It reads the evidence on a hold, and makes the right call.
-  const hold = holdTonight(state)
-  if (hold) actions = { ...actions, tiebreak: rightCall(hold) }
-  const debris = (planFor(state, state.turn)?.slots ?? []).some((s) => s.fixed === 'debris-conjunction')
-  return debris ? { ...actions, debris: worstCase(state, actions).value >= 0 ? 'burn' : 'hold' } : actions
-}
-
-export function coachRun(state: GameState): GameState[] {
-  const out = [newGame(state.scenario, state.seed, state.difficulty, state.posture)]
-  while (out[out.length - 1].status === 'playing') {
-    const s = out[out.length - 1]
-    const actions = coachOrders(s)
-    let responses: (string | null)[] = []
-    let after = resolveTurn(s, { ...actions, responses }, turnRng(s.seed, s.turn))
-    for (;;) {
-      const events = lastEvents(after)
-      const i = events.findIndex((ev, k) => ev.left !== undefined && responses[k] === undefined)
-      if (i < 0) break
-      // It keeps its answers for moves worth one.
-      const worth = exposedOf(events[i]) >= 2 || s.turn >= s.scenario.totalTurns
-      const pick = worth ? (responseOptions(eventDef(s, events[i].eventId), events[i]).find((o) => o.fits)?.id ?? null) : null
-      responses = answered(responses, i, pick)
-      after = resolveTurn(s, { ...actions, responses }, turnRng(s.seed, s.turn))
-    }
-    out.push(after)
-  }
-  return out
-}
-
-export const finalScore = (states: readonly GameState[]): number => states[states.length - 1].history[states[states.length - 1].history.length - 1]?.maiScore ?? 0
-
-// What a run ordered on a night, by short piece name, for the replay.
-export function placedOn(night: Night): CountermeasureId[] {
-  return night.closing.counters.filter((c) => !night.before.counters.includes(c))
-}
 
 export { answered, exposedOf }

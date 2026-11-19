@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { SoundCue } from '../../cues'
-import * as c3 from './copy3d'
+import * as c3 from './guide3d'
 import type { Shot, World } from './world'
 
 const SHOTS: Shot[] = [

@@ -2,41 +2,13 @@
 // every line the round added. The threats, the defenses, the responses,
 // the watch officer's reports and the Dossier cards keep the content's own
 // text (src/content, src/ui/night/nightCopy.ts); what is here is the new
-// presentation's: the opening, the guide, the scan, the pieces, the timed
-// tap, the streak, the replay and the unlocks. Nothing here states a fact
+// presentation's: the scan, the pieces, the timed tap, the streak, the
+// replay and the unlocks (the briefing and the guide, which only the game
+// plays, are in ./guide3d.ts since v2.0 R6). Nothing here states a fact
 // about a real threat or defense that the deck's cards do not already
 // carry. House rules: numerals, no em or en dashes.
 
-import { ADVERSARY, CONSTELLATION, SQUADRON } from '../../config'
-
-// THE OPENING: the briefing as a camera move over the theater, the watch
-// officer's four lines from the 3D title prototype (10 November 2026).
-export const OPENING: readonly { clock: string; line: string; threat?: true }[] = [
-  { clock: '21:00Z', line: `${CONSTELLATION} will be 9 smallsats. Tonight 2 are up, with 1 inspection bird.` },
-  { clock: '21:04Z', line: `Under it, the ${SQUADRON} squadron flies flood relief over 3 counties. Every frame they shoot comes home through us.` },
-  { clock: '21:09Z', line: `${ADVERSARY} is working the doors tonight: the uplink, the navigation signal, the people at the consoles.`, threat: true },
-  { clock: '21:12Z', line: 'You are the mission assurance architect. 6 nights. Finish night 6 at 70 or above with the budget at 0 or more, and learn how they work.' },
-]
-export const OPENING_SPEAKER = 'WATCH OFFICER'
-export const OPENING_NEXT = 'CONTINUE'
-export const OPENING_GO = 'TAKE THE WATCH'
-export const OPENING_SKIP = 'SKIP'
-export const openingCount = (n: number, of: number) => `Briefing ${n} of ${of}`
-
-// THE GUIDE: the first night teaches by doing. One short line a step.
-export const GUIDE = {
-  scan: 'SCAN: tap a signature below to identify it.',
-  place: 'PLACE: 1 new defense a night. Tap one that answers it, or drag it onto an asset.',
-  // The one rule the night turns on, said where it first matters (v2.0
-  // R5: through R4 it was only in HOW TO PLAY on the title, and that
-  // round's desktop player met "COLDVEIL switches" with no rule behind it).
-  begin: `Ready. ${ADVERSARY} takes the move you cover least. BEGIN when your orders are set.`,
-  respond: 'ANSWER: you have 3 for all 6 nights. Spend 1 here, or let it ride.',
-  tap: 'TAP as the ring closes on the target for a bonus.',
-  done: 'That is the whole watch: scan, place, answer. The words on the cards are explained in the menu, under THE WORDS.',
-  hold: 'YOUR CALL: read the 3 checks, then override the block or let it stand.',
-} as const
-export const GUIDE_SKIP = 'Skip guide'
+import { ADVERSARY } from '../../config'
 
 // The phases and the top bar.
 export const nightOf = (n: number, of: number) => `NIGHT ${n} OF ${of}`
@@ -124,26 +96,21 @@ export const placeOn = (sign: string) => `PLACE ON ${sign}`
 export const PLACED = 'PLACED'
 export const TAKE_BACK = 'TAKE IT BACK'
 export const OWNED = 'IN SERVICE'
-export const PLACE_NOTE = 'It covers the whole fleet. Where it sits becomes the watch post: any strike on that asset is 1 weaker.'
-// Where no spot it can sit on has anything aimed at it tonight.
-export const PLACE_EVEN = 'It covers the whole fleet. Nothing is aimed where it can sit tonight, so any spot serves.'
+// `from` is where the post stands now, when placing would move it (v2.0
+// R6: all three of R5's first-time players saw the POST tag jump to
+// another asset with nothing said).
+export const placeNote = (from?: string, even = false) =>
+  `It covers the whole fleet. ${even ? 'Nothing is aimed where it can sit tonight, so any spot serves. ' : ''}Where it sits becomes the watch post${from ? `, which moves there from ${from}` : ''}${even ? '.' : ': any strike on that asset is 1 weaker.'}`
 // THE WATCH POST (v2.0 R2).
 export const POST = 'POST'
 export const POST_HERE = 'WATCH POST: strikes here are 1 weaker'
 // One line on the shortest phone (v2.0 R5: the line that explains the post
 // was the one line always cut there).
 export const postLine = (sign: string) => `Watch post on ${sign}: a strike there is 1 weaker.`
-export const postMoves = (from: string, to: string) => `The watch post moves from ${from} to ${to}.`
 export const BEST_SPOT = 'BEST SPOT'
-// The piece cannot sit where the post is, and the post is holding down the
-// night's costliest move: no spot is called best, and the card says what
-// the piece gives up (v2.0 R4).
-export const postCost = (sign: string, before: number, after: number) => `Placing it moves the watch post off ${sign}: AT STAKE goes from ${upTo(before)} to ${upTo(after)} tonight.`
-export const postCostShort = (sign: string) => `moves the post off ${sign}: more at stake tonight`
 export const fixCostsPost = (move: string, piece: string, sign: string) => `${move} got through. ${piece} answers it, but placing it tomorrow would cost the watch post on ${sign}. Keep an answer for it.`
 export const wouldSwitch = (piece: string, price: number, verb: string, move: string, other: string, inPlaceOf?: string) =>
   `${piece}, ${price} CR, ${verb} ${move}. Tonight${inPlaceOf ? `, in place of ${inPlaceOf},` : ''} COLDVEIL would have switched to ${other}.`
-export const spotWhy = (sign: string, n: number) => (n > 0 ? `Most is aimed at ${sign} tonight.` : `Nothing is aimed where it can sit: ${sign} is as good as any.`)
 export const postTook = (n: number) => `Watch post -${n}`
 export const cantAfford = (need: number) => `Needs ${need} CR more`
 export const placedSay = (name: string, sign: string) => `${name} placed on ${sign}.`
@@ -183,21 +150,34 @@ export const NO_ANSWERS = 'NO ANSWERS LEFT'
 export const ALSO_TONIGHT = 'ALSO TONIGHT'
 export const SIGNATURES = 'TONIGHT'
 export const signaturesOver = (n: number) => `${n} signature${n === 1 ? '' : 's'} tonight. Tap one.`
-// The rule behind every "short" (v2.0 R5: the round's desktop player did
-// the dawn's sums, found the funding left out, and concluded the warning
-// was wrong; it is the rule, and nothing had said it).
-export const BEFORE_FUNDING = 'Repairs and upkeep come out before funding arrives, and a budget under 0 then ends the operation, whatever the score.'
+// THE ORDER OF THE DAWN'S SUMS (v2.0 R5, and said where the figure is
+// shown since v2.0 R6). R5's desktop player did the dawn's sums, found the
+// funding left out of "8 CR short", and concluded the warning was wrong.
+// It is the rule: repairs and upkeep come out first, the budget is checked,
+// and funding arrives after. R5 said so in BEGIN's ask and in THE WORDS;
+// R6 shows it wherever a figure reads short: one line on the plan card
+// with the two numbers the tile's figure is the difference of, the whole
+// sum at a tap on the tile, and the same order in the dawn's own ledger
+// (cards3d.tsx, DawnCard).
+export const ENDS_IT = 'a budget under 0 ends the operation, whatever the score'
+export const BEFORE_FUNDING = `Repairs and upkeep come out before funding arrives, and ${ENDS_IT}.`
+// One line on the shortest phone. `have` is the budget tonight's orders
+// leave; `bills` the worst repairs and the upkeep together.
+export const shortSum = (have: number, bills: number) => `${have} CR must cover ${bills} CR of bills before funding arrives.`
+export const LATER_SUM = "Tomorrow night's bills are likely to break the budget before its funding arrives."
 // A chance under the mark's bar, in tenths: what "possible, not likely"
 // comes to. Under 1 in 20 the worst case needs every call to go wrong.
 export const fewInTen = (chance: number) => (chance < 0.05 ? 'under 1 in 10' : `about ${Math.min(5, Math.max(1, Math.round(chance * 10)))} in 10`)
-// WORST CASE, for the tile's tooltip and a screen reader: the three things
-// it can say (v2.0 R5).
-export const worstNote = (n: number, risky: boolean, tonight = 0) =>
+// The worst night's bills in words: "repairs (14 CR) and upkeep (8 CR)".
+export const billsOf = (repairs: number, upkeep: number) => [repairs ? `repairs (${repairs} CR)` : '', upkeep ? `upkeep (${upkeep} CR)` : ''].filter(Boolean).join(' and ')
+// WORST CASE, for the tile's tooltip, its tap and a screen reader: the
+// three things it can say (v2.0 R5), the short one with its sum (v2.0 R6).
+export const worstNote = (n: number, risky: boolean, tonight = 0, have = 0, repairs = 0, upkeep = 0) =>
   n >= 0
     ? risky
-      ? 'Tonight is safe at its worst. Tomorrow night is likely to break the budget.'
+      ? `Tonight is safe at its worst. ${LATER_SUM}`
       : 'The budget tomorrow morning if tonight goes as badly as it can, funding included.'
-    : `Tonight at its worst would break the budget: ${risky ? 'likely' : `possible, not likely (${fewInTen(tonight)})`}. ${BEFORE_FUNDING}`
+    : `Tonight at its worst, ${billsOf(repairs, upkeep)} come out of ${have} CR before funding arrives: ${risky ? 'likely' : `possible, not likely (${fewInTen(tonight)})`}, and ${ENDS_IT}.`
 export const BEGIN = 'BEGIN'
 export const BEGIN_LONG = 'Begin the night'
 export const BEGIN_AT_RISK = 'BEGIN AT RISK'
@@ -207,7 +187,7 @@ export const BEGIN_AT_RISK = 'BEGIN AT RISK'
 // Said without "tomorrow" where there is none.
 // How likely, in tenths. The mark is raised above 5 in 10, so it never
 // reads less than 6; past 19 in 20 it is said as what it is.
-const SURE = 0.95
+export const SURE = 0.95
 export const inTen = (odds: number) => `about ${Math.min(9, Math.max(6, Math.round(odds * 10)))} in 10`
 // On a piece or a fleet order: what placing it would do. `soon` is whether
 // tonight alone is the likely break.
@@ -216,48 +196,15 @@ export const riskyBy = (odds: number, soon: boolean) => {
   return odds > SURE ? `Risky: with it the budget is all but certain to break ${when}` : `Risky: with it the budget is likely to break ${when}, ${inTen(odds)}`
 }
 // A piece that would leave the tile short with no mark (v2.0 R5): no mark
-// on the tray and no second BEGIN, because 2 times in 3 nothing comes of
-// it, but it is said, with its odds, wherever the piece is chosen: on its
-// card, on the signature's card, and by the watch officer once it is set
-// down. (The bot's careful Daily Op player ended an operation on such a
-// night, 10 CR short on the tile in amber, before these lines were there.)
+// on the tray, because 2 times in 3 nothing comes of it, but it is said,
+// with its odds, wherever the piece is chosen: on its card and on the
+// signature's card; once it is set down the plan card's own line has the
+// sum (shortSum). (The bot's careful Daily Op player ended an operation on
+// such a night, 10 CR short on the tile in amber, before these lines were
+// there.)
 export const tightBy = (worst: number, tonight: number) => `With it WORST CASE reads ${worstFace(worst)}: possible, not likely (${fewInTen(tonight)}).`
-// One line on the shortest phone, where the officer's line is cut at one.
-export const tightSay = (worst: number, tonight: number) => `${-worst} CR short at worst: possible, ${fewInTen(tonight)}.`
-// BEGIN ON A NIGHT THAT COULD END THE OPERATION, said with what the player
-// can do about it. It opens on the tile's own figure, so one screen never
-// shows two. `worst` is that figure (under 0 when tonight's worst alone
-// breaks the budget); `ordered` is whether tonight's orders cost anything,
-// so "take an order back" is never said to a player with nothing to take
-// back, and `answers` whether the watch has one left.
-//
-// IT ASKS WHEREVER THE TILE READS SHORT, LIKELY OR NOT, AND SAYS WHICH
-// (v2.0 R5). The first cut asked only when the break was more likely than
-// not. The round's phone player then lost a game at 74.3, over the win
-// line, on a last night that read "3 CR short" in amber: BEGIN went
-// straight in, and "amber with no confirm" read as "probably fine". And
-// the Mobile Safari player met "2 CR short", was told nothing, and ended
-// 9 CR up: a warning with no odds is a false alarm when it does not come.
-// So the tray's mark stays for what is likely, and BEGIN asks once about
-// anything that can end the operation, with its odds and why the figure
-// is what it is (repairs and upkeep come out before funding arrives).
-export const riskLine = (worst: number, odds: number, soon: boolean, ordered: boolean, tonight = 0, answers = true) => {
-  const fix = ordered
-    ? 'Take an order back, or tap BEGIN again.'
-    : answers
-      ? 'Nothing is ordered: a move you answer leaves no repair bill. Tap BEGIN again.'
-      : 'Nothing is ordered: tap BEGIN again to take the odds.'
-  const sure = odds > SURE
-  const how = soon
-    ? `, and it is ${sure ? 'all but certain' : `the likely case (${inTen(odds)})`}.`
-    : worst < 0 && odds <= 0.5
-      ? `: possible, not likely (${fewInTen(tonight)}).`
-      : `, and tomorrow night is ${sure ? 'all but certain' : 'likely'} to need more${sure ? '' : ` (${inTen(odds)})`}.`
-  return `WORST CASE: ${worstFace(worst)}${how} ${BEFORE_FUNDING} ${fix}`
-}
 // A night begun with no new defense, asked about once (v2.0 R3).
 export const BARE_LINE = 'No defense placed tonight, and you have 1 to place. Tap BEGIN again to go without.'
-export const cannotSit = (piece: string, sign: string) => `${piece} cannot sit on ${sign}. Its card lists where it can.`
 // WORST CASE on the plan card, said as what the budget would read at dawn
 // or how far short it would be: a bare "1 CR" read as "I lose 1 credit"
 // (the R3 phone review), and "left" was the budget before the night's

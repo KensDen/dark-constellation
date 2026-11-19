@@ -26,7 +26,8 @@ import type { GameState, TurnActions } from '../src/engine/types'
 import { captureGame, decodeSaveCode, encodeSaveCode } from '../src/persistence'
 import { ordersOf, replay } from '../src/ui/debriefModel'
 import { nightOf } from '../src/ui/night/nightModel'
-import { NO_ORDERS as NO_PLAN, SIGHT_CHOICES, actionsOf, canSight, coachRun, contactsFor, finalScore, inputsOf, sightChoices, sightOpen, spotFor, timeline, withSight } from '../src/ui/three/gameModel'
+import { NO_ORDERS as NO_PLAN, SIGHT_CHOICES, actionsOf, canSight, contactsFor, sightChoices, sightOpen, spotFor, withSight } from '../src/ui/three/gameModel'
+import { coachRun, finalScore, inputsOf, timeline } from '../src/ui/three/runModel'
 import { FIXED, NO_ORDERS, WATCH, WATCH_REPORTED, careless, sensible } from './policies'
 
 const SEEDS = Array.from({ length: 60 }, (_, i) => i * 7919 + 1)

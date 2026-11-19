@@ -275,25 +275,38 @@ body:has([data-title]) .crt-overlay {
   min-height: 100dvh;
   padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
 }
-/* The title is a page that scrolls, and in Mobile Safari it scrolls up
-   under the clock and the battery once Safari's bar folds away (v2.0 R4,
-   the Mobile Safari review: "GOAL 1" printed under "Carrier"). A strip of
-   the page's own dark keeps the status bar's height clear. */
-[data-title-screen]::before {
-  content: '';
-  position: fixed;
-  z-index: 5;
-  inset: 0 0 auto;
-  height: env(safe-area-inset-top, 0px);
-  background: #05060e;
+/* ON A TOUCH SCREEN THE TITLE SCROLLS IN A BOX OF ITS OWN, AND THE PAGE
+   NEVER MOVES (v2.0 R6). The title is longer than a phone, and in Mobile
+   Safari a page that scrolls is drawn up behind the clock and the battery
+   (v2.0 R4, the Mobile Safari review: "GOAL 1" printed under "Carrier").
+   What was tried first, and why it did not hold:
+     - R4: a strip of the page's own dark, fixed over the status bar's
+       height. Safari on iOS 27 reports no inset at the top, so the strip
+       has no height there.
+     - R5, twice in the simulator: the strip given a height of its own,
+       and the strip started above the top edge. The scrolled page is drawn
+       behind the clock ABOVE where a fixed element can paint, so neither
+       covers it.
+   So nothing is put over the scrolled page: the page is not scrolled. The
+   title is a fixed box the height of the screen and its content scrolls
+   inside it, where it is cut at the box's own top edge, which is under the
+   status bar and not behind it. Where a browser does report an inset at
+   the top (a page added to the Home Screen), the box starts under it.
+   Kept to touch screens: on a desk the page scrolls as a page does, with
+   the keyboard as well as the wheel, and nothing there draws over it.
+   scripts/phone-layout.mjs reads the box's own scroll on a phone. */
+@media (pointer: coarse) {
+  [data-title] {
+    position: fixed;
+    inset: env(safe-area-inset-top, 0px) 0 0;
+    min-height: 0;
+    overflow: hidden auto;
+    overscroll-behavior: contain;
+  }
+  [data-title-screen] {
+    min-height: 100%;
+  }
 }
-/* NOT ENOUGH IN MOBILE SAFARI ON iOS 27 (v2.0 R5, tried in the simulator):
-   it reports no inset at the top and draws the scrolled page behind the
-   clock, above where a fixed element can paint, so this strip has no
-   height there and one given a height, or started above the top edge,
-   still does not cover it. The title would have to scroll inside a box of
-   its own, so that the page itself never moves. Listed in the round's
-   report; not done. */
 
 /* THE HERO. Its box is set here, in the first download, so the world
    lands in it and nothing moves: a share of the screen's height on a

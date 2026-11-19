@@ -1708,6 +1708,13 @@ html.t3-on body {
 .t3-sign {
   margin-left: var(--t3-nudge, 0px);
 }
+/* A call sign set to the left of its asset hangs from its right edge, so a
+   left margin does not move it: it is slid back onto the screen from that
+   side (v2.0 R6: "SG-1 / POST / LEAKING" ran off the left of a phone). */
+.t3-tag[data-flip='l'] .t3-sign {
+  margin-left: 0;
+  margin-right: calc(0px - var(--t3-nudge, 0px));
+}
 
 /* =====================================================================
    v2.0 R2: THE PHONE PASS (14 November 2026), and what the round added.
@@ -2041,6 +2048,24 @@ html.t3-on body {
   color: #04110a;
   background: var(--t3-shield);
 }
+/* The post arrives where it now stands (v2.0 R6): through R5 the tag was
+   simply somewhere else on the next frame, and all three of that round's
+   players saw it "jump" with nothing to say it had moved on purpose. */
+.t3-root:not([data-reduced]) .t3-post {
+  animation: t3-postin 0.9s ease-out both;
+}
+@keyframes t3-postin {
+  from {
+    transform: scale(1.7);
+    box-shadow: 0 0 0 7px rgba(110, 231, 255, 0.4);
+  }
+}
+/* IN THE NIGHT, THE ONE CALL SIGN THE MOVE IS ABOUT (v2.0 R6; Game3D.tsx
+   says which): the others' labels are put away while the camera is close
+   on a strike or a hold, at every size. */
+.t3-root .t3-tag[data-quiet='night'] .t3-sign {
+  display: none;
+}
 
 /* What is in the hand keeps to a thumb's width of words. */
 .t3-ghost span {
@@ -2320,6 +2345,13 @@ html.t3-on body {
   .t3-root:not(.t3-wide)[data-t3-phase='plan'] .t3-dock > .t3-card {
     height: 176px;
   }
+  /* The tap's own word, over a move's verdict, has nowhere to stand in a
+     sky this short once the result card is up: it went up under the score
+     (v2.0 R6). It shows as the move lands, and gives way to the card,
+     whose own line says GOOD or PERFECT and what it saved. */
+  .t3-root:not(.t3-wide)[data-t3-stage='result'] .t3-float.t3-timed {
+    display: none;
+  }
   /* Only the call signs that matter tonight (v2.0 R5; Game3D.tsx says
      which): 7 of them and the night's marks do not fit a sky 200 points
      tall. A quiet asset's call sign comes back at a tap, or with a piece
@@ -2467,9 +2499,17 @@ html.t3-on body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.t3-root:not(.t3-wide) [data-t3-card='result'] {
+.t3-root:not(.t3-wide) [data-t3-card='result'],
+.t3-root:not(.t3-wide) [data-t3-card='dawn'] {
   max-height: min(62vh, 480px);
   max-height: min(62svh, 480px);
+}
+/* (The dawn with it since v2.0 R6: its last line is the budget's sums, in
+   the order they are taken, and on a night with many parts that line
+   stood half behind the button. And it keeps clear of the shadow the
+   button casts over what scrolls under it.) */
+.t3-root:not(.t3-wide) .t3-dawn > :nth-last-child(2) {
+  margin-bottom: 10px;
 }
 
 /* After the first-time review (v2.0 R2): the risk warning is said whole,

@@ -1,7 +1,7 @@
 // THE SWEEP GATE (v1.3 brief 7). Principle 18, say which instrument: the
 // instrument is the engine itself, run headless over 500 seeds a line on
 // STANDARD and EASY, through the lines of tests/policies.ts (WATCH, FIXED,
-// FIXED_SAVING and WATCH_REPORTED). The battery runs it on every pass and
+// FIXED_SAVING, FLEET, SATELLITES and WATCH_REPORTED). The battery runs it on every pass and
 // holds each gated line to its band, so a change to a number that moves a
 // line out of its band fails here rather than in a playtest. SWEEP=1 also
 // prints the table the round's report carries.
@@ -19,7 +19,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { DEFAULT_SCENARIO } from '../src/content'
 import type { Difficulty } from '../src/engine/types'
-import { FIXED, FIXED_SAVING, FLEET, WATCH, WATCH_REPORTED, type WatchLine } from './policies'
+import { FIXED, FIXED_SAVING, FLEET, SATELLITES, WATCH, WATCH_REPORTED, type WatchLine } from './policies'
 import { GRADES, SEEDS, median, playPolicy, type PolicyRun } from './sweep-run'
 
 const pct = (n: number, of: number) => (100 * n) / of
@@ -56,7 +56,7 @@ describe('the sweep gate (v1.3 brief 7)', () => {
   const runs = new Map<string, PolicyRun>()
   const run = (name: string, difficulty: Difficulty) => runs.get(`${name}:${difficulty}`)!
   const rate = (name: string, difficulty: Difficulty) => pct(run(name, difficulty).wins, SEEDS)
-  const ALL: readonly WatchLine[] = [...WATCH, ...FIXED, ...FIXED_SAVING, ...FLEET, ...WATCH_REPORTED]
+  const ALL: readonly WatchLine[] = [...WATCH, ...FIXED, ...FIXED_SAVING, ...FLEET, ...SATELLITES, ...WATCH_REPORTED]
 
   beforeAll(() => {
     for (const difficulty of ['standard', 'easy'] as const) {
@@ -78,6 +78,7 @@ describe('the sweep gate (v1.3 brief 7)', () => {
       group(FIXED, ', fixed line')
       group(FIXED_SAVING, ', fixed line with the Expert\'s answers')
       group(FLEET, ', fleet line held under the Expert')
+      group(SATELLITES, ', satellite line held under the Expert')
       group(WATCH_REPORTED, ', reported')
     }
     process.stderr.write(
@@ -152,9 +153,8 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     // 77.8 on EASY (62.2 and 93.4 with the Expert's answers); with
     // tomorrow's likely bills kept in hand, 80.0 and 94.0, and with the
     // Expert's answers 92.6 and 99.0; Prepared 86.2 and 100.0, the Expert
-    // 98.4 and 100.0. REPORTED BESIDE THEM, the same bank in satellites
-    // (30 CR, 13 coverage, 2 nights out), bills kept in hand: 94.0 and
-    // 95.2, and with the Expert's answers 97.0 and 96.6.
+    // 98.4 and 100.0. The same bank in satellites has a gate of its own,
+    // below.
     for (const difficulty of ['standard', 'easy'] as const) {
       const expert = run('expert', difficulty).wins
       for (const p of FLEET) {
@@ -167,6 +167,26 @@ describe('the sweep gate (v1.3 brief 7)', () => {
     // than Prepared does) and still win games.
     expect(median(run('dronesKept', 'standard').creditsLeft)).toBeLessThan(median(run('prepared', 'standard').creditsLeft))
     expect(run('dronesKept', 'standard').wins).toBeGreaterThan(SEEDS / 2)
+  })
+
+  it('THE SATELLITES STAY A STRATEGY: Prepared with a satellite a night, bills kept in hand, wins more often than Prepared and no more often than the Expert (Ken, 18 November 2026: held under the Expert, no re-tune)', () => {
+    // MEASURED at R5's numbers, which R6 does not move (a satellite at 30
+    // CR, 13 coverage, 2 nights out): 94.0 percent on STANDARD and 95.2 on
+    // EASY, and with the Expert's answers 97.0 and 96.6; Prepared 86.2 and
+    // 100.0, the Expert 98.4 and 100.0. It pays a player who keeps a
+    // reserve, and it does not pay more than answering well does.
+    for (const difficulty of ['standard', 'easy'] as const) {
+      const expert = run('expert', difficulty).wins
+      for (const p of SATELLITES) {
+        const wins = run(p.name, difficulty).wins
+        expect(wins, `${difficulty}: ${p.label} won ${pct(wins, SEEDS).toFixed(1)} percent, the Expert ${pct(expert, SEEDS).toFixed(1)}`).toBeLessThanOrEqual(expert)
+      }
+    }
+    // Not vacuous: the line orders satellites (it ends with less in the
+    // bank than Prepared does), and on STANDARD the fleet it buys is worth
+    // having, which is what makes it a strategy and not a mistake.
+    expect(median(run('satsKept', 'standard').creditsLeft)).toBeLessThan(median(run('prepared', 'standard').creditsLeft))
+    expect(run('satsKept', 'standard').wins).toBeGreaterThan(run('prepared', 'standard').wins)
   })
 
   it('THE TIE-BREAK COUNTS: always overriding and never overriding each win clearly less than reading the evidence (Ken, 14 November 2026)', () => {

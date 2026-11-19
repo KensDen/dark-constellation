@@ -29,11 +29,17 @@ const verbWord = (v: 'stops' | 'blunts' | 'answers') => (v === 'stops' ? 'Stops'
 // The night's words say "turn" (the pixel board's); the 3D game says "night".
 const nightly = (s: string) => s.replace(/\bTURNS\b/g, 'NIGHTS').replace(/\bTURN\b/g, 'NIGHT').replace(/\bturns\b/g, 'nights').replace(/\bturn\b/g, 'night')
 
+// The cards' small marks: a cross, and an arrow either way.
+const Mark = ({ d }: { d: string }) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+    <path d={d} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+const BACK = 'M15 5l-7 7 7 7'
+const ON = 'M9 5l7 7-7 7'
 const Close = ({ onClose }: { onClose: () => void }) => (
   <button type="button" className="t3-round t3-small" aria-label="Close" data-t3-close onClick={onClose}>
-    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-      <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-    </svg>
+    <Mark d="M6 6l12 12M18 6L6 18" />
   </button>
 )
 
@@ -83,6 +89,12 @@ export function PlanCard({
   // until the line is tapped or the night's own note changes.
   const [tip, setTip] = useState('')
   useEffect(() => setTip(''), [note, risk])
+  // THE SUM, WHERE THE FIGURE IS SHOWN (v2.0 R6): a tile that reads short
+  // has, on the card's own line, the two numbers it is the difference of
+  // and the order they are taken in. R5's desktop player did the dawn's
+  // sums with the funding in and concluded "short" was wrong.
+  const sum = stakes.worst < 0 ? c3.shortSum(stakes.have, stakes.repairs + stakes.upkeep) : stakes.risky ? c3.LATER_SUM : ''
+  const why = c3.worstNote(stakes.worst, stakes.risky, stakes.tonight, stakes.have, stakes.repairs, stakes.upkeep)
   return (
     <div className="t3-card t3-plan" data-t3-card="plan" data-t3-chunk={CHUNK_MARK}>
       <p className="t3-eyebrow">
@@ -93,15 +105,16 @@ export function PlanCard({
           lines that could not be opened were the phone reviewer's second
           complaint. */}
       <p
-        className={`${risk ? 't3-note t3-risknote' : tip || note ? 't3-note' : 't3-lead'}${whole || (tip && !risk) ? ' is-whole' : ''}`}
+        className={`${risk ? 't3-note t3-risknote' : tip || note || sum ? 't3-note' : 't3-lead'}${whole || (tip && !risk) ? ' is-whole' : ''}`}
         role={risk ? 'alert' : undefined}
         data-t3-line
+        data-t3-sum={!risk && !tip && sum ? '' : undefined}
         onClick={() => {
           if (tip) setTip('')
           else setWhole((w) => !w)
         }}
       >
-        {risk || tip || note || intro}
+        {risk || tip || `${sum}${sum ? ' ' : ''}${note || intro}`}
       </p>
       <div className="t3-sigs" role="group" aria-label={c3.signaturesOver(contacts.length)} data-t3-sigs>
         {contacts.map((c, i) => {
@@ -134,16 +147,16 @@ export function PlanCard({
         {/* Red only when the mark is up; short with no mark is possible,
             not likely, and reads amber (v2.0 R5). */}
         <p
-          title={c3.worstNote(stakes.worst, stakes.risky, stakes.tonight)}
+          title={why}
           data-t3-tile="worst"
           data-t3-worst-state={stakes.risky ? 'risky' : stakes.worst < 0 ? 'short' : 'clear'}
-          onClick={() => setTip(`${c3.WORST}: ${c3.worstNote(stakes.worst, stakes.risky, stakes.tonight)}`)}
+          onClick={() => setTip(`${c3.WORST}: ${why}`)}
         >
           <span>{c3.WORST}</span>
           <b className={stakes.risky ? 't3-bad' : stakes.worst < 0 ? 't3-warn' : ''} aria-label={c3.worstFace(stakes.worst)}>
             {c3.worstTile(stakes.worst)}
           </b>
-          <span className="t3-sr">{c3.worstNote(stakes.worst, stakes.risky, stakes.tonight)}</span>
+          <span className="t3-sr">{why}</span>
         </p>
         {answersOf > 0 && (
           <p data-t3-answers={answers} aria-label={c3.answersLeft(answers, answersOf)}>
@@ -228,9 +241,7 @@ export function Tray({ kit, fleetOrdered, selected, reduced, onPick, onFleet, st
       })}
     </div>
     <button type="button" className="t3-traymore" data-t3-tray-more={atEnd ? 'back' : 'more'} aria-label={`${atEnd ? c3.TRAY_BACK : c3.TRAY_MORE}. ${c3.trayPage(at.page, at.of)}.`} onClick={page}>
-      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-        <path d={atEnd ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <Mark d={atEnd ? BACK : ON} />
       <span aria-hidden="true">
         {at.page}/{at.of}
       </span>
@@ -315,14 +326,10 @@ export function ContactCard({
   const step = (
     <span className="t3-step">
       <button type="button" className="t3-round t3-small" aria-label="Previous signature" data-t3-step="-1" onClick={() => onStep(-1)}>
-        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-          <path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <Mark d={BACK} />
       </button>
       <button type="button" className="t3-round t3-small" aria-label="Next signature" data-t3-step="1" onClick={() => onStep(1)}>
-        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-          <path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <Mark d={ON} />
       </button>
     </span>
   )
@@ -431,7 +438,9 @@ export function ContactCard({
 
 // A PIECE IN HAND: the defense by its formal name, what it answers
 // tonight, and where it can go.
-export function PieceCard({ piece, targets, postCost, even, locked, upkeep, placedOn, onPlace, onRemove, onClose }: { piece: KitPiece; targets: { id: string; sign: string; best?: boolean }[]; postCost?: string; even?: boolean; locked: string | null; upkeep: number; placedOn?: string; onPlace: (assetId: string) => void; onRemove: () => void; onClose: () => void }) {
+// `postFrom` is the call sign the post stands on now, when placing this
+// piece would move it.
+export function PieceCard({ piece, targets, postCost, postFrom, even, locked, upkeep, placedOn, onPlace, onRemove, onClose }: { piece: KitPiece; targets: { id: string; sign: string; best?: boolean }[]; postCost?: string; postFrom?: string; even?: boolean; locked: string | null; upkeep: number; placedOn?: string; onPlace: (assetId: string) => void; onRemove: () => void; onClose: () => void }) {
   const { cm } = piece
   return (
     <div className="t3-card" key={`p-${cm.id}`} data-t3-card="piece">
@@ -486,7 +495,7 @@ export function PieceCard({ piece, targets, postCost, even, locked, upkeep, plac
               </button>
             ))}
           </div>
-          {!postCost && <p className="t3-hint">{even ? c3.PLACE_EVEN : c3.PLACE_NOTE}</p>}
+          {!postCost && <p className="t3-hint">{c3.placeNote(postFrom, even)}</p>}
         </>
       )}
     </div>
@@ -1124,17 +1133,19 @@ export function DawnCard({
         ? joined(copy.fixDefense(PIECE[advice.cm.id], advice.cm.cost, shortName(advice.def), stopVerb(advice.cm.id, advice.def) === 'stops' ? 'stops' : 'blunts'))
         : `${shortName(advice.def)} got through. Keep an answer for a move like it.`
   const hold = rec.hold
-  const parts = [
-    l.ordered ? `Orders -${l.ordered}` : '',
-    l.fuel ? `Fuel -${l.fuel}` : '',
-    l.windfall ? `Windfall +${l.windfall}` : '',
-    l.repairs ? `Repairs -${l.repairs}` : '',
-    l.upkeep ? `Upkeep -${l.upkeep}` : '',
+  // THE DAWN'S SUMS IN THE ORDER THEY ARE TAKEN (v2.0 R6): the night's
+  // bills, the budget they leave, which is the figure that must be 0 or
+  // more, and then what arrives. Through R5 it was one run of parts with
+  // the funding among them, and R5's desktop player read WORST CASE's
+  // "short" against it and found the warning wrong.
+  const bills = [l.ordered ? `Orders -${l.ordered}` : '', l.fuel ? `Fuel -${l.fuel}` : '', l.windfall ? `Windfall +${l.windfall}` : '', l.repairs ? `Repairs -${l.repairs}` : '', l.upkeep ? `Upkeep -${l.upkeep}` : ''].filter(Boolean)
+  const arrives = [
     l.funding ? `Funding +${l.funding}` : '',
     // Missed, it is said too (v2.0 R5): 10 CR a dawn is the first asset's
     // whole case, and a ledger with no line for it taught nothing.
     l.coverageBonus ? `Coverage bonus +${l.coverageBonus}` : l.insolvent ? '' : c3.noBonus(l.bonusCoverage, before.scenario.slaBonus.coverageMin),
   ].filter(Boolean)
+  const parts = `${bills.join(' · ')}${bills.length ? ` = ${l.after - l.funding - l.coverageBonus} CR` : ''}${l.insolvent ? ': under 0 before funding' : `${bills.length ? ', then ' : ''}${arrives.join(' · ')}`}`
   const arrivals = l.arrivals.map((id) => signs.get(id) ?? id)
   const ending = over ? (after.status === 'won' ? copy.ENDING.won : copy.ENDING[after.lossReason ?? 'belowThreshold']) : null
   return (
@@ -1155,19 +1166,19 @@ export function DawnCard({
         {/* What made the change, so a night's net is never a number no line explains. */}
         <small data-t3-scoreparts>{copy.scoreParts(scoreRows(night).filter((r) => r.key !== 'from' && r.key !== 'to'))}</small>
       </p>
-      {!over && answersOf(after) > 0 && (
-        <p className="t3-tagsline" data-t3-dawn-answers>
-          <span className={answersLeft(after) === 0 ? 't3-warn' : ''}>
-            {c3.ANSWERS} {'●'.repeat(answersLeft(after))}
-            {'○'.repeat(answersOf(after) - answersLeft(after))} · {answersLeft(after)} left for {before.scenario.totalTurns - rec.turn} more night{before.scenario.totalTurns - rec.turn === 1 ? '' : 's'}
-          </span>
-        </p>
-      )}
-      {hold && (
-        <p className="t3-tagsline" data-t3-dawn-hold>
-          <span className={hold.right ? 't3-ok' : 't3-warn'}>
-            {hold.call === 'none' ? c3.HOLD_VERDICT.none : hold.right ? c3.HOLD_VERDICT.right : c3.HOLD_VERDICT.wrong} on the hold · {hold.right ? c3.HOLD_NO_COST : c3.holdCost(hold.cost).toLowerCase()}
-          </span>
+      {((!over && answersOf(after) > 0) || hold) && (
+        <p className="t3-tagsline">
+          {!over && answersOf(after) > 0 && (
+            <span className={answersLeft(after) === 0 ? 't3-warn' : ''} data-t3-dawn-answers>
+              {c3.ANSWERS} {'●'.repeat(answersLeft(after))}
+              {'○'.repeat(answersOf(after) - answersLeft(after))} · {answersLeft(after)} left for {before.scenario.totalTurns - rec.turn} more night{before.scenario.totalTurns - rec.turn === 1 ? '' : 's'}
+            </span>
+          )}
+          {hold && (
+            <span className={hold.right ? 't3-ok' : 't3-warn'} data-t3-dawn-hold>
+              {hold.call === 'none' ? c3.HOLD_VERDICT.none : hold.right ? c3.HOLD_VERDICT.right : c3.HOLD_VERDICT.wrong} on the hold · {hold.right ? c3.HOLD_NO_COST : c3.holdCost(hold.cost).toLowerCase()}
+            </span>
+          )}
         </p>
       )}
       {!over && (
@@ -1177,7 +1188,7 @@ export function DawnCard({
         </p>
       )}
       <p className="t3-ledger" data-t3-ledger>
-        Budget {l.start} CR → {l.after} CR<small>{parts.join(' · ')}</small>
+        Budget {l.start} CR → {l.after} CR<small>{parts}</small>
       </p>
       {(arrivals.length > 0 || (after.status === 'playing' && after.conditions.length > 0)) && (
         <p className="t3-tagsline">

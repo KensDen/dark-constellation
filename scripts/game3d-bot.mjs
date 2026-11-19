@@ -255,6 +255,35 @@ const AUDIT = `(() => {
       if (m[0] < -1 || m[2] > innerWidth + 1) bad.push('the mark of ' + id + ' is off the side')
     })
   }
+  // IN THE NIGHT, THE ONE CALL SIGN THE MOVE IS ABOUT (v2.0 R6). Through R5
+  // all 7 came in with the camera and stood on each other, ran off the
+  // sides and slid under the card and the score (all three of that round's
+  // first-time players). While a move has a target, no other asset wears
+  // its label unless it is lit as a place to drag a link to; the target's
+  // own is on the screen, under the top bar and over the cards; and no
+  // move's word stands on COLDVEIL's name while the name shows.
+  if (document.querySelector('.t3-root')?.dataset.t3Phase === 'night' && target && dock) {
+    const top = document.querySelector('.t3-top')?.getBoundingClientRect().bottom ?? 0
+    const floor = innerWidth < 1000 ? dock.top : innerHeight
+    for (const tag of document.querySelectorAll('.t3-tag[data-asset]')) {
+      const sign = tag.querySelector('.t3-sign')
+      const a = tag.querySelector('[data-t3-asset]')
+      if (!sign || !a || tag.style.visibility === 'hidden' || sign.offsetWidth === 0) continue
+      const name = a.dataset.t3Sign
+      if (a.dataset.t3Asset !== target) { if (!a.classList.contains('is-drop')) bad.push('in the night the call sign ' + name + ' shows beside the target’s'); continue }
+      const r = sign.getBoundingClientRect()
+      if (r.left < -1 || r.right > innerWidth + 1) bad.push('the call sign ' + name + ' runs off the side in the night (' + Math.round(r.left) + '..' + Math.round(r.right) + ')')
+      if (r.top < top - 4 || r.bottom > floor + 4) bad.push('the call sign ' + name + ' is under the ' + (r.top < top - 4 ? 'top bar' : 'cards') + ' in the night (' + Math.round(r.top) + '..' + Math.round(r.bottom) + ', clear ' + Math.round(top) + '..' + Math.round(floor) + ')')
+    }
+    const foe = document.querySelector('.t3-tag-foe span')
+    if (foe && foe.closest('.t3-tag').style.visibility !== 'hidden' && foe.style.opacity !== '0') {
+      const n = foe.getBoundingClientRect()
+      for (const w of document.querySelectorAll('.t3-tag-comet span, .t3-float')) {
+        const r = w.getBoundingClientRect()
+        if (r.width > 0 && w.closest('.t3-tag').style.visibility !== 'hidden' && r.left < n.right && r.right > n.left && r.top < n.bottom && r.bottom > n.top) bad.push('a move’s word stands on COLDVEIL’s name in the night')
+      }
+    }
+  }
   // The tray shows whole pieces on a phone (v2.0 R3): at rest, none stands
   // half under BEGIN. A swipe or a page still on its way is not judged.
   const tray = document.querySelector('[data-t3-tray]')
@@ -313,7 +342,7 @@ async function run(b, base, view, plan, log, shots, table) {
     // a target is judged where the frame settles, not on the way there.
     // And the labels are set down again every few frames as it does: one
     // caught on another mid-move is judged where they settle.
-    if (bad.some((x) => x.startsWith('the target is not in view') || x.includes('the call sign'))) {
+    if (bad.some((x) => x.startsWith('the target is not in view') || x.includes('the call sign') || x.includes('COLDVEIL’s name'))) {
       await sleep(900)
       bad = await b.evaluate(AUDIT)
     }
@@ -771,7 +800,10 @@ async function run(b, base, view, plan, log, shots, table) {
   const seconds = Math.round((Date.now() - started) / 1000)
   await sleep(quick ? 400 : 1700)
   await shot('debrief', 'the debrief: the grade, the final score against the line, the nights, NEXT TIME')
-  const result = await b.evaluate(`(() => { const d = document.querySelector('[data-t3-debrief]'); const stat = (label) => [...d.querySelectorAll('[data-t3-stats] div')].find((x) => x.querySelector('dt')?.textContent === label)?.querySelector('dd')?.textContent.trim() ?? ''; return { grade: d.dataset.t3Grade, score: d.querySelector('[data-t3-final-score] b')?.textContent ?? '', head: d.querySelector('h2')?.textContent ?? '', blocks: stat('MOVES BLOCKED'), hits: stat('HITS TAKEN'), streak: stat('BEST STREAK'), time: stat('TIME'), next: (d.querySelector('[data-t3-next-time] p')?.textContent ?? '').trim(), earned: [...d.querySelectorAll('[data-t3-earned] p:not(.t3-hint)')].map((x) => x.textContent) } })()`)
+  const result = await b.evaluate(`(() => { const d = document.querySelector('[data-t3-debrief]'); const stat = (label) => [...d.querySelectorAll('[data-t3-stats] div')].find((x) => x.querySelector('dt')?.textContent === label)?.querySelector('dd')?.textContent.trim() ?? ''; return { grade: d.dataset.t3Grade, score: d.querySelector('[data-t3-final-score] b')?.textContent ?? '', head: d.querySelector('h2')?.textContent ?? '', blocks: stat('MOVES BLOCKED'), hits: stat('HITS TAKEN'), streak: stat('BEST STREAK'), time: stat('TIME'), seed: /SEED (\\d+)/.exec(d.textContent ?? '')?.[1] ?? '', next: (d.querySelector('[data-t3-next-time] p')?.textContent ?? '').trim(), earned: [...d.querySelectorAll('[data-t3-earned] p:not(.t3-hint)')].map((x) => x.textContent) } })()`)
+  // The seed (v2.0 R6): a first visit draws its own, and R5's one lost
+  // first-time game could not be played again because nothing kept it.
+  log.push(`- seed ${result.seed || 'not shown'}: replay it at ?view=3d&seed=${result.seed}`)
   log.push(`- result: ${result.head}, grade ${result.grade}, score ${result.score}, blocks ${result.blocks}, hits ${result.hits}, best streak ${result.streak}, time on the game's clock ${result.time}, the bot's wall clock ${seconds}s`)
   log.push(`- NEXT TIME: ${result.next}`)
   if (result.earned.length) log.push(`- earned: ${result.earned.join('; ')}`)
@@ -997,7 +1029,7 @@ async function main() {
   const b = await browser(chrome)
   const failures = []
   const errors = []
-  const log = ['# Dark Constellation v2.0 R2: the 3D game, bot runs', '', `Build served from dist/. ${new Date().toISOString()}`]
+  const log = ['# Dark Constellation v2.0: the 3D game, bot runs', '', `Build served from dist/. ${new Date().toISOString()}`]
   const shots = []
   const table = { games: [], fps: [] }
   try {

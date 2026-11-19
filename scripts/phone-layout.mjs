@@ -214,9 +214,17 @@ const widen = (b) => b.evaluate(`(() => { const s = document.createElement('styl
 const narrow = (b) => b.evaluate(`(() => { document.querySelector('style[data-wide]')?.remove(); dispatchEvent(new Event('resize')); return true })()`)
 const click = (selector) => `(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return false; e.click(); return true })()`
 const SIDEWAYS = 'document.documentElement.scrollWidth > innerWidth + 1'
+// WHAT SCROLLS ON THE TITLE (v2.0 R6): on a touch screen the title's own
+// box, and the page not at all; on a desk the page. The checks below read
+// and move whichever it is.
+const TITLE_BOX = `(() => { const t = document.querySelector('[data-title]'); return t && getComputedStyle(t).position === 'fixed' ? t : document.scrollingElement })()`
 
 async function fresh(b, url, [w, h], reduced = true, storage = {}) {
   await b.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: w < 800 })
+  // A phone is a touch screen (v2.0 R6): the title scrolls in a box of its
+  // own there (src/index.css, pointer: coarse), and that is the layout a
+  // phone-size run has to see.
+  await b.send('Emulation.setTouchEmulationEnabled', { enabled: w < 800, maxTouchPoints: 1 })
   await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduced ? 'reduce' : 'no-preference' }] })
   return cleanLoad(b, url, storage)
 }
@@ -272,13 +280,38 @@ async function checkTitle(b, url, [w, h]) {
   for (const x of await b.evaluate(`${SMALL}(document.querySelector('[data-title]'), 12)`)) failures.push(`${where}: the title: ${x}`)
   // PLAY is on the first screen of a phone with its whole height to use.
   if (h >= 660) {
-    const play = await b.evaluate('(() => { const r = document.querySelector("[data-play]").getBoundingClientRect(); return { top: r.top + scrollY, bottom: r.bottom + scrollY } })()')
+    const play = await b.evaluate(`(() => { const r = document.querySelector("[data-play]").getBoundingClientRect(); const y = ${TITLE_BOX}.scrollTop; return { top: r.top + y, bottom: r.bottom + y } })()`)
     if (play.top < 0 || play.bottom > h + 0.5) failures.push(`${where}: PLAY ends at ${Math.round(play.bottom)} of ${h}, off the first screen`)
+  }
+
+  // THE PAGE DOES NOT MOVE UNDER A PHONE'S STATUS BAR (v2.0 R6). On a touch
+  // screen the title is a box the height of the screen that scrolls its own
+  // content: the page has nowhere to scroll, the box starts at the top
+  // edge, and scrolled to its end the last thing on it is whole and in
+  // view. In Mobile Safari a page that scrolls is drawn up behind the
+  // clock; a page that does not cannot be.
+  const box = await b.evaluate(`(() => {
+    const t = document.querySelector('[data-title]')
+    const fixed = getComputedStyle(t).position === 'fixed'
+    const page = document.documentElement.scrollHeight - innerHeight
+    const r = t.getBoundingClientRect()
+    t.scrollTop = t.scrollHeight
+    const last = [...t.querySelectorAll('button, a[href]')].filter((e) => !e.closest('[role=dialog]')).pop().getBoundingClientRect()
+    const out = { coarse: matchMedia('(pointer: coarse)').matches, fixed, page, top: r.top, bottom: r.bottom, room: t.scrollHeight - t.clientHeight, lastBottom: last.bottom }
+    t.scrollTop = 0
+    return out
+  })()`)
+  if (w < 800) {
+    if (!box.coarse) failures.push(`${where}: the phone-size run is not a touch screen, so it did not see the title a phone sees`)
+    if (!box.fixed) failures.push(`${where}: the title is not a box of its own on a touch screen`)
+    if (box.page > 1) failures.push(`${where}: the page itself scrolls ${Math.round(box.page)}px under the title's box`)
+    if (Math.abs(box.top) > 0.5 || Math.abs(box.bottom - h) > 0.5) failures.push(`${where}: the title's box runs ${Math.round(box.top)} to ${Math.round(box.bottom)} of ${h}`)
+    if (box.lastBottom > h + 0.5) failures.push(`${where}: scrolled to its end, the title's last button ends at ${Math.round(box.lastBottom)} of ${h}`)
   }
 
   // SCROLL RESET, from a scrolled title and from a scrolled LIBRARY.
   const back = `(() => { const x = [...document.querySelectorAll('button')].find((e) => /back to title/i.test(e.innerText)); if (!x) return false; window.scrollTo(0, document.documentElement.scrollHeight); x.click(); return true })()`
-  await b.evaluate('window.scrollTo(0, document.documentElement.scrollHeight); document.querySelector(\'[data-read="library"]\').click(); true')
+  await b.evaluate(`(() => { const t = ${TITLE_BOX}; t.scrollTop = t.scrollHeight; document.querySelector('[data-read="library"]').click(); return true })()`)
   if (!(await waitFor(b, '[...document.querySelectorAll("button")].some((x) => /back to title/i.test(x.innerText))'))) return [...failures, `${where}: LIBRARY did not open`]
   await sleep(300)
   let y = await b.evaluate('Math.round(scrollY)')
@@ -286,11 +319,11 @@ async function checkTitle(b, url, [w, h]) {
   await b.evaluate(back)
   await waitFor(b, 'document.querySelector("[data-title]")')
   await sleep(300)
-  y = await b.evaluate('Math.round(scrollY)')
+  y = await b.evaluate(`Math.round(scrollY + ${TITLE_BOX}.scrollTop)`)
   if (y !== 0) failures.push(`${where}: Back to title opened ${y}px down`)
 
   // SYSTEM stays in bounds, opaque and full height, with Difficulty in view.
-  await b.evaluate('window.scrollTo(0, 400); document.querySelector("[data-title-system]").click(); true')
+  await b.evaluate(`(() => { ${TITLE_BOX}.scrollTop = 400; document.querySelector("[data-title-system]").click(); return true })()`)
   if (!(await waitFor(b, 'document.querySelector("[role=dialog] [data-system-control]")'))) return [...failures, `${where}: SYSTEM did not open`]
   await sleep(300)
   const sys = await b.evaluate(`(() => {
@@ -404,6 +437,9 @@ async function checkDesktop(b, url) {
   if (await b.evaluate(SIDEWAYS)) failures.push(`${where}: the title scrolls sideways`)
   const play = await b.evaluate('(() => { const r = document.querySelector("[data-play]").getBoundingClientRect(); return r.bottom + scrollY })()')
   if (play > 900.5) failures.push(`${where}: PLAY ends at ${Math.round(play)} of 900, off the first screen`)
+  // On a desk the page scrolls as a page does: the title's own box is a
+  // touch screen's (v2.0 R6).
+  if (await b.evaluate(`getComputedStyle(document.querySelector('[data-title]')).position === 'fixed'`)) failures.push(`${where}: the title is a box of its own on a desk, where the page should scroll`)
   return failures
 }
 

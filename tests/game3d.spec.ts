@@ -25,25 +25,21 @@ import {
   PERFECT_WINDOW_S,
   actionsOf,
   choicesFor,
-  coachRun,
   contactsFor,
   domainOf,
-  finalScore,
   gestureOf,
   gradeTap,
-  inputsOf,
   kitFor,
   nightNow,
-  nightsOf,
   scanState,
   spotFor,
   stakesFor,
-  timeline,
   withResponse,
   withTiming,
   type NightInputs,
   type Orders,
 } from '../src/ui/three/gameModel'
+import { coachRun, finalScore, inputsOf, nightsOf, timeline } from '../src/ui/three/runModel'
 import { TAG } from '../src/ui/three/copy3d'
 import { SIGNATURE } from '../src/ui/three/signatures'
 import { THREAT_VOICES } from '../src/cues'

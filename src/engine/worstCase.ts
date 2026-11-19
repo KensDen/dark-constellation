@@ -74,7 +74,8 @@
 // 3 CR short in amber: of the free spender's 26 insolvent games on
 // STANDARD, 6 came with nothing ever asked. So BEGIN asks twice on any
 // night whose tile reads short, as well as on a marked one, and says how
-// likely and why (src/ui/three/copy3d.ts, riskLine). Measured for the
+// likely and why (src/ui/three/guide3d.ts, riskLine; since v2.0 R6 the
+// why names the moves and gives the sum). Measured for the
 // free spender: asked on nights 4 to 6 in 40 games of 500 on STANDARD,
 // and solvent anyway in 14 of them (the budget broke that night or the
 // next after 26 of 40 asks); on EASY asked in 9 games, and solvent in 5;

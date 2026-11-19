@@ -37,6 +37,7 @@ import type { Night, NightStep } from '../night/nightModel'
 import { deviceDifficulty, newOperation } from '../session'
 import { AssetCard, CallCard, ChoiceCard, ContactCard, DawnCard, FleetCard, HoldCard, HoldResultCard, PieceCard, PlanCard, ResultCard, StrikeBanner, Tray, VERDICT_WORD, dots, type AnswerView, type Queued } from './cards3d'
 import * as c3 from './copy3d'
+import * as g3 from './guide3d'
 import {
   ASSIST_GRADE,
   NO_INPUTS,
@@ -60,7 +61,6 @@ import {
   sightChoices,
   sightOpen,
   spotAdvice,
-  spotFor,
   atStakeOf,
   stakesFor,
   verdictOf,
@@ -138,7 +138,7 @@ type Stage =
   | { at: 'result'; i: number }
 type Phase = 'opening' | 'plan' | 'night' | 'dawn' | 'debrief' | 'replay'
 type Sel = { kind: 'contact'; id: string } | { kind: 'asset'; id: string } | { kind: 'piece'; id: CountermeasureId } | { kind: 'fleet' } | null
-type GuideStep = keyof typeof c3.GUIDE | null
+type GuideStep = keyof typeof g3.GUIDE | null
 interface Floater {
   id: number
   key: string
@@ -297,6 +297,15 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   const gameRef = useRef(game)
   gameRef.current = game
   const intro = planFor(game, game.turn)?.intro ?? ''
+  // BEGIN's ask on a night that could end the operation, with its reason
+  // (guide3d.ts, riskLine): the moves whose repairs the worst night's are,
+  // by the names the board wears, an unidentified one said as that.
+  const riskText = useMemo(() => {
+    if (!stakes?.asks) return ''
+    const unnamed = stakes.by.filter((c) => !c.known && !c.debris).length
+    const by = [...stakes.by.filter((c) => c.known || c.debris).map((c) => (c.debris ? 'the debris' : (c3.TAG[c.id] ?? shortName(c.def)))), ...(unnamed ? [unnamed > 1 ? `${unnamed} unidentified moves` : 'an unidentified move'] : [])]
+    return g3.riskLine(stakes, by, !!orders.defense || orders.assets.length > 0, answersLeft(game) > 0)
+  }, [stakes, orders, game])
   const tracks = useMemo(() => new Set(contacts.map((c) => c.slot)).size, [contacts])
 
   useMusicState(phase === 'opening' ? null : shown)
@@ -534,6 +543,24 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     // weighed again against the blocks set down after it.
     list.forEach((a, i) => setDown(a, i, false))
     list.forEach((a, i) => setDown(a, i, true))
+    // COLDVEIL'S NAME GIVES WAY TO A MOVE'S WORD (v2.0 R6). A strike leaves
+    // from COLDVEIL with its name riding it, and a result's word stands
+    // over its target, which the close camera can put beside COLDVEIL: R5's
+    // Mobile Safari player read "CO..VEIL" under a move's name. While one
+    // of them would stand on it, the name is put away; the ship stays.
+    const foeName = tags.current.get('coldveil')?.querySelector<HTMLElement>('span')
+    if (foeName) {
+      const n = foeName.getBoundingClientRect()
+      const flying = at.current.get('comet')?.on
+      let under = false
+      for (const word of document.querySelectorAll<HTMLElement>('.t3-tag-comet span, .t3-float')) {
+        if (!flying && !word.classList.contains('t3-float')) continue
+        const r = word.getBoundingClientRect()
+        if (r.width > 0 && r.left < n.right + 4 && r.right > n.left - 4 && r.top < n.bottom + 3 && r.bottom > n.top - 3) under = true
+      }
+      const to = under ? '0' : ''
+      if (foeName.style.opacity !== to) foeName.style.opacity = to
+    }
   }, [])
 
   useEffect(() => {
@@ -947,7 +974,10 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   }, [phase, game.turn])
   useEffect(() => setSighting(null), [sel])
 
-  const place = (id: CountermeasureId, assetId?: string) => {
+  // `near` is the asset of the signature whose card the piece was chosen
+  // on (v2.0 R6): it goes there when the post does as much there as
+  // anywhere, and where it does not the note says why.
+  const place = (id: CountermeasureId, assetId?: string, near?: string) => {
     if (!deciding || game.counters.includes(id)) return
     const cm = defenseDef(game, id)
     if (orders.defense === id && !assetId) {
@@ -961,7 +991,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     if (!piece || (piece.blocked && !piece.ordered)) return play('denied-buzz')
     // Where it goes: the asset it was dropped on, or the best spot for it
     // (gameModel.ts, spotFor), which is where a tap on the piece puts it.
-    const where = (assetId && piece.domain.includes(assetById(game, assetId)?.kind ?? ('' as AssetKind)) ? assetId : undefined) ?? spotFor(game, orders, id) ?? game.assets.find((a) => a.integrity > 0 && piece.domain.includes(a.kind))?.id
+    const sits = (on?: string) => !!on && piece.domain.includes(assetById(game, on)?.kind ?? ('' as AssetKind))
+    const advice = sits(assetId) ? null : spotAdvice(game, orders, id, near)
+    const where = (sits(assetId) ? assetId : advice?.best) ?? game.assets.find((a) => a.integrity > 0 && piece.domain.includes(a.kind))?.id
     const next = { ...orders, defense: id, place: where ?? null }
     const before = contacts
     const after = contactsFor(game, next)
@@ -976,13 +1008,21 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     const bare = { ...orders, defense: null, place: null }
     const stood = postNow(game, bare)
     const [was, now] = [atStakeOf(contactsFor(game, bare)), atStakeOf(after)]
-    const gave = stood && stood !== where && now < was - 0.05 ? ` ${c3.postCost(signs.get(stood) ?? stood, was, now)}` : ''
-    // And what it does to WORST CASE where the tile now reads short with
-    // no mark (v2.0 R5): said first, with its odds.
-    const reads = stakesFor(game, next, after, 0)
-    const tight = !reads.risky && reads.worst < 0 ? `${c3.tightSay(reads.worst, reads.tonight)} ` : ''
-    setNote(`${tight}${moved ? `${ADVERSARY_NAME} switches to ${moved.known ? shortName(moved.def) : 'an unidentified move'}. ` : ''}${where ? c3.postLine(sign) : ''}${gave}`)
+    const gave = stood && stood !== where && now < was - 0.05 ? ` ${g3.postCost(signs.get(stood) ?? stood, was, now)}` : ''
+    // Chosen on one asset's card and set down on another: why (v2.0 R6).
+    const under = advice?.under && advice.under.targetId === where ? (c3.TAG[advice.under.id] ?? shortName(advice.under.def)) : undefined
+    const elsewhere = near && where && where !== near ? `${g3.sitsElse(PIECE[id], signs.get(near) ?? near, sign, under)} ` : ''
+    // The post follows the newest defense: said as it moves (v2.0 R6: all
+    // three of R5's players saw the POST tag jump with nothing said).
+    const post2 = !where ? '' : stood && stood !== where ? g3.postMoves(signs.get(stood) ?? stood, sign) : c3.postLine(sign)
+    // (What it does to WORST CASE is on the plan card's own line, with its
+    // sum, wherever the tile reads short: cards3d.tsx, PlanCard.)
+    setNote(`${moved ? `${ADVERSARY_NAME} switches to ${moved.known ? shortName(moved.def) : 'an unidentified move'}. ` : ''}${elsewhere}${post2}${gave}`)
     setSay(c3.placedSay(cm.name, sign))
+    // Chosen on a signature's card, the card gives way to the watch
+    // officer's line: where the piece went and why is said there, and
+    // through R5 it was said behind the card it was chosen on.
+    if (near) setSel(null)
     if (guide === 'place' || guide === 'scan') setGuide('begin')
   }
 
@@ -1008,7 +1048,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       // closed, so the warning is never behind the panel that caused it.
       setSel(null)
       play('denied-buzz')
-      setSay(c3.riskLine(stakes.worst, stakes.odds, stakes.soon, !!orders.defense || orders.assets.length > 0, stakes.tonight, answersLeft(game) > 0))
+      setSay(riskText)
       return
     }
     // A night begun with no new defense while one could be placed is asked
@@ -1506,7 +1546,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         const on = d.kind === 'piece' ? assetAt(ev.clientX, ev.clientY) : null
         if (on) {
           play('denied-buzz')
-          const text = c3.cannotSit(d.label, signs.get(on) ?? 'that asset')
+          const text = g3.cannotSit(d.label, signs.get(on) ?? 'that asset')
           setNote(text)
           setSay(text)
         }
@@ -1628,6 +1668,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   }
   const selAsset = sel?.kind === 'asset' ? assetById(board, sel.id) : undefined
   const selPiece = sel?.kind === 'piece' ? kit.find((p) => p.cm.id === sel.id) : undefined
+  // Where the piece in hand does most (gameModel.ts, spotAdvice).
+  const pieceAdvice = selPiece && deciding && !selPiece.blocked && !selPiece.ordered ? spotAdvice(game, orders, selPiece.cm.id) : null
   const contactsOn = (id: string) => (deciding ? contacts.filter((c) => c.targetId === id) : [])
   const conds = conditionsOn(board)
   // A condition's pill stands on the asset its move struck (v2.0 R4: both
@@ -1653,7 +1695,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       // And what it costs where the post has to move for it (v2.0 R4).
       if (!then && !a.owned && !a.ordered) {
         const advice = spotAdvice(game, orders, a.cm.id)
-        if (advice.raises && advice.gives) then = c3.postCostShort(signs.get(advice.gives) ?? advice.gives)
+        if (advice.raises && advice.gives) then = g3.postCostShort(signs.get(advice.gives) ?? advice.gives)
       }
       return { id: a.cm.id, name: a.cm.name, cost: a.cm.cost, verb: a.verb, owned: a.owned, ordered: a.ordered, blocked: piece?.blocked ?? null, risky: !!piece?.risky && !a.ordered, odds: piece?.odds ?? 0, soon: !!piece?.soon, worst: piece?.worst ?? 0, tonight: piece?.tonight ?? 0, then }
     })
@@ -1775,8 +1817,18 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           // (game3d.css, a short screen).
           const mine = (sel?.kind === 'asset' && sel.id === a.id) || anchorId === a.id || drag?.over === a.id
           const quiet = phase === 'plan' && !lit && !mine && (!!(dragOk || armed) || (on.length === 0 && post !== a.id && cond.length === 0 && !hurt))
+          // IN THE NIGHT, THE ONE CALL SIGN THE MOVE IS ABOUT (v2.0 R6). The
+          // camera closes on a strike's target, and through R5 all 7 call
+          // signs came with it, each with its bar, its POST, its percent
+          // and its condition: they stood on each other, ran off the
+          // sides and slid under the card and the score (all three of
+          // R5's players). While a move or a hold has a subject, only the
+          // subject wears its label, at every size; an asset a link can be
+          // dragged to lights as it is offered, and wears its own then.
+          const subject = phase === 'night' ? (nightTarget ?? ((stage.at === 'hold' || stage.at === 'held') && holdPlan ? holdPlan.assetId : undefined)) : undefined
+          const hushed = !!subject && subject !== a.id && !lit
           return (
-            <div key={a.id} ref={tagRef(a.id)} className="t3-tag" data-asset="1" data-quiet={quiet || undefined}>
+            <div key={a.id} ref={tagRef(a.id)} className="t3-tag" data-asset="1" data-quiet={hushed ? 'night' : quiet || undefined}>
               <button
                 type="button"
                 data-t3-asset={a.id}
@@ -1895,7 +1947,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       <div ref={dockRef} className="t3-dock" data-t3-dock>
         {guide && guide !== 'hold' && (phase === 'plan' || phase === 'night' || phase === 'dawn') && (
           <p className="t3-coach" data-t3-guide={guide} role="status">
-            <span>{guide === 'scan' && selContact && !selContact.known ? 'SCAN IT: 1 pulse names this signature.' : c3.GUIDE[guide]}</span>
+            <span>{guide === 'scan' && selContact && !selContact.known ? 'SCAN IT: 1 pulse names this signature.' : g3.GUIDE[guide]}</span>
             <button
               type="button"
               data-t3-guide-skip
@@ -1904,7 +1956,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
                 setPf(setPrefs({ guideSeen: true }))
               }}
             >
-              {c3.GUIDE_SKIP}
+              {g3.GUIDE_SKIP}
             </button>
           </p>
         )}
@@ -1931,7 +1983,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             summary={c3.orderLine(ownedName, orders.assets.length, orders.scans.length)}
             intro={contacts.every((c) => c.known) && contacts.some((c) => !c.fixed) && orders.scans.length === 0 ? `${intro} ${c3.ALLIED_FEED}` : intro}
             note={note}
-            risk={atRisk && stakes.asks ? c3.riskLine(stakes.worst, stakes.odds, stakes.soon, !!orders.defense || orders.assets.length > 0, stakes.tonight, answersLeft(game) > 0) : bare ? c3.BARE_LINE : undefined}
+            risk={atRisk && stakes.asks ? riskText : bare ? c3.BARE_LINE : undefined}
             contacts={contacts}
             signs={signs}
             stakes={stakes}
@@ -1993,7 +2045,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
                   }
             }
             onScan={() => void doScan(selContact.id)}
-            onPlace={(id) => place(id)}
+            onPlace={(id) => place(id, undefined, selContact.targetId)}
             onStep={(by) => {
               const i = contacts.findIndex((c) => c.id === selContact.id)
               const next = contacts[(i + by + contacts.length) % contacts.length]
@@ -2018,21 +2070,16 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         {deciding && selPiece && (
           <PieceCard
             piece={selPiece}
-            targets={(() => {
-              // The recommended spot first (gameModel.ts, spotAdvice), then
-              // the rest. It is called BEST only where it leaves AT STAKE
-              // no worse than the night stands without the piece.
-              const advice = spotAdvice(game, orders, selPiece.cm.id)
-              return [...game.assets]
-                .filter((a) => a.integrity > 0 && selPiece.domain.includes(a.kind))
-                .sort((a, b) => Number(b.id === advice.best) - Number(a.id === advice.best))
-                .map((a) => ({ id: a.id, sign: signs.get(a.id) ?? a.id, best: a.id === advice.best && !advice.raises && !advice.even }))
-            })()}
-            postCost={(() => {
-              const advice = selPiece.blocked || selPiece.ordered ? null : spotAdvice(game, orders, selPiece.cm.id)
-              return advice?.raises && advice.gives ? c3.postCost(signs.get(advice.gives) ?? advice.gives, advice.before, advice.after) : undefined
-            })()}
-            even={!selPiece.blocked && !selPiece.ordered && spotAdvice(game, orders, selPiece.cm.id).even}
+            // The recommended spot first, then the rest. It is called BEST
+            // only where it leaves AT STAKE no worse than the night stands
+            // without the piece.
+            targets={[...game.assets]
+              .filter((a) => a.integrity > 0 && selPiece.domain.includes(a.kind))
+              .sort((a, b) => Number(b.id === pieceAdvice?.best) - Number(a.id === pieceAdvice?.best))
+              .map((a) => ({ id: a.id, sign: signs.get(a.id) ?? a.id, best: a.id === pieceAdvice?.best && !pieceAdvice.raises && !pieceAdvice.even }))}
+            postCost={pieceAdvice?.raises && pieceAdvice.gives ? g3.postCost(signs.get(pieceAdvice.gives) ?? pieceAdvice.gives, pieceAdvice.before, pieceAdvice.after) : undefined}
+            postFrom={post ? signs.get(post) : undefined}
+            even={!!pieceAdvice?.even}
             placedOn={selPiece.ordered && orders.place ? signs.get(orders.place) : undefined}
             locked={orders.defense && orders.defense !== selPiece.cm.id ? PIECE[orders.defense] : null}
             upkeep={game.scenario.upkeepPerDefense}
@@ -2068,7 +2115,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             />
             {atRisk && stakes && stakes.asks && (
               <p className="t3-sr" role="alert" data-t3-risk>
-                {c3.riskLine(stakes.worst, stakes.odds, stakes.soon, !!orders.defense || orders.assets.length > 0, stakes.tonight, answersLeft(game) > 0)}
+                {riskText}
               </p>
             )}
             {bare && (
@@ -2101,7 +2148,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             kind={assetById(game, holdPlan.assetId)?.kind ?? 'drone'}
             seconds={holdLeft}
             total={HOLD_CLOCK_S[game.difficulty]}
-            hint={guide === 'hold' ? c3.GUIDE.hold : undefined}
+            hint={guide === 'hold' ? g3.GUIDE.hold : undefined}
             // What the wrong call would take, asked of the engine (v2.0 R4: the
             // card said "about 2.3" and the result "2.2").
             stake={resolveHold({ ...game, meters: { ...game.meters } }, holdPlan, holdPlan.compromised ? 'override' : 'stand').cost}

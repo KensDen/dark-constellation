@@ -12,7 +12,7 @@ strikes, and make the call when your own automated defense stops one of your own
 Play it: https://kensden.github.io/dark-constellation/ (the released v1.6 game, until v2.0
 merges)
 
-Status: **v2.0, Round 5, in work on the `v2.0/r5` branch** (17 November 2026). This README
+Status: **v2.0, Round 6, in work on the `v2.0/r6` branch** (18 November 2026). This README
 describes the game on this branch, which is the 3D game and nothing else: the pixel board it
 grew from is retired here, with its screens and its rule set out of the tree. That game is kept
 as it was released on `main`, and as it stood on the `v1.7/r1` and `exp/3d-slice` branches.
@@ -35,14 +35,19 @@ fall under 35, or let the budget go below zero at a dawn, and the operation ends
 - **Place 1 defense.** A defense covers the whole fleet against the moves it answers, and COLDVEIL
   reads it: it takes the move you have covered least. Where you set the piece down matters too.
   The asset your newest defense sits on is the **watch post**, and any strike on that asset lands
-  1 point weaker. The piece's card recommends a spot.
+  1 point weaker. The piece's card recommends a spot. A piece covers the whole fleet from any
+  asset, so one chosen on a signature's card is set down where its post does most, and the watch
+  officer says where and why whenever that is not under the signature itself.
 - **Order assets**, if the budget allows. More fleet covers more ground, and coverage is 30
   percent of the score.
 - **WORST CASE** says what the budget would read tomorrow morning if tonight goes as badly as it
   can, with funding and the coverage bonus in. Repairs and upkeep come out before funding arrives,
   and a budget under 0 then ends the operation, whatever the score. An order is marked risky only
   when that is more likely than not by tomorrow night; BEGIN asks twice on any night that could
-  end the operation, and says how likely.
+  end the operation, and says how likely and why: which moves would have to land unanswered, what
+  their repairs and the upkeep come to, and what is in hand to cover them. A tile that reads
+  short has that sum on the card beside it, and the dawn's own ledger lists the bills first, the
+  budget they leave, and then what arrives.
 
 **The night.**
 
@@ -104,6 +109,11 @@ budget 90, so the first drone, the one the first night teaches, leaves what it a
 each one after it costs 10 more. Prepared with a drone a night as well now wins 26.6%, because
 it spends what its defenses need; the same line keeping tomorrow's likely bills in hand wins
 80.0%, and 92.6% with the Expert's answers. The gate holds every one of them under the Expert.
+
+Satellites stay a strategy. Prepared with a satellite a night, keeping tomorrow's likely bills in
+hand, wins 94.0%: more than Prepared, because the fleet it buys is worth having, and less than the
+Expert, because answering well is worth more. With the Expert's answers it wins 97.0%. The gate
+holds both under the Expert, and the price is not re-tuned.
 
 **Grades** run S to F. A win is graded on its final score plus a defense bonus, against bands set
 from the same sweep so that S is about the top 5 percent of wins and A the next 20, at each

@@ -20,7 +20,7 @@
 // operation started with off its autosave, which the game writes as night
 // 1's orders open and not while its briefing is still on. Walking the
 // briefing itself needs the 3D world, so its words are read here as the
-// data the opening prints (src/ui/three/copy3d.ts, OPENING).
+// data the opening prints (src/ui/three/guide3d.ts, OPENING).
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -32,6 +32,7 @@ import App from '../src/App'
 import { DEFAULT_SCENARIO } from '../src/content'
 import { INTRO_SEEN_KEY } from '../src/ui/introSeen'
 import * as c3 from '../src/ui/three/copy3d'
+import * as g3 from '../src/ui/three/guide3d'
 import { MOVED_TO_STANDARD } from '../src/ui/session'
 import { glossaryEntries } from '../src/ui/reference'
 import { installGestureUnlock, resetAudioEngineForTests } from '../src/audio'
@@ -289,12 +290,12 @@ describe('GUARD R1 (b): no retired word on an R1 screen', () => {
     // The briefing is the 3D game's opening, which a test DOM cannot
     // draw: its beats are read as the lines the opening prints, with its
     // speaker and its buttons.
-    expect(c3.OPENING.length, 'the briefing has no beats, so this asserts nothing').toBeGreaterThan(2)
-    c3.OPENING.forEach((beat, i) => {
+    expect(g3.OPENING.length, 'the briefing has no beats, so this asserts nothing').toBeGreaterThan(2)
+    g3.OPENING.forEach((beat, i) => {
       expect(beat.line.length, `briefing beat ${i + 1} says nothing`).toBeGreaterThan(20)
       expect(offending(`${beat.clock} ${beat.line}`), `a retired word on briefing beat ${i + 1}`).toEqual([])
     })
-    expect(offending([c3.OPENING_SPEAKER, c3.OPENING_NEXT, c3.OPENING_GO, c3.OPENING_SKIP, c3.PHASE.opening].join(' · ')), "a retired word on the briefing's chrome").toEqual([])
+    expect(offending([g3.OPENING_SPEAKER, g3.OPENING_NEXT, g3.OPENING_GO, g3.OPENING_SKIP, c3.PHASE.opening].join(' · ')), "a retired word on the briefing's chrome").toEqual([])
   })
 })
 
