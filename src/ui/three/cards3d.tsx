@@ -594,6 +594,7 @@ export function ChoiceCard({
   chain,
   queue,
   pool,
+  room,
   first,
   onRespond,
   startDrag,
@@ -605,6 +606,9 @@ export function ChoiceCard({
   // The moves still to come tonight after this one.
   queue: Queued[]
   pool: { left: number; of: number; nightsLeft: number }
+  // What the budget can take in repairs tonight before funding, when the
+  // plan read it at BEGIN: a choice that costs more says so.
+  room?: number
   first: RefObject<HTMLButtonElement | null>
   onRespond: (id: string | null) => void
   startDrag: StartDrag
@@ -642,7 +646,8 @@ export function ChoiceCard({
       <div role="group" aria-label={copy.YOUR_RESPONSE} className="t3-choices">
         {choices.map((c, k) => {
           const label = c.id ? (RESPONSE_TEXT[def.id]?.[c.id] ?? c.id) : copy.RIDE_IT_OUT
-          const effect = c.fits ? copy.effectLine(c.effect, c.score, c.repair) : copy.EFFECT_WORD[c.effect]
+          const over = room !== undefined && c.fits && c.repair > room
+          const effect = c.fits ? `${copy.effectLine(c.effect, c.score, c.repair)}${over ? `. ${c3.overRoom(room)}` : ''}` : copy.EFFECT_WORD[c.effect]
           const why = c.fits ? '' : c3.NO_ANSWERS
           const cost = !c.id ? copy.FREE : c3.ONE_ANSWER
           const how = c.gesture && c.fits ? ` ${c3.GESTURE[c.gesture]}, or tap.` : ''
@@ -653,6 +658,7 @@ export function ChoiceCard({
               type="button"
               data-t3-response={c.id ?? 'ride'}
               data-effect={c.effect}
+              data-over={over || undefined}
               data-gesture={c.gesture ?? undefined}
               disabled={!c.fits}
               aria-label={`${label}. ${cost}. ${why || effect}.${how}`}

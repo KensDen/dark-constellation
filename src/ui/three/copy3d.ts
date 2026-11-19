@@ -109,6 +109,7 @@ export const POST_HERE = 'WATCH POST: strikes here are 1 weaker'
 // was the one line always cut there).
 export const postLine = (sign: string) => `Watch post on ${sign}: a strike there is 1 weaker.`
 export const BEST_SPOT = 'BEST SPOT'
+export const cannotSit = (piece: string, sign: string) => `${piece} cannot sit on ${sign}. Its card lists where it can.`
 export const fixCostsPost = (move: string, piece: string, sign: string) => `${move} got through. ${piece} answers it, but placing it tomorrow would cost the watch post on ${sign}. Keep an answer for it.`
 export const wouldSwitch = (piece: string, price: number, verb: string, move: string, other: string, inPlaceOf?: string) =>
   `${piece}, ${price} CR, ${verb} ${move}. Tonight${inPlaceOf ? `, in place of ${inPlaceOf},` : ''} COLDVEIL would have switched to ${other}.`
@@ -285,13 +286,20 @@ export const dawnOf = (n: number) => `DAWN · NIGHT ${n}`
 // them. A night that held only because a windfall arrived says that, and
 // not that the worst stayed away (the round's phone player burned 10 CR,
 // repaired 6, and was 4 CR under 0 but for a 25 CR rider).
-export const askedAndHeld = (took: number, worst: number, fuel: boolean) => `BEGIN asked about tonight. The worst did not come: repairs${fuel ? ' and fuel' : ''} took ${took} CR, not ${worst}.`
+// (Not "the worst did not come": the reader of the second cut had stopped
+// both moves with its last 2 answers, and the line credited luck.)
+export const askedAndHeld = (took: number, worst: number, fuel: boolean) => `BEGIN asked about tonight. The budget held: repairs${fuel ? ' and fuel' : ''} took ${took} CR, not the ${worst} it warned of.`
 export const askedAndLucky = (windfall: number, short: number) => `BEGIN asked about tonight. A windfall of ${windfall} CR covered it: without it the bills left the budget ${short} CR short.`
 export const ASKED_AND_BROKE = 'BEGIN asked about tonight: these are the bills it named.'
 // THE DEBRIS CALL: a burn the night's other bills cannot spare (v2.0 R6:
 // two of the round's players met BURN at 10 CR on a night BEGIN had asked
 // about, with nothing on the card to say a burn would itself break the
 // budget).
+// AN ANSWER OR A RIDE THE BUDGET CANNOT SPARE, said on the choice itself
+// (the same reader: "one ride-it-out would have ended the operation... the
+// answer cards give no budget warning"). `room` is what the budget can
+// take in repairs before funding, with upkeep set aside.
+export const overRoom = (room: number) => `Only ${Math.max(0, room)} CR to spare before funding.`
 export const burnShort = (have: number, bills: number, sure: boolean) => `A burn leaves ${have} CR for ${sure ? '' : 'up to '}${bills} CR of bills before funding.`
 export const CLEAN = 'A CLEAN NIGHT'
 export const stoppedOf = (n: number, of: number, halved = 0, partial = 0) => `${n} OF ${of} STOPPED${halved ? ` · ${halved} HALVED` : ''}${partial ? ` · ${partial} PARTIAL` : ''}`

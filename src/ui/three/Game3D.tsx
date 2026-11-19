@@ -272,12 +272,11 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   // budget), and on one begun with no new defense while one could be placed.
   const [atRisk, setAtRisk] = useState(false)
   const [bare, setBare] = useState(false)
-  // The night BEGIN asked about and the player began: its number, and the
-  // worst repairs the ask named. The dawn says how it came out.
-  const [asked, setAsked] = useState<{ turn: number; repairs: number } | null>(null)
-  // What the night's bills could come to besides the debris, as the plan
-  // read them at BEGIN: the debris call weighs a burn against it.
-  const [bills, setBills] = useState<{ turn: number; others: number; upkeep: number } | null>(null)
+  // The night's bills as the plan read them at BEGIN: what they could come
+  // to besides the debris (the debris call weighs a burn against it, and a
+  // choice its repair), and, when BEGIN asked and the player began, the
+  // worst repairs the ask named (the dawn says how it came out).
+  const [bills, setBills] = useState<{ turn: number; others: number; upkeep: number; asked?: number } | null>(null)
   const [guide, setGuide] = useState<GuideStep>(() => (mode === 'play' && !readPrefs().guideSeen && start.state.status === 'playing' && start.state.history.length === 0 ? 'scan' : null))
   // Whether this game's finish has been recorded. True from the start for
   // a game that arrived finished: it was not played here.
@@ -389,6 +388,14 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       if (name && name.width > 0) named.push([name.left - 4, name.top - 3, name.right + 4, name.bottom + 3])
     }
     const taken: Box[] = []
+    // In the night one label is shown, and what matters for it is to be
+    // read: clear of the top bar and the cards first (4 times the weight),
+    // and off its neighbours' bodies a distant second (a call sign's
+    // weight there is for a sky full of names). With Reduce Motion the
+    // camera does not close on the target, the neighbours stay near, and
+    // at the old weights the label kept under the card to stay off them.
+    const lone = list.some((a) => a.el.dataset.quiet === 'night')
+    const onBody = lone ? 1 : 12
     // The marks as they stand, for the call signs' last look (below).
     let inTheWay: Box[] = []
     // A label on another asset costs most, on another label less.
@@ -433,9 +440,10 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       // On the second pass its own box is not in its way.
       if (again) taken[i] = NOWHERE
       const onMark = (box: Box) => inTheWay.reduce((n, m) => n + over(box, m) * 20, 0)
-      let bestCost = cost(best[1], i, 16, 12) + onMark(best[1]) - 60
+      const hid = (box: Box) => (lone ? out(box) * 3 : 0)
+      let bestCost = cost(best[1], i, 16, onBody) + onMark(best[1]) + hid(best[1]) - 60
       for (const sp of spots) {
-        const c = cost(sp[1], i, 16, 12) + onMark(sp[1]) + sp[2]
+        const c = cost(sp[1], i, 16, onBody) + onMark(sp[1]) + hid(sp[1]) + sp[2]
         if (c < bestCost) {
           best = sp
           bestCost = c
@@ -1111,8 +1119,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     }
     setBare(false)
     setAtRisk(false)
-    setAsked(atRisk && stakes && stakes.worst < 0 ? { turn: game.turn, repairs: stakes.repairs } : null)
-    setBills(stakes ? { turn: game.turn, others: stakes.repairs - stakes.debris, upkeep: stakes.upkeep } : null)
+    setBills(stakes ? { turn: game.turn, others: stakes.repairs - stakes.debris, upkeep: stakes.upkeep, asked: atRisk && stakes.worst < 0 ? stakes.repairs : undefined } : null)
     markNight({ run, turn: game.turn, orders, inputs: NO_INPUTS })
     setSel(null)
     setNote('')
@@ -1596,7 +1603,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
         const on = d.kind === 'piece' ? assetAt(ev.clientX, ev.clientY) : null
         if (on) {
           play('denied-buzz')
-          const text = g3.cannotSit(d.label, signs.get(on) ?? 'that asset')
+          const text = c3.cannotSit(d.label, signs.get(on) ?? 'that asset')
           setNote(text)
           setSay(text)
         }
@@ -2254,6 +2261,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
             chain={step.ev.chainBonus > 0 && chainArmed(step.before)}
             queue={queueAfter(stage.i)}
             pool={{ left: step.ev.left ?? 0, of: answersOf(game), nightsLeft: totalTurns - game.turn }}
+            room={bills?.turn === game.turn ? step.before.credits - bills.upkeep : undefined}
             first={primary}
             onRespond={(id) => {
               if (!swallow.current) respond(id)
@@ -2282,7 +2290,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           />
         )}
 
-        {phase === 'dawn' && last && <DawnCard before={last.before} night={last.night} after={last.after} signs={callSigns(last.after)} asked={asked?.turn === last.night.record.turn ? asked.repairs : undefined} first={primary} onNext={nextTurn} />}
+        {phase === 'dawn' && last && <DawnCard before={last.before} night={last.night} after={last.after} signs={callSigns(last.after)} asked={bills?.turn === last.night.record.turn ? bills.asked : undefined} first={primary} onNext={nextTurn} />}
 
         {phase === 'replay' && (
           <Suspense fallback={null}>

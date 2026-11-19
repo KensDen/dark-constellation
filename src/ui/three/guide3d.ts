@@ -96,23 +96,36 @@ const listOf = (names: readonly string[]) => (names.length > 1 ? `${names.slice(
 // Two of its three first-time players read that as a way out, began, and
 // lost the operation above the win line: one with upkeep alone over the
 // budget, where nothing in the night could help, and one against a move
-// whose answer only halves, answered and still 3 CR short. So the ask now
-// says what the bills come to with the answers spent (`eased`, with a hold
-// on the debris, which takes no answer), and whether that is enough.
+// whose answer only halves, answered and still 3 CR short. So the ask
+// says what the bills come to with the answers played (`eased`, with a
+// hold on the debris, which takes no answer), and whether that is enough.
+// The moves are named as the worst, not as tonight's ("At the worst,
+// with ..."): the costliest on a track is not always the one that comes,
+// and the second cut's reader took the names for a forecast.
 export const riskLine = (r: { worst: number; odds: number; soon: boolean; risky: boolean; tonight: number; have: number; repairs: number; upkeep: number; eased: number; debris: number }, by: readonly string[], ordered: boolean, answers: boolean) => {
   const sure = r.odds > SURE
-  const fix = ordered ? 'Take an order back, or tap BEGIN again.' : 'Nothing is ordered: tap BEGIN again to take the odds.'
+  // "Nothing is ordered:" read as a hint to order something (the reader of
+  // the second cut); it is said as what it is.
+  const none = 'There is no order to take back: tap BEGIN again.'
+  const fix = ordered ? 'Take an order back, or tap BEGIN again.' : none
   if (r.worst >= 0) return `WORST CASE: ${worstFace(r.worst)}. Tonight holds, but tomorrow night's repairs and upkeep come out before its funding, and they are ${sure ? 'all but certain' : 'likely'} to take the budget under 0${sure ? '' : ` (${inTen(r.odds)})`}. That ends the operation, whatever the score. ${fix}`
-  const how = r.soon ? (sure ? 'That is all but certain.' : `That is the likely case (${inTen(r.odds)}).`) : `${cap(possibly(r.tonight))}${r.risky ? `, and ${sure ? 'all but certain' : 'likely'} by tomorrow night` : ''}.`
+  // Upkeep alone over the budget is not a chance, and is not said as one.
+  if (r.upkeep > r.have) return `WORST CASE: ${worstFace(r.worst)}. Upkeep (${r.upkeep} CR) alone is more than your ${r.have} CR, and it comes out before funding arrives: ${ENDS_IT}. Nothing in the night can change that. ${ordered ? 'Take an order back.' : none}`
+  const chance = r.soon ? (sure ? 'all but certain' : `the likely case (${inTen(r.odds)})`) : `${possibly(r.tonight)}${r.risky ? `, and ${sure ? 'all but certain' : 'likely'} by tomorrow night` : ''}`
   const named = r.repairs > 0 && by.length > 0
   const bills = billsOf(r.repairs, r.upkeep)
   const after = r.have - r.eased - r.upkeep
-  const out =
-    r.upkeep > r.have
-      ? ' Upkeep alone is more than you have: nothing in the night can save it.'
-      : (answers || r.debris > 0) && r.eased < r.repairs
-        ? ` ${answers ? 'With your answers spent' : 'With'}${r.debris ? `${answers ? ' and' : ''} a hold on the debris` : ''}, repairs come to ${r.debris ? 'at most ' : ''}${r.eased} CR: ${after < 0 ? `${-after} CR short still` : 'the budget holds'}.`
-        : ''
-  return `WORST CASE: ${worstFace(r.worst)}. ${named ? `If ${listOf(by)} land${by.length > 1 || by[0].endsWith('moves') ? '' : 's'} unanswered, ${bills}` : cap(bills)} come${r.repairs ? '' : 's'} out of your ${r.have} CR before funding arrives, and ${ENDS_IT}. ${how}${out} ${fix}`
+  // THE CHANCE IS THE CHANCE WITH THE ANSWERS PLAYED, AND SAYS SO. The
+  // engine's odds spend the answers the watch holds on the moves that
+  // land; said bare ("possible, not likely") the reader took them for the
+  // odds whatever was done, on a night where riding out the one confirmed
+  // move would have ended the operation.
+  const eases = (answers || r.debris > 0) && r.eased < r.repairs
+  const played = `${answers ? 'every move that lands answered' : ''}${answers && r.debris ? ' and ' : ''}${r.debris ? 'a hold on the debris' : ''}`
+  const how = !eases
+    ? `That is ${chance}.`
+    : after >= 0
+      ? `With ${played}, the worst leaves ${r.eased} CR of repairs and the budget holds.`
+      : `Even with ${played}, the worst leaves ${r.eased} CR of repairs, ${-after} CR short. Played that way it is ${chance}.`
+  return `WORST CASE: ${worstFace(r.worst)}. ${named ? `At the worst, with ${listOf(by)} landing unanswered, ${bills}` : cap(bills)} come${r.repairs ? '' : 's'} out of your ${r.have} CR before funding arrives, and ${ENDS_IT}. ${how} ${fix}`
 }
-export const cannotSit = (piece: string, sign: string) => `${piece} cannot sit on ${sign}. Its card lists where it can.`

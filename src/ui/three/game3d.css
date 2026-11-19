@@ -2060,6 +2060,16 @@ html.t3-on body {
     box-shadow: 0 0 0 7px rgba(110, 231, 255, 0.4);
   }
 }
+/* ON A PHONE THAT ONE LABEL STANDS ON ONE LINE (v2.0 R6). With a result
+   card up a phone leaves 100 to 135 points of sky, and a call sign with
+   its bar, its POST, its percent and its condition under it is 40 to 80
+   tall: under its asset its foot went under the card, and over it its head
+   went under the score (the bot, at 375 by 553 and at 375 by 667). */
+.t3-root:not(.t3-wide)[data-t3-phase='night'] .t3-tag[data-asset] .t3-sign {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
 /* IN THE NIGHT, THE ONE CALL SIGN THE MOVE IS ABOUT (v2.0 R6; Game3D.tsx
    says which): the others' labels are put away while the camera is close
    on a strike or a hold, at every size. */
@@ -2345,16 +2355,6 @@ html.t3-on body {
   .t3-root:not(.t3-wide)[data-t3-phase='plan'] .t3-dock > .t3-card {
     height: 176px;
   }
-  /* IN THE NIGHT THE ONE LABEL SHOWN STANDS ON ONE LINE (v2.0 R6). With a
-     result card up this screen leaves 100 points of sky, and a call sign
-     with its bar, its percent and its condition under it is 40 tall: under
-     its asset its foot went under the card, and over it its head went
-     under the score (the bot, on the round's first run). */
-  .t3-root:not(.t3-wide)[data-t3-phase='night'] .t3-tag[data-asset] .t3-sign {
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-  }
   /* A move's word and the tap's word over it have nowhere to stand in a
      sky this short once the result card is up: they went up under the
      score (v2.0 R6). They show as the move lands, and give way to the
@@ -2492,11 +2492,11 @@ html.t3-on body {
   min-height: 52px;
 }
 
-@media (max-height: 700px) {
-  /* The dawn card says the night's change; under the big score it ran into the card. */
-  .t3-root:not(.t3-wide) .t3-worldscore i {
-    display: none;
-  }
+/* The dawn card says the night's change; under the big score it ran into
+   the card (on a short phone through R5; on every phone since v2.0 R6,
+   where the dawn card is taller for its ledger). */
+.t3-root:not(.t3-wide) .t3-worldscore i {
+  display: none;
 }
 /* A result on a phone: what happened and what would have helped keep to a
    few lines each, so the Dossier card and the way on are both in view. */

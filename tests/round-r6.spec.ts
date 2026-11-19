@@ -60,68 +60,63 @@ function nights(name: string, difficulty: Difficulty, seeds: number, respond = c
 describe('BEGIN asks with its reason (v2.0 R6, Ken: the ask carries its reason in plain words)', () => {
   const short = { worst: -2, odds: 0.3, soon: false, risky: false, tonight: 0.3, have: 19, repairs: 9, upkeep: 12, eased: 9, debris: 0 }
 
-  it('says which moves would have to land, what the bills come to against what is in hand, and that funding arrives after', () => {
+  it('says which moves the worst is, what the bills come to against what is in hand, and that funding arrives after', () => {
     const line = g3.riskLine(short, ['Blackout chain', 'an unidentified move'], true, false)
-    expect(line).toContain('WORST CASE: 2 CR short.')
-    expect(line).toContain('If Blackout chain and an unidentified move land unanswered,')
-    expect(line).toContain('repairs (9 CR) and upkeep (12 CR) come out of your 19 CR before funding arrives')
-    expect(line).toContain('a budget under 0 ends the operation, whatever the score')
-    expect(line).toContain('Possible, not likely (about 3 in 10).')
-    // No answer is in hand here, and none is spoken of.
-    expect(line).not.toMatch(/answers? /i)
-    expect(line.endsWith('Take an order back, or tap BEGIN again.')).toBe(true)
+    expect(line).toBe(
+      'WORST CASE: 2 CR short. At the worst, with Blackout chain and an unidentified move landing unanswered, repairs (9 CR) and upkeep (12 CR) come out of your 19 CR before funding arrives, and a budget under 0 ends the operation, whatever the score. That is possible, not likely (about 3 in 10). Take an order back, or tap BEGIN again.',
+    )
     expect(line).not.toMatch(DASHES)
+    // The moves are named as the worst, not as tonight's: the costliest on
+    // a track is not always the one that comes (the second cut's reader
+    // took "If Insider and Data poisoning land" for a forecast).
+    expect(g3.riskLine(short, ['Ransomware'], true, false)).toContain('At the worst, with Ransomware landing unanswered,')
+    expect(g3.riskLine(short, ['the debris', 'Insider', 'Ransomware'], true, false)).toContain('At the worst, with the debris, Insider and Ransomware landing unanswered,')
+    // Nothing ordered: there is no order to take back, and it is not offered, nor hinted that one would help.
+    expect(g3.riskLine(short, ['Ransomware'], false, false).endsWith('There is no order to take back: tap BEGIN again.')).toBe(true)
   })
 
-  it('counts one move as one, three as three, and says what an answer does only to a watch that has one', () => {
-    expect(g3.riskLine(short, ['Ransomware'], true, true)).toContain('If Ransomware lands unanswered,')
-    expect(g3.riskLine(short, ['2 unidentified moves'], true, true)).toContain('If 2 unidentified moves land unanswered,')
-    expect(g3.riskLine(short, ['the debris', 'Insider', 'Ransomware'], true, true)).toContain('If the debris, Insider and Ransomware land unanswered,')
-    // WHAT THE ANSWERS LEAVE IS A FIGURE, NOT A HINT. The round's first cut
-    // said "An answer cuts a move's repair bill", and two of its three
-    // first-time players began on that and lost above the win line.
-    expect(g3.riskLine(short, ['Ransomware'], true, true)).not.toContain('An answer cuts')
-    // An answer that blocks: the repair goes, and whether that is enough is said.
-    expect(g3.riskLine({ ...short, eased: 0 }, ['Ransomware'], true, true)).toContain('With your answers spent, repairs come to 0 CR: the budget holds.')
-    // An answer that only halves (the Blackout chain): 13 in hand, 12 of repairs, 10 of upkeep.
+  it('says what the answers leave as a figure, and never hints that an answer is a way out', () => {
+    // WHAT THE ANSWERS LEAVE IS A FIGURE. The round's first cut said "An
+    // answer cuts a move's repair bill", and two of its three first-time
+    // players began on that and lost above the win line.
+    for (const answers of [true, false]) expect(g3.riskLine(short, ['Ransomware'], true, answers)).not.toContain('An answer cuts')
+    // An answer that blocks: the repair goes, and that it is enough is said.
+    expect(g3.riskLine({ ...short, eased: 0 }, ['Ransomware'], true, true)).toContain('With every move that lands answered, the worst leaves 0 CR of repairs and the budget holds. Take an order back')
+    // An answer that only halves (the Blackout chain on 13 CR): the desktop
+    // reviewer's night 6, which it lost by 3 CR.
     const halved = g3.riskLine({ ...short, worst: -9, odds: 1, soon: true, risky: true, tonight: 1, have: 13, repairs: 12, upkeep: 10, eased: 6 }, ['Blackout chain'], true, true)
-    expect(halved).toContain('That is all but certain. With your answers spent, repairs come to 6 CR: 3 CR short still. Take an order back, or tap BEGIN again.')
-    // Upkeep alone over the budget: nothing in the night helps, and it says so.
-    const sunk = g3.riskLine({ ...short, worst: -15, odds: 1, soon: true, risky: true, tonight: 1, have: 6, repairs: 13, upkeep: 8, eased: 6, debris: 10 }, ['the debris', 'LiDAR dazzle'], true, true)
-    expect(sunk).toContain('Upkeep alone is more than you have: nothing in the night can save it.')
-    expect(sunk).not.toContain('With your answers')
-    // The debris takes no answer: the figure is with a hold on it, and "at most".
+    expect(halved).toContain('Even with every move that lands answered, the worst leaves 6 CR of repairs, 3 CR short. Played that way it is all but certain. Take an order back, or tap BEGIN again.')
+    // THE CHANCE IS THE CHANCE WITH THE ANSWERS PLAYED, and says so: said
+    // bare, the reader took it for the odds whatever was done.
+    const played = g3.riskLine({ ...short, worst: -9, tonight: 0.33, have: 14, repairs: 13, upkeep: 10, eased: 7 }, ['Blackout chain', 'Ransomware'], false, true)
+    expect(played).toContain('Even with every move that lands answered, the worst leaves 7 CR of repairs, 3 CR short. Played that way it is possible, not likely (about 3 in 10).')
+    // The debris takes no answer: the figure is with a hold on it.
     const debris = g3.riskLine({ ...short, worst: -10, tonight: 0.04, have: 18, repairs: 22, upkeep: 6, eased: 12, debris: 10 }, ['the debris', 'Firmware implant'], false, true)
-    expect(debris).toContain('Possible, not likely (under 1 in 10). With your answers spent and a hold on the debris, repairs come to at most 12 CR: the budget holds. Nothing is ordered: tap BEGIN again to take the odds.')
-    // No answer left: nothing is promised of one; a hold on the debris is still said.
-    expect(g3.riskLine(short, ['Ransomware'], true, false)).not.toMatch(/answers? /i)
-    expect(g3.riskLine({ ...short, repairs: 16, eased: 12, debris: 10 }, ['the debris', 'Ransomware'], true, false)).toContain('With a hold on the debris, repairs come to at most 12 CR')
+    expect(debris).toContain('With every move that lands answered and a hold on the debris, the worst leaves 12 CR of repairs and the budget holds.')
+    // No answer left: nothing is said of one; a hold on the debris still is.
+    expect(g3.riskLine(short, ['Ransomware'], true, false)).not.toMatch(/answer(s|ed) /i)
+    expect(g3.riskLine({ ...short, worst: -9, repairs: 16, eased: 12, debris: 10 }, ['the debris', 'Ransomware'], true, false)).toContain('Even with a hold on the debris, the worst leaves 12 CR of repairs, 5 CR short. Played that way it is possible, not likely (about 3 in 10).')
+  })
+
+  it('says upkeep alone as a certainty, the likely case as likely, tomorrow as tomorrow, and an even chance as that', () => {
+    // Upkeep over the budget: no chance is quoted and no odds are offered
+    // (the Mobile Safari reviewer's night 4; "all but certain" and "take
+    // the odds" beside it read as a contradiction to the second cut's reader).
+    const sunk = g3.riskLine({ ...short, worst: -15, odds: 1, soon: true, risky: true, tonight: 1, have: 6, repairs: 13, upkeep: 8, eased: 6, debris: 10 }, ['the debris', 'LiDAR dazzle'], true, true)
+    expect(sunk).toBe('WORST CASE: 15 CR short. Upkeep (8 CR) alone is more than your 6 CR, and it comes out before funding arrives: a budget under 0 ends the operation, whatever the score. Nothing in the night can change that. Take an order back.')
+    expect(g3.riskLine({ ...short, worst: -12, odds: 1, soon: true, risky: true, tonight: 1, have: 6, repairs: 10, upkeep: 8, eased: 0 }, ['Insider'], false, true).endsWith('There is no order to take back: tap BEGIN again.')).toBe(true)
+    expect(g3.riskLine({ ...short, odds: 0.7, soon: true, tonight: 0.7 }, ['Ransomware'], true, false)).toContain('That is the likely case (about 7 in 10).')
     // Marked for tomorrow and only possible tonight: both are said, and the tile's tap agrees.
-    expect(g3.riskLine({ ...short, risky: true, odds: 0.7, tonight: 0.04 }, ['Ransomware'], true, false)).toContain('Possible, not likely (under 1 in 10), and likely by tomorrow night.')
+    expect(g3.riskLine({ ...short, risky: true, odds: 0.7, tonight: 0.04 }, ['Ransomware'], true, false)).toContain('That is possible, not likely (under 1 in 10), and likely by tomorrow night.')
     expect(c3.worstNote(-2, true, 0.04, 19, 9, 12, false)).toContain('possible, not likely (under 1 in 10), and likely by tomorrow night, and')
     // An even chance is not called unlikely.
     expect(c3.possibly(0.5)).toBe('an even chance (about 5 in 10)')
-    expect(g3.riskLine({ ...short, tonight: 0.5 }, ['Ransomware'], true, false)).toContain('An even chance (about 5 in 10).')
-    // Nothing ordered: there is no order to take back, and it is not offered.
-    expect(g3.riskLine(short, ['Ransomware'], false, false)).toContain('Nothing is ordered: tap BEGIN again to take the odds.')
-    expect(g3.riskLine(short, ['Ransomware'], false, false)).not.toContain('Take an order back')
-  })
-
-  it('says upkeep alone when no repair is in the worst night, the likely case as likely, and tomorrow as tomorrow', () => {
-    const upkeep = g3.riskLine({ ...short, worst: -3, have: 5, repairs: 0, upkeep: 8, eased: 0 }, [], true, true)
-    expect(upkeep).toContain('WORST CASE: 3 CR short. Upkeep (8 CR) comes out of your 5 CR before funding arrives')
-    // An answer cuts a repair bill, and there is none in this one (the
-    // round's reviewers were told it on a night whose whole bill was upkeep).
-    expect(upkeep).not.toContain('With your answers')
-    expect(upkeep).toContain('Upkeep alone is more than you have: nothing in the night can save it.')
-    // The same figure at a tap on the tile, with its verb in agreement.
+    expect(g3.riskLine({ ...short, tonight: 0.5 }, ['Ransomware'], true, false)).toContain('That is an even chance (about 5 in 10).')
+    // The tile's tap, with its verb in agreement.
     expect(c3.worstNote(-3, true, 1, 5, 0, 8)).toBe('Tonight at its worst, upkeep (8 CR) comes out of 5 CR before funding arrives: likely, and a budget under 0 ends the operation, whatever the score.')
     expect(c3.worstNote(-2, false, 0.3, 19, 9, 12)).toBe('Tonight at its worst, repairs (9 CR) and upkeep (12 CR) come out of 19 CR before funding arrives: possible, not likely (about 3 in 10), and a budget under 0 ends the operation, whatever the score.')
-    expect(g3.riskLine({ ...short, odds: 0.7, soon: true, tonight: 0.7 }, ['Ransomware'], true, false)).toContain('That is the likely case (about 7 in 10).')
-    expect(g3.riskLine({ ...short, odds: 1, soon: true, tonight: 1 }, ['Ransomware'], true, false)).toContain('That is all but certain.')
     const later = g3.riskLine({ ...short, worst: 7, odds: 0.7, soon: false, tonight: 0 }, [], true, false)
     expect(later).toContain('WORST CASE: 7 CR at dawn. Tonight holds, but tomorrow night')
-    expect(later).toContain('come out before its funding')
     expect(later).toContain('likely to take the budget under 0 (about 7 in 10)')
   })
 })
@@ -267,7 +262,7 @@ describe('a night BEGIN asked about and that came through is closed at its dawn 
     const ledger = (n: { state: GameState; after: GameState }) => nightOf(n.state, n.after).record.ledger
     const held = all.find((n) => !ledger(n).insolvent && ledger(n).repairs > 0 && ledger(n).windfall === 0 && ledger(n).fuel === 0)!
     const l = ledger(held)
-    expect(card(held.state, held.after, l.repairs + 6)).toContain(`BEGIN asked about tonight. The worst did not come: repairs took ${l.repairs} CR, not ${l.repairs + 6}.`)
+    expect(card(held.state, held.after, l.repairs + 6)).toContain(`BEGIN asked about tonight. The budget held: repairs took ${l.repairs} CR, not the ${l.repairs + 6} it warned of.`)
     // Not asked: nothing is said. The worst came and the budget held: nothing is said.
     expect(card(held.state, held.after)).not.toContain('BEGIN asked')
     expect(card(held.state, held.after, l.repairs)).not.toContain('BEGIN asked')
@@ -276,9 +271,12 @@ describe('a night BEGIN asked about and that came through is closed at its dawn 
     expect(broke, 'no night broke the budget').toBeTruthy()
     expect(card(broke!.state, broke!.after, 99)).toContain('BEGIN asked about tonight: these are the bills it named.')
     expect(card(broke!.state, broke!.after)).not.toContain('BEGIN asked')
-    expect(c3.askedAndHeld(4, 14, false)).toBe('BEGIN asked about tonight. The worst did not come: repairs took 4 CR, not 14.')
+    expect(c3.askedAndHeld(4, 14, false)).toBe('BEGIN asked about tonight. The budget held: repairs took 4 CR, not the 14 it warned of.')
     // The burn's fuel is counted with the repairs, as the ask counted it.
-    expect(c3.askedAndHeld(16, 22, true)).toBe('BEGIN asked about tonight. The worst did not come: repairs and fuel took 16 CR, not 22.')
+    expect(c3.askedAndHeld(16, 22, true)).toBe('BEGIN asked about tonight. The budget held: repairs and fuel took 16 CR, not the 22 it warned of.')
+    // An answer or a ride the budget cannot spare says so on the choice.
+    expect(c3.overRoom(4)).toBe('Only 4 CR to spare before funding.')
+    expect(c3.overRoom(-2)).toBe('Only 0 CR to spare before funding.')
     // A night only a windfall kept solvent says that, and not that the worst stayed away.
     expect(c3.askedAndLucky(25, 4)).toBe('BEGIN asked about tonight. A windfall of 25 CR covered it: without it the bills left the budget 4 CR short.')
     const lucky = all.find((n) => !ledger(n).insolvent && ledger(n).windfall > ledger(n).after - ledger(n).funding - ledger(n).coverageBonus)
