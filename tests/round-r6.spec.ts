@@ -195,6 +195,24 @@ describe('the dawn\'s sums are shown in the order they are taken (v2.0 R6)', () 
   })
 })
 
+describe('a night BEGIN asked about and that came through is closed at its dawn (v2.0 R6, Ken: asked and survived, still trusts the next ask)', () => {
+  it('says the worst did not come, with the repairs the ask was about beside the ones the night left, and says nothing where it would be false', () => {
+    const card = (state: GameState, after: GameState, asked?: number) => text(renderToStaticMarkup(createElement(DawnCard, { before: state, night: nightOf(state, after), after, signs: callSigns(after), asked, first: createRef<HTMLButtonElement>(), onNext: () => undefined })))
+    const all = [...nights('novice', 'standard', 30), ...nights('buyEverything', 'standard', 30, ride)]
+    const held = all.find((n) => !nightOf(n.state, n.after).record.ledger.insolvent && nightOf(n.state, n.after).record.ledger.repairs > 0)!
+    const l = nightOf(held.state, held.after).record.ledger
+    expect(card(held.state, held.after, l.repairs + 6)).toContain(`BEGIN asked about tonight. The worst did not come: repairs took ${l.repairs} CR, not ${l.repairs + 6}.`)
+    // Not asked: nothing is said. The worst came and the budget held some other way: nothing is said.
+    expect(card(held.state, held.after)).not.toContain('BEGIN asked')
+    expect(card(held.state, held.after, l.repairs)).not.toContain('BEGIN asked')
+    // The budget broke: the ending says so, and this line does not.
+    const broke = all.find((n) => nightOf(n.state, n.after).record.ledger.insolvent)
+    expect(broke, 'no night broke the budget').toBeTruthy()
+    expect(card(broke!.state, broke!.after, 99)).not.toContain('BEGIN asked')
+    expect(c3.askedAndHeld(4, 14)).toBe('BEGIN asked about tonight. The worst did not come: repairs took 4 CR, not 14.')
+  })
+})
+
 describe('a piece chosen on a signature\'s card sits under it unless the post is worth more elsewhere (v2.0 R6)', () => {
   it('takes the signature\'s own asset whenever the post does as much there, never raises AT STAKE for it, and can say why when it sits elsewhere', () => {
     let chosen = 0
@@ -264,9 +282,9 @@ describe('a piece chosen on a signature\'s card sits under it unless the post is
     expect(g3.sitsElse('Zero trust', 'GS-1', 'SG-R1', 'Uplink jamming')).toBe('Zero trust covers the whole fleet wherever it sits, so it sits where its post does most: SG-R1, under Uplink jamming, not GS-1.')
     expect(g3.sitsElse('Zero trust', 'GS-1', 'SG-R1')).toBe('Zero trust covers the whole fleet wherever it sits, so it sits where its post does most: SG-R1, not GS-1.')
     expect(g3.postMoves('KESTREL-1', 'SG-R1')).toBe('The watch post moves from KESTREL-1 to SG-R1 with your newest defense: a strike there is 1 weaker.')
-    expect(c3.placeNote('KESTREL-1')).toContain('Where it sits becomes the watch post, which moves there from KESTREL-1: any strike on that asset is 1 weaker.')
+    expect(c3.placeNote('KESTREL-1')).toBe('It covers the whole fleet. Where it sits becomes the watch post (now on KESTREL-1): any strike on that asset is 1 weaker.')
     expect(c3.placeNote()).toBe('It covers the whole fleet. Where it sits becomes the watch post: any strike on that asset is 1 weaker.')
-    expect(c3.placeNote('KESTREL-1', true)).toBe('It covers the whole fleet. Nothing is aimed where it can sit tonight, so any spot serves. Where it sits becomes the watch post, which moves there from KESTREL-1.')
+    expect(c3.placeNote('KESTREL-1', true)).toBe('It covers the whole fleet. Nothing is aimed where it can sit tonight, so any spot serves. Where it sits becomes the watch post (now on KESTREL-1).')
   })
 })
 

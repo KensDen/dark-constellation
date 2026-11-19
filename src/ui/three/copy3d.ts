@@ -96,11 +96,12 @@ export const placeOn = (sign: string) => `PLACE ON ${sign}`
 export const PLACED = 'PLACED'
 export const TAKE_BACK = 'TAKE IT BACK'
 export const OWNED = 'IN SERVICE'
-// `from` is where the post stands now, when placing would move it (v2.0
-// R6: all three of R5's first-time players saw the POST tag jump to
-// another asset with nothing said).
+// `from` is the call sign the post stands on now (v2.0 R6: all three of
+// R5's first-time players saw the POST tag jump to another asset with
+// nothing said; the card says where it is before the piece moves it).
+// `even`: no spot it can sit on has anything aimed at it tonight.
 export const placeNote = (from?: string, even = false) =>
-  `It covers the whole fleet. ${even ? 'Nothing is aimed where it can sit tonight, so any spot serves. ' : ''}Where it sits becomes the watch post${from ? `, which moves there from ${from}` : ''}${even ? '.' : ': any strike on that asset is 1 weaker.'}`
+  `It covers the whole fleet. ${even ? 'Nothing is aimed where it can sit tonight, so any spot serves. ' : ''}Where it sits becomes the watch post${from ? ` (now on ${from})` : ''}${even ? '.' : ': any strike on that asset is 1 weaker.'}`
 // THE WATCH POST (v2.0 R2).
 export const POST = 'POST'
 export const POST_HERE = 'WATCH POST: strikes here are 1 weaker'
@@ -261,6 +262,11 @@ export const BURN_DRAG = 'Or drag the satellite off its orbit to burn.'
 
 // DAWN.
 export const dawnOf = (n: number) => `DAWN · NIGHT ${n}`
+// A night BEGIN asked about and the player began (v2.0 R6, Ken's call of
+// 18 November 2026: a player who was asked and came through should still
+// trust the next ask). The dawn closes it: the worst was a chance, it did
+// not come, and here are the two figures.
+export const askedAndHeld = (repairs: number, worst: number) => `BEGIN asked about tonight. The worst did not come: repairs took ${repairs} CR, not ${worst}.`
 export const CLEAN = 'A CLEAN NIGHT'
 export const stoppedOf = (n: number, of: number, halved = 0, partial = 0) => `${n} OF ${of} STOPPED${halved ? ` · ${halved} HALVED` : ''}${partial ? ` · ${partial} PARTIAL` : ''}`
 // What the next grade takes, said under the grade (v2.0 R3): the round's

@@ -272,6 +272,9 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
   // budget), and on one begun with no new defense while one could be placed.
   const [atRisk, setAtRisk] = useState(false)
   const [bare, setBare] = useState(false)
+  // The night BEGIN asked about and the player began: its number, and the
+  // worst repairs the ask named. The dawn says how it came out.
+  const [asked, setAsked] = useState<{ turn: number; repairs: number } | null>(null)
   const [guide, setGuide] = useState<GuideStep>(() => (mode === 'play' && !readPrefs().guideSeen && start.state.status === 'playing' && start.state.history.length === 0 ? 'scan' : null))
   // Whether this game's finish has been recorded. True from the start for
   // a game that arrived finished: it was not played here.
@@ -376,6 +379,8 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       if (name && name.width > 0) named.push([name.left - 4, name.top - 3, name.right + 4, name.bottom + 3])
     }
     const taken: Box[] = []
+    // The marks as they stand, for the call signs' last look (below).
+    let inTheWay: Box[] = []
     // A label on another asset costs most, on another label less.
     // (A label on another asset costs 3 times its area. For a call sign it
     // is 12 since v2.0 R5: with the quiet call signs of the shortest phone
@@ -417,21 +422,26 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
       let best = spots.find((sp) => sp[0] === was) ?? spots[0]
       // On the second pass its own box is not in its way.
       if (again) taken[i] = NOWHERE
-      let bestCost = cost(best[1], i, 16, 12) - 60
+      const onMark = (box: Box) => inTheWay.reduce((n, m) => n + over(box, m) * 20, 0)
+      let bestCost = cost(best[1], i, 16, 12) + onMark(best[1]) - 60
       for (const sp of spots) {
-        const c = cost(sp[1], i, 16, 12) + sp[2]
+        const c = cost(sp[1], i, 16, 12) + onMark(sp[1]) + sp[2]
         if (c < bestCost) {
           best = sp
           bestCost = c
         }
       }
-      if (again) taken[i] = best[1]
-      else taken.push(best[1])
-      signBox[i] = best[1]
+      // A label that would cross a screen edge is slid back onto the screen,
+      // and it is weighed where it then stands (v2.0 R6: through R5 the
+      // marks were kept clear of where it would have stood unslid, and one
+      // set to the left of its asset was not slid at all).
+      const nudge = Math.round(best[1][0] < 4 ? 4 - best[1][0] : best[1][2] > right - 4 ? right - 4 - best[1][2] : 0)
+      const stands: Box = [best[1][0] + nudge, best[1][1], best[1][2] + nudge, best[1][3]]
+      if (again) taken[i] = stands
+      else taken.push(stands)
+      signBox[i] = stands
       signs[i] = { flip: best[0] === '1', h: best[0] === 'l' || best[0] === 'r' ? 0 : h }
       if (was !== best[0]) a.el.dataset.flip = best[0]
-      // A label that would cross a screen edge is slid back onto the screen.
-      const nudge = Math.round(best[1][0] < 4 ? 4 - best[1][0] : best[1][2] > right - 4 ? right - 4 - best[1][2] : 0)
       if (a.el.dataset.nudge !== String(nudge)) {
         a.el.dataset.nudge = String(nudge)
         a.el.style.setProperty('--t3-nudge', `${nudge}px`)
@@ -543,6 +553,21 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     // weighed again against the blocks set down after it.
     list.forEach((a, i) => setDown(a, i, false))
     list.forEach((a, i) => setDown(a, i, true))
+    // THE CALL SIGNS' LAST LOOK (v2.0 R6). The call signs are set down
+    // before the marks, so a mark with no clear spot left stood on a call
+    // sign and the call sign never had the chance to step aside: on the
+    // shortest phone the bot met a mark on GS-1's name on a night no
+    // saved night had shown. A call sign a mark now stands on is tried on
+    // its other sides with the marks weighed as it weighs other labels,
+    // and the marks are then set down once more around where it went.
+    const blocks = marked.filter((m): m is Box => !!m)
+    const stoodOn = list.map((_, i) => !!signBox[i] && blocks.some((m) => over(signBox[i] as Box, m) > 30))
+    if (stoodOn.some(Boolean)) {
+      inTheWay = blocks
+      list.forEach((a, i) => stoodOn[i] && place(a, i, true))
+      inTheWay = []
+      list.forEach((a, i) => setDown(a, i, true))
+    }
     // COLDVEIL'S NAME GIVES WAY TO A MOVE'S WORD (v2.0 R6). A strike leaves
     // from COLDVEIL with its name riding it, and a result's word stands
     // over its target, which the close camera can put beside COLDVEIL: R5's
@@ -1063,6 +1088,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
     }
     setBare(false)
     setAtRisk(false)
+    setAsked(atRisk && stakes && stakes.worst < 0 ? { turn: game.turn, repairs: stakes.repairs } : null)
     markNight({ run, turn: game.turn, orders, inputs: NO_INPUTS })
     setSel(null)
     setNote('')
@@ -2227,7 +2253,7 @@ export default function Game3D({ initial, mode = 'play', onExit }: Game3DProps) 
           />
         )}
 
-        {phase === 'dawn' && last && <DawnCard before={last.before} night={last.night} after={last.after} signs={callSigns(last.after)} first={primary} onNext={nextTurn} />}
+        {phase === 'dawn' && last && <DawnCard before={last.before} night={last.night} after={last.after} signs={callSigns(last.after)} asked={asked?.turn === last.night.record.turn ? asked.repairs : undefined} first={primary} onNext={nextTurn} />}
 
         {phase === 'replay' && (
           <Suspense fallback={null}>

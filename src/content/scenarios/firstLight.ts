@@ -60,6 +60,11 @@ export const FIRST_LIGHT: Scenario = {
   // Covering less was the other lever: at 7 coverage a drone (9 now) the
   // starting fleet reads 54, not 58, and Prepared won 56.4.
   // tests/sweep.spec.ts holds the drone lines under the Expert.
+  // A SATELLITE STAYS AT 30 (v2.0 R6, Ken's ruling of 18 November 2026: no
+  // re-tune). Prepared with a satellite a night, tomorrow's likely bills
+  // kept in hand, wins 94.0 percent on STANDARD and 97.0 with the Expert's
+  // answers, over Prepared and under the Expert's 98.4: a strategy that
+  // rewards skill, and the gate now holds that line under the Expert too.
   prices: {
     sat: 30,
     rpoSat: 35,

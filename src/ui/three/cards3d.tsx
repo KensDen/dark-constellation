@@ -1099,6 +1099,7 @@ export function DawnCard({
   night,
   after,
   signs,
+  asked,
   first,
   onNext,
 }: {
@@ -1106,6 +1107,9 @@ export function DawnCard({
   night: Night
   after: GameState
   signs: Map<string, string>
+  // BEGIN asked about this night, and it was begun: the worst repairs the
+  // ask was about. The dawn says how it came out (v2.0 R6).
+  asked?: number
   first: RefObject<HTMLButtonElement | null>
   onNext: () => void
 }): ReactNode {
@@ -1185,6 +1189,14 @@ export function DawnCard({
         <p className="t3-helped">
           {worst && clean ? <span className="t3-warn">{copy.FIX_LABEL} </span> : null}
           {fix}
+        </p>
+      )}
+      {/* A night BEGIN asked about and that came through: said, with the
+          figure the ask was about beside the one the night left, so the
+          next ask is read as what it is, a chance and not a forecast. */}
+      {asked !== undefined && !l.insolvent && l.repairs < asked && (
+        <p className="t3-tagsline" data-t3-asked>
+          <span className="t3-ok">{c3.askedAndHeld(l.repairs, asked)}</span>
         </p>
       )}
       <p className="t3-ledger" data-t3-ledger>
